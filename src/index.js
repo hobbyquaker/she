@@ -35,6 +35,16 @@ log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1
 log.info(pkg.name + ' ' + pkg.version + ' starting');
 log.debug('loaded config: ', config);
 
+if (typeof config.port !== 'undefined') {
+    require('./web/server')
+        .startServer(config.port)
+        .then((actualPort) => log.info('http server listening on :' + actualPort))
+        .catch((err) => {
+            log.error('http server start failed:', err.message);
+            process.exit(1);
+        });
+}
+
 const chokidar = require('chokidar');
 const modules = {
     'fs': require('fs'),
@@ -677,8 +687,9 @@ function runScript(script, name) {
         she,
     };
 
+    const scriptName = path.basename(name, path.extname(name));
     sandboxModules.forEach((md) => {
-        md(she);
+        md(she, { scriptDomain, scriptName });
     });
 
     log.debug(name, 'contextifying sandbox');
@@ -808,6 +819,7 @@ function loadDir(dir) {
 }
 
 function start() {
+    firstConnect = false; // prevent start() from being called again on retained-message timer reset
     /* istanbul ignore if */
     if (config.file) {
         if (typeof config.file === 'string') {

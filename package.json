@@ -21,6 +21,7 @@
     "license": "MIT",
     "dependencies": {
         "chokidar": "^4.0.0",
+        "express": "^5.2.1",
         "mqtt": "^5.0.0",
         "node-schedule": "^2.0.0",
         "pino": "^9.0.0",

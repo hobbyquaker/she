@@ -9,10 +9,12 @@ const config = require('yargs')
     .describe('help', 'show help')
     .describe('dir', 'directory to scan for .js and .coffee files. can be used multiple times.')
     .describe('disable-watch', "disable file watching (don't exit process on file changes)")
+    .describe('port', 'HTTP server port. 0 = OS-assigned random port. Omit to disable the web server.')
     .alias({
         c: 'config',
         d: 'dir',
         h: 'help',
+        p: 'port',
         s: 'variable-prefix',
         t: 'disable-variables',
         l: 'latitude',
