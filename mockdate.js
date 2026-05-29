@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const tk = require('timekeeper');
+const FakeTimers = require('@sinonjs/fake-timers');
 
-tk.travel(new Date(2020, 0, 1, 23, 59, 20));
+FakeTimers.install({ now: new Date(2020, 0, 1, 23, 59, 20), shouldAdvanceTime: true, toFake: ['Date'] });
 
 require('./index.js');

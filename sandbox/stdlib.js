@@ -6,7 +6,7 @@ module.exports = function (Sandbox) {
      * @returns {number} ms since epoch
      */
     Sandbox.now = function Sandbox_now() {
-        return (new Date()).getTime();
+        return new Date().getTime();
     };
 
     /**
@@ -15,7 +15,7 @@ module.exports = function (Sandbox) {
      * @returns {number} seconds since last change
      */
     Sandbox.age = function Sandbox_age(topic) {
-        return Math.round(((new Date()).getTime() - Sandbox.getProp(topic, 'lc')) / 1000);
+        return Math.round((new Date().getTime() - Sandbox.getProp(topic, 'lc')) / 1000);
     };
 
     /**
@@ -45,7 +45,7 @@ module.exports = function (Sandbox) {
     Sandbox.combineBool = function Sandbox_combineBool(srcs, target) {
         function combine() {
             let result = 0;
-            srcs.forEach(src => {
+            srcs.forEach((src) => {
                 if (Sandbox.getValue(src)) {
                     result = 1;
                 }
@@ -53,7 +53,7 @@ module.exports = function (Sandbox) {
             Sandbox.setValue(target, result);
         }
         combine();
-        Sandbox.subscribe(srcs, {retain: true}, combine);
+        Sandbox.subscribe(srcs, { retain: true }, combine);
     };
 
     /**
@@ -65,7 +65,7 @@ module.exports = function (Sandbox) {
     Sandbox.combineMax = function (srcs, target) {
         function combine() {
             let result = 0;
-            srcs.forEach(src => {
+            srcs.forEach((src) => {
                 const srcVal = Sandbox.getValue(src);
                 if (srcVal > result) {
                     result = srcVal;
@@ -74,7 +74,7 @@ module.exports = function (Sandbox) {
             Sandbox.setValue(target, result);
         }
         combine();
-        Sandbox.subscribe(srcs, {retain: true}, combine);
+        Sandbox.subscribe(srcs, { retain: true }, combine);
     };
 
     const timeouts = {};
@@ -86,7 +86,7 @@ module.exports = function (Sandbox) {
      * @param {number} time - timeout in milliseconds
      */
     Sandbox.timer = function (src, target, time) {
-        Sandbox.subscribe(src, {retain: false}, (topic, val) => {
+        Sandbox.subscribe(src, { retain: false }, (topic, val) => {
             if (val) {
                 Sandbox.clearTimeout(timeouts[target]);
                 if (!Sandbox.getValue(target)) {

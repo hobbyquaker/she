@@ -6,7 +6,7 @@
 /* eslint prefer-rest-params: "warn" */
 /* eslint prefer-destructuring: "warn" */
 
-/* eslint node/no-deprecated-api: "warn" */
+/* eslint n/no-deprecated-api: "warn" */
 
 const log = require('yalm');
 const config = require('./config.js');
@@ -18,15 +18,15 @@ log.info(pkg.name + ' ' + pkg.version + ' starting');
 log.debug('loaded config: ', config);
 
 const modules = {
-    fs: require('fs'),
-    path: require('path'),
-    vm: require('vm'),
+    'fs': require('fs'),
+    'path': require('path'),
+    'vm': require('vm'),
     /* eslint-disable no-restricted-modules */
-    domain: require('domain'),
-    mqtt: require('mqtt'),
-    watch: require('watch'),
+    'domain': require('domain'),
+    'mqtt': require('mqtt'),
+    'watch': require('watch'),
     'node-schedule': require('node-schedule'),
-    suncalc: require('suncalc')
+    'suncalc': require('suncalc'),
 };
 
 const domain = modules.domain;
@@ -57,7 +57,7 @@ function calculateSunTimes() {
     sunTimes = [
         suncalc.getTimes(yesterday, config.latitude, config.longitude),
         suncalc.getTimes(today, config.latitude, config.longitude),
-        suncalc.getTimes(tomorrow, config.latitude, config.longitude)
+        suncalc.getTimes(tomorrow, config.latitude, config.longitude),
     ];
 }
 
@@ -67,7 +67,7 @@ scheduler.scheduleJob('0 0 * * *', () => {
     // Re-calculate every day
     calculateSunTimes();
     // Schedule events for this day
-    sunEvents.forEach(event => {
+    sunEvents.forEach((event) => {
         sunScheduleEvent(event);
     });
     log.info('re-scheduled', sunEvents.length, 'sun events');
@@ -84,26 +84,23 @@ function sunScheduleEvent(obj, shift) {
         // Event will occur today
 
         if (obj.options.shift) {
-            event = new Date(event.getTime() + ((parseFloat(obj.options.shift) || 0) * 1000));
+            event = new Date(event.getTime() + (parseFloat(obj.options.shift) || 0) * 1000);
         }
 
-        if ((event.getDate() !== now.getDate()) && (typeof shift === 'undefined')) {
+        if (event.getDate() !== now.getDate() && typeof shift === 'undefined') {
             // Event shifted to previous or next day
-            sunScheduleEvent(obj, (event < now) ? 1 : -1);
+            sunScheduleEvent(obj, event < now ? 1 : -1);
             return;
         }
 
-        if ((now.getTime() - event.getTime()) < 1000) {
+        if (now.getTime() - event.getTime() < 1000) {
             // Event is less than 1s in the past or occurs later this day
 
             if (obj.options.random) {
-                event = new Date(
-                    event.getTime() +
-                    (Math.floor((parseFloat(obj.options.random) || 0) * Math.random()) * 1000)
-                );
+                event = new Date(event.getTime() + Math.floor((parseFloat(obj.options.random) || 0) * Math.random()) * 1000);
             }
 
-            if ((event.getTime() - now.getTime()) < 1000) {
+            if (event.getTime() - now.getTime() < 1000) {
                 // Event is less than 1s in the future or already in the past
                 // (options.random may have shifted us further to the past)
                 // call the callback immediately!
@@ -117,8 +114,8 @@ function sunScheduleEvent(obj, shift) {
 }
 
 // MQTT
-const mqtt = modules.mqtt.connect(config.url, {will: {topic: config.name + '/connected', payload: '0', retain: true}});
-mqtt.publish(config.name + '/connected', '2', {retain: true});
+const mqtt = modules.mqtt.connect(config.url, { will: { topic: config.name + '/connected', payload: '0', retain: true } });
+mqtt.publish(config.name + '/connected', '2', { retain: true });
 
 let firstConnect = true;
 let startTimeout;
@@ -163,25 +160,25 @@ mqtt.on('message', (topic, payload, msg) => {
 
     if (val === 'true') {
         // Payload was the string "true" - treat it as bool true
-        state = {val: true};
+        state = { val: true };
     } else if (val === 'false') {
         // Payload was the string "false" - treat it as bool false
-        state = {val: false};
+        state = { val: false };
     } else if (isNaN(val)) {
         try {
             state = JSON.parse(payload);
 
-            if ((typeof state === 'object') && (Array.isArray(state))) {
-                state = {val: state};
+            if (typeof state === 'object' && Array.isArray(state)) {
+                state = { val: state };
             } else if (!state || typeof state.val === 'undefined') {
-                state = {val: state};
+                state = { val: state };
             }
         } catch (err) {
-            state = {val};
+            state = { val };
         }
     } else {
         // Payload seems to be type number
-        state = {val: parseFloat(val)};
+        state = { val: parseFloat(val) };
     }
 
     const topicArr = topic.split('/');
@@ -191,13 +188,13 @@ mqtt.on('message', (topic, payload, msg) => {
         topicArr[1] = 'status';
         topic = topicArr.join('/');
         oldState = status[topic] || {};
-        const ts = (new Date()).getTime();
+        const ts = new Date().getTime();
 
         state.ts = ts;
 
         state.lc = state.val === oldState.val ? oldState.lc : ts;
         status[topic] = state;
-        mqtt.publish(topic, JSON.stringify(state), {retain: true});
+        mqtt.publish(topic, JSON.stringify(state), { retain: true });
     } else {
         /* istanbul ignore next */
         if (!state) {
@@ -217,7 +214,7 @@ mqtt.on('message', (topic, payload, msg) => {
 });
 
 function stateChange(topic, state, oldState, msg) {
-    subscriptions.forEach(subs => {
+    subscriptions.forEach((subs) => {
         const options = subs.options || {};
         let delay;
 
@@ -233,16 +230,16 @@ function stateChange(topic, state, oldState, msg) {
             if (msg.retain && !options.retain) {
                 return;
             }
-            if (options.change && (state.val === oldState.val)) {
+            if (options.change && state.val === oldState.val) {
                 return;
             }
 
             delay = 0;
             if (options.shift) {
-                delay += ((parseFloat(options.shift) || 0) * 1000);
+                delay += (parseFloat(options.shift) || 0) * 1000;
             }
             if (options.random) {
-                delay += ((parseFloat(options.random) || 0) * Math.random() * 1000);
+                delay += (parseFloat(options.random) || 0) * Math.random() * 1000;
             }
 
             delay = Math.floor(delay);
@@ -269,7 +266,7 @@ function mqttWildcards(topic, subscription) {
 function createScript(source, name) {
     log.debug(name, 'compiling');
     try {
-        return new vm.Script(source, {filename: name});
+        return new vm.Script(source, { filename: name });
     } catch (err) {
         log.error(name, err.name + ':', err.message);
         return false;
@@ -285,7 +282,6 @@ function runScript(script, name) {
     log.debug(name, 'creating sandbox');
 
     const Sandbox = {
-
         global: _global,
 
         setTimeout,
@@ -316,7 +312,7 @@ function runScript(script, name) {
             } catch (err) {
                 const lines = err.stack.split('\n');
                 const stack = [];
-                lines.forEach(line => {
+                lines.forEach((line) => {
                     if (!line.match(/module\.js:/) && !line.match(/index\.js:307/)) {
                         stack.push(line);
                     }
@@ -373,7 +369,7 @@ function runScript(script, name) {
                 const args = Array.prototype.slice.call(arguments);
                 args.unshift(name + ':');
                 log.error.apply(log, args);
-            }
+            },
         },
         /**
          * Subscribe to MQTT topic(s)
@@ -389,7 +385,7 @@ function runScript(script, name) {
          */
         subscribe: function Sandbox_subscribe(topic, /* optional */ options, callback) {
             if (typeof topic === 'undefined') {
-                throw (new TypeError('argument topic missing'));
+                throw new TypeError('argument topic missing');
             }
 
             if (arguments.length === 2) {
@@ -406,12 +402,12 @@ function runScript(script, name) {
                 options = arguments[1] || {};
 
                 if (typeof options === 'string' || typeof options === 'function') {
-                    options = {condition: options};
+                    options = { condition: options };
                 }
 
                 callback = arguments[2];
             } else if (arguments.length > 3) {
-                throw (new Error('wrong number of arguments'));
+                throw new Error('wrong number of arguments');
             }
 
             if (typeof topic === 'string') {
@@ -430,7 +426,7 @@ function runScript(script, name) {
                     options.condition = scriptDomain.bind(options.condition);
                 }
 
-                subscriptions.push({topic, options, callback: (typeof callback === 'function') && scriptDomain.bind(callback)});
+                subscriptions.push({ topic, options, callback: typeof callback === 'function' && scriptDomain.bind(callback) });
 
                 if (options.retain && status[topic] && typeof callback === 'function') {
                     callback(topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), status[topic].val, status[topic]);
@@ -443,7 +439,7 @@ function runScript(script, name) {
                 }
             } else if (typeof topic === 'object' && topic.length > 0) {
                 topic = Array.prototype.slice.call(topic);
-                topic.forEach(tp => {
+                topic.forEach((tp) => {
                     Sandbox.subscribe(tp, options, callback);
                 });
             }
@@ -482,12 +478,12 @@ function runScript(script, name) {
                 options = arguments[1] || {};
                 callback = arguments[2];
             } else {
-                throw (new Error('wrong number of arguments'));
+                throw new Error('wrong number of arguments');
             }
 
             if (typeof pattern === 'object' && pattern.length > 0) {
                 pattern = Array.prototype.slice.call(pattern);
-                pattern.forEach(pt => {
+                pattern.forEach((pt) => {
                     Sandbox.schedule(pt, options, callback);
                 });
                 return;
@@ -533,13 +529,13 @@ function runScript(script, name) {
                 throw new Error('wrong number of arguments');
             }
 
-            if ((typeof options.shift !== 'undefined') && (options.shift < -86400 || options.shift > 86400)) {
+            if (typeof options.shift !== 'undefined' && (options.shift < -86400 || options.shift > 86400)) {
                 throw new Error('options.shift out of range');
             }
 
             if (typeof pattern === 'object' && pattern.length > 0) {
                 pattern = Array.prototype.slice.call(pattern);
-                pattern.forEach(pt => {
+                pattern.forEach((pt) => {
                     Sandbox.sunSchedule(pt, options, callback);
                 });
                 return;
@@ -555,7 +551,7 @@ function runScript(script, name) {
                 options,
                 callback,
                 context: Sandbox,
-                domain: scriptDomain
+                domain: scriptDomain,
             };
 
             sunEvents.push(obj);
@@ -574,7 +570,7 @@ function runScript(script, name) {
         publish: function Sandbox_publish(topic, payload, options) {
             if (typeof topic === 'object' && topic.length > 0) {
                 topic = Array.prototype.slice.call(topic);
-                topic.forEach(tp => {
+                topic.forEach((tp) => {
                     Sandbox.publish(tp, payload, options);
                 });
                 return;
@@ -598,7 +594,7 @@ function runScript(script, name) {
         setValue: function Sandbox_setValue(topic, val, publishUnchanged) {
             if (typeof topic === 'object' && topic.length > 0) {
                 topic = Array.prototype.slice.call(topic);
-                topic.forEach(tp => {
+                topic.forEach((tp) => {
                     Sandbox.setValue(tp, val);
                 });
                 return;
@@ -615,11 +611,11 @@ function runScript(script, name) {
                 tmp[1] = 'status';
                 topic = tmp.join('/');
                 const oldState = status[topic] || {};
-                const ts = (new Date()).getTime();
+                const ts = new Date().getTime();
                 if (typeof val === 'object') {
                     val.ts = ts;
                 } else {
-                    val = {val, ts};
+                    val = { val, ts };
                 }
                 if (val.val !== oldState.val) {
                     val.lc = ts;
@@ -628,23 +624,23 @@ function runScript(script, name) {
                 status[topic] = val;
                 stateChange(topic, val, oldState, {});
                 if (changed || publishUnchanged) {
-                    Sandbox.publish(topic, val, {retain: true});
+                    Sandbox.publish(topic, val, { retain: true });
                 }
-            /* istanbul ignore next */ // TODO tests!
+                /* istanbul ignore next */ // TODO tests!
             } else if (tmp[0] === config.variablePrefix && config.disableVariables) {
                 /* istanbul ignore next */
                 tmp[1] = 'status';
                 topic = tmp.join('/');
                 /* istanbul ignore next */
-                if (!status[topic] || (status[topic].val !== val)) {
+                if (!status[topic] || status[topic].val !== val) {
                     /* istanbul ignore next */
                     tmp[1] = 'set';
                     topic = tmp.join('/');
-                    Sandbox.publish(topic, val, {retain: false}); // TODO really retain false?!
+                    Sandbox.publish(topic, val, { retain: false }); // TODO really retain false?!
                 }
             } else {
                 topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
-                Sandbox.publish(topic, val, {retain: false});
+                Sandbox.publish(topic, val, { retain: false });
             }
         },
         /**
@@ -682,38 +678,37 @@ function runScript(script, name) {
                 return tmp;
             }
             return status[topic];
-        }
-
+        },
     };
 
     Sandbox.console = {
         log: Sandbox.log.info,
-        error: Sandbox.log.error
+        error: Sandbox.log.error,
     };
 
-    sandboxModules.forEach(md => {
+    sandboxModules.forEach((md) => {
         md(Sandbox);
     });
 
     log.debug(name, 'contextifying sandbox');
     const context = vm.createContext(Sandbox);
 
-    scriptDomain.on('error', e => {
+    scriptDomain.on('error', (e) => {
         /* istanbul ignore if */
         if (!e.stack) {
-            log.error([name + ' unkown exception']);
+            log.error(name + ' unknown exception');
             return;
         }
         const lines = e.stack.split('\n');
         const stack = [];
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i].match(/at ContextifyScript.Script.runInContext/)) {
+            if (lines[i].match(/at ContextifyScript\.Script\.runInContext|at Script\.runInContext/)) {
                 break;
             }
             stack.push(lines[i]);
         }
 
-        log.error([name + ' ' + stack.join('\n')]);
+        log.error(name + ' ' + e.name + ': ' + e.message + '\n' + stack.join('\n'));
     });
 
     scriptDomain.run(() => {
@@ -745,7 +740,7 @@ function loadScript(file) {
                 }
 
                 log.debug(file, 'transpiling');
-                modules['coffee-compiler'].fromSource(src.toString(), {sourceMap: false, bare: true}, (err, js) => {
+                modules['coffee-compiler'].fromSource(src.toString(), { sourceMap: false, bare: true }, (err, js) => {
                     /* istanbul ignore if */
                     if (err) {
                         log.error(file, 'transpile failed', err.message);
@@ -775,26 +770,30 @@ function loadSandbox(callback) {
                 log.error('readdir', dir, err);
             }
         } else {
-            data.sort().forEach(file => {
+            data.sort().forEach((file) => {
                 if (file.match(/\.js$/)) {
                     sandboxModules.push(require(path.join(dir, file)));
                 }
             });
 
             if (!config.disableWatch) {
-                watch.watchTree(dir, {
-                    filter(path) {
-                        return path.match(/\.js$/);
-                    }
-                }, (f, curr, prev) => {
-                    if (typeof f === 'object' && prev === null && curr === null) {
-                        log.debug('watch', dir, 'initialized');
-                    } else {
-                        watch.unwatchTree(dir);
-                        log.info(f, 'change detected. exiting.');
-                        process.exit(0);
-                    }
-                });
+                watch.watchTree(
+                    dir,
+                    {
+                        filter(path) {
+                            return path.match(/\.js$/);
+                        },
+                    },
+                    (f, curr, prev) => {
+                        if (typeof f === 'object' && prev === null && curr === null) {
+                            log.debug('watch', dir, 'initialized');
+                        } else {
+                            watch.unwatchTree(dir);
+                            log.info(f, 'change detected. exiting.');
+                            process.exit(0);
+                        }
+                    },
+                );
             }
 
             callback();
@@ -812,26 +811,30 @@ function loadDir(dir) {
                 log.error('readdir', dir, err);
             }
         } else {
-            data.sort().forEach(file => {
+            data.sort().forEach((file) => {
                 if (file.match(/\.(js|coffee)$/)) {
                     loadScript(path.join(dir, file));
                 }
             });
 
             if (!config.disableWatch) {
-                watch.watchTree(dir, {
-                    filter(path) {
-                        return path.match(/\.(js|coffee)$/);
-                    }
-                }, (f, curr, prev) => {
-                    if (typeof f === 'object' && prev === null && curr === null) {
-                        log.debug('watch', dir, 'initialized');
-                    } else {
-                        watch.unwatchTree(dir);
-                        log.info(f, 'change detected. exiting.');
-                        process.exit(0);
-                    }
-                });
+                watch.watchTree(
+                    dir,
+                    {
+                        filter(path) {
+                            return path.match(/\.(js|coffee)$/);
+                        },
+                    },
+                    (f, curr, prev) => {
+                        if (typeof f === 'object' && prev === null && curr === null) {
+                            log.debug('watch', dir, 'initialized');
+                        } else {
+                            watch.unwatchTree(dir);
+                            log.info(f, 'change detected. exiting.');
+                            process.exit(0);
+                        }
+                    },
+                );
             }
         }
     });
@@ -843,7 +846,7 @@ function start() {
         if (typeof config.file === 'string') {
             loadScript(config.file);
         } else {
-            config.file.forEach(file => {
+            config.file.forEach((file) => {
                 loadScript(file);
             });
         }
@@ -855,7 +858,7 @@ function start() {
             if (typeof config.dir === 'string') {
                 loadDir(config.dir);
             } else {
-                config.dir.forEach(dir => {
+                config.dir.forEach((dir) => {
                     loadDir(dir);
                 });
             }

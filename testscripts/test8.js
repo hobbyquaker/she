@@ -1,2 +1,1 @@
 sunSchedule('tatooine', () => {});
-

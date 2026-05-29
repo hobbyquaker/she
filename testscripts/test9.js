@@ -1,2 +1,1 @@
 sunSchedule('sunrise', {}, 'muh', 'kuh');
-

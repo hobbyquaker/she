@@ -1,1 +1,1 @@
-sunSchedule('sunrise', {shift: -100000}, () => {});
+sunSchedule('sunrise', { shift: -100000 }, () => {});

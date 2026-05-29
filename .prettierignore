@@ -1,0 +1,6 @@
+node_modules
+dist
+coverage
+.cache
+*.md
+testscripts/test3.js

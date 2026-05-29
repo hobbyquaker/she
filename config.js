@@ -8,7 +8,7 @@ const config = require('yargs')
     .describe('url', 'mqtt broker url. See https://github.com/mqttjs/MQTT.js#connect-using-a-url')
     .describe('help', 'show help')
     .describe('dir', 'directory to scan for .js and .coffee files. can be used multiple times.')
-    .describe('disable-watch', 'disable file watching (don\'t exit process on file changes)')
+    .describe('disable-watch', "disable file watching (don't exit process on file changes)")
     .alias({
         c: 'config',
         d: 'dir',
@@ -20,22 +20,20 @@ const config = require('yargs')
         n: 'name',
         u: 'url',
         v: 'verbosity',
-        w: 'disable-watch'
-
+        w: 'disable-watch',
     })
     .default({
-        url: 'mqtt://127.0.0.1',
-        latitude: 48.7408,
-        longitude: 9.1778,
-        name: 'logic',
+        'url': 'mqtt://127.0.0.1',
+        'latitude': 48.7408,
+        'longitude': 9.1778,
+        'name': 'logic',
         'variable-prefix': 'var',
-        verbosity: 'info',
+        'verbosity': 'info',
         'disable-variables': false,
-        'disable-watch': false
+        'disable-watch': false,
     })
     .config('config')
     .version()
-    .help('help')
-    .argv;
+    .help('help').argv;
 
 module.exports = config;
