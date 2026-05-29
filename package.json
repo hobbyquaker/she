@@ -2,9 +2,11 @@
     "name": "she",
     "version": "2.0.0",
     "description": "Node.js based script runner for use in MQTT based Smart Home environments",
-    "main": "index.js",
+    "main": "src/index.js",
     "scripts": {
-        "test": "cross-env NODE_OPTIONS=\"--no-warnings\" jest --forceExit",
+        "test": "cross-env NODE_OPTIONS=\"--no-warnings\" jest --testPathPattern=test/unit --forceExit",
+        "test:integration": "cross-env NODE_OPTIONS=\"--no-warnings\" jest --testPathPattern=test/integration --forceExit",
+        "test:all": "cross-env NODE_OPTIONS=\"--no-warnings\" jest --forceExit",
         "test:coverage": "cross-env NODE_OPTIONS=\"--no-warnings\" jest --coverage --forceExit",
         "test:verbose": "cross-env NODE_OPTIONS=\"--no-warnings\" jest --verbose --forceExit",
         "lint": "eslint --cache --cache-location .cache/.eslintcache .",
@@ -13,7 +15,7 @@
         "format:check": "prettier --cache --cache-location .cache/.prettiercache --check ."
     },
     "bin": {
-        "mqtt-scripts": "index.js"
+        "mqtt-scripts": "src/index.js"
     },
     "author": "Sebastian 'hobbyquaker' Raff <hobbyquaker@gmail.com>",
     "license": "MIT",

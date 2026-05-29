@@ -28,7 +28,7 @@ const log = {
     },
 };
 const config = require('./config.js');
-const pkg = require('./package.json');
+const pkg = require('../package.json');
 
 /* istanbul ignore next */
 log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1 ? 'info' : config.verbosity);
@@ -169,34 +169,7 @@ mqtt.on('message', (topic, payload, msg) => {
         startTimeout = setTimeout(start, 500);
     }
 
-    payload = payload.toString();
-
-    let state;
-
-    const val = payload;
-
-    if (val === 'true') {
-        // Payload was the string "true" - treat it as bool true
-        state = { val: true };
-    } else if (val === 'false') {
-        // Payload was the string "false" - treat it as bool false
-        state = { val: false };
-    } else if (isNaN(val)) {
-        try {
-            state = JSON.parse(payload);
-
-            if (typeof state === 'object' && Array.isArray(state)) {
-                state = { val: state };
-            } else if (!state || typeof state.val === 'undefined') {
-                state = { val: state };
-            }
-        } catch (err) {
-            state = { val };
-        }
-    } else {
-        // Payload seems to be type number
-        state = { val: parseFloat(val) };
-    }
+    const state = require('./lib/parse-payload')(payload);
 
     const topicArr = topic.split('/');
     let oldState;
@@ -276,9 +249,7 @@ function stateChange(topic, state, oldState, msg) {
     });
 }
 
-function mqttWildcards(topic, subscription) {
-    return topic.match(new RegExp('^' + subscription.replace(/#$/, '.*').replace(/\+/g, '[^/]+') + '$'));
-}
+const mqttWildcards = require('./lib/mqtt-wildcards');
 
 function createScript(source, name) {
     log.debug(name, 'compiling');
@@ -680,8 +651,7 @@ function runScript(script, name) {
                 } else {
                     tmp = md;
                     if (fs.existsSync(path.join(scriptDir, 'node_modules', md, 'package.json'))) {
-                        tmp = './' + path.relative(__dirname, path.join(scriptDir, 'node_modules', md));
-                        tmp = path.resolve(tmp);
+                        tmp = path.join(scriptDir, 'node_modules', md);
                     }
                 }
                 she.debug('require', tmp);

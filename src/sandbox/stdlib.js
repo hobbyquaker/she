@@ -100,9 +100,9 @@ module.exports = function (she) {
             }
         });
 
-        timeouts[target] = Sandbox.setTimeout(() => {
-            if (Sandbox.getValue(target)) {
-                Sandbox.setValue(target, 0);
+        timeouts[target] = setTimeout(() => {
+            if (she.getValue(target)) {
+                she.setValue(target, 0);
             }
         }, time);
     };

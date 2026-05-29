@@ -8,7 +8,7 @@ const readline = require('readline');
 const Aedes = require('aedes');
 const Mqtt = require('mqtt');
 
-const msCmd = path.join(__dirname, '/mockdate.js');
+const msCmd = path.join(__dirname, '../../mockdate.js');
 
 let msArgs;
 let ms;
@@ -95,7 +95,7 @@ beforeAll((done) => {
     });
     brokerServer.listen(0, () => {
         brokerPort = brokerServer.address().port;
-        msArgs = ['-d', path.join(__dirname, 'testscripts'), '-v', 'debug', '-u', `mqtt://127.0.0.1:${brokerPort}`];
+        msArgs = ['-d', path.join(__dirname, '../testscripts'), '-v', 'debug', '-u', `mqtt://127.0.0.1:${brokerPort}`];
         mqtt = Mqtt.connect(`mqtt://127.0.0.1:${brokerPort}`);
         mqtt.on('message', (topic, payload) => {
             if (mqttSubscriptions[topic]) {
@@ -412,7 +412,7 @@ describe('script file changes', () => {
     it('should quit when a script file changes', (done) => {
         subscribe('ms', /change detected\. exiting/, () => done());
         setTimeout(() => {
-            fs.appendFileSync(path.join(__dirname, 'testscripts/test1.js'), "\nshe.info('appended!');\n");
+            fs.appendFileSync(path.join(__dirname, '../testscripts/test1.js'), "\nshe.info('appended!');\n");
         }, 1000);
     }, 10000);
 });

@@ -3,7 +3,7 @@
 const jestConfig = {
     testEnvironment: 'node',
     cacheDirectory: '<rootDir>/.cache/jest',
-    testMatch: ['<rootDir>/test.js'],
+    testMatch: ['<rootDir>/test/**/*.test.js'],
     testTimeout: 180000,
     forceExit: true,
 };

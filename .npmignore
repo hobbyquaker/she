@@ -1,7 +1,6 @@
 .idea
 .DS_Store
-testscripts
-test.js
+test
 doc
 .gitignore
 Gulpfile.js

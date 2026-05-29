@@ -6,7 +6,7 @@ import globals from 'globals';
 
 export default [
     {
-        ignores: ['.cache/**', 'node_modules/**', 'coverage/**', 'testscripts/**'],
+        ignores: ['.cache/**', 'node_modules/**', 'coverage/**', 'test/testscripts/**'],
     },
     {
         linterOptions: {
