@@ -108,7 +108,7 @@ beforeAll((done) => {
 
 afterAll((done) => {
     if (ms) ms.kill();
-    mqtt.end(true, () => {
+    mqtt.end(true, {}, () => {
         brokerServer.close(() => {
             broker.close(done);
         });

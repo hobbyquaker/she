@@ -34,6 +34,6 @@ const config = require('yargs')
     })
     .config('config')
     .version()
-    .help('help').argv;
+    .help('help').parseSync();
 
 module.exports = config;

@@ -8,7 +8,25 @@
 
 /* eslint n/no-deprecated-api: "warn" */
 
-const log = require('yalm');
+const PinoPretty = require('pino-pretty');
+const _pino = require('pino')(
+    { level: 'debug' },
+    PinoPretty({
+        colorize: false,
+        translateTime: 'SYS:yyyy-mm-dd HH:MM:ss.l',
+        ignore: 'pid,hostname',
+        sync: true,
+    }),
+);
+const log = {
+    debug: (...args) => _pino.debug(args.join(' ')),
+    info: (...args) => _pino.info(args.join(' ')),
+    warn: (...args) => _pino.warn(args.join(' ')),
+    error: (...args) => _pino.error(args.join(' ')),
+    setLevel: (level) => {
+        _pino.level = level;
+    },
+};
 const config = require('./config.js');
 const pkg = require('./package.json');
 
@@ -17,6 +35,7 @@ log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1
 log.info(pkg.name + ' ' + pkg.version + ' starting');
 log.debug('loaded config: ', config);
 
+const chokidar = require('chokidar');
 const modules = {
     'fs': require('fs'),
     'path': require('path'),
@@ -24,7 +43,6 @@ const modules = {
     /* eslint-disable no-restricted-modules */
     'domain': require('domain'),
     'mqtt': require('mqtt'),
-    'watch': require('watch'),
     'node-schedule': require('node-schedule'),
     'suncalc': require('suncalc'),
 };
@@ -33,7 +51,6 @@ const domain = modules.domain;
 const vm = modules.vm;
 const fs = modules.fs;
 const path = modules.path;
-const watch = modules.watch;
 const scheduler = modules['node-schedule'];
 const suncalc = modules.suncalc;
 
@@ -733,22 +750,7 @@ function loadScript(file) {
             /* istanbul ignore next */
             log.error(file, err);
         } else {
-            if (file.match(/\.coffee$/)) {
-                if (!modules['coffee-compiler']) {
-                    log.info('loading coffee-compiler');
-                    modules['coffee-compiler'] = require('coffee-compiler');
-                }
-
-                log.debug(file, 'transpiling');
-                modules['coffee-compiler'].fromSource(src.toString(), { sourceMap: false, bare: true }, (err, js) => {
-                    /* istanbul ignore if */
-                    if (err) {
-                        log.error(file, 'transpile failed', err.message);
-                        return;
-                    }
-                    scripts[file] = createScript(js, file);
-                });
-            } else if (file.match(/\.js$/)) {
+            if (file.match(/\.js$/)) {
                 // Javascript
                 scripts[file] = createScript(src, file);
             }
@@ -777,23 +779,18 @@ function loadSandbox(callback) {
             });
 
             if (!config.disableWatch) {
-                watch.watchTree(
-                    dir,
-                    {
-                        filter(path) {
-                            return path.match(/\.js$/);
-                        },
-                    },
-                    (f, curr, prev) => {
-                        if (typeof f === 'object' && prev === null && curr === null) {
-                            log.debug('watch', dir, 'initialized');
-                        } else {
-                            watch.unwatchTree(dir);
-                            log.info(f, 'change detected. exiting.');
-                            process.exit(0);
-                        }
-                    },
-                );
+                const sandboxWatcher = chokidar.watch(dir, {
+                    ignored: (p, stats) => stats?.isFile() && !p.endsWith('.js'),
+                    persistent: true,
+                    ignoreInitial: true,
+                    usePolling: true,
+                });
+                sandboxWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
+                sandboxWatcher.on('all', (event, filePath) => {
+                    sandboxWatcher.close();
+                    log.info(filePath, 'change detected. exiting.');
+                    process.exit(0);
+                });
             }
 
             callback();
@@ -812,29 +809,24 @@ function loadDir(dir) {
             }
         } else {
             data.sort().forEach((file) => {
-                if (file.match(/\.(js|coffee)$/)) {
+                if (file.match(/\.js$/)) {
                     loadScript(path.join(dir, file));
                 }
             });
 
             if (!config.disableWatch) {
-                watch.watchTree(
-                    dir,
-                    {
-                        filter(path) {
-                            return path.match(/\.(js|coffee)$/);
-                        },
-                    },
-                    (f, curr, prev) => {
-                        if (typeof f === 'object' && prev === null && curr === null) {
-                            log.debug('watch', dir, 'initialized');
-                        } else {
-                            watch.unwatchTree(dir);
-                            log.info(f, 'change detected. exiting.');
-                            process.exit(0);
-                        }
-                    },
-                );
+                const dirWatcher = chokidar.watch(dir, {
+                    ignored: (p, stats) => stats?.isFile() && !p.endsWith('.js'),
+                    persistent: true,
+                    ignoreInitial: true,
+                    usePolling: true,
+                });
+                dirWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
+                dirWatcher.on('all', (event, filePath) => {
+                    dirWatcher.close();
+                    log.info(filePath, 'change detected. exiting.');
+                    process.exit(0);
+                });
             }
         }
     });

@@ -88,3 +88,9 @@ log.info('appended!');
 log.info('appended!');
 
 log.info('appended!');
+
+log.info('appended!');
+
+log.info('appended!');
+
+log.info('appended!');

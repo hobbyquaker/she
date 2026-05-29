@@ -18,14 +18,13 @@
     "author": "Sebastian 'hobbyquaker' Raff <hobbyquaker@gmail.com>",
     "license": "MIT",
     "dependencies": {
-        "coffee-compiler": "^0.3.2",
-        "coffee-script": "^1.12.7",
-        "mqtt": "^2.9.2",
-        "node-schedule": "^1.2.3",
-        "suncalc": "^1.8.0",
-        "watch": "^1.0.2",
-        "yalm": "^4.0.2",
-        "yargs": "^12.0.5"
+        "chokidar": "^4.0.0",
+        "mqtt": "^5.0.0",
+        "node-schedule": "^2.0.0",
+        "pino": "^9.0.0",
+        "pino-pretty": "^13.0.0",
+        "suncalc": "^1.9.0",
+        "yargs": "^17.0.0"
     },
     "engines": {
         "node": ">=20.0.0"
