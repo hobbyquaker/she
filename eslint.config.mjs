@@ -29,7 +29,7 @@ export default [
         },
     },
     {
-        files: ['test.js'],
+        files: ['test/**/*.test.js', 'test/**/*.spec.js'],
         languageOptions: {
             globals: {
                 ...globals.jest,
