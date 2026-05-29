@@ -298,99 +298,53 @@ function runScript(script, name) {
 
     log.debug(name, 'creating sandbox');
 
-    const Sandbox = {
+    const she = {
         global: _global,
 
-        setTimeout,
-        setInterval,
-        clearTimeout,
-        clearInterval,
-
-        Buffer,
-
-        require(md) {
-            if (modules[md]) {
-                return modules[md];
-            }
-            try {
-                let tmp;
-                if (md.match(/^\.\//) || md.match(/^\.\.\//)) {
-                    tmp = './' + path.relative(__dirname, path.join(scriptDir, md));
-                } else {
-                    tmp = md;
-                    if (fs.existsSync(path.join(scriptDir, 'node_modules', md, 'package.json'))) {
-                        tmp = './' + path.relative(__dirname, path.join(scriptDir, 'node_modules', md));
-                        tmp = path.resolve(tmp);
-                    }
-                }
-                Sandbox.log.debug('require', tmp);
-                modules[md] = require(tmp);
-                return modules[md];
-            } catch (err) {
-                const lines = err.stack.split('\n');
-                const stack = [];
-                lines.forEach((line) => {
-                    if (!line.match(/module\.js:/) && !line.match(/index\.js:307/)) {
-                        stack.push(line);
-                    }
-                });
-                log.error(name + ': ' + stack);
-            }
-        },
-
         /**
-         * @class log
-         * @classdesc Log to stdout/stderr. Messages are prefixed with a timestamp and the calling scripts path.
+         * Log a debug message
+         * @method debug
+         * @param {...*}
          */
-        log: {
-            /**
-             * Log a debug message
-             * @memberof log
-             * @method debug
-             * @param {...*}
-             */
-            debug() {
-                const args = Array.prototype.slice.call(arguments);
-                args.unshift(name + ':');
-                log.debug.apply(log, args);
-            },
-            /**
-             * Log an info message
-             * @memberof log
-             * @method info
-             * @param {...*}
-             */
-            info() {
-                const args = Array.prototype.slice.call(arguments);
-                args.unshift(name + ':');
-                log.info.apply(log, args);
-            },
-            /**
-             * Log a warning message
-             * @memberof log
-             * @method warn
-             * @param {...*}
-             */
-            warn() {
-                const args = Array.prototype.slice.call(arguments);
-                args.unshift(name + ':');
-                log.warn.apply(log, args);
-            },
-            /**
-             * Log an error message
-             * @memberof log
-             * @method error
-             * @param {...*}
-             */
-            error() {
-                const args = Array.prototype.slice.call(arguments);
-                args.unshift(name + ':');
-                log.error.apply(log, args);
-            },
+        debug() {
+            const args = Array.prototype.slice.call(arguments);
+            args.unshift(name + ':');
+            log.debug.apply(log, args);
         },
+        /**
+         * Log an info message
+         * @method info
+         * @param {...*}
+         */
+        info() {
+            const args = Array.prototype.slice.call(arguments);
+            args.unshift(name + ':');
+            log.info.apply(log, args);
+        },
+        /**
+         * Log a warning message
+         * @method warn
+         * @param {...*}
+         */
+        warn() {
+            const args = Array.prototype.slice.call(arguments);
+            args.unshift(name + ':');
+            log.warn.apply(log, args);
+        },
+        /**
+         * Log an error message
+         * @method error
+         * @param {...*}
+         */
+        error() {
+            const args = Array.prototype.slice.call(arguments);
+            args.unshift(name + ':');
+            log.error.apply(log, args);
+        },
+
         /**
          * Subscribe to MQTT topic(s)
-         * @method subscribe
+         * @method mqttsub
          * @param {(string|string[])} topic - topic or array of topics to subscribe
          * @param {Object|string|function} [options] - Options object or as shorthand to options.condition a function or string
          * @param {number} [options.shift] - delay execution in seconds. Has to be positive
@@ -400,7 +354,7 @@ function runScript(script, name) {
          * @param {(string|function)} [options.condition] - conditional function or condition string
          * @param {subscribeCallback} callback
          */
-        subscribe: function Sandbox_subscribe(topic, /* optional */ options, callback) {
+        mqttsub: function Sandbox_mqttsub(topic, /* optional */ options, callback) {
             if (typeof topic === 'undefined') {
                 throw new TypeError('argument topic missing');
             }
@@ -457,10 +411,11 @@ function runScript(script, name) {
             } else if (typeof topic === 'object' && topic.length > 0) {
                 topic = Array.prototype.slice.call(topic);
                 topic.forEach((tp) => {
-                    Sandbox.subscribe(tp, options, callback);
+                    she.mqttsub(tp, options, callback);
                 });
             }
         },
+
         /**
          * Schedule recurring and one-shot events
          * @method schedule
@@ -469,16 +424,16 @@ function runScript(script, name) {
          * @param {number} [options.random] - random delay execution in seconds. Has to be positive
          * @param {function} callback - is called with no arguments
          * @example // every full Hour.
-         * schedule('0 * * * *', callback);
+         * she.schedule('0 * * * *', callback);
          *
          * // Monday till friday, random between 7:30am an 8:00am
-         * schedule('30 7 * * 1-5', {random: 30 * 60}, callback);
+         * she.schedule('30 7 * * 1-5', {random: 30 * 60}, callback);
          *
          * // once on 21. December 2018 at 5:30am
-         * schedule(new Date(2018, 12, 21, 5, 30, 0), callback);
+         * she.schedule(new Date(2018, 12, 21, 5, 30, 0), callback);
          *
          * // every Sunday at 2:30pm
-         * schedule({hour: 14, minute: 30, dayOfWeek: 0}, callback);
+         * she.schedule({hour: 14, minute: 30, dayOfWeek: 0}, callback);
          * @see {@link sunSchedule} for scheduling based on sun position.
          */
         schedule: function Sandbox_schedule(pattern, /* optional */ options, callback) {
@@ -501,7 +456,7 @@ function runScript(script, name) {
             if (typeof pattern === 'object' && pattern.length > 0) {
                 pattern = Array.prototype.slice.call(pattern);
                 pattern.forEach((pt) => {
-                    Sandbox.schedule(pt, options, callback);
+                    she.schedule(pt, options, callback);
                 });
                 return;
             }
@@ -514,6 +469,7 @@ function runScript(script, name) {
                 scheduler.scheduleJob(pattern, scriptDomain.bind(callback));
             }
         },
+
         /**
          * Schedule a recurring event based on sun position
          * @method sunSchedule
@@ -523,10 +479,10 @@ function runScript(script, name) {
          * @param {number} [options.random] - random delay execution in seconds.
          * @param {function} callback - is called with no arguments
          * @example // Call callback 15 minutes before sunrise
-         * sunSchedule('sunrise', {shift: -900}, callback);
+         * she.sunSchedule('sunrise', {shift: -900}, callback);
          *
          * // Call callback random 0-15 minutes after sunset
-         * sunSchedule('sunset', {random: 900}, callback);
+         * she.sunSchedule('sunset', {random: 900}, callback);
          * @see {@link schedule} for time based scheduling.
          */
         sunSchedule: function Sandbox_sunSchedule(pattern, /* optional */ options, callback) {
@@ -553,7 +509,7 @@ function runScript(script, name) {
             if (typeof pattern === 'object' && pattern.length > 0) {
                 pattern = Array.prototype.slice.call(pattern);
                 pattern.forEach((pt) => {
-                    Sandbox.sunSchedule(pt, options, callback);
+                    she.sunSchedule(pt, options, callback);
                 });
                 return;
             }
@@ -567,7 +523,7 @@ function runScript(script, name) {
                 pattern,
                 options,
                 callback,
-                context: Sandbox,
+                context: she,
                 domain: scriptDomain,
             };
 
@@ -575,20 +531,21 @@ function runScript(script, name) {
 
             sunScheduleEvent(obj);
         },
+
         /**
          * Publish a MQTT message
-         * @method publish
+         * @method mqttpub
          * @param {(string|string[])} topic - topic or array of topics to publish to
          * @param {(string|Object)} payload - the payload string. If an object is given it will be JSON.stringified
          * @param {Object} [options] - the options to publish with
          * @param {number} [options.qos=0] - QoS Level
          * @param {boolean} [options.retain=false] - retain flag
          */
-        publish: function Sandbox_publish(topic, payload, options) {
+        mqttpub: function Sandbox_mqttpub(topic, payload, options) {
             if (typeof topic === 'object' && topic.length > 0) {
                 topic = Array.prototype.slice.call(topic);
                 topic.forEach((tp) => {
-                    Sandbox.publish(tp, payload, options);
+                    she.mqttpub(tp, payload, options);
                 });
                 return;
             }
@@ -602,6 +559,7 @@ function runScript(script, name) {
             }
             mqtt.publish(topic, payload, options);
         },
+
         /**
          * Set a value on one or more topics
          * @method setValue
@@ -612,7 +570,7 @@ function runScript(script, name) {
             if (typeof topic === 'object' && topic.length > 0) {
                 topic = Array.prototype.slice.call(topic);
                 topic.forEach((tp) => {
-                    Sandbox.setValue(tp, val);
+                    she.setValue(tp, val);
                 });
                 return;
             }
@@ -641,7 +599,7 @@ function runScript(script, name) {
                 status[topic] = val;
                 stateChange(topic, val, oldState, {});
                 if (changed || publishUnchanged) {
-                    Sandbox.publish(topic, val, { retain: true });
+                    she.mqttpub(topic, val, { retain: true });
                 }
                 /* istanbul ignore next */ // TODO tests!
             } else if (tmp[0] === config.variablePrefix && config.disableVariables) {
@@ -653,13 +611,14 @@ function runScript(script, name) {
                     /* istanbul ignore next */
                     tmp[1] = 'set';
                     topic = tmp.join('/');
-                    Sandbox.publish(topic, val, { retain: false }); // TODO really retain false?!
+                    she.mqttpub(topic, val, { retain: false }); // TODO really retain false?!
                 }
             } else {
                 topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
-                Sandbox.publish(topic, val, { retain: false });
+                she.mqttpub(topic, val, { retain: false });
             }
         },
+
         /**
          * @method getValue
          * @param {string} topic
@@ -670,6 +629,7 @@ function runScript(script, name) {
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
             return status[topic] && status[topic].val;
         },
+
         /**
          * Get a specific property of a topic
          * @method getProp
@@ -677,7 +637,7 @@ function runScript(script, name) {
          * @param {...string} [property] - the property to retrieve. May be repeated for nested properties. If omitted the whole topic object is returned.
          * @returns {mixed} the topics properties value
          * @example // returns the timestamp of a given topic
-         * getProp('hm//Bewegungsmelder Keller/MOTION', 'ts');
+         * she.getProp('hm//Bewegungsmelder Keller/MOTION', 'ts');
          */
         getProp: function Sandbox_getProp(topic /* , optional property, optional nested property, ... */) {
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
@@ -698,13 +658,57 @@ function runScript(script, name) {
         },
     };
 
-    Sandbox.console = {
-        log: Sandbox.log.info,
-        error: Sandbox.log.error,
+    // she.log is an alias for she.info
+    she.log = she.info;
+
+    const Sandbox = {
+        setTimeout,
+        setInterval,
+        clearTimeout,
+        clearInterval,
+
+        Buffer,
+
+        require(md) {
+            if (modules[md]) {
+                return modules[md];
+            }
+            try {
+                let tmp;
+                if (md.match(/^\.\//) || md.match(/^\.\.\//)) {
+                    tmp = './' + path.relative(__dirname, path.join(scriptDir, md));
+                } else {
+                    tmp = md;
+                    if (fs.existsSync(path.join(scriptDir, 'node_modules', md, 'package.json'))) {
+                        tmp = './' + path.relative(__dirname, path.join(scriptDir, 'node_modules', md));
+                        tmp = path.resolve(tmp);
+                    }
+                }
+                she.debug('require', tmp);
+                modules[md] = require(tmp);
+                return modules[md];
+            } catch (err) {
+                const lines = err.stack.split('\n');
+                const stack = [];
+                lines.forEach((line) => {
+                    if (!line.match(/module\.js:/)) {
+                        stack.push(line);
+                    }
+                });
+                log.error(name + ': ' + stack);
+            }
+        },
+
+        console: {
+            log: (...args) => she.info(...args),
+            error: (...args) => she.error(...args),
+        },
+
+        she,
     };
 
     sandboxModules.forEach((md) => {
-        md(Sandbox);
+        md(she);
     });
 
     log.debug(name, 'contextifying sandbox');
@@ -735,6 +739,7 @@ function runScript(script, name) {
 }
 
 function loadScript(file) {
+    file = file.replace(/\\/g, '/');
     /* istanbul ignore if */
     if (scripts[file]) {
         log.error(file, 'already loaded?!');

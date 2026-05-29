@@ -1,1 +1,1 @@
-schedule('* * * * *', 'muh', 1, 2);
+she.schedule('* * * * *', 'muh', 1, 2);

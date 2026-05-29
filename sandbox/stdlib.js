@@ -1,11 +1,11 @@
 /* eslint-disable func-name-matching, func-names, camelcase */
 
-module.exports = function (Sandbox) {
+module.exports = function (she) {
     /**
      * @method now
      * @returns {number} ms since epoch
      */
-    Sandbox.now = function Sandbox_now() {
+    she.now = function Sandbox_now() {
         return new Date().getTime();
     };
 
@@ -14,8 +14,8 @@ module.exports = function (Sandbox) {
      * @param {string} topic
      * @returns {number} seconds since last change
      */
-    Sandbox.age = function Sandbox_age(topic) {
-        return Math.round((new Date().getTime() - Sandbox.getProp(topic, 'lc')) / 1000);
+    she.age = function Sandbox_age(topic) {
+        return Math.round((new Date().getTime() - she.getProp(topic, 'lc')) / 1000);
     };
 
     /**
@@ -25,14 +25,14 @@ module.exports = function (Sandbox) {
      * @param {(string|string[])} target - topic or array of topics to publish
      * @param {mixed} [value] - value to publish. If omitted the sources value is published. A function can be used to transform the value.
      */
-    Sandbox.link = function Sandbox_link(source, target, /* optional */ value) {
-        Sandbox.subscribe(source, (topic, val) => {
+    she.link = function Sandbox_link(source, target, /* optional */ value) {
+        she.mqttsub(source, (topic, val) => {
             if (typeof value === 'function') {
                 val = value(val);
             } else if (typeof value !== 'undefined') {
                 val = value;
             }
-            Sandbox.setValue(target, val);
+            she.setValue(target, val);
         });
     };
 
@@ -42,18 +42,18 @@ module.exports = function (Sandbox) {
      * @param {string[]} srcs - array of topics to subscribe
      * @param {string} targets - topic to publish
      */
-    Sandbox.combineBool = function Sandbox_combineBool(srcs, target) {
+    she.combineBool = function Sandbox_combineBool(srcs, target) {
         function combine() {
             let result = 0;
             srcs.forEach((src) => {
-                if (Sandbox.getValue(src)) {
+                if (she.getValue(src)) {
                     result = 1;
                 }
             });
-            Sandbox.setValue(target, result);
+            she.setValue(target, result);
         }
         combine();
-        Sandbox.subscribe(srcs, { retain: true }, combine);
+        she.mqttsub(srcs, { retain: true }, combine);
     };
 
     /**
@@ -62,19 +62,19 @@ module.exports = function (Sandbox) {
      * @param {string[]} srcs - array of topics to subscribe
      * @param {string} targets - topic to publish
      */
-    Sandbox.combineMax = function (srcs, target) {
+    she.combineMax = function (srcs, target) {
         function combine() {
             let result = 0;
             srcs.forEach((src) => {
-                const srcVal = Sandbox.getValue(src);
+                const srcVal = she.getValue(src);
                 if (srcVal > result) {
                     result = srcVal;
                 }
             });
-            Sandbox.setValue(target, result);
+            she.setValue(target, result);
         }
         combine();
-        Sandbox.subscribe(srcs, { retain: true }, combine);
+        she.mqttsub(srcs, { retain: true }, combine);
     };
 
     const timeouts = {};
@@ -85,16 +85,16 @@ module.exports = function (Sandbox) {
      * @param {string} target - topic to publish
      * @param {number} time - timeout in milliseconds
      */
-    Sandbox.timer = function (src, target, time) {
-        Sandbox.subscribe(src, { retain: false }, (topic, val) => {
+    she.timer = function (src, target, time) {
+        she.mqttsub(src, { retain: false }, (topic, val) => {
             if (val) {
-                Sandbox.clearTimeout(timeouts[target]);
-                if (!Sandbox.getValue(target)) {
-                    Sandbox.setValue(target, 1);
+                clearTimeout(timeouts[target]);
+                if (!she.getValue(target)) {
+                    she.setValue(target, 1);
                 }
-                timeouts[target] = Sandbox.setTimeout(() => {
-                    if (Sandbox.getValue(target)) {
-                        Sandbox.setValue(target, 0);
+                timeouts[target] = setTimeout(() => {
+                    if (she.getValue(target)) {
+                        she.setValue(target, 0);
                     }
                 }, time);
             }

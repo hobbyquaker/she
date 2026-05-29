@@ -1,1 +1,1 @@
-sunSchedule('sunrise', {}, 'muh', 'kuh');
+she.sunSchedule('sunrise', {}, 'muh', 'kuh');

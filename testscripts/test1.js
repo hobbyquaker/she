@@ -1,96 +1,84 @@
-log.info('test log');
+she.info('test log');
 
-subscribe('test//incr', function (topic, val) {
+she.mqttsub('test//incr', function (topic, val) {
     val += 1;
-    setValue(topic, val);
+    she.setValue(topic, val);
 });
 
-subscribe('test/target', () => {
+she.mqttsub('test/target', () => {
     setTimeout(() => {
-        log.info('test/target age', age('test/target'));
-        log.info('test/target lc', getProp('test/target', 'lc'), now());
+        she.info('test/target age', she.age('test/target'));
+        she.info('test/target lc', she.getProp('test/target', 'lc'), she.now());
     }, 5000);
 });
 
-link('test/src', 'test/target');
-link(['test/src1', 'test/src2'], ['test/target1', 'test/target2']);
-link('test/src3', 'test/target3', '1337');
-link('test/src4', 'test/target4', (val) => 2 * val);
+she.link('test/src', 'test/target');
+she.link(['test/src1', 'test/src2'], ['test/target1', 'test/target2']);
+she.link('test/src3', 'test/target3', '1337');
+she.link('test/src4', 'test/target4', (val) => 2 * val);
 
-schedule('* * * * *', () => {
-    log.info('schedule callback');
+she.schedule('* * * * *', () => {
+    she.info('schedule callback');
     setTimeout(function () {
         throw new Error('test exception!');
     }, 2000);
 });
 
-schedule('0 0 * * *', () => {
-    log.info('midnight!');
+she.schedule('0 0 * * *', () => {
+    she.info('midnight!');
 });
 
-schedule({ hour: 0, minute: 0, second: 10 }, () => {
-    log.info('schedule date');
+she.schedule({ hour: 0, minute: 0, second: 10 }, () => {
+    she.info('schedule date');
 });
 
 let mscount = 1;
 
-schedule(['12 0 0 * * *', '15 0 0 * * *'], { random: 2 }, () => {
-    log.info('multi schedule', mscount++);
+she.schedule(['12 0 0 * * *', '15 0 0 * * *'], { random: 2 }, () => {
+    she.info('multi schedule', mscount++);
 });
 
-subscribe('test/condition', 'val=="muh"', (topic, val) => {
-    log.info(topic, getProp(topic).val);
-    getProp(topic, 'does', 'not', 'exist');
+she.mqttsub('test/condition', 'val=="muh"', (topic, val) => {
+    she.info(topic, she.getProp(topic).val);
+    she.getProp(topic, 'does', 'not', 'exist');
 });
 
-log.info(getProp('does', 'not', 'exist'));
+she.info(she.getProp('does', 'not', 'exist'));
 
-subscribe('test/change', { change: true }, (topic, val) => {
-    log.info(topic, val);
+she.mqttsub('test/change', { change: true }, (topic, val) => {
+    she.info(topic, val);
 });
 
-subscribe('test/randomshift', { random: 10, shift: 10 }, (topic, val) => {
-    log.info(topic, val);
+she.mqttsub('test/randomshift', { random: 10, shift: 10 }, (topic, val) => {
+    she.info(topic, val);
 });
 
-subscribe(/regexp/, (topic, val) => {
-    log.info(topic, val);
+she.mqttsub(/regexp/, (topic, val) => {
+    she.info(topic, val);
 });
 
-log.info(require('./lib/libtest.js'));
-log.info(require('dummy'));
+she.info(require('./lib/libtest.js'));
+she.info(require('dummy'));
 require('./lib/libtest2.js');
 const suncalc = require('suncalc');
 
-sunSchedule('sunrise', { shift: -1620, random: 360 }, () => {
-    log.info('27-33min before sunrise');
+she.sunSchedule('sunrise', { shift: -1620, random: 360 }, () => {
+    she.info('27-33min before sunrise');
 });
 
-sunSchedule(['dawn', 'dusk'], () => {
-    log.info('multiple sun events');
+she.sunSchedule(['dawn', 'dusk'], () => {
+    she.info('multiple sun events');
 });
 
-subscribe('test1', (topic, val) => {
-    log.info(topic, getValue('test1'));
+she.mqttsub('test1', (topic, val) => {
+    she.info(topic, she.getValue('test1'));
 });
 
-publish(['test1', 'test2'], { val: true });
+she.mqttpub(['test1', 'test2'], { val: true });
 
-setValue('$testvar1', true);
-setValue('$testvar1', true);
-setValue('var/set/testvar2', true);
-setValue('var/set/testvar2', { val: true });
+she.setValue('$testvar1', true);
+she.setValue('$testvar1', true);
+she.setValue('var/set/testvar2', true);
+she.setValue('var/set/testvar2', { val: true });
 
-log.info('appended!');
-
-log.info('appended!');
-
-log.info('appended!');
-
-log.info('appended!');
-
-log.info('appended!');
-
-log.info('appended!');
-
-log.info('appended!');
+she.info('appended!');

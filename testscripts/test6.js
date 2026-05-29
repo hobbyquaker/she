@@ -1,1 +1,1 @@
-subscribe('muh', 'kuh', 'bla', 'blub');
+she.mqttsub('muh', 'kuh', 'bla', 'blub');
