@@ -4,3 +4,4 @@ coverage
 .cache
 *.md
 testscripts/test3.js
+test/testscripts/test3.js

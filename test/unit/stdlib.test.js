@@ -66,13 +66,13 @@ describe('link()', () => {
 
 describe('combineBool()', () => {
     it('publishes 1 when any source is truthy', () => {
-        const she = makeShe({ 'a': { val: 0 }, 'b': { val: 1 } });
+        const she = makeShe({ a: { val: 0 }, b: { val: 1 } });
         she.combineBool(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 1);
     });
 
     it('publishes 0 when all sources are falsy', () => {
-        const she = makeShe({ 'a': { val: 0 }, 'b': { val: 0 } });
+        const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
         she.combineBool(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
     });
@@ -80,13 +80,13 @@ describe('combineBool()', () => {
 
 describe('combineMax()', () => {
     it('publishes the maximum value across sources', () => {
-        const she = makeShe({ 'a': { val: 3 }, 'b': { val: 7 }, 'c': { val: 2 } });
+        const she = makeShe({ a: { val: 3 }, b: { val: 7 }, c: { val: 2 } });
         she.combineMax(['a', 'b', 'c'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 7);
     });
 
     it('publishes 0 when all sources are 0', () => {
-        const she = makeShe({ 'a': { val: 0 }, 'b': { val: 0 } });
+        const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
         she.combineMax(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
     });

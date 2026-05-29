@@ -389,7 +389,9 @@ describe('setting variables', () => {
 describe('mqtt connection', () => {
     it('should log mqtt disconnect', (done) => {
         let pending = 2;
-        const check = () => { if (--pending === 0) done(); };
+        const check = () => {
+            if (--pending === 0) done();
+        };
         subscribe('ms', /mqtt closed/, check);
         brokerSockets.forEach((s) => s.destroy());
         brokerServer.close(check);
