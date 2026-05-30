@@ -12,7 +12,8 @@
         "lint": "eslint --cache --cache-location .cache/.eslintcache .",
         "lint:fix": "eslint --cache --cache-location .cache/.eslintcache --fix .",
         "format": "prettier --cache --cache-location .cache/.prettiercache --write .",
-        "format:check": "prettier --cache --cache-location .cache/.prettiercache --check ."
+        "format:check": "prettier --cache --cache-location .cache/.prettiercache --check .",
+        "build:web": "cd web && npm install && npm run build"
     },
     "bin": {
         "mqtt-scripts": "src/index.js"
@@ -27,6 +28,7 @@
         "pino": "^9.0.0",
         "pino-pretty": "^13.0.0",
         "suncalc": "^1.9.0",
+        "ws": "^8.21.0",
         "yargs": "^17.0.0"
     },
     "engines": {

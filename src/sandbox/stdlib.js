@@ -106,4 +106,25 @@ module.exports = function (she) {
             }
         }, time);
     };
+
+    /**
+     * Namespaced MQTT API — the primary way to interact with MQTT from scripts.
+     * @namespace she.mqtt
+     */
+    she.mqtt = {
+        /** Subscribe to one or more MQTT topics. Same signature as she.mqttsub(). */
+        sub: (...args) => she.mqttsub(...args),
+        /** Publish an MQTT message. Same signature as she.mqttpub(). */
+        pub: (...args) => she.mqttpub(...args),
+        /** Get the last-known value for a topic. */
+        get: (topic) => she.getValue(topic),
+        /** Set a value on one or more topics. */
+        set: (topic, val) => she.setValue(topic, val),
+        /** Get a specific property from a topic's state object. */
+        getProp: (...args) => she.getProp(...args),
+        /** Forward value changes from source topic(s) to target topic(s). */
+        link: (...args) => she.link(...args),
+        /** Seconds since the topic's value last changed. */
+        age: (topic) => she.age(topic),
+    };
 };

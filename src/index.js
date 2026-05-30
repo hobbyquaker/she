@@ -18,11 +18,25 @@ const _pino = require('pino')(
         sync: true,
     }),
 );
+// Lazy import — log-ws exports a no-op broadcastLog when the HTTP server is not started.
+const { broadcastLog } = require('./web/log-ws');
 const log = {
-    debug: (...args) => _pino.debug(args.join(' ')),
-    info: (...args) => _pino.info(args.join(' ')),
-    warn: (...args) => _pino.warn(args.join(' ')),
-    error: (...args) => _pino.error(args.join(' ')),
+    debug: (...args) => {
+        _pino.debug(args.join(' '));
+        broadcastLog({ level: 'debug', msg: args.join(' '), ts: Date.now() });
+    },
+    info: (...args) => {
+        _pino.info(args.join(' '));
+        broadcastLog({ level: 'info', msg: args.join(' '), ts: Date.now() });
+    },
+    warn: (...args) => {
+        _pino.warn(args.join(' '));
+        broadcastLog({ level: 'warn', msg: args.join(' '), ts: Date.now() });
+    },
+    error: (...args) => {
+        _pino.error(args.join(' '));
+        broadcastLog({ level: 'error', msg: args.join(' '), ts: Date.now() });
+    },
     setLevel: (level) => {
         _pino.level = level;
     },
@@ -37,7 +51,11 @@ log.debug('loaded config: ', config);
 
 if (typeof config.port !== 'undefined') {
     require('./web/server')
-        .startServer(config.port, { apiKey: config.apiKey, configPath: config.config })
+        .startServer(config.port, {
+            apiKey: config.apiKey,
+            configPath: config.config,
+            scriptDir: config.dir || null,
+        })
         .then((actualPort) => log.info('http server listening on :' + actualPort))
         .catch((err) => {
             log.error('http server start failed:', err.message);
@@ -68,6 +86,10 @@ const sandboxModules = [];
 const status = {};
 const scripts = {};
 const subscriptions = [];
+
+// Per-script resource tracking for hot-reload
+const scriptJobs = new Map(); // scriptFile → node-schedule Job[]
+const scriptTimers = new Map(); // scriptFile → Set<timer id>
 
 const _global = {};
 
@@ -274,6 +296,12 @@ function createScript(source, name) {
 function runScript(script, name) {
     const scriptDir = path.dirname(path.resolve(name));
 
+    // Initialise per-script resource tracking
+    if (!scriptJobs.has(name)) scriptJobs.set(name, []);
+    if (!scriptTimers.has(name)) scriptTimers.set(name, new Set());
+    const _myJobs = scriptJobs.get(name);
+    const _myTimers = scriptTimers.get(name);
+
     log.debug(name, 'creating domain');
     const scriptDomain = domain.create();
 
@@ -378,7 +406,7 @@ function runScript(script, name) {
                     options.condition = scriptDomain.bind(options.condition);
                 }
 
-                subscriptions.push({ topic, options, callback: typeof callback === 'function' && scriptDomain.bind(callback) });
+                subscriptions.push({ topic, options, callback: typeof callback === 'function' && scriptDomain.bind(callback), _script: name });
 
                 if (options.retain && status[topic] && typeof callback === 'function') {
                     callback(topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), status[topic].val, status[topic]);
@@ -443,11 +471,13 @@ function runScript(script, name) {
             }
 
             if (options.random) {
-                scheduler.scheduleJob(pattern, () => {
-                    setTimeout(scriptDomain.bind(callback), (parseFloat(options.random) || 0) * 1000 * Math.random());
-                });
+                _myJobs.push(
+                    scheduler.scheduleJob(pattern, () => {
+                        setTimeout(scriptDomain.bind(callback), (parseFloat(options.random) || 0) * 1000 * Math.random());
+                    }),
+                );
             } else {
-                scheduler.scheduleJob(pattern, scriptDomain.bind(callback));
+                _myJobs.push(scheduler.scheduleJob(pattern, scriptDomain.bind(callback)));
             }
         },
 
@@ -506,6 +536,7 @@ function runScript(script, name) {
                 callback,
                 context: she,
                 domain: scriptDomain,
+                _script: name,
             };
 
             sunEvents.push(obj);
@@ -643,10 +674,24 @@ function runScript(script, name) {
     she.log = she.info;
 
     const Sandbox = {
-        setTimeout,
-        setInterval,
-        clearTimeout,
-        clearInterval,
+        setTimeout: (fn, delay, ...args) => {
+            const id = setTimeout(fn, delay, ...args);
+            _myTimers.add(id);
+            return id;
+        },
+        setInterval: (fn, delay, ...args) => {
+            const id = setInterval(fn, delay, ...args);
+            _myTimers.add(id);
+            return id;
+        },
+        clearTimeout: (id) => {
+            _myTimers.delete(id);
+            clearTimeout(id);
+        },
+        clearInterval: (id) => {
+            _myTimers.delete(id);
+            clearInterval(id);
+        },
 
         Buffer,
 
@@ -747,6 +792,38 @@ function loadScript(file) {
     });
 }
 
+function unloadScript(file) {
+    file = file.replace(/\\/g, '/');
+    log.info(file, 'unloading');
+
+    // Remove MQTT subscriptions belonging to this script
+    for (let i = subscriptions.length - 1; i >= 0; i--) {
+        if (subscriptions[i]._script === file) subscriptions.splice(i, 1);
+    }
+
+    // Cancel all node-schedule jobs for this script
+    const jobs = scriptJobs.get(file);
+    if (jobs) {
+        jobs.forEach((job) => job && job.cancel());
+        scriptJobs.delete(file);
+    }
+
+    // Remove sun events belonging to this script
+    for (let i = sunEvents.length - 1; i >= 0; i--) {
+        if (sunEvents[i]._script === file) sunEvents.splice(i, 1);
+    }
+
+    // Clear all tracked timers for this script
+    const timers = scriptTimers.get(file);
+    if (timers) {
+        timers.forEach((id) => clearTimeout(id));
+        scriptTimers.delete(file);
+    }
+
+    // Remove from scripts map so it can be re-loaded
+    delete scripts[file];
+}
+
 function loadSandbox(callback) {
     const dir = path.join(__dirname, 'sandbox');
     fs.readdir(dir, (err, data) => {
@@ -774,7 +851,7 @@ function loadSandbox(callback) {
                 sandboxWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
                 sandboxWatcher.on('all', (event, filePath) => {
                     sandboxWatcher.close();
-                    log.info(filePath, 'change detected. exiting.');
+                    log.info(filePath, 'sandbox change detected. exiting.');
                     process.exit(0);
                 });
             }
@@ -809,9 +886,22 @@ function loadDir(dir) {
                 });
                 dirWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
                 dirWatcher.on('all', (event, filePath) => {
-                    dirWatcher.close();
-                    log.info(filePath, 'change detected. exiting.');
-                    process.exit(0);
+                    filePath = filePath.replace(/\\/g, '/');
+                    if (event === 'change' && filePath.endsWith('.js')) {
+                        log.info(filePath, 'change detected. hot-reloading.');
+                        unloadScript(filePath);
+                        loadScript(filePath);
+                    } else if (event === 'add' && filePath.endsWith('.js')) {
+                        log.info(filePath, 'added. loading.');
+                        loadScript(filePath);
+                    } else if (event === 'unlink') {
+                        log.info(filePath, 'removed. unloading.');
+                        unloadScript(filePath);
+                    } else {
+                        dirWatcher.close();
+                        log.info(filePath, 'change detected. exiting.');
+                        process.exit(0);
+                    }
                 });
             }
         }

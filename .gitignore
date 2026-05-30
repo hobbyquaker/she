@@ -4,3 +4,5 @@ node_modules
 coverage
 .nyc_output
 .cache
+dist/web
+web/node_modules

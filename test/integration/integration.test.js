@@ -411,10 +411,21 @@ describe('mqtt connection', () => {
 });
 
 describe('script file changes', () => {
-    it('should quit when a script file changes', (done) => {
-        subscribe('ms', /change detected\. exiting/, () => done());
+    const test1Path = path.join(__dirname, '../testscripts/test1.js');
+    let test1Original;
+
+    beforeAll(() => {
+        test1Original = fs.readFileSync(test1Path, 'utf8');
+    });
+
+    afterAll(() => {
+        fs.writeFileSync(test1Path, test1Original);
+    });
+
+    it('should hot-reload when a script file changes', (done) => {
+        subscribe('ms', /change detected\. hot-reloading/, () => done());
         setTimeout(() => {
-            fs.appendFileSync(path.join(__dirname, '../testscripts/test1.js'), "\nshe.info('appended!');\n");
+            fs.appendFileSync(test1Path, "\nshe.info('appended!');\n");
         }, 1000);
     }, 10000);
 });
