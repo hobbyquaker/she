@@ -126,5 +126,7 @@ module.exports = function (she) {
         link: (...args) => she.link(...args),
         /** Seconds since the topic's value last changed. */
         age: (topic) => she.age(topic),
+        /** Register a callback for MQTT connection lifecycle events ('connect' or 'disconnect'). */
+        on: (event, cb) => she._registerMqttEvent(event, cb),
     };
 };

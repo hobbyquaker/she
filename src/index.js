@@ -91,6 +91,7 @@ const sandboxModules = [];
 const store = new StateStore();
 const scripts = {};
 const subscriptions = [];
+const mqttEventCallbacks = [];
 
 // Per-script resource tracking for hot-reload
 const scriptJobs = new Map(); // scriptFile → node-schedule Job[]
@@ -232,6 +233,7 @@ mqtt.on('connect', () => {
     log.info('mqtt connected ' + config.url);
     log.debug('mqtt subscribe #');
     mqtt.subscribe('#');
+    mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => c.callback());
     if (firstConnect) {
         // Wait until retained topics are received before we load the scripts (timeout is prolonged on incoming retained messages)
         startTimeout = setTimeout(start, 500);
@@ -243,6 +245,7 @@ mqtt.on('close', () => {
         firstConnect = false;
         connected = false;
         log.info('mqtt closed ' + config.url);
+        mqttEventCallbacks.filter((c) => c.event === 'disconnect').forEach((c) => c.callback());
     }
 });
 
@@ -677,6 +680,90 @@ function runScript(script, name) {
             }
             return store.getObject('mqtt::' + topic);
         },
+
+        /**
+         * Universal read by namespaced key.
+         * @method get
+         * @param {string} key  Namespaced key, e.g. 'mqtt::home/sensor/temp' or 'var::myVar'
+         * @returns {*} current value, or undefined
+         */
+        get: function Sandbox_she_get(key) {
+            if (key.startsWith('var::')) {
+                return store.get('mqtt::' + config.variablePrefix + '/status/' + key.slice(5));
+            }
+            return store.get(key);
+        },
+
+        /**
+         * Universal read (full state object) by namespaced key.
+         * @method getObject
+         * @param {string} key
+         * @returns {{ val:*, ts:number, lc:number } | undefined}
+         */
+        getObject: function Sandbox_she_getObject(key) {
+            if (key.startsWith('var::')) {
+                return store.getObject('mqtt::' + config.variablePrefix + '/status/' + key.slice(5));
+            }
+            return store.getObject(key);
+        },
+
+        /**
+         * Universal subscribe by namespaced key.
+         * Callback receives (val, obj, prevObj).
+         * @method on
+         * @param {string} key  Namespaced key: 'mqtt::topic', 'var::name', 'matter::nodeId/ep/Cluster/attr'
+         * @param {function} callback
+         */
+        on: function Sandbox_she_on(key, callback) {
+            if (typeof key !== 'string') throw new TypeError('she.on: key must be a string');
+            if (typeof callback !== 'function') throw new TypeError('she.on: callback must be a function');
+
+            if (key.startsWith('mqtt::')) {
+                she.mqttsub(key.slice(6), { retain: true }, (_topic, val, obj, prevObj) => {
+                    callback(val, obj, prevObj);
+                });
+            } else if (key.startsWith('var::')) {
+                she.mqttsub(config.variablePrefix + '/status/' + key.slice(5), { retain: true }, (_topic, val, obj, prevObj) => {
+                    callback(val, obj, prevObj);
+                });
+            } else if (key.startsWith('matter::')) {
+                const parts = key.slice(8).split('/');
+                if (parts.length !== 4) throw new TypeError('she.on: invalid matter key (expected matter::nodeId/ep/Cluster/attr)');
+                const [nodeId, endpointId, clusterName, attrName] = parts;
+                if (!she.matter) throw new Error('she.on: Matter not configured');
+                she.matter.sub(Number(nodeId), Number(endpointId), clusterName, attrName, callback);
+            } else {
+                throw new TypeError('she.on: unknown namespace in key: ' + key);
+            }
+        },
+
+        /**
+         * Universal write by namespaced key.
+         * @method set
+         * @param {string} key  Namespaced key: 'mqtt::topic', 'var::name'
+         * @param {*} val
+         */
+        set: function Sandbox_she_set(key, val) {
+            if (typeof key !== 'string') throw new TypeError('she.set: key must be a string');
+
+            if (key.startsWith('mqtt::')) {
+                she.mqttpub(key.slice(6), val);
+            } else if (key.startsWith('var::')) {
+                she.setValue(config.variablePrefix + '//' + key.slice(5), val);
+            } else if (key.startsWith('matter::')) {
+                throw new Error('she.set: matter:: write not yet implemented');
+            } else {
+                throw new TypeError('she.set: unknown namespace in key: ' + key);
+            }
+        },
+
+        /** @internal Register a callback for MQTT connection lifecycle events. */
+        _registerMqttEvent: function Sandbox_she_registerMqttEvent(event, callback) {
+            if (event !== 'connect' && event !== 'disconnect') {
+                throw new TypeError('she.mqtt.on: unknown event "' + event + '" — use "connect" or "disconnect"');
+            }
+            mqttEventCallbacks.push({ event, callback: scriptDomain.bind(callback), _script: name });
+        },
     };
 
     // she.log is an alias for she.info
@@ -808,6 +895,11 @@ function unloadScript(file) {
     // Remove MQTT subscriptions belonging to this script
     for (let i = subscriptions.length - 1; i >= 0; i--) {
         if (subscriptions[i]._script === file) subscriptions.splice(i, 1);
+    }
+
+    // Remove MQTT event callbacks (connect/disconnect) belonging to this script
+    for (let i = mqttEventCallbacks.length - 1; i >= 0; i--) {
+        if (mqttEventCallbacks[i]._script === file) mqttEventCallbacks.splice(i, 1);
     }
 
     // Cancel all node-schedule jobs for this script
