@@ -48,7 +48,6 @@
 - **`usePolling: true`** in all `chokidar.watch()` calls — required for WSL2 NTFS paths (`/mnt/c/...`)
 - pino must use **same-thread sync stream** (`PinoPretty({ sync: true })`), not the worker-thread transport, so the last log line before `process.exit(0)` is not lost
 - CoffeeScript support has been removed; only `.js` scripts are loaded
-- No git push — stay local only
 
 ## Branch
 
