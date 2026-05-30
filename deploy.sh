@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REMOTE=root@she
-REMOTE_DIR=/usr/local/lib/node_modules/she
+REMOTE_DIR=/usr/local/lib/node_modules/smart-home-engine
 
 echo "==> Packing..."
 TARBALL=$(npm pack --quiet)
