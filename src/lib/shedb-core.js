@@ -3,8 +3,8 @@
 /**
  * SheDB Core — vendored and simplified from hobbyquaker/mqttDB.
  *
- * Key simplifications vs. original:
- *   - No cluster/workers: views run in-process via vm.Script
+ * Key differences vs. original:
+ *   - View execution delegated to a single worker_threads Worker
  *   - No obj-ease dependency: prop utilities inlined below
  *   - No external persistence library: atomic JSON via tmp+rename
  *   - Logging via pino-style `log` object instead of yalm
@@ -18,7 +18,8 @@
 
 const fs = require('fs');
 const vm = require('vm');
-const domain = require('domain');
+const path = require('path');
+const { Worker } = require('worker_threads');
 const { EventEmitter } = require('events');
 const mqttWildcard = require('./mqtt-wildcards');
 
@@ -109,11 +110,12 @@ class SheDBCore extends EventEmitter {
         /** Global revision counter — increments on every document change */
         this.rev = 0;
 
-        this._viewEnvs = {}; // id → { script, context, sandbox, compileError }
-        this._viewQueue = [];
-        this._viewRunning = false;
+        this._viewEnvs = {}; // id → { compileError? } — only syntax-check metadata
         this._saveTimer = null;
+        this._sendDbScheduled = false;
+        this._worker = null;
 
+        this._spawnWorker();
         this._load();
     }
 
@@ -135,11 +137,11 @@ class SheDBCore extends EventEmitter {
             }
         }
 
-        // Recompile all persisted views
+        // Syntax-check persisted views and send state to worker
         for (const id of Object.keys(this.queries)) {
-            this._compileView(id, this.queries[id]);
-            this._enqueueView(id);
+            this._syntaxCheck(id, this.queries[id]);
         }
+        this._sendInitialState();
 
         setImmediate(() => this.emit('ready'));
     }
@@ -213,7 +215,7 @@ class SheDBCore extends EventEmitter {
             this.rev++;
             this._save();
             this.emit('update', id, this.docs[id]);
-            this._enqueueAllViews();
+            this._sendDb();
             return true;
         }
         this._setRev(id, rev);
@@ -242,7 +244,7 @@ class SheDBCore extends EventEmitter {
             this.rev++;
             this._save();
             this.emit('update', id, this.docs[id]);
-            this._enqueueAllViews();
+            this._sendDb();
             return true;
         }
         this._setRev(id, rev);
@@ -254,7 +256,7 @@ class SheDBCore extends EventEmitter {
         this.rev++;
         this._save();
         this.emit('update', id, '');
-        this._enqueueAllViews();
+        this._sendDb();
     }
 
     /**
@@ -285,7 +287,7 @@ class SheDBCore extends EventEmitter {
             this.rev++;
             this._save();
             this.emit('update', id, this.docs[id]);
-            this._enqueueAllViews();
+            this._sendDb();
             return true;
         }
         this._setRev(id, rev);
@@ -307,12 +309,14 @@ class SheDBCore extends EventEmitter {
             delete this._viewEnvs[id];
             delete this.views[id];
             this._save();
+            if (this._worker) this._worker.postMessage({ type: 'delQuery', id });
             this.emit('view', id, '');
             return;
         }
         this.queries[id] = payload;
-        this._compileView(id, payload);
-        this._enqueueView(id);
+        // Fast in-process syntax check — report compile errors immediately
+        if (!this._syntaxCheck(id, payload)) return;
+        if (this._worker) this._worker.postMessage({ type: 'query', id, payload });
         this._save();
         this.emit('query', id);
     }
@@ -337,123 +341,106 @@ class SheDBCore extends EventEmitter {
     }
 
     // -------------------------------------------------------------------------
-    // Internal view machinery (in-process vm, no cluster)
+    // Worker thread management
     // -------------------------------------------------------------------------
 
-    _compileView(id, { filter, map, reduce }) {
+    _spawnWorker() {
+        this._worker = new Worker(path.join(__dirname, 'shedb-worker.js'), {
+            workerData: { scriptTimeout: this.scriptTimeout },
+        });
+
+        this._worker.on('message', (msg) => {
+            if (msg.type !== 'view') return;
+            const { id } = msg;
+
+            if (msg.deleted) return; // deletion already handled in query()
+
+            const prev = this.views[id] || { _id: id, _rev: -1 };
+
+            if (msg.error) {
+                this.views[id] = { _id: id, _rev: prev._rev ?? -1, error: msg.error };
+                delete this.views[id].result;
+                this.log.error('shedb view ' + id + ': ' + msg.error);
+                this.emit('view', id, this.views[id]);
+                this._save();
+                return;
+            }
+
+            if (!deepEqual(msg.result, prev.result)) {
+                this.views[id] = { _id: id, _rev: (prev._rev ?? -1) + 1, result: msg.result, length: msg.result.length };
+                delete this.views[id].error;
+                this.emit('view', id, this.views[id]);
+                this._save();
+            }
+        });
+
+        this._worker.on('error', (err) => {
+            this.log.error('shedb worker error: ' + err.message);
+        });
+
+        this._worker.on('exit', (code) => {
+            this._worker = null;
+            if (code !== 0) {
+                this.log.error('shedb worker exited with code ' + code + ', restarting in 1s');
+                setTimeout(() => {
+                    this._spawnWorker();
+                    this._sendInitialState();
+                }, 1000);
+            }
+        });
+    }
+
+    /** Send full docs snapshot to the worker (debounced via setImmediate). */
+    _sendDb() {
+        if (this._sendDbScheduled) return;
+        this._sendDbScheduled = true;
+        setImmediate(() => {
+            this._sendDbScheduled = false;
+            if (this._worker) {
+                this._worker.postMessage({ type: 'db', docs: structuredClone(this.docs) });
+            }
+        });
+    }
+
+    /** Send full state (docs + all queries) to the worker — used on init and respawn. */
+    _sendInitialState() {
+        if (!this._worker) return;
+        this._worker.postMessage({ type: 'db', docs: structuredClone(this.docs) });
+        for (const id of Object.keys(this.queries)) {
+            this._worker.postMessage({ type: 'query', id, payload: this.queries[id] });
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Syntax check — fast in-process compile, no execution
+    // -------------------------------------------------------------------------
+
+    _syntaxCheck(id, { filter, map, reduce }) {
         if (!this._viewEnvs[id]) this._viewEnvs[id] = {};
         const env = this._viewEnvs[id];
 
-        // Script mirrors the mqttDB worker approach:
-        //   api.map is applied to each document (with `this` = doc)
-        //   emit() pushes items to api._result
-        //   optional reduce runs on the full result array
         let src = `api.map = function() {\n${map}\n};\napi._result = [];\n`;
         if (filter) {
-            src += `api.forEachDocument(id => { if (api.mqttWildcard(id, ${JSON.stringify(filter)})) api.map.apply(api.getDocument(id)); });\n`;
+            src += `api.forEachDocument(docId => { if (api.mqttWildcard(docId, ${JSON.stringify(filter)})) api.map.apply(api.getDocument(docId)); });\n`;
         } else {
-            src += `api.forEachDocument(id => { api.map.apply(api.getDocument(id)); });\n`;
+            src += `api.forEachDocument(docId => { api.map.apply(api.getDocument(docId)); });\n`;
         }
         if (reduce) {
             src += `api.reduce = function(result) {\n${reduce}\n};\napi._result = api.reduce(api._result);\n`;
         }
 
-        // Sandbox — forEachDocument / getDocument use live `this.docs` via closure
-        const sandbox = {
-            api: {
-                forEachDocument: (cb) => Object.keys(this.docs).forEach(cb),
-                getDocument: (docId) => this.docs[docId],
-                getProp,
-                mqttWildcard,
-                _result: [],
-            },
-        };
-        sandbox.emit = (item) => sandbox.api._result.push(item);
-
         try {
-            env.script = new vm.Script(src, { filename: 'shedb-view-' + id });
-            env.context = vm.createContext(sandbox);
-            env.sandbox = sandbox;
+            new vm.Script(src, { filename: 'shedb-view-' + id });
             delete env.compileError;
+            return true;
         } catch (err) {
-            env.script = null;
             env.compileError = 'compile: ' + err.message;
             this.log.error('shedb view ' + id + ': ' + env.compileError);
             const rev = (this.views[id]?._rev ?? -1) + 1;
             this.views[id] = { _id: id, _rev: rev, error: env.compileError };
             this.emit('view', id, this.views[id]);
+            return false;
         }
-    }
-
-    _enqueueView(id) {
-        if (!this._viewQueue.includes(id)) this._viewQueue.push(id);
-        if (!this._viewRunning) this._shiftViewQueue();
-    }
-
-    _enqueueAllViews() {
-        setImmediate(() => {
-            for (const id of Object.keys(this.queries)) this._enqueueView(id);
-        });
-    }
-
-    _shiftViewQueue() {
-        if (this._viewQueue.length === 0) return;
-        const id = this._viewQueue.shift();
-        const env = this._viewEnvs[id];
-        if (!env?.script) {
-            setImmediate(() => this._shiftViewQueue());
-            return;
-        }
-        this._viewRunning = true;
-        this._execView(id, () => {
-            this._viewRunning = false;
-            setImmediate(() => this._shiftViewQueue());
-        });
-    }
-
-    _execView(id, done) {
-        const env = this._viewEnvs[id];
-        if (!env?.script) return done();
-
-        const d = domain.create();
-        d.on('error', (err) => {
-            const rev = this.views[id]?._rev ?? -1;
-            this.views[id] = { _id: id, _rev: rev, error: 'runtime: ' + err.message };
-            delete this.views[id].result;
-            this.log.error('shedb view ' + id + ': ' + this.views[id].error);
-            this.emit('view', id, this.views[id]);
-            this._save();
-            done();
-        });
-
-        d.run(() => {
-            setImmediate(() => {
-                try {
-                    env.script.runInContext(env.context, {
-                        filename: 'shedb-view-' + id,
-                        timeout: this.scriptTimeout,
-                    });
-
-                    const result = Array.from(env.context.api._result);
-                    const prev = this.views[id] || { _id: id, _rev: -1 };
-
-                    if (!deepEqual(result, prev.result)) {
-                        this.views[id] = { _id: id, _rev: (prev._rev ?? -1) + 1, result, length: result.length };
-                        delete this.views[id].error;
-                        this.emit('view', id, this.views[id]);
-                        this._save();
-                    }
-                } catch (err) {
-                    const rev = this.views[id]?._rev ?? -1;
-                    this.views[id] = { _id: id, _rev: rev, error: 'runtime: ' + err.message };
-                    delete this.views[id].result;
-                    this.log.error('shedb view ' + id + ': ' + this.views[id].error);
-                    this.emit('view', id, this.views[id]);
-                    this._save();
-                }
-                done();
-            });
-        });
     }
 }
 
