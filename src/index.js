@@ -185,9 +185,72 @@ function sunScheduleEvent(obj, shift) {
     }
 }
 
-// MQTT
-const mqtt = modules.mqtt.connect(config.url, { will: { topic: config.name + '/connected', payload: '0', retain: true } });
-mqtt.publish(config.name + '/connected', '2', { retain: true });
+// MQTT — only connect when a broker URL is configured
+let mqtt = null;
+let connected = false;
+
+if (config.url) {
+    mqtt = modules.mqtt.connect(config.url, { will: { topic: config.name + '/connected', payload: '0', retain: true } });
+    mqtt.publish(config.name + '/connected', '2', { retain: true });
+
+    mqtt.on('connect', () => {
+        connected = true;
+        log.info('mqtt connected ' + config.url);
+        log.debug('mqtt subscribe #');
+        mqtt.subscribe('#');
+        mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => c.callback());
+    });
+
+    mqtt.on('close', () => {
+        if (connected) {
+            connected = false;
+            log.info('mqtt closed ' + config.url);
+            mqttEventCallbacks.filter((c) => c.event === 'disconnect').forEach((c) => c.callback());
+        }
+    });
+
+    /* istanbul ignore next */
+    mqtt.on('error', () => {
+        log.error('mqtt error ' + config.url);
+    });
+
+    mqtt.on('message', (topic, payload, msg) => {
+        if (shedb.handleMqttMessage(topic, payload)) return;
+
+        const state = require('./lib/parse-payload')(payload);
+
+        const topicArr = topic.split('/');
+        let oldState;
+
+        if (topicArr[0] === config.variablePrefix && topicArr[1] === 'set' && !config.disableVariables) {
+            topicArr[1] = 'status';
+            topic = topicArr.join('/');
+            oldState = store.getObject('mqtt::' + topic) || {};
+            const ts = new Date().getTime();
+
+            state.ts = ts;
+
+            state.lc = state.val === oldState.val ? oldState.lc : ts;
+            store.setObject('mqtt::' + topic, state);
+            mqtt.publish(topic, JSON.stringify(state), { retain: true });
+        } else {
+            /* istanbul ignore next */
+            if (!state) {
+                log.error('invalid state', topic, payload);
+                process.exit();
+            }
+            if (!state.ts) {
+                state.ts = new Date().getTime();
+            }
+            oldState = store.getObject('mqtt::' + topic) || {};
+            if (oldState.val !== state.val) {
+                state.lc = state.ts;
+            }
+            store.setObject('mqtt::' + topic, state);
+            stateChange(topic, state, oldState, msg);
+        }
+    });
+}
 
 // sheDB — only init when --db-path is given
 if (config.dbPath) {
@@ -214,88 +277,8 @@ if (config.matterStorage) {
     });
 }
 
-let firstConnect = true;
-let startTimeout;
-let connected;
-
-// If MQTT is unavailable at startup, start scripts after a grace period anyway
-// so the daemon is usable (web UI, scheduling) even without a broker.
-const mqttConnectGrace = setTimeout(() => {
-    if (firstConnect) {
-        log.warn('mqtt not connected after grace period — starting scripts without retained state');
-        start();
-    }
-}, 10000);
-
-mqtt.on('connect', () => {
-    connected = true;
-    clearTimeout(mqttConnectGrace);
-    log.info('mqtt connected ' + config.url);
-    log.debug('mqtt subscribe #');
-    mqtt.subscribe('#');
-    mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => c.callback());
-    if (firstConnect) {
-        // Wait until retained topics are received before we load the scripts (timeout is prolonged on incoming retained messages)
-        startTimeout = setTimeout(start, 500);
-    }
-});
-
-mqtt.on('close', () => {
-    if (connected) {
-        firstConnect = false;
-        connected = false;
-        log.info('mqtt closed ' + config.url);
-        mqttEventCallbacks.filter((c) => c.event === 'disconnect').forEach((c) => c.callback());
-    }
-});
-
-/* istanbul ignore next */
-mqtt.on('error', () => {
-    log.error('mqtt error ' + config.url);
-});
-
-mqtt.on('message', (topic, payload, msg) => {
-    if (shedb.handleMqttMessage(topic, payload)) return;
-
-    if (firstConnect && msg.retain) {
-        // Retained message received - prolong the timeout
-        clearTimeout(startTimeout);
-        startTimeout = setTimeout(start, 500);
-    }
-
-    const state = require('./lib/parse-payload')(payload);
-
-    const topicArr = topic.split('/');
-    let oldState;
-
-    if (topicArr[0] === config.variablePrefix && topicArr[1] === 'set' && !config.disableVariables) {
-        topicArr[1] = 'status';
-        topic = topicArr.join('/');
-        oldState = store.getObject('mqtt::' + topic) || {};
-        const ts = new Date().getTime();
-
-        state.ts = ts;
-
-        state.lc = state.val === oldState.val ? oldState.lc : ts;
-        store.setObject('mqtt::' + topic, state);
-        mqtt.publish(topic, JSON.stringify(state), { retain: true });
-    } else {
-        /* istanbul ignore next */
-        if (!state) {
-            log.error('invalid state', topic, payload);
-            process.exit();
-        }
-        if (!state.ts) {
-            state.ts = new Date().getTime();
-        }
-        oldState = store.getObject('mqtt::' + topic) || {};
-        if (oldState.val !== state.val) {
-            state.lc = state.ts;
-        }
-        store.setObject('mqtt::' + topic, state);
-        stateChange(topic, state, oldState, msg);
-    }
-});
+// Start scripts immediately — MQTT retained state will populate the store asynchronously
+start();
 
 function stateChange(topic, state, oldState, msg) {
     subscriptions.forEach((subs) => {
@@ -581,6 +564,7 @@ function runScript(script, name) {
             } else {
                 payload = String(payload);
             }
+            if (!mqtt || !connected) return; // silently drop when MQTT is not connected
             mqtt.publish(topic, payload, options);
         },
 
@@ -1020,7 +1004,6 @@ function loadDir(dir) {
 }
 
 function start() {
-    firstConnect = false; // prevent start() from being called again on retained-message timer reset
     /* istanbul ignore if */
     if (config.file) {
         if (typeof config.file === 'string') {

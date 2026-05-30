@@ -37,7 +37,6 @@ const config = require('yargs')
         w: 'disable-watch',
     })
     .default({
-        'url': 'mqtt://127.0.0.1',
         'latitude': 48.7408,
         'longitude': 9.1778,
         'name': 'logic',
