@@ -170,8 +170,18 @@ let firstConnect = true;
 let startTimeout;
 let connected;
 
+// If MQTT is unavailable at startup, start scripts after a grace period anyway
+// so the daemon is usable (web UI, scheduling) even without a broker.
+const mqttConnectGrace = setTimeout(() => {
+    if (firstConnect) {
+        log.warn('mqtt not connected after grace period — starting scripts without retained state');
+        start();
+    }
+}, 10000);
+
 mqtt.on('connect', () => {
     connected = true;
+    clearTimeout(mqttConnectGrace);
     log.info('mqtt connected ' + config.url);
     log.debug('mqtt subscribe #');
     mqtt.subscribe('#');
