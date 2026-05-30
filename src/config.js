@@ -1,8 +1,7 @@
-const os = require('os');
 const fs = require('fs');
-const path = require('path');
+const { getConfigPath } = require('./lib/storage');
 
-const defaultConfigPath = path.join(os.homedir(), '.config', 'mqtt-scripts', 'config.json');
+const defaultConfigPath = getConfigPath();
 
 const config = require('yargs')
     .env('MQTTSCRIPTS')
@@ -17,7 +16,7 @@ const config = require('yargs')
     .describe('disable-watch', "disable file watching (don't exit process on file changes)")
     .describe('port', 'HTTP server port. 0 = OS-assigned random port. Omit to disable the web server.')
     .describe('api-key', 'Bearer token required on all /api/* requests. Omit to disable authentication.')
-    .describe('db-path', 'path to shedb JSON data file (enables sheDB when set)')
+    .describe('db-path', 'path to shedb JSON data file (enables sheDB when set). Default when omitted: ~/.she/shedb')
     .describe('db-retain', 'publish shedb document changes as retained MQTT messages')
     .alias({
         c: 'config',

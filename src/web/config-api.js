@@ -2,10 +2,10 @@
 
 const express = require('express');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const { getConfigPath } = require('../lib/storage');
 
-const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.config', 'mqtt-scripts', 'config.json');
+const DEFAULT_CONFIG_PATH = getConfigPath();
 
 const router = express.Router();
 

@@ -8,6 +8,9 @@
 
 /* eslint n/no-deprecated-api: "warn" */
 
+// Ensure ~/.she/ exists before anything else runs
+require('./lib/storage').ensureRoot();
+
 const PinoPretty = require('pino-pretty');
 const _pino = require('pino')(
     { level: 'debug' },
