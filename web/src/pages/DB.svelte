@@ -1,0 +1,601 @@
+<script lang="ts">
+    import { onMount } from 'svelte';
+    import { subscribeWs } from '../lib/ws.js';
+    import {
+        listDocs,
+        getDoc,
+        putDoc,
+        deleteDoc,
+        listViews,
+        getView,
+        putView,
+        deleteView,
+        getViewResult,
+        type ViewDefinition,
+        type ViewResult,
+    } from '../lib/api.js';
+
+    // ---- Document state ----
+    let docIds: string[] = $state([]);
+    let selectedDocId: string | null = $state(null);
+    let docEditor: string = $state('{}');
+    let docLoading = $state(false);
+    let docError: string | null = $state(null);
+
+    // ---- View state ----
+    let viewIds: string[] = $state([]);
+    let selectedViewId: string | null = $state(null);
+    let viewFilter = $state('');
+    let viewMap = $state('// emit(this.someProperty)');
+    let viewReduce = $state('');
+    let viewResult: ViewResult | null = $state(null);
+    let viewLoading = $state(false);
+    let viewError: string | null = $state(null);
+
+    // ---- Tabs inside DB panel ----
+    let panel: 'docs' | 'views' = $state('docs');
+
+    // ---- New document dialog ----
+    let newDocId = $state('');
+    let showNewDocForm = $state(false);
+
+    // ---- New view dialog ----
+    let newViewId = $state('');
+    let showNewViewForm = $state(false);
+
+    async function loadDocs() {
+        try {
+            docIds = await listDocs();
+        } catch {
+            /* shedb may not be initialised */
+        }
+    }
+
+    async function loadViews() {
+        try {
+            viewIds = await listViews();
+        } catch {
+            /* shedb may not be initialised */
+        }
+    }
+
+    async function selectDoc(id: string) {
+        selectedDocId = id;
+        docError = null;
+        docLoading = true;
+        try {
+            const doc = await getDoc(id);
+            docEditor = JSON.stringify(doc, null, 2);
+        } catch (e: unknown) {
+            docError = e instanceof Error ? e.message : String(e);
+        } finally {
+            docLoading = false;
+        }
+    }
+
+    async function saveDoc() {
+        if (!selectedDocId) return;
+        docError = null;
+        try {
+            const parsed = JSON.parse(docEditor);
+            await putDoc(selectedDocId, parsed);
+        } catch (e: unknown) {
+            docError = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    async function deleteSelectedDoc() {
+        if (!selectedDocId) return;
+        if (!confirm(`Delete document "${selectedDocId}"?`)) return;
+        try {
+            await deleteDoc(selectedDocId);
+            selectedDocId = null;
+            docEditor = '{}';
+        } catch (e: unknown) {
+            docError = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    async function createDoc() {
+        if (!newDocId.trim()) return;
+        try {
+            await putDoc(newDocId.trim(), {});
+            showNewDocForm = false;
+            await selectDoc(newDocId.trim());
+            newDocId = '';
+        } catch (e: unknown) {
+            docError = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    async function selectView(id: string) {
+        selectedViewId = id;
+        viewError = null;
+        viewLoading = true;
+        viewResult = null;
+        try {
+            const def: ViewDefinition = await getView(id);
+            viewFilter = def.filter ?? '';
+            viewMap = def.map;
+            viewReduce = def.reduce ?? '';
+            viewResult = await getViewResult(id).catch(() => null);
+        } catch (e: unknown) {
+            viewError = e instanceof Error ? e.message : String(e);
+        } finally {
+            viewLoading = false;
+        }
+    }
+
+    async function saveView() {
+        if (!selectedViewId) return;
+        viewError = null;
+        try {
+            const def: ViewDefinition = { map: viewMap };
+            if (viewFilter.trim()) def.filter = viewFilter.trim();
+            if (viewReduce.trim()) def.reduce = viewReduce.trim();
+            await putView(selectedViewId, def);
+        } catch (e: unknown) {
+            viewError = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    async function refreshViewResult() {
+        if (!selectedViewId) return;
+        try {
+            viewResult = await getViewResult(selectedViewId);
+        } catch (e: unknown) {
+            viewError = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    async function deleteSelectedView() {
+        if (!selectedViewId) return;
+        if (!confirm(`Delete view "${selectedViewId}"?`)) return;
+        try {
+            await deleteView(selectedViewId);
+            selectedViewId = null;
+            viewFilter = '';
+            viewMap = '// emit(this.someProperty)';
+            viewReduce = '';
+            viewResult = null;
+        } catch (e: unknown) {
+            viewError = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    async function createView() {
+        if (!newViewId.trim()) return;
+        const id = newViewId.trim();
+        try {
+            await putView(id, { map: '// emit(this.someProperty)' });
+            showNewViewForm = false;
+            newViewId = '';
+            await selectView(id);
+        } catch (e: unknown) {
+            viewError = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    onMount(() => {
+        loadDocs();
+        loadViews();
+
+        const unsubIds = subscribeWs('db:ids', (msg) => {
+            docIds = (msg.ids as string[]) ?? [];
+        });
+        const unsubViewIds = subscribeWs('db:viewIds', (msg) => {
+            viewIds = (msg.ids as string[]) ?? [];
+        });
+        const unsubChange = subscribeWs('db:change', async (msg) => {
+            const changedId = msg.id as string;
+            if (selectedDocId === changedId) {
+                if (msg.doc === null) {
+                    selectedDocId = null;
+                    docEditor = '{}';
+                } else {
+                    docEditor = JSON.stringify(msg.doc, null, 2);
+                }
+            }
+        });
+        const unsubViewUpdate = subscribeWs('db:viewUpdate', async (msg) => {
+            const updatedId = msg.id as string;
+            if (selectedViewId === updatedId) {
+                viewResult = await getViewResult(updatedId).catch(() => null);
+            }
+        });
+
+        return () => {
+            unsubIds();
+            unsubViewIds();
+            unsubChange();
+            unsubViewUpdate();
+        };
+    });
+</script>
+
+<div class="db-root">
+    <!-- Panel tabs -->
+    <div class="panel-tabs">
+        <button class:active={panel === 'docs'} onclick={() => (panel = 'docs')}>Documents</button>
+        <button class:active={panel === 'views'} onclick={() => (panel = 'views')}>Views</button>
+    </div>
+
+    {#if panel === 'docs'}
+        <div class="panel">
+            <!-- Left sidebar: doc list -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <span>Documents ({docIds.length})</span>
+                    <button class="btn-icon" onclick={() => (showNewDocForm = !showNewDocForm)} title="New document">+</button>
+                </div>
+                {#if showNewDocForm}
+                    <div class="new-item-form">
+                        <input bind:value={newDocId} placeholder="device/lamp1" onkeydown={(e) => e.key === 'Enter' && createDoc()} />
+                        <button onclick={createDoc}>Create</button>
+                    </div>
+                {/if}
+                <ul>
+                    {#each docIds as id (id)}
+                        <li class:selected={selectedDocId === id}>
+                            <button onclick={() => selectDoc(id)}>{id}</button>
+                        </li>
+                    {/each}
+                </ul>
+            </aside>
+
+            <!-- Right editor area -->
+            <main class="editor-area">
+                {#if selectedDocId}
+                    <div class="editor-toolbar">
+                        <span class="editor-title">{selectedDocId}</span>
+                        <button onclick={saveDoc}>Save</button>
+                        <button class="btn-danger" onclick={deleteSelectedDoc}>Delete</button>
+                    </div>
+                    {#if docError}
+                        <div class="error-bar">{docError}</div>
+                    {/if}
+                    {#if docLoading}
+                        <div class="loading">Loading…</div>
+                    {:else}
+                        <textarea class="json-editor" bind:value={docEditor} spellcheck="false" rows="30"></textarea>
+                    {/if}
+                {:else}
+                    <div class="empty-state">Select a document or create a new one.</div>
+                {/if}
+            </main>
+        </div>
+    {:else}
+        <div class="panel">
+            <!-- Left sidebar: view list -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <span>Views ({viewIds.length})</span>
+                    <button class="btn-icon" onclick={() => (showNewViewForm = !showNewViewForm)} title="New view">+</button>
+                </div>
+                {#if showNewViewForm}
+                    <div class="new-item-form">
+                        <input bind:value={newViewId} placeholder="myView" onkeydown={(e) => e.key === 'Enter' && createView()} />
+                        <button onclick={createView}>Create</button>
+                    </div>
+                {/if}
+                <ul>
+                    {#each viewIds as id (id)}
+                        <li class:selected={selectedViewId === id}>
+                            <button onclick={() => selectView(id)}>{id}</button>
+                        </li>
+                    {/each}
+                </ul>
+            </aside>
+
+            <!-- Right: view definition editor + result -->
+            <main class="editor-area">
+                {#if selectedViewId}
+                    <div class="editor-toolbar">
+                        <span class="editor-title">{selectedViewId}</span>
+                        <button onclick={saveView}>Save</button>
+                        <button onclick={refreshViewResult} title="Re-run view">Refresh</button>
+                        <button class="btn-danger" onclick={deleteSelectedView}>Delete</button>
+                    </div>
+                    {#if viewError}
+                        <div class="error-bar">{viewError}</div>
+                    {/if}
+                    {#if viewLoading}
+                        <div class="loading">Loading…</div>
+                    {:else}
+                        <label class="field-label">
+                            Filter (MQTT wildcard, optional)
+                            <input class="filter-input" bind:value={viewFilter} placeholder="devices/#" />
+                        </label>
+                        <label class="field-label">
+                            Map function — use <code>emit(value)</code> or <code>this.prop</code>
+                            <textarea class="js-editor" bind:value={viewMap} spellcheck="false" rows="8"></textarea>
+                        </label>
+                        <label class="field-label">
+                            Reduce function — receives <code>result</code> array, return new array (optional)
+                            <textarea class="js-editor" bind:value={viewReduce} spellcheck="false" rows="5"></textarea>
+                        </label>
+
+                        {#if viewResult}
+                            <div class="view-result">
+                                <div class="result-header">
+                                    Result
+                                    {#if viewResult.error}
+                                        <span class="badge-error">error</span>
+                                    {:else}
+                                        <span class="badge-ok">{viewResult.length ?? 0} items · rev {viewResult._rev}</span>
+                                    {/if}
+                                </div>
+                                {#if viewResult.error}
+                                    <pre class="result-error">{viewResult.error}</pre>
+                                {:else}
+                                    <pre class="result-json">{JSON.stringify(viewResult.result, null, 2)}</pre>
+                                {/if}
+                            </div>
+                        {/if}
+                    {/if}
+                {:else}
+                    <div class="empty-state">Select a view or create a new one.</div>
+                {/if}
+            </main>
+        </div>
+    {/if}
+</div>
+
+<style>
+    .db-root {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        font-size: 0.9rem;
+    }
+
+    .panel-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 4px 8px;
+        border-bottom: 1px solid #333;
+    }
+
+    .panel-tabs button {
+        background: none;
+        border: 1px solid #555;
+        color: #ccc;
+        padding: 3px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .panel-tabs button.active {
+        background: #444;
+        color: #fff;
+    }
+
+    .panel {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .sidebar {
+        width: 220px;
+        min-width: 160px;
+        border-right: 1px solid #333;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .sidebar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 8px;
+        border-bottom: 1px solid #333;
+        font-size: 0.8rem;
+        color: #aaa;
+    }
+
+    .btn-icon {
+        background: none;
+        border: 1px solid #555;
+        color: #ccc;
+        width: 22px;
+        height: 22px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 1rem;
+        line-height: 1;
+    }
+
+    .new-item-form {
+        display: flex;
+        gap: 4px;
+        padding: 4px 6px;
+        border-bottom: 1px solid #333;
+    }
+
+    .new-item-form input {
+        flex: 1;
+        background: #222;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.82rem;
+    }
+
+    .new-item-form button {
+        background: #2a6099;
+        border: none;
+        color: #fff;
+        padding: 2px 8px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.82rem;
+    }
+
+    .sidebar ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    .sidebar li button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        color: #ccc;
+        padding: 5px 10px;
+        cursor: pointer;
+        font-size: 0.82rem;
+        word-break: break-all;
+    }
+
+    .sidebar li.selected button,
+    .sidebar li button:hover {
+        background: #2a3a50;
+        color: #fff;
+    }
+
+    .editor-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 0;
+    }
+
+    .editor-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-bottom: 1px solid #333;
+    }
+
+    .editor-title {
+        flex: 1;
+        font-weight: bold;
+        font-size: 0.85rem;
+        color: #ddd;
+        word-break: break-all;
+    }
+
+    .editor-toolbar button {
+        background: #2a6099;
+        border: none;
+        color: #fff;
+        padding: 3px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.82rem;
+    }
+
+    .btn-danger {
+        background: #7a2020 !important;
+    }
+
+    .error-bar {
+        background: #4a1a1a;
+        color: #ff8080;
+        padding: 4px 10px;
+        font-size: 0.82rem;
+    }
+
+    .loading,
+    .empty-state {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .json-editor,
+    .js-editor {
+        flex: 1;
+        width: 100%;
+        background: #1a1a1a;
+        color: #d4d4d4;
+        border: none;
+        font-family: 'Cascadia Code', 'Fira Mono', monospace;
+        font-size: 0.82rem;
+        padding: 8px;
+        resize: none;
+        box-sizing: border-box;
+    }
+
+    .field-label {
+        display: flex;
+        flex-direction: column;
+        padding: 6px 8px 0;
+        font-size: 0.78rem;
+        color: #888;
+        gap: 3px;
+    }
+
+    .filter-input {
+        background: #222;
+        border: 1px solid #444;
+        color: #ddd;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 0.82rem;
+    }
+
+    .view-result {
+        margin: 8px;
+        border: 1px solid #333;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .result-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 10px;
+        background: #1e1e1e;
+        border-bottom: 1px solid #333;
+        font-size: 0.8rem;
+        color: #aaa;
+    }
+
+    .badge-ok {
+        background: #1a3a1a;
+        color: #6fbf6f;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+    }
+
+    .badge-error {
+        background: #3a1a1a;
+        color: #bf6f6f;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+    }
+
+    .result-json,
+    .result-error {
+        margin: 0;
+        padding: 8px;
+        background: #141414;
+        color: #d4d4d4;
+        font-family: 'Cascadia Code', 'Fira Mono', monospace;
+        font-size: 0.8rem;
+        overflow: auto;
+        max-height: 260px;
+        white-space: pre-wrap;
+    }
+
+    .result-error {
+        color: #ff8080;
+    }
+</style>

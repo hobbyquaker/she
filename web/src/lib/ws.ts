@@ -7,10 +7,19 @@ export interface LogEntry {
 }
 
 type LogHandler = (entry: LogEntry) => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type WsHandler = (msg: Record<string, any>) => void;
 
 let _ws: WebSocket | null = null;
 const _handlers = new Set<LogHandler>();
+const _wsHandlers = new Map<string, Set<WsHandler>>();
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function totalSubscribers() {
+    let n = _handlers.size;
+    for (const s of _wsHandlers.values()) n += s.size;
+    return n;
+}
 
 function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -31,6 +40,8 @@ function connect() {
                 const entry: LogEntry = { level: msg.level, msg: msg.msg, ts: msg.ts };
                 _handlers.forEach((h) => h(entry));
             }
+            const bucket = _wsHandlers.get(msg.type);
+            if (bucket) bucket.forEach((h) => h(msg));
         } catch {
             // ignore malformed frames
         }
@@ -38,7 +49,7 @@ function connect() {
 
     _ws.onclose = () => {
         _ws = null;
-        if (_handlers.size > 0) {
+        if (totalSubscribers() > 0) {
             _reconnectTimer = setTimeout(connect, 3000);
         }
     };
@@ -56,9 +67,23 @@ function disconnect() {
 
 export function subscribeLog(handler: LogHandler) {
     _handlers.add(handler);
-    if (_handlers.size === 1) connect();
+    if (totalSubscribers() === 1) connect();
     return () => {
         _handlers.delete(handler);
-        if (_handlers.size === 0) disconnect();
+        if (totalSubscribers() === 0) disconnect();
+    };
+}
+
+/**
+ * Subscribe to arbitrary WebSocket message types (e.g. 'db:ids', 'db:change').
+ * Returns an unsubscribe function.
+ */
+export function subscribeWs(type: string, handler: WsHandler) {
+    if (!_wsHandlers.has(type)) _wsHandlers.set(type, new Set());
+    _wsHandlers.get(type)!.add(handler);
+    if (totalSubscribers() === 1) connect();
+    return () => {
+        _wsHandlers.get(type)?.delete(handler);
+        if (totalSubscribers() === 0) disconnect();
     };
 }

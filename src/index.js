@@ -19,7 +19,8 @@ const _pino = require('pino')(
     }),
 );
 // Lazy import — log-ws exports a no-op broadcastLog when the HTTP server is not started.
-const { broadcastLog } = require('./web/log-ws');
+const { broadcastLog, broadcast } = require('./web/log-ws');
+const shedb = require('./web/shedb');
 const log = {
     debug: (...args) => {
         _pino.debug(args.join(' '));
@@ -166,6 +167,11 @@ function sunScheduleEvent(obj, shift) {
 const mqtt = modules.mqtt.connect(config.url, { will: { topic: config.name + '/connected', payload: '0', retain: true } });
 mqtt.publish(config.name + '/connected', '2', { retain: true });
 
+// sheDB — only init when --db-path is given
+if (config.dbPath) {
+    shedb.init({ dbPath: config.dbPath, dbRetain: config.dbRetain || false, mqttName: config.name, mqtt, log, broadcast });
+}
+
 let firstConnect = true;
 let startTimeout;
 let connected;
@@ -205,6 +211,8 @@ mqtt.on('error', () => {
 });
 
 mqtt.on('message', (topic, payload, msg) => {
+    if (shedb.handleMqttMessage(topic, payload)) return;
+
     if (firstConnect && msg.retain) {
         // Retained message received - prolong the timeout
         clearTimeout(startTimeout);
@@ -829,6 +837,10 @@ function unloadScript(file) {
         timers.forEach((id) => clearTimeout(id));
         scriptTimers.delete(file);
     }
+
+    // Remove shedb listeners belonging to this script
+    const shedbSandbox = require('./sandbox/shedb-sandbox');
+    shedbSandbox.cleanup(file);
 
     // Remove from scripts map so it can be re-loaded
     delete scripts[file];

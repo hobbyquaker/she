@@ -17,6 +17,8 @@ const config = require('yargs')
     .describe('disable-watch', "disable file watching (don't exit process on file changes)")
     .describe('port', 'HTTP server port. 0 = OS-assigned random port. Omit to disable the web server.')
     .describe('api-key', 'Bearer token required on all /api/* requests. Omit to disable authentication.')
+    .describe('db-path', 'path to shedb JSON data file (enables sheDB when set)')
+    .describe('db-retain', 'publish shedb document changes as retained MQTT messages')
     .alias({
         c: 'config',
         d: 'dir',
@@ -41,6 +43,7 @@ const config = require('yargs')
         'verbosity': 'info',
         'disable-variables': false,
         'disable-watch': false,
+        'db-retain': false,
         'config': fs.existsSync(defaultConfigPath) ? defaultConfigPath : undefined,
     })
     .config('config')

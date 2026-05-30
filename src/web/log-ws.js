@@ -34,15 +34,23 @@ function attachWss(httpServer) {
 }
 
 /**
+ * Broadcast an arbitrary JSON message to all connected WebSocket clients.
+ * @param {object} msg - must be JSON-serialisable
+ */
+function broadcast(msg) {
+    if (_clients.size === 0) return;
+    const str = JSON.stringify(msg);
+    for (const ws of _clients) {
+        if (ws.readyState === ws.OPEN) ws.send(str);
+    }
+}
+
+/**
  * Broadcast a structured log entry to all connected WebSocket clients.
  * @param {{ level: string, msg: string, ts: number }} entry
  */
 function broadcastLog(entry) {
-    if (_clients.size === 0) return;
-    const msg = JSON.stringify({ type: 'log', ...entry });
-    for (const ws of _clients) {
-        if (ws.readyState === ws.OPEN) ws.send(msg);
-    }
+    broadcast({ type: 'log', ...entry });
 }
 
 /**
@@ -60,4 +68,4 @@ function closeWss() {
     });
 }
 
-module.exports = { attachWss, broadcastLog, closeWss };
+module.exports = { attachWss, broadcast, broadcastLog, closeWss };

@@ -2,8 +2,9 @@
     import Scripts from './pages/Scripts.svelte';
     import Config from './pages/Config.svelte';
     import Logs from './pages/Logs.svelte';
+    import DB from './pages/DB.svelte';
 
-    type Page = 'scripts' | 'config' | 'logs';
+    type Page = 'scripts' | 'config' | 'logs' | 'db';
     let page = $state<Page>('scripts');
 </script>
 
@@ -13,6 +14,7 @@
         <button class:active={page === 'scripts'} onclick={() => (page = 'scripts')}>Scripts</button>
         <button class:active={page === 'config'} onclick={() => (page = 'config')}>Config</button>
         <button class:active={page === 'logs'} onclick={() => (page = 'logs')}>Logs</button>
+        <button class:active={page === 'db'} onclick={() => (page = 'db')}>DB</button>
     </nav>
 
     <main>
@@ -20,6 +22,8 @@
             <Scripts />
         {:else if page === 'config'}
             <Config />
+        {:else if page === 'db'}
+            <DB />
         {:else}
             <Logs />
         {/if}

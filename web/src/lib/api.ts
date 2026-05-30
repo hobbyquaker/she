@@ -66,3 +66,59 @@ export function getConfig(): Promise<Record<string, unknown>> {
 export function putConfig(cfg: Record<string, unknown>): Promise<{ ok: boolean; restartRequired: boolean }> {
     return request('PUT', '/she/config', cfg);
 }
+
+// ---- sheDB API ----
+
+export interface ViewDefinition {
+    filter?: string;
+    map: string;
+    reduce?: string;
+}
+
+export interface ViewResult {
+    _id: string;
+    _rev: number;
+    result?: unknown[];
+    length?: number;
+    error?: string;
+}
+
+export function listDocs(): Promise<string[]> {
+    return request('GET', '/she/db/docs');
+}
+
+export function getDoc(id: string): Promise<Record<string, unknown>> {
+    return request('GET', `/she/db/docs/${id}`);
+}
+
+export function putDoc(id: string, doc: Record<string, unknown>): Promise<{ ok: boolean }> {
+    return request('PUT', `/she/db/docs/${id}`, doc);
+}
+
+export function patchDoc(id: string, partial: Record<string, unknown>): Promise<{ ok: boolean }> {
+    return request('PATCH', `/she/db/docs/${id}`, partial);
+}
+
+export function deleteDoc(id: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/db/docs/${id}`);
+}
+
+export function listViews(): Promise<string[]> {
+    return request('GET', '/she/db/views');
+}
+
+export function getView(id: string): Promise<ViewDefinition> {
+    return request('GET', `/she/db/views/${id}`);
+}
+
+export function putView(id: string, view: ViewDefinition): Promise<{ ok: boolean }> {
+    return request('PUT', `/she/db/views/${id}`, view);
+}
+
+export function deleteView(id: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/db/views/${id}`);
+}
+
+export function getViewResult(id: string): Promise<ViewResult> {
+    return request('GET', `/she/db/views/${id}/result`);
+}
