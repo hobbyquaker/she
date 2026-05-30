@@ -21,8 +21,10 @@ declare const she: {
     warn(...args: any[]): void;
     error(...args: any[]): void;
     now(): number;
-    schedule(pattern: string | Date | object | (string | Date | object)[], opts?: { random?: number }, cb?: () => void): void;
-    sunSchedule(pattern: string | string[], opts?: { shift?: number; random?: number }, cb?: () => void): void;
+    /** Schedule with a cron string, Date, node-schedule literal, array of any of those,
+     *  or a suncalc event name ('sunrise', 'sunset', 'dawn', 'dusk', …) for solar scheduling.
+     *  opts.shift (seconds) offsets solar events; opts.random adds a random delay. */
+    schedule(pattern: string | Date | object | (string | Date | object)[], opts?: { shift?: number; random?: number }, cb?: () => void): void;
     combineBool(srcs: string[], target: string): void;
     combineMax(srcs: string[], target: string): void;
     timer(src: string | string[], target: string, time: number): void;
@@ -40,6 +42,34 @@ declare const she: {
         post(path: string, handler: (req: any, body: any) => any): void;
         put(path: string, handler: (req: any, body: any) => any): void;
         delete(path: string, handler: (req: any) => any): void;
+    };
+    db: {
+        get(id: string): any;
+        set(id: string, doc: object): void;
+        extend(id: string, partial: object): void;
+        delete(id: string): void;
+        prop(id: string, method: 'set' | 'create' | 'del', prop: string, val?: any): void;
+        sub(pattern: string, callback: (id: string, doc: any) => void): void;
+        query(filter: string | null, mapFn: Function, reduceFn?: Function): any[];
+    };
+    matter: {
+        sub(nodeId: string, endpointId: number, cluster: string, attr: string, cb: (val: any, old: any) => void): number;
+        unsub(listenerId: number): void;
+        get(nodeId: string, endpointId: number, cluster: string, attr: string): Promise<any>;
+        send(nodeId: string, endpointId: number, cluster: string, command: string, args?: object): Promise<any>;
+        on(nodeId: string, endpointId: number, cluster: string, event: string, cb: (val: any) => void): number;
+    };
+    influx: {
+        query(fluxQuery: string): Promise<any[]>;
+        write(measurement: string, fields: object, tags?: object, timestamp?: number | Date): Promise<void>;
+        getLast(topic: string, n: number): Promise<Array<{ ts: number; val: any }>>;
+        getRange(topic: string, from: number | string | Date, to: number | string | Date): Promise<Array<{ ts: number; val: any }>>;
+    };
+    elastic: {
+        search(index: string, query: object): Promise<{ hits: any[]; total: number }>;
+        get(index: string, id: string): Promise<object | null>;
+        index(index: string, doc: object, id?: string): Promise<{ id: string }>;
+        find(index: string, field: string, text: string, size?: number): Promise<any[]>;
     };
 };
 `;

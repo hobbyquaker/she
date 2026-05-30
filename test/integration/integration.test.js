@@ -167,19 +167,19 @@ describe('argument checks', () => {
     it('should throw on wrong options.condition for she.mqttsub()', (done) => {
         subscribe('ms', /testscripts\/test17\.js.*Error: options.condition/, () => done());
     }, 20000);
-    it('should throw on unknown suncalc event for she.sunSchedule()', (done) => {
+    it('should throw on unknown suncalc event for she.schedule()', (done) => {
         subscribe('ms', /testscripts\/test8\.js.*TypeError: unknown suncalc event/, () => done());
     }, 20000);
-    it('should throw on wrong number of arguments for she.sunSchedule()', (done) => {
+    it('should throw on wrong number of arguments for she.schedule()', (done) => {
         subscribe('ms', /testscripts\/test9\.js.*Error: wrong number of arguments/, () => done());
     }, 20000);
-    it('should throw on wrong callback type for she.sunSchedule() #1', (done) => {
+    it('should throw on wrong callback type for she.schedule() (sun) #1', (done) => {
         subscribe('ms', /testscripts\/test10\.js.*TypeError: callback is not a function/, () => done());
     }, 20000);
-    it('should throw on wrong callback type for she.sunSchedule() #2', (done) => {
+    it('should throw on wrong callback type for she.schedule() (sun) #2', (done) => {
         subscribe('ms', /testscripts\/test11\.js.*TypeError: callback is not a function/, () => done());
     }, 20000);
-    it('should throw on out-of-range shift for she.sunSchedule()', (done) => {
+    it('should throw on out-of-range shift for she.schedule()', (done) => {
         subscribe('ms', /testscripts\/test15\.js.*Error: options.shift out of range/, () => done());
     }, 20000);
     it('should throw on wrong callback type for she.schedule() #1', (done) => {

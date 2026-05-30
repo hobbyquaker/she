@@ -19,6 +19,8 @@ const config = require('yargs')
     .describe('db-path', 'path to shedb JSON data file (enables sheDB when set). Default when omitted: ~/.she/shedb')
     .describe('db-retain', 'publish shedb document changes as retained MQTT messages')
     .describe('matter-storage', 'path to Matter controller storage directory (enables Matter when set). Default when flag is present: ~/.she/matter')
+    .describe('influx', 'InfluxDB connection options as a JSON object: { "url", "token", "org", "bucket" }. Enables she.influx.* when set.')
+    .describe('elastic', 'Elasticsearch connection options as a JSON object: { "node", "auth": { "apiKey" } }. Enables she.elastic.* when set.')
     .alias({
         c: 'config',
         d: 'dir',

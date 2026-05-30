@@ -1,1 +1,1 @@
-she.sunSchedule('tatooine', () => {});
+she.schedule('tatooine', () => {});

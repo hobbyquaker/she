@@ -21,6 +21,8 @@
     "author": "Sebastian 'hobbyquaker' Raff <hobbyquaker@gmail.com>",
     "license": "MIT",
     "dependencies": {
+        "@elastic/elasticsearch": "^9.4.2",
+        "@influxdata/influxdb-client": "^1.35.0",
         "@matter/main": "^0.17.0",
         "chokidar": "^4.0.0",
         "express": "^5.2.1",

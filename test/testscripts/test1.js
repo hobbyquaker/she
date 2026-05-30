@@ -62,11 +62,11 @@ she.info(require('dummy'));
 require('./lib/libtest2.js');
 const suncalc = require('suncalc');
 
-she.sunSchedule('sunrise', { shift: -1620, random: 360 }, () => {
+she.schedule('sunrise', { shift: -1620, random: 360 }, () => {
     she.info('27-33min before sunrise');
 });
 
-she.sunSchedule(['dawn', 'dusk'], () => {
+she.schedule(['dawn', 'dusk'], () => {
     she.info('multiple sun events');
 });
 
@@ -80,7 +80,3 @@ she.setValue('$testvar1', true);
 she.setValue('$testvar1', true);
 she.setValue('var/set/testvar2', true);
 she.setValue('var/set/testvar2', { val: true });
-
-she.info('appended!');
-
-she.info('appended!');

@@ -99,6 +99,23 @@ const _global = {};
 
 // Sun scheduling
 
+const SUNCALC_EVENTS = new Set([
+    'sunrise',
+    'sunriseEnd',
+    'goldenHourEnd',
+    'solarNoon',
+    'goldenHour',
+    'sunsetStart',
+    'sunset',
+    'dusk',
+    'nauticalDusk',
+    'night',
+    'nadir',
+    'nightEnd',
+    'nauticalDawn',
+    'dawn',
+]);
+
 const sunEvents = [];
 let sunTimes = [{}, /* today */ {}, /* tomorrow */ {}];
 
@@ -173,6 +190,16 @@ mqtt.publish(config.name + '/connected', '2', { retain: true });
 // sheDB — only init when --db-path is given
 if (config.dbPath) {
     shedb.init({ dbPath: config.dbPath, dbRetain: config.dbRetain || false, mqttName: config.name, mqtt, log, broadcast });
+}
+
+// InfluxDB — only init when --influx is set
+if (config.influx) {
+    require('./influx').init(config.influx);
+}
+
+// Elasticsearch — only init when --elastic is set
+if (config.elastic) {
+    require('./elastic').init(config.elastic);
 }
 
 // Matter controller — only init when --matter-storage is set
@@ -457,24 +484,16 @@ function runScript(script, name) {
         },
 
         /**
-         * Schedule recurring and one-shot events
+         * Schedule recurring and one-shot callbacks, including solar events.
+         * Pass a suncalc event name (e.g. 'sunrise', 'sunset') as pattern to schedule
+         * relative to a solar event; cron strings, Date objects, and node-schedule
+         * literals are also accepted.
          * @method schedule
-         * @param {(string|Date|Object|mixed[])} pattern - pattern or array of patterns. May be cron style string, Date object or node-schedule object literal. See {@link https://github.com/tejasmanohar/node-schedule/wiki}
+         * @param {string|Date|Object|Array} pattern - Cron string, suncalc event name, Date, node-schedule literal, or an array of any mix.
          * @param {Object} [options]
-         * @param {number} [options.random] - random delay execution in seconds. Has to be positive
+         * @param {number} [options.random] - random delay in seconds
+         * @param {number} [options.shift]  - offset in seconds for solar events (-86400…86400)
          * @param {function} callback - is called with no arguments
-         * @example // every full Hour.
-         * she.schedule('0 * * * *', callback);
-         *
-         * // Monday till friday, random between 7:30am an 8:00am
-         * she.schedule('30 7 * * 1-5', {random: 30 * 60}, callback);
-         *
-         * // once on 21. December 2018 at 5:30am
-         * she.schedule(new Date(2018, 12, 21, 5, 30, 0), callback);
-         *
-         * // every Sunday at 2:30pm
-         * she.schedule({hour: 14, minute: 30, dayOfWeek: 0}, callback);
-         * @see {@link sunSchedule} for scheduling based on sun position.
          */
         schedule: function Sandbox_schedule(pattern, /* optional */ options, callback) {
             if (arguments.length === 2) {
@@ -501,6 +520,27 @@ function runScript(script, name) {
                 return;
             }
 
+            // A string with no spaces is treated as a suncalc event name.
+            if (typeof pattern === 'string' && !pattern.includes(' ')) {
+                if (!SUNCALC_EVENTS.has(pattern)) {
+                    throw new TypeError('unknown suncalc event ' + pattern);
+                }
+                if (typeof options.shift !== 'undefined' && (options.shift < -86400 || options.shift > 86400)) {
+                    throw new Error('options.shift out of range');
+                }
+                const obj = {
+                    pattern,
+                    options,
+                    callback,
+                    context: she,
+                    domain: scriptDomain,
+                    _script: name,
+                };
+                sunEvents.push(obj);
+                sunScheduleEvent(obj);
+                return;
+            }
+
             if (options.random) {
                 _myJobs.push(
                     scheduler.scheduleJob(pattern, () => {
@@ -510,69 +550,6 @@ function runScript(script, name) {
             } else {
                 _myJobs.push(scheduler.scheduleJob(pattern, scriptDomain.bind(callback)));
             }
-        },
-
-        /**
-         * Schedule a recurring event based on sun position
-         * @method sunSchedule
-         * @param {string|string[]} pattern - a suncalc event or an array of suncalc events. See {@link https://github.com/mourner/suncalc}
-         * @param {Object} [options]
-         * @param {number} [options.shift] - delay execution in seconds. Allowed Range: -86400...86400 (+/- 24h)
-         * @param {number} [options.random] - random delay execution in seconds.
-         * @param {function} callback - is called with no arguments
-         * @example // Call callback 15 minutes before sunrise
-         * she.sunSchedule('sunrise', {shift: -900}, callback);
-         *
-         * // Call callback random 0-15 minutes after sunset
-         * she.sunSchedule('sunset', {random: 900}, callback);
-         * @see {@link schedule} for time based scheduling.
-         */
-        sunSchedule: function Sandbox_sunSchedule(pattern, /* optional */ options, callback) {
-            if (arguments.length === 2) {
-                if (typeof arguments[1] !== 'function') {
-                    throw new TypeError('callback is not a function');
-                }
-                callback = arguments[1];
-                options = {};
-            } else if (arguments.length === 3) {
-                if (typeof arguments[2] !== 'function') {
-                    throw new TypeError('callback is not a function');
-                }
-                options = arguments[1] || {};
-                callback = arguments[2];
-            } else {
-                throw new Error('wrong number of arguments');
-            }
-
-            if (typeof options.shift !== 'undefined' && (options.shift < -86400 || options.shift > 86400)) {
-                throw new Error('options.shift out of range');
-            }
-
-            if (typeof pattern === 'object' && pattern.length > 0) {
-                pattern = Array.prototype.slice.call(pattern);
-                pattern.forEach((pt) => {
-                    she.sunSchedule(pt, options, callback);
-                });
-                return;
-            }
-
-            const event = sunTimes[0][pattern];
-            if (typeof event === 'undefined') {
-                throw new TypeError('unknown suncalc event ' + pattern);
-            }
-
-            const obj = {
-                pattern,
-                options,
-                callback,
-                context: she,
-                domain: scriptDomain,
-                _script: name,
-            };
-
-            sunEvents.push(obj);
-
-            sunScheduleEvent(obj);
         },
 
         /**

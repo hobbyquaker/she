@@ -225,13 +225,16 @@ Returns the current time in milliseconds since the Unix epoch (equivalent to `Da
 
 ## she.schedule(pattern, [options], callback)
 
-Schedule a recurring or one-shot callback.
+Schedule a recurring or one-shot callback, including solar events based on sun position.
 
 | Param | Type | Description |
 |---|---|---|
-| `pattern` | `string \| Date \| object \| array` | Cron string, `Date` object, node-schedule object literal, or an array of any mix. |
+| `pattern` | `string \| Date \| object \| array` | Cron string, suncalc event name, `Date` object, node-schedule object literal, or an array of any mix. |
+| `[options.shift]` | `number` | Offset in seconds for solar events (-86400 … 86400). Negative = before, positive = after. |
 | `[options.random]` | `number` | Random additional delay in seconds. |
 | `callback` | `function` | Called with no arguments. |
+
+Cron strings must contain at least one space. A string **without** spaces is interpreted as a suncalc event name. Latitude and longitude for solar events are set via `--latitude` / `--longitude`.
 
 ```js
 // every full hour
@@ -247,30 +250,15 @@ she.schedule(new Date(2026, 11, 24, 18, 0, 0), () => she.log('Merry Christmas!')
 
 // multiple patterns in one call
 she.schedule(['0 8 * * *', '0 20 * * *'], callback);
-```
 
----
-
-## she.sunSchedule(pattern, [options], callback)
-
-Schedule a callback relative to a solar event. Uses [suncalc](https://github.com/mourner/suncalc); latitude and longitude are set via `--latitude` / `--longitude`.
-
-| Param | Type | Description |
-|---|---|---|
-| `pattern` | `string \| string[]` | suncalc event name or array of event names. |
-| `[options.shift]` | `number` | Offset in seconds (-86400 ... 86400). Negative = before, positive = after. |
-| `[options.random]` | `number` | Random additional delay in seconds. |
-| `callback` | `function` | Called with no arguments. |
-
-```js
-// raise blinds 15 minutes before sunrise
-she.sunSchedule('sunrise', { shift: -900 }, () => she.mqtt.set('home/blinds', 'up'));
+// raise blinds 27–33 minutes before sunrise
+she.schedule('sunrise', { shift: -1620, random: 360 }, () => she.mqtt.set('home/blinds', 'up'));
 
 // switch outdoor lights on at sunset +/- up to 10 random minutes
-she.sunSchedule('sunset', { random: 600 }, () => she.mqtt.set('home/lights/outdoor', 1));
+she.schedule('sunset', { random: 600 }, () => she.mqtt.set('home/lights/outdoor', 1));
 
 // fire at both dawn and dusk
-she.sunSchedule(['dawn', 'dusk'], callback);
+she.schedule(['dawn', 'dusk'], callback);
 ```
 
 **Available suncalc events:** `sunrise`, `sunriseEnd`, `goldenHourEnd`, `solarNoon`, `goldenHour`, `sunsetStart`, `sunset`, `dusk`, `nauticalDusk`, `night`, `nadir`, `nightEnd`, `nauticalDawn`, `dawn`.
@@ -359,3 +347,141 @@ she.api.post('/scene', (req, body) => {
 ```
 
 See [http-api.md](http-api.md) for authentication details and system endpoints.
+
+---
+
+## she.influx — InfluxDB integration
+
+Exposes a small API for reading and writing to InfluxDB. Enabled when the daemon is started with an `influx` config block (e.g. in `~/.she/config.json`):
+
+```json
+{
+  "influx": {
+    "url": "http://localhost:8086",
+    "token": "my-token",
+    "org": "my-org",
+    "bucket": "mqtt"
+  }
+}
+```
+
+All methods return Promises. When InfluxDB is not configured every method resolves to an empty result immediately.
+
+---
+
+### she.influx.query(fluxQuery) → Promise\<object[]\>
+
+Execute an arbitrary [Flux query](https://docs.influxdata.com/flux/v0/) and return the result rows as plain objects.
+
+```js
+she.influx.query(`
+  from(bucket: "mqtt")
+    |> range(start: -1h)
+    |> filter(fn: (r) => r["_measurement"] == "temperature")
+`).then((rows) => she.log(rows));
+```
+
+---
+
+### she.influx.write(measurement, fields, [tags], [timestamp]) → Promise\<void\>
+
+Write a single data point. `fields` is `{ fieldName: value }`. Number fields become float fields; boolean and string types are handled automatically.
+
+```js
+// write temperature with a room tag
+she.influx.write('temperature', { value: 21.5 }, { room: 'living' });
+
+// write without tags, using an explicit timestamp (ms since epoch)
+she.influx.write('events', { count: 1 }, {}, Date.now());
+```
+
+---
+
+### she.influx.getLast(topic, n) → Promise\<{ ts: number, val: any }[]\>
+
+Return the last `n` recorded values for an MQTT `topic`. Assumes data was stored with a `topic` tag and the measurement value in the `_value` field (e.g. by an InfluxDB Telegraf MQTT consumer).
+
+```js
+she.influx.getLast('home/sensor/temp', 10).then((pts) => {
+    pts.forEach((p) => she.log(new Date(p.ts).toISOString(), p.val));
+});
+```
+
+---
+
+### she.influx.getRange(topic, from, to) → Promise\<{ ts: number, val: any }[]\>
+
+Return all recorded values for an MQTT `topic` within the given time range. `from` and `to` accept a `Date`, ISO string, or millisecond timestamp.
+
+```js
+const from = new Date('2024-01-01');
+const to   = new Date('2024-01-02');
+she.influx.getRange('home/energy/meter', from, to).then((pts) => {
+    she.log('readings:', pts.length);
+});
+```
+
+---
+
+## she.elastic — Elasticsearch integration
+
+Exposes a small API for searching and indexing documents in Elasticsearch. Enabled when the daemon is started with an `elastic` config block:
+
+```json
+{
+  "elastic": {
+    "node": "http://localhost:9200",
+    "auth": { "apiKey": "my-api-key" }
+  }
+}
+```
+
+All methods return Promises. When Elasticsearch is not configured every method resolves to an empty result immediately.
+
+---
+
+### she.elastic.search(index, query) → Promise\<{ hits: object[], total: number }\>
+
+Run an Elasticsearch [query DSL](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl.html) against an index.
+
+```js
+she.elastic.search('events', { match_all: {} }).then(({ hits, total }) => {
+    she.log(total, 'hits:', hits);
+});
+```
+
+---
+
+### she.elastic.get(index, id) → Promise\<object|null\>
+
+Retrieve a single document by ID. Returns `null` when the document does not exist.
+
+```js
+she.elastic.get('devices', 'living-room-sensor').then((doc) => {
+    if (doc) she.log('doc:', doc);
+});
+```
+
+---
+
+### she.elastic.index(index, doc, [id]) → Promise\<{ id: string }\>
+
+Create or replace a document. Omit `id` to let Elasticsearch auto-generate one.
+
+```js
+she.elastic.index('events', { type: 'motion', room: 'hall', ts: Date.now() })
+    .then(({ id }) => she.log('indexed as', id));
+```
+
+---
+
+### she.elastic.find(index, field, text, [size=10]) → Promise\<object[]\>
+
+Convenience wrapper for a `match` query on a single field.
+
+```js
+she.elastic.find('events', 'room', 'living', 5).then((docs) => {
+    she.log('found:', docs);
+});
+```
+
