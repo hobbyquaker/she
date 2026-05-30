@@ -86,8 +86,9 @@ const path = modules.path;
 const scheduler = modules['node-schedule'];
 const suncalc = modules.suncalc;
 
+const StateStore = require('./lib/state-store');
 const sandboxModules = [];
-const status = {};
+const store = new StateStore();
 const scripts = {};
 const subscriptions = [];
 
@@ -267,13 +268,13 @@ mqtt.on('message', (topic, payload, msg) => {
     if (topicArr[0] === config.variablePrefix && topicArr[1] === 'set' && !config.disableVariables) {
         topicArr[1] = 'status';
         topic = topicArr.join('/');
-        oldState = status[topic] || {};
+        oldState = store.getObject('mqtt::' + topic) || {};
         const ts = new Date().getTime();
 
         state.ts = ts;
 
         state.lc = state.val === oldState.val ? oldState.lc : ts;
-        status[topic] = state;
+        store.setObject('mqtt::' + topic, state);
         mqtt.publish(topic, JSON.stringify(state), { retain: true });
     } else {
         /* istanbul ignore next */
@@ -284,11 +285,11 @@ mqtt.on('message', (topic, payload, msg) => {
         if (!state.ts) {
             state.ts = new Date().getTime();
         }
-        oldState = status[topic] || {};
+        oldState = store.getObject('mqtt::' + topic) || {};
         if (oldState.val !== state.val) {
             state.lc = state.ts;
         }
-        status[topic] = state;
+        store.setObject('mqtt::' + topic, state);
         stateChange(topic, state, oldState, msg);
     }
 });
@@ -466,12 +467,12 @@ function runScript(script, name) {
 
                 subscriptions.push({ topic, options, callback: typeof callback === 'function' && scriptDomain.bind(callback), _script: name });
 
-                if (options.retain && status[topic] && typeof callback === 'function') {
-                    callback(topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), status[topic].val, status[topic]);
+                if (options.retain && store.has('mqtt::' + topic) && typeof callback === 'function') {
+                    callback(topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), store.get('mqtt::' + topic), store.getObject('mqtt::' + topic));
                 } else if (options.retain && (/\/\+\//.test(topic) || /\+$/.test(topic) || /\+/.test(topic) || topic.endsWith('#')) && typeof callback === 'function') {
-                    for (const t in status) {
+                    for (const [t, obj] of store.mqttEntries()) {
                         if (mqttWildcards(t, topic)) {
-                            callback(t.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), status[t].val, status[t]);
+                            callback(t.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), obj.val, obj);
                         }
                     }
                 }
@@ -605,7 +606,7 @@ function runScript(script, name) {
 
                 tmp[1] = 'status';
                 topic = tmp.join('/');
-                const oldState = status[topic] || {};
+                const oldState = store.getObject('mqtt::' + topic) || {};
                 const ts = new Date().getTime();
                 if (typeof val === 'object') {
                     val.ts = ts;
@@ -616,7 +617,7 @@ function runScript(script, name) {
                     val.lc = ts;
                     changed = true;
                 }
-                status[topic] = val;
+                store.setObject('mqtt::' + topic, val);
                 stateChange(topic, val, oldState, {});
                 if (changed || publishUnchanged) {
                     she.mqttpub(topic, val, { retain: true });
@@ -627,7 +628,7 @@ function runScript(script, name) {
                 tmp[1] = 'status';
                 topic = tmp.join('/');
                 /* istanbul ignore next */
-                if (!status[topic] || status[topic].val !== val) {
+                if (!store.has('mqtt::' + topic) || store.get('mqtt::' + topic) !== val) {
                     /* istanbul ignore next */
                     tmp[1] = 'set';
                     topic = tmp.join('/');
@@ -647,7 +648,7 @@ function runScript(script, name) {
         getValue: function Sandbox_getValue(topic) {
             topic = topic.replace(/^\$/, config.variablePrefix + '/status/');
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
-            return status[topic] && status[topic].val;
+            return store.get('mqtt::' + topic);
         },
 
         /**
@@ -662,7 +663,7 @@ function runScript(script, name) {
         getProp: function Sandbox_getProp(topic /* , optional property, optional nested property, ... */) {
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
             if (arguments.length > 1) {
-                let tmp = status[topic];
+                let tmp = store.getObject('mqtt::' + topic);
                 if (typeof tmp === 'undefined') {
                     return;
                 }
@@ -674,7 +675,7 @@ function runScript(script, name) {
                 }
                 return tmp;
             }
-            return status[topic];
+            return store.getObject('mqtt::' + topic);
         },
     };
 
