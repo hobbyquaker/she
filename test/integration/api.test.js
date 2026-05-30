@@ -3,6 +3,7 @@
 const cp = require('child_process');
 const http = require('http');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const Aedes = require('aedes');
@@ -17,6 +18,7 @@ let brokerServer;
 let brokerPort;
 let apiPort;
 let mqtt;
+let tmpConfigFile;
 
 const msSubscriptions = {};
 const msBuffer = [];
@@ -95,7 +97,9 @@ beforeAll((done) => {
 
         mqtt = Mqtt.connect(`mqtt://127.0.0.1:${brokerPort}`);
         mqtt.on('connect', () => {
-            const msArgs = ['-d', testScriptsDir, '-v', 'debug', '-u', `mqtt://127.0.0.1:${brokerPort}`, '--port', '0'];
+            tmpConfigFile = path.join(os.tmpdir(), `she-api-test-${Date.now()}-${process.pid}.json`);
+            require('fs').writeFileSync(tmpConfigFile, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug' }));
+            const msArgs = ['-d', testScriptsDir, '--config', tmpConfigFile, '--port', '0'];
             ms = cp.spawn(process.execPath, [msCmd, ...msArgs]);
             const rlOut = readline.createInterface({ input: ms.stdout, crlfDelay: Infinity });
             const rlErr = readline.createInterface({ input: ms.stderr, crlfDelay: Infinity });
@@ -121,7 +125,10 @@ afterAll((done) => {
     if (ms) ms.kill();
     mqtt.end(true, {}, () => {
         brokerServer.close(() => {
-            broker.close(done);
+            broker.close(() => {
+                if (tmpConfigFile) try { require('fs').unlinkSync(tmpConfigFile); } catch {}
+                done();
+            });
         });
     });
 });
