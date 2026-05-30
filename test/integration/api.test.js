@@ -150,3 +150,25 @@ describe('HTTP API — she.api.post', () => {
         expect(res.body).toEqual({ echo: { text: 'ping' } });
     });
 });
+
+describe('HTTP API — she.log inside handler', () => {
+    it('produces a log line visible in daemon stdout', async () => {
+        const logSeen = new Promise((resolve) => {
+            subscribe(/log-endpoint-called.*hello-from-test/, resolve);
+        });
+        const res = await get('/api/test-api/log?msg=hello-from-test');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true });
+        await logSeen;
+    });
+
+    it('different query params produce different log messages', async () => {
+        const logSeen = new Promise((resolve) => {
+            subscribe(/log-endpoint-called.*world-42/, resolve);
+        });
+        const res = await get('/api/test-api/log?msg=world-42');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true });
+        await logSeen;
+    });
+});
