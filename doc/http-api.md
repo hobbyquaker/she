@@ -81,7 +81,7 @@ Writes a new config file. All CLI option keys are accepted (camelCase or kebab-c
 {
   "ok": true,
   "restartRequired": true,
-  "configPath": "/home/user/.config/mqtt-scripts/config.json"
+  "configPath": "/home/user/.she/config.json"
 }
 ```
 
@@ -91,7 +91,7 @@ Writes a new config file. All CLI option keys are accepted (camelCase or kebab-c
 { "error": "EACCES: permission denied, open '...'" }
 ```
 
-The file is written to the path that was loaded at startup (from `--config` or the default `~/.config/mqtt-scripts/config.json`).  
+The file is written to the path that was loaded at startup (from `--config` or the default `~/.she/config.json`).  
 **A daemon restart is required for the new config to take effect.**
 
 ---

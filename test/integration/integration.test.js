@@ -415,14 +415,19 @@ describe('mqtt connection', () => {
 
 describe('script file changes', () => {
     const test1Path = path.join(__dirname, '../testscripts/test1.js');
-    let test1Original;
+    // Strip any accumulated "she.info('appended!');" lines so the restore is idempotent.
+    const APPEND_MARKER = "\nshe.info('appended!');\n";
 
-    beforeAll(() => {
-        test1Original = fs.readFileSync(test1Path, 'utf8');
-    });
+    function cleanTest1() {
+        const src = fs.readFileSync(test1Path, 'utf8');
+        const idx = src.indexOf(APPEND_MARKER);
+        if (idx !== -1) {
+            fs.writeFileSync(test1Path, src.slice(0, idx));
+        }
+    }
 
     afterAll(() => {
-        fs.writeFileSync(test1Path, test1Original);
+        cleanTest1();
     });
 
     it('should hot-reload when a script file changes', (done) => {

@@ -8,7 +8,7 @@ Usage: mqtt-scripts [options]
 
 | Short | Long | Default | Description |
 |---|---|---|---|
-| `-c` | `--config` | auto | Path to JSON config file. Auto-loaded from `~/.config/mqtt-scripts/config.json` if present. |
+| `-c` | `--config` | auto | Path to JSON config file. Auto-loaded from `~/.she/config.json` if present. |
 | `-d` | `--dir` | — | Directory to scan for `.js` script files. Repeatable for multiple directories. |
 | `-u` | `--url` | `mqtt://127.0.0.1` | MQTT broker URL. See [MQTT.js docs](https://github.com/mqttjs/MQTT.js#connect-using-a-url). |
 | `-n` | `--name` | `logic` | Instance name — used as MQTT client ID and as the prefix for the `connected` topic. |
@@ -60,7 +60,7 @@ The config file is plain JSON. Keys match the long option names (camelCase or ke
 }
 ```
 
-**Default config path:** `~/.config/mqtt-scripts/config.json`
+**Default config path:** `~/.she/config.json`
 
 The file is loaded automatically at startup if it exists. It can be written at runtime via `PUT /she/config` — see [http-api.md](http-api.md). A daemon restart is required for the new config to take effect.
 

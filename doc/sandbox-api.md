@@ -24,7 +24,7 @@ she.error('unexpected state', err.message);
 
 ---
 
-## she.mqtt — MQTT access
+## she.mqtt ï¿½ MQTT access
 
 All MQTT operations are available under `she.mqtt`. This is the primary API for script authors.
 
@@ -69,11 +69,61 @@ she.mqtt.sub('home/presence', 'val === true', () => {
     she.mqtt.pub('home/alarm/off', 1);
 });
 
-// delayed execution — useful for debouncing
+// delayed execution ï¿½ useful for debouncing
 she.mqtt.sub('home/motion/hall', { change: true, shift: 5 }, (topic, val) => {
     if (!val) she.mqtt.set('home/light/hall', 0);
 });
 ```
+
+---
+
+## MQTT State Object
+
+Every MQTT topic tracked by she has an in-memory **state object** with three fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `val` | `any` | Parsed payload value. Valid JSON payloads are decoded automatically; anything else stays as a string. |
+| `ts` | `number` | Unix timestamp (ms) of the **last received message**, regardless of whether the value changed. |
+| `lc` | `number` | Unix timestamp (ms) of the **last value change**. Carries the previous value forward when the same value arrives again. |
+
+`lc` â‰¤ `ts` always holds. When a topic is seen for the first time, `lc === ts`.
+
+### Accessing the state object
+
+**In a `she.mqtt.sub()` callback â€” the `obj` and `objPrev` parameters:**
+
+```js
+she.mqtt.sub('home/sensor/temp', (topic, val, obj, objPrev) => {
+    she.log('new value:',      val);          // shorthand â€” same as obj.val
+    she.log('received at:',    obj.ts);       // ms timestamp of this message
+    she.log('last changed:',   obj.lc);       // ms timestamp of last value change
+    she.log('previous value:', objPrev.val);  // val from the previous message
+});
+```
+
+**Via `she.mqtt.getProp()`:**
+
+```js
+// full state object
+const state = she.mqtt.getProp('home/sensor/temp');
+// â†’ { val: 21.5, ts: 1718000000123, lc: 1718000000123 }
+
+// individual fields
+const ts = she.mqtt.getProp('home/sensor/temp', 'ts');
+const lc = she.mqtt.getProp('home/sensor/temp', 'lc');
+```
+
+**Via `she.mqtt.age()` â€” uses `lc` internally:**
+
+```js
+// seconds elapsed since the value last changed
+const seconds = she.mqtt.age('home/sensor/temp');
+```
+
+### Variable topics
+
+Topics under the variable prefix (default `var//`) always store their state as a JSON object, so the broker retains and restores the full `{ val, ts, lc }` object across daemon restarts. Regular (non-variable) topics rebuild their state from retained MQTT messages each time the daemon starts.
 
 ---
 
@@ -145,10 +195,10 @@ Forward value changes from one or more source topics to one or more target topic
 // simple forward
 she.mqtt.link('hm//remote/button1', 'home/light/kitchen');
 
-// fixed value — any change on source publishes 0 to target
+// fixed value ï¿½ any change on source publishes 0 to target
 she.mqtt.link('hm//remote/allOff', 'home/lights/all', 0);
 
-// transform — convert Fahrenheit to Celsius
+// transform ï¿½ convert Fahrenheit to Celsius
 she.mqtt.link('sensor/temp/raw', 'sensor/temp/celsius', (raw) => (raw - 32) / 1.8);
 ```
 
@@ -187,7 +237,7 @@ Schedule a recurring or one-shot callback.
 // every full hour
 she.schedule('0 * * * *', () => she.log('tick'));
 
-// Monday–Friday, random between 07:30 and 08:00
+// Mondayï¿½Friday, random between 07:30 and 08:00
 she.schedule('30 7 * * 1-5', { random: 30 * 60 }, () => {
     she.mqtt.pub('home/alarm/morning', 1);
 });
@@ -270,7 +320,7 @@ she.timer('home/doorbell', 'home/light/entrance', 30_000);
 
 ---
 
-## she.api — HTTP endpoint registration
+## she.api ï¿½ HTTP endpoint registration
 
 Registers HTTP endpoints scoped to the current script. Requires the daemon to be started with `--port`.
 

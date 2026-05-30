@@ -31,7 +31,7 @@ npx mqtt-scripts --dir ~/scripts --url mqtt://localhost
    // ~/scripts/hello.js
    she.log('hello from mqtt-scripts!');
 
-   subscribe('home/#', function (topic, val) {
+   she.mqtt.sub('home/#', (topic, val) => {
        she.log(topic, '->', val);
    });
    ```
@@ -57,7 +57,7 @@ Instead of repeating flags on the command line, store them in a JSON config file
 }
 ```
 
-The file is automatically loaded from `~/.config/mqtt-scripts/config.json` when it exists, or point to it explicitly:
+The file is automatically loaded from `~/.she/config.json` when it exists, or point to it explicitly:
 
 ```bash
 mqtt-scripts --config /path/to/config.json
