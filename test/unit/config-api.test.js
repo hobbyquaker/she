@@ -30,7 +30,7 @@ function httpRequest(method, port, urlPath, body, headers = {}) {
     });
 }
 
-describe('GET /api/config', () => {
+describe('GET /she/config', () => {
     let tmpDir, configPath, startServer, stopServer, port;
 
     beforeEach(async () => {
@@ -47,20 +47,20 @@ describe('GET /api/config', () => {
     });
 
     test('returns {} when config file does not exist', async () => {
-        const res = await httpRequest('GET', port, '/api/config');
+        const res = await httpRequest('GET', port, '/she/config');
         expect(res.status).toBe(200);
         expect(res.body).toEqual({});
     });
 
     test('returns file content when config file exists', async () => {
         fs.writeFileSync(configPath, JSON.stringify({ url: 'mqtt://test', port: 8080 }));
-        const res = await httpRequest('GET', port, '/api/config');
+        const res = await httpRequest('GET', port, '/she/config');
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ url: 'mqtt://test', port: 8080 });
     });
 });
 
-describe('PUT /api/config', () => {
+describe('PUT /she/config', () => {
     let tmpDir, configPath, startServer, stopServer, port;
 
     beforeEach(async () => {
@@ -78,7 +78,7 @@ describe('PUT /api/config', () => {
 
     test('writes config to file and responds { ok: true, restartRequired: true }', async () => {
         const newConfig = { url: 'mqtt://mybroker', verbosity: 'debug' };
-        const res = await httpRequest('PUT', port, '/api/config', newConfig);
+        const res = await httpRequest('PUT', port, '/she/config', newConfig);
         expect(res.status).toBe(200);
         expect(res.body.ok).toBe(true);
         expect(res.body.restartRequired).toBe(true);
@@ -87,8 +87,8 @@ describe('PUT /api/config', () => {
 
     test('returns the saved config on subsequent GET', async () => {
         const newConfig = { url: 'mqtt://roundtrip', name: 'test' };
-        await httpRequest('PUT', port, '/api/config', newConfig);
-        const res = await httpRequest('GET', port, '/api/config');
+        await httpRequest('PUT', port, '/she/config', newConfig);
+        const res = await httpRequest('GET', port, '/she/config');
         expect(res.body).toEqual(newConfig);
     });
 
@@ -98,7 +98,7 @@ describe('PUT /api/config', () => {
         ({ startServer, stopServer } = require('../../src/web/server'));
         const deepPort = await startServer(0, { configPath: deepConfigPath });
         try {
-            const res = await httpRequest('PUT', deepPort, '/api/config', { name: 'deep' });
+            const res = await httpRequest('PUT', deepPort, '/she/config', { name: 'deep' });
             expect(res.status).toBe(200);
             expect(JSON.parse(fs.readFileSync(deepConfigPath, 'utf8'))).toEqual({ name: 'deep' });
         } finally {

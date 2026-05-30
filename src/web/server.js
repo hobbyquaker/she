@@ -7,17 +7,17 @@ const app = express();
 app.use(express.json());
 
 // Lazy auth check — _apiKey is populated by startServer(); null = auth disabled.
-// Mounted before any routes so all /api/* paths are covered.
+// Covers both /she/* (internal system routes) and /api/* (user-script routes).
 let _apiKey = null;
-app.use('/api', (req, res, next) => {
+app.use(['/she', '/api'], (req, res, next) => {
     if (!_apiKey) return next();
     const auth = req.headers['authorization'];
     if (auth === `Bearer ${_apiKey}`) return next();
     res.status(401).json({ error: 'Unauthorized' });
 });
 
-// Config REST endpoints: GET /api/config and PUT /api/config
-app.use('/api/config', configRouter);
+// Config REST endpoints: GET /she/config and PUT /she/config
+app.use('/she/config', configRouter);
 
 // Central route registry — key: 'METHOD /api/scriptname/path'
 const registry = new Map();
