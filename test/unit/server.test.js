@@ -75,4 +75,10 @@ describe('API key authentication', () => {
         const res = await httpGet(serverPort, '/she/config', { authorization: 'Bearer secret' });
         expect(res.status).not.toBe(401);
     });
+
+    test('rejects /api/* request with no Authorization header when api-key is set', async () => {
+        serverPort = await startServer(0, { apiKey: 'secret' });
+        const res = await httpGet(serverPort, '/api/anything');
+        expect(res.status).toBe(401);
+    });
 });

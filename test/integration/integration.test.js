@@ -51,10 +51,13 @@ function matchSubscriptions(type, data) {
         buf.push(data);
     }
     buf.forEach((line, index) => {
+        let matched = false;
         Object.keys(subs).forEach((key) => {
+            if (matched) return;
             const sub = subs[key];
             let m;
             if ((m = line.match(sub.rx))) {
+                matched = true;
                 sub.cb(line, m);
                 delete subs[key];
                 buf.splice(index, 1);
@@ -428,4 +431,72 @@ describe('script file changes', () => {
             fs.appendFileSync(test1Path, "\nshe.info('appended!');\n");
         }, 1000);
     }, 10000);
+});
+
+describe('she.mqtt.* namespace', () => {
+    it('she.mqtt.sub + she.mqtt.pub round-trip should add 1 to published value', (done) => {
+        mqttSubscribe('ns/pong', (payload) => {
+            if (payload === '11') done();
+        });
+        mqtt.publish('ns/ping', '10');
+    }, 20000);
+
+    it('she.mqtt.get() returns the last received value', (done) => {
+        subscribe('ms', /ns\/source via mqtt\.get hello/, () => done());
+        mqtt.publish('ns/source', 'hello');
+    }, 20000);
+});
+
+describe('script file changes — subscription cleanup', () => {
+    const reloadScriptPath = path.join(__dirname, '../testscripts/test-reload-cleanup.js');
+
+    beforeAll((done) => {
+        fs.writeFileSync(
+            reloadScriptPath,
+            "/* global she */\n'use strict';\nshe.info('test-reload-cleanup.js running');\nshe.mqtt.sub('ns/cleanup-test', (t, v) => { she.info('cleanup-fired ' + v); });\n",
+        );
+        subscribe('ms', /test-reload-cleanup\.js running/, () => done());
+    }, 20000);
+
+    afterAll(() => {
+        try {
+            fs.unlinkSync(reloadScriptPath);
+        } catch {}
+    });
+
+    it('new subscriptions work after hot-reload', async () => {
+        const reloaded = new Promise((resolve) => {
+            subscribe('ms', /test-reload-cleanup\.js running/, resolve);
+        });
+        fs.appendFileSync(reloadScriptPath, '\n// reload trigger\n');
+        await reloaded;
+
+        const logSeen = new Promise((resolve) => {
+            subscribe('ms', /cleanup-fired after-reload/, resolve);
+        });
+        mqtt.publish('ns/cleanup-test', 'after-reload');
+        await logSeen;
+    }, 20000);
+
+    it('old subscriptions are cancelled on hot-reload — no leak', async () => {
+        // Wait for reload to complete before registering the leak-check subscribers.
+        // This avoids calling subscribe() inside a subscribe() callback, which would
+        // trigger re-entrant matchSubscriptions() and overflow the call stack.
+        const reloaded = new Promise((resolve) => {
+            subscribe('ms', /test-reload-cleanup\.js running/, resolve);
+        });
+        fs.appendFileSync(reloadScriptPath, '\n// reload trigger 2\n');
+        await reloaded;
+
+        let fired = 0;
+        subscribe('ms', /cleanup-fired leak-check/, () => {
+            fired++;
+        });
+        subscribe('ms', /cleanup-fired leak-check/, () => {
+            fired++;
+        });
+        mqtt.publish('ns/cleanup-test', 'leak-check');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(fired).toBe(1);
+    }, 20000);
 });

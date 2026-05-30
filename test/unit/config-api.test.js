@@ -105,4 +105,41 @@ describe('PUT /she/config', () => {
             await stopServer();
         }
     });
+
+    test('returns 400 when PUT body is not valid JSON', async () => {
+        const res = await new Promise((resolve, reject) => {
+            const body = 'not-json';
+            const req = http.request(
+                {
+                    host: '127.0.0.1',
+                    port,
+                    path: '/she/config',
+                    method: 'PUT',
+                    headers: {
+                        'content-type': 'application/json',
+                        'content-length': Buffer.byteLength(body),
+                    },
+                },
+                (raw) => resolve({ status: raw.statusCode }),
+            );
+            req.on('error', reject);
+            req.write(body);
+            req.end();
+        });
+        expect(res.status).toBe(400);
+    });
+
+    test('GET returns {} when config file contains invalid JSON', async () => {
+        fs.writeFileSync(configPath, 'INVALID JSON {{{{');
+        const res = await httpRequest('GET', port, '/she/config');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({});
+    });
+
+    test('PUT returns 500 when the file path is unwritable', async () => {
+        // Replace the file with a directory to force a write error
+        fs.mkdirSync(configPath, { recursive: true });
+        const res = await httpRequest('PUT', port, '/she/config', { x: 1 });
+        expect(res.status).toBe(500);
+    });
 });

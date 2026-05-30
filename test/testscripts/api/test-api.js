@@ -13,3 +13,7 @@ she.api.get('/log', (req) => {
     she.log('log-endpoint-called', req.query.msg || '');
     return { ok: true };
 });
+
+she.api.put('/items/:id', (req, body) => ({ updated: req.params.id, data: body }));
+
+she.api.delete('/items/:id', (req) => ({ deleted: req.params.id }));

@@ -84,6 +84,8 @@ function httpRequest(method, portNum, urlPath, body) {
 
 const get = (urlPath) => httpRequest('GET', apiPort, urlPath);
 const post = (urlPath, body) => httpRequest('POST', apiPort, urlPath, body);
+const put = (urlPath, body) => httpRequest('PUT', apiPort, urlPath, body);
+const del = (urlPath) => httpRequest('DELETE', apiPort, urlPath);
 
 beforeAll((done) => {
     broker = new Aedes();
@@ -170,5 +172,21 @@ describe('HTTP API — she.log inside handler', () => {
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ ok: true });
         await logSeen;
+    });
+});
+
+describe('HTTP API — she.api.put', () => {
+    it('updates a resource via PUT', async () => {
+        const res = await put('/api/test-api/items/42', { name: 'thing' });
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ updated: '42', data: { name: 'thing' } });
+    });
+});
+
+describe('HTTP API — she.api.delete', () => {
+    it('deletes a resource via DELETE', async () => {
+        const res = await del('/api/test-api/items/99');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ deleted: '99' });
     });
 });

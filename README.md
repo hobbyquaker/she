@@ -1,12 +1,10 @@
-﻿# mqtt-scripts
+﻿# she - smart home engine
 
 [![License][mit-badge]][mit-url]
 
-> Node.js script daemon for MQTT-based smart home environments.
+> Node.js script engine for MQTT- and/or Matter-based smart home ecosystems.
 
-mqtt-scripts loads your `.js` files into a sandboxed VM and connects them to an MQTT broker. Scripts can subscribe to topics, publish values, schedule actions (cron, solar events), and expose HTTP endpoints — with zero boilerplate.
-
-Think of it as Node-RED without the GUI.
+she loads your `.js` files into a sandboxed VM that offers easy access to MQTT and Matter. Scripts can subscribe, publish, send commands, schedule actions (cron, solar events), and expose HTTP endpoints — with zero boilerplate.
 
 ## Documentation
 
@@ -22,18 +20,18 @@ Think of it as Node-RED without the GUI.
 
 ```js
 // lights.js
-subscribe('home/motion/hall', { change: true }, (topic, val) => {
-    setValue('home/light/hall', val ? 1 : 0);
+she.mqtt.sub('home/motion/hall', { change: true }, (topic, val) => {
+    she.mqtt.pub('home/light/hall', val ? 1 : 0);
 });
 
-sunSchedule('sunset', () => setValue('home/lights/outdoor', 1));
-sunSchedule('sunrise', () => setValue('home/lights/outdoor', 0));
+she.sunSchedule('sunset', () => setValue('home/lights/outdoor', 1));
+she.sunSchedule('sunrise', () => setValue('home/lights/outdoor', 0));
 
 she.api.get('/status', () => ({ light: getValue('home/light/hall') }));
 ```
 
 ```bash
-mqtt-scripts --dir ~/scripts --url mqtt://localhost --port 8080
+she --dir ~/scripts --url mqtt://localhost --port 8080
 ```
 
 ## License

@@ -76,6 +76,25 @@ describe('combineBool()', () => {
         she.combineBool(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
     });
+
+    it('re-publishes when a subscribed topic changes to truthy', () => {
+        const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
+        she.combineBool(['a', 'b'], 'result');
+        // The subscription callback is the third argument to mqttsub
+        const cb = she.mqttsub.mock.calls[0][2];
+        she._state.a = { val: 1, lc: Date.now() };
+        cb();
+        expect(she.setValue).toHaveBeenLastCalledWith('result', 1);
+    });
+
+    it('re-publishes 0 when a subscribed topic changes to falsy', () => {
+        const she = makeShe({ a: { val: 1 }, b: { val: 0 } });
+        she.combineBool(['a', 'b'], 'result');
+        const cb = she.mqttsub.mock.calls[0][2];
+        she._state.a = { val: 0, lc: Date.now() };
+        cb();
+        expect(she.setValue).toHaveBeenLastCalledWith('result', 0);
+    });
 });
 
 describe('combineMax()', () => {
@@ -89,5 +108,23 @@ describe('combineMax()', () => {
         const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
         she.combineMax(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
+    });
+
+    it('re-publishes when a subscribed topic changes to a new maximum', () => {
+        const she = makeShe({ a: { val: 3 }, b: { val: 7 } });
+        she.combineMax(['a', 'b'], 'result');
+        const cb = she.mqttsub.mock.calls[0][2];
+        she._state.a = { val: 10, lc: Date.now() };
+        cb();
+        expect(she.setValue).toHaveBeenLastCalledWith('result', 10);
+    });
+
+    it('re-publishes the remaining max when a top value decreases', () => {
+        const she = makeShe({ a: { val: 10 }, b: { val: 7 } });
+        she.combineMax(['a', 'b'], 'result');
+        const cb = she.mqttsub.mock.calls[0][2];
+        she._state.a = { val: 2, lc: Date.now() };
+        cb();
+        expect(she.setValue).toHaveBeenLastCalledWith('result', 7);
     });
 });
