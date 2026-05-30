@@ -18,6 +18,7 @@ const config = require('yargs')
     .describe('api-key', 'Bearer token required on all /api/* requests. Omit to disable authentication.')
     .describe('db-path', 'path to shedb JSON data file (enables sheDB when set). Default when omitted: ~/.she/shedb')
     .describe('db-retain', 'publish shedb document changes as retained MQTT messages')
+    .describe('matter-storage', 'path to Matter controller storage directory (enables Matter when set). Default when flag is present: ~/.she/matter')
     .alias({
         c: 'config',
         d: 'dir',

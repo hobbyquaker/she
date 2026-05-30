@@ -175,6 +175,16 @@ if (config.dbPath) {
     shedb.init({ dbPath: config.dbPath, dbRetain: config.dbRetain || false, mqttName: config.name, mqtt, log, broadcast });
 }
 
+// Matter controller — only init when --matter-storage is set
+if (config.matterStorage) {
+    const { ensureStorageDir } = require('./lib/storage');
+    const matterController = require('./matter/controller');
+    const matterStoragePath = typeof config.matterStorage === 'string' ? config.matterStorage : ensureStorageDir('matter');
+    matterController.init(matterStoragePath, log).catch((err) => {
+        log.error('matter controller init failed:', err.message);
+    });
+}
+
 let firstConnect = true;
 let startTimeout;
 let connected;
@@ -961,12 +971,19 @@ function start() {
 }
 
 /* istanbul ignore next */
-process.on('SIGINT', () => {
-    log.info('got SIGINT. exiting.');
+async function gracefulShutdown(signal) {
+    log.info(`got ${signal}. exiting.`);
+    if (config.matterStorage) {
+        try {
+            await require('./matter/controller').close();
+        } catch {
+            // ignore
+        }
+    }
     process.exit(0);
-});
+}
+
 /* istanbul ignore next */
-process.on('SIGTERM', () => {
-    log.info('got SIGTERM. exiting.');
-    process.exit(0);
-});
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+/* istanbul ignore next */
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
