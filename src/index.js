@@ -37,7 +37,7 @@ log.debug('loaded config: ', config);
 
 if (typeof config.port !== 'undefined') {
     require('./web/server')
-        .startServer(config.port)
+        .startServer(config.port, { apiKey: config.apiKey, configPath: config.config })
         .then((actualPort) => log.info('http server listening on :' + actualPort))
         .catch((err) => {
             log.error('http server start failed:', err.message);

@@ -1,3 +1,9 @@
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
+
+const defaultConfigPath = path.join(os.homedir(), '.config', 'mqtt-scripts', 'config.json');
+
 const config = require('yargs')
     .env('MQTTSCRIPTS')
     .usage('Usage: $0 [options]')
@@ -10,10 +16,12 @@ const config = require('yargs')
     .describe('dir', 'directory to scan for .js and .coffee files. can be used multiple times.')
     .describe('disable-watch', "disable file watching (don't exit process on file changes)")
     .describe('port', 'HTTP server port. 0 = OS-assigned random port. Omit to disable the web server.')
+    .describe('api-key', 'Bearer token required on all /api/* requests. Omit to disable authentication.')
     .alias({
         c: 'config',
         d: 'dir',
         h: 'help',
+        k: 'api-key',
         p: 'port',
         s: 'variable-prefix',
         t: 'disable-variables',
@@ -33,6 +41,7 @@ const config = require('yargs')
         'verbosity': 'info',
         'disable-variables': false,
         'disable-watch': false,
+        'config': fs.existsSync(defaultConfigPath) ? defaultConfigPath : undefined,
     })
     .config('config')
     .version()

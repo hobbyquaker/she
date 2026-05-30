@@ -1,9 +1,23 @@
 'use strict';
 
 const express = require('express');
+const { router: configRouter } = require('./config-api');
 
 const app = express();
 app.use(express.json());
+
+// Lazy auth check — _apiKey is populated by startServer(); null = auth disabled.
+// Mounted before any routes so all /api/* paths are covered.
+let _apiKey = null;
+app.use('/api', (req, res, next) => {
+    if (!_apiKey) return next();
+    const auth = req.headers['authorization'];
+    if (auth === `Bearer ${_apiKey}`) return next();
+    res.status(401).json({ error: 'Unauthorized' });
+});
+
+// Config REST endpoints: GET /api/config and PUT /api/config
+app.use('/api/config', configRouter);
 
 // Central route registry — key: 'METHOD /api/scriptname/path'
 const registry = new Map();
@@ -28,9 +42,14 @@ let httpServer = null;
 /**
  * Start listening. Resolves with the actual port (useful when port 0 is given).
  * @param {number} port
+ * @param {{ apiKey?: string, configPath?: string }} [options]
  * @returns {Promise<number>}
  */
-function startServer(port) {
+function startServer(port, options = {}) {
+    _apiKey = options.apiKey || null;
+    if (options.configPath) {
+        app.locals.configPath = options.configPath;
+    }
     return new Promise((resolve, reject) => {
         httpServer = app.listen(port, () => resolve(httpServer.address().port));
         httpServer.on('error', reject);

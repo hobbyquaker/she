@@ -1,5 +1,18 @@
 'use strict';
 
+const http = require('http');
+
+function httpGet(port, urlPath, headers = {}) {
+    return new Promise((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port, path: urlPath, headers }, (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => resolve({ status: res.statusCode }));
+        });
+        req.on('error', reject);
+    });
+}
+
 describe('web server registry', () => {
     let registerRoute;
 
@@ -26,5 +39,40 @@ describe('web server registry', () => {
     test('allows different paths to coexist', () => {
         registerRoute('get', '/api/s/a', () => {});
         expect(() => registerRoute('get', '/api/s/b', () => {})).not.toThrow();
+    });
+});
+
+describe('API key authentication', () => {
+    let startServer, stopServer, serverPort;
+
+    beforeEach(() => {
+        jest.resetModules();
+        ({ startServer, stopServer } = require('../../src/web/server'));
+    });
+
+    afterEach(() => stopServer());
+
+    test('passes /api/* requests when no api-key is configured', async () => {
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/api/config');
+        expect(res.status).not.toBe(401);
+    });
+
+    test('rejects /api/* request with no Authorization header when api-key is set', async () => {
+        serverPort = await startServer(0, { apiKey: 'secret' });
+        const res = await httpGet(serverPort, '/api/config');
+        expect(res.status).toBe(401);
+    });
+
+    test('rejects /api/* request with wrong Bearer token', async () => {
+        serverPort = await startServer(0, { apiKey: 'secret' });
+        const res = await httpGet(serverPort, '/api/config', { authorization: 'Bearer wrong' });
+        expect(res.status).toBe(401);
+    });
+
+    test('accepts /api/* request with correct Bearer token', async () => {
+        serverPort = await startServer(0, { apiKey: 'secret' });
+        const res = await httpGet(serverPort, '/api/config', { authorization: 'Bearer secret' });
+        expect(res.status).not.toBe(401);
     });
 });
