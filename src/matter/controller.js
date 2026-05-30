@@ -14,6 +14,8 @@ const { Environment, ServerNode } = require('@matter/main');
 /** @type {import('@matter/main').ServerNode | null} */
 let _server = null;
 let _log = null;
+/** @type {((msg: object) => void) | null} */
+let _broadcast = null;
 
 // ── Attribute / event listeners registered by sandbox scripts ───────────────
 // Map<scriptFile, Map<listenerId, { cancel: () => void }>>
@@ -55,8 +57,10 @@ function _clusterName(clusterId) {
  *
  * @param {string} storagePath  Absolute path to the matter storage directory (~/.she/matter)
  * @param {{ info: Function, warn: Function, error: Function }} log  Daemon logger
+ * @param {((msg: object) => void) | null} [broadcastFn]  WebSocket broadcast function from log-ws.js
  */
-async function init(storagePath, log) {
+async function init(storagePath, log, broadcastFn) {
+    _broadcast = broadcastFn ?? null;
     if (_server) throw new Error('Matter controller already started');
     _log = log;
 
@@ -118,7 +122,10 @@ async function commission(options) {
     const clientNode = await _server.peers.commission(options);
     const addr = clientNode.peerAddress;
     if (!addr) throw new Error('Commission succeeded but node has no peerAddress');
-    return _nodeIdStr(addr.nodeId);
+    const nodeId = _nodeIdStr(addr.nodeId);
+    _subscribeNodeLifecycle(clientNode, nodeId);
+    _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
+    return nodeId;
 }
 
 /**
@@ -135,6 +142,7 @@ async function unpair(nodeId) {
         _log?.warn(`matter: decommission of ${nodeId} failed (${err.message}), force-deleting`);
         await node.delete();
     }
+    _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
 }
 
 /**
@@ -197,6 +205,24 @@ async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
         const cmd = clusterAgent[commandName];
         if (typeof cmd !== 'function') throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
         return cmd.call(clusterAgent, args ?? {});
+    });
+}
+
+// ── Node lifecycle events (online / offline) ────────────────────────────────
+
+/**
+ * Subscribe to online/offline lifecycle changes for a node and broadcast them.
+ * @param {object} node ClientNode
+ * @param {string} nodeId decimal string
+ */
+function _subscribeNodeLifecycle(node, nodeId) {
+    const lc = node.lifecycle;
+    if (!lc) return;
+    lc.online?.on?.(() => {
+        _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: true });
+    });
+    lc.offline?.on?.(() => {
+        _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: false });
     });
 }
 

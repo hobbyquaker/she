@@ -5,6 +5,7 @@ const path = require('path');
 const { router: configRouter } = require('./config-api');
 const { router: scriptsRouter } = require('./scripts-api');
 const { router: shedbRouter } = require('./shedb-api');
+const { router: matterRouter } = require('./matter-api');
 const { attachWss, closeWss } = require('./log-ws');
 
 const app = express();
@@ -28,6 +29,9 @@ app.use('/she/scripts', scriptsRouter);
 
 // sheDB document store REST API: /she/db/*
 app.use('/she/db', shedbRouter);
+
+// Matter controller REST API: /she/matter/*
+app.use('/she/matter', matterRouter);
 
 // Serve the built Svelte SPA from dist/web/
 const distWeb = path.resolve(__dirname, '../../dist/web');

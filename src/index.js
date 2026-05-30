@@ -180,7 +180,7 @@ if (config.matterStorage) {
     const { ensureStorageDir } = require('./lib/storage');
     const matterController = require('./matter/controller');
     const matterStoragePath = typeof config.matterStorage === 'string' ? config.matterStorage : ensureStorageDir('matter');
-    matterController.init(matterStoragePath, log).catch((err) => {
+    matterController.init(matterStoragePath, log, broadcast).catch((err) => {
         log.error('matter controller init failed:', err.message);
     });
 }
@@ -854,6 +854,12 @@ function unloadScript(file) {
     // Remove shedb listeners belonging to this script
     const shedbSandbox = require('./sandbox/shedb-sandbox');
     shedbSandbox.cleanup(file);
+
+    // Remove matter subscriptions belonging to this script
+    if (config.matterStorage) {
+        const matterSandbox = require('./sandbox/matter-sandbox');
+        matterSandbox.cleanup(file);
+    }
 
     // Remove from scripts map so it can be re-loaded
     delete scripts[file];

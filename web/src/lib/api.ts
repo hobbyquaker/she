@@ -122,3 +122,46 @@ export function deleteView(id: string): Promise<{ ok: boolean }> {
 export function getViewResult(id: string): Promise<ViewResult> {
     return request('GET', `/she/db/views/${id}/result`);
 }
+
+// ---- Matter API ----
+
+export interface MatterDevice {
+    nodeId: string;
+    online: boolean;
+}
+
+export interface MatterEndpoint {
+    endpointId: number;
+    clusters: string[];
+}
+
+export interface MatterNodeDetail {
+    nodeId: string;
+    endpoints: MatterEndpoint[];
+}
+
+export function listMatterDevices(): Promise<MatterDevice[]> {
+    return request('GET', '/she/matter/devices');
+}
+
+export function getMatterDevice(nodeId: string): Promise<MatterNodeDetail> {
+    return request('GET', `/she/matter/devices/${nodeId}`);
+}
+
+export function commissionMatter(opts: { passcode: number; discriminator?: number } | { pairingCode: string }): Promise<{ nodeId: string }> {
+    return request('POST', '/she/matter/commission', opts);
+}
+
+export function unpairMatter(nodeId: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/matter/devices/${nodeId}`);
+}
+
+export function sendMatterCommand(
+    nodeId: string,
+    endpointId: number,
+    clusterName: string,
+    command: string,
+    args?: Record<string, unknown>,
+): Promise<{ ok: boolean; result: unknown }> {
+    return request('POST', `/she/matter/devices/${nodeId}/command`, { endpointId, clusterName, command, args });
+}
