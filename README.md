@@ -1,19 +1,15 @@
-﻿<div align="center">
-  <img src="doc/she.jpg" alt="she – smart home engine" width="220" />
-</div>
-
-# she — smart home engine
+﻿# she — smart home engine
 
 [![License][mit-badge]][mit-url]
 
 Your home, your rules — written in plain JavaScript.
 
-**she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl. Just scripts that do exactly what you tell them.
+**she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl, no opinionated bloated schemata. Just scripts that do exactly what you tell them.
 
 - **MQTT** — subscribe, publish, react to state changes with wildcards, conditions, and delays
 - **Matter** — pair and control Thread/Wi-Fi devices directly from your scripts
 - **sheDB** — a lightweight document store with map/reduce views, right in the daemon
-- **Scheduler** — cron expressions *and* solar events (`sunrise`, `sunset`, …) in one call
+- **Scheduler** — cron expressions and solar events (`sunrise`, `sunset`, …) in one call
 - **Web UI** — Monaco-based script editor, MQTT topic browser, device manager, live logs
 
 ## Docs
