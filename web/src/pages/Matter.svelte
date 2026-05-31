@@ -133,16 +133,18 @@
 
         <ul class="device-list">
             {#each devices as device (device.nodeId)}
-                <li class:selected={selected?.nodeId === device.nodeId} onclick={() => selectDevice(device.nodeId)}>
-                    <span class="status-dot" class:online={device.online}></span>
-                    <span class="node-id">{device.nodeId}</span>
+                <li class:selected={selected?.nodeId === device.nodeId}>
+                    <button
+                        class="device-select-btn"
+                        onclick={() => selectDevice(device.nodeId)}
+                    >
+                        <span class="status-dot" class:online={device.online}></span>
+                        <span class="node-id">{device.nodeId}</span>
+                    </button>
                     <button
                         class="unpair-btn"
                         title="Unpair"
-                        onclick={(e) => {
-                            e.stopPropagation();
-                            unpair(device.nodeId);
-                        }}
+                        onclick={() => unpair(device.nodeId)}
                     >✕</button>
                 </li>
             {/each}
@@ -295,11 +297,24 @@
     .device-list li {
         display: flex;
         align-items: center;
-        gap: 6px;
         padding: 5px 10px;
         cursor: pointer;
         border-radius: 3px;
         margin: 1px 4px;
+    }
+    .device-select-btn {
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex: 1;
+        min-width: 0;
+        padding: 0;
+        font: inherit;
+        text-align: left;
     }
     .device-list li:hover {
         background: #2a2d2e;
