@@ -117,14 +117,41 @@ function readAiConfig(configPath) {
 /**
  * Build the full system prompt, including optional context sections.
  *
- * @param {object} requestCtx   { apiref, mqtt, shedb, matter }
+ * @param {object} requestCtx   { apiref, mqtt, shedb, matter, sampleDocs }
  * @param {{ path?: string, content?: string }|null} currentScript
+ * @param {{ id?: string, filter?: string, map?: string, reduce?: string }|null} currentView
  * @param {import('../lib/state-store')|null} store
  * @returns {string}
  */
-function buildSystemPrompt(requestCtx, currentScript, store) {
-    const parts = [
-        `You are SHE Assistant, an expert AI pair programmer for she (smart-home-engine).
+function buildSystemPrompt(requestCtx, currentScript, currentView, store) {
+    const isViewMode = !!(currentView?.id);
+
+    const basePrompt = isViewMode
+        ? `You are SHE Assistant, helping write sheDB MapReduce view definitions for she (smart-home-engine).
+
+A view has three optional parts:
+1. **Filter** — an MQTT-style topic wildcard (e.g. \`devices/#\`) that selects which document IDs enter the view. Plain string, no code.
+2. **Map** — a JavaScript function body. \`this\` is the current document. Call \`emit(value)\` to include a value in the result array. No \`return\`.
+3. **Reduce** — a JavaScript function body that receives \`result\` (the array from map) and must \`return\` a transformed value.
+
+When proposing view parts, use these exact formats (include only the parts that change):
+
+\`\`\`filter
+devices/#
+\`\`\`
+
+\`\`\`javascript
+// @view-map
+if (this.temperature !== undefined) emit(this.temperature);
+\`\`\`
+
+\`\`\`javascript
+// @view-reduce
+return result.reduce((a, b) => a + b, 0) / result.length;
+\`\`\`
+
+Keep the \`// @view-map\` / \`// @view-reduce\` comment as the very first line of each block — the UI uses it to detect which field to fill in.`
+        : `You are SHE Assistant, an expert AI pair programmer for she (smart-home-engine).
 she is a Node.js daemon that runs user JavaScript scripts in a sandboxed VM for home automation.
 When proposing changes to a script, always output the COMPLETE new file content in a single fenced \`\`\`javascript code block. Never output partial diffs or fragments — the user applies the full file at once.
 Keep any existing header comments and the 'use strict'; directive.
@@ -135,8 +162,9 @@ When the user asks you to CREATE a new script (not modify the current one), plac
 'use strict';
 // ... rest of script
 \`\`\`
-Use a short kebab-case filename. Do NOT put the hint outside or before the code block. The UI will detect it and offer to save the file.`,
-    ];
+Use a short kebab-case filename. Do NOT put the hint outside or before the code block. The UI will detect it and offer to save the file.`;
+
+    const parts = [basePrompt];
 
     if (requestCtx.apiref) {
         parts.push(SHE_API_REF);
@@ -144,6 +172,21 @@ Use a short kebab-case filename. Do NOT put the hint outside or before the code 
 
     if (currentScript?.path && typeof currentScript.content === 'string') {
         parts.push(`## Current script: ${currentScript.path}\n\`\`\`javascript\n${currentScript.content}\n\`\`\``);
+    }
+
+    if (currentView?.id) {
+        const filterStr = (currentView.filter || '').trim();
+        const mapBody   = (currentView.map    || '').trim();
+        const reduceBody = (currentView.reduce || '').trim();
+        const viewLines = [`## Current view: ${currentView.id}`];
+        viewLines.push(`Filter: ${filterStr || '(none)'}`);
+        viewLines.push(`Map:\n\`\`\`javascript\n${mapBody || '// (empty)'}\n\`\`\``);
+        if (reduceBody) {
+            viewLines.push(`Reduce:\n\`\`\`javascript\n${reduceBody}\n\`\`\``);
+        } else {
+            viewLines.push('Reduce: (none)');
+        }
+        parts.push(viewLines.join('\n'));
     }
 
     if (requestCtx.mqtt && store) {
@@ -164,9 +207,24 @@ Use a short kebab-case filename. Do NOT put the hint outside or before the code 
         try {
             const core = require('./shedb').getCore();
             if (core) {
-                const ids = typeof core.listIds === 'function' ? core.listIds() : [];
+                const ids = Object.keys(core.docs).sort();
                 if (ids.length > 0) {
                     parts.push(`## sheDB document IDs (${ids.length} total)\n${ids.slice(0, 200).join('\n')}`);
+                }
+            }
+        } catch {
+            // shedb not initialised — skip silently
+        }
+    }
+
+    if (requestCtx.sampleDocs) {
+        try {
+            const core = require('./shedb').getCore();
+            if (core) {
+                const ids = Object.keys(core.docs).sort().slice(0, 10);
+                if (ids.length > 0) {
+                    const sample = ids.map((id) => `### ${id}\n${JSON.stringify(core.docs[id], null, 2)}`).join('\n\n');
+                    parts.push(`## Sample sheDB documents (${ids.length} shown)\n${sample}`);
                 }
             }
         } catch {
@@ -448,11 +506,11 @@ router.post('/chat', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, context = {}, modelOverride } = req.body || {};
+    const { messages = [], currentScript, currentView, context = {}, modelOverride } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, _store);
+    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, _store);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     try {
@@ -475,7 +533,7 @@ router.post('/chat/stream', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, context = {}, modelOverride } = req.body || {};
+    const { messages = [], currentScript, currentView, context = {}, modelOverride } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
@@ -489,7 +547,7 @@ router.post('/chat/stream', async (req, res) => {
 
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, _store);
+    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, _store);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     try {

@@ -14,6 +14,7 @@
         type ViewDefinition,
         type ViewResult,
     } from '../lib/api.js';
+    import ViewChat from './ViewChat.svelte';
 
     // ---- Document state ----
     let docIds: string[] = $state([]);
@@ -54,6 +55,29 @@
     let resizeStartX = 0;
     let resizeStartWidth = 0;
 
+    // ---- Chat panel ----
+    const CHAT_WIDTH_KEY = 'she-db-chat-width';
+    const CHAT_OPEN_KEY  = 'she-db-chat-open';
+    let chatOpen  = $state(localStorage.getItem(CHAT_OPEN_KEY) === 'true');
+    let chatWidth = $state(parseInt(localStorage.getItem(CHAT_WIDTH_KEY) ?? '320', 10));
+    let chatResizing = false;
+    let chatResizeStartX = 0;
+    let chatResizeStartW = 0;
+
+    const currentView = $derived(
+        selectedViewId
+            ? { id: selectedViewId, filter: viewFilter, map: viewMap, reduce: viewReduce }
+            : null,
+    );
+
+    function onApplyView(parts: { filter?: string; map?: string; reduce?: string }) {
+        if (parts.filter !== undefined) viewFilter = parts.filter;
+        if (parts.map    !== undefined) viewMap    = parts.map;
+        if (parts.reduce !== undefined) viewReduce = parts.reduce;
+    }
+
+    $effect(() => { localStorage.setItem(CHAT_OPEN_KEY, String(chatOpen)); });
+
     function onResizeStart(e: MouseEvent) {
         resizing = true;
         resizeStartX = e.clientX;
@@ -62,14 +86,26 @@
     }
 
     function onResizeMove(e: MouseEvent) {
-        if (!resizing) return;
-        sidebarWidth = Math.max(140, Math.min(500, resizeStartWidth + e.clientX - resizeStartX));
+        if (resizing) sidebarWidth = Math.max(140, Math.min(500, resizeStartWidth + e.clientX - resizeStartX));
+        if (chatResizing) chatWidth = Math.max(240, Math.min(600, chatResizeStartW - (e.clientX - chatResizeStartX)));
     }
 
     function onResizeEnd() {
-        if (!resizing) return;
-        resizing = false;
-        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+        if (resizing) {
+            resizing = false;
+            localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+        }
+        if (chatResizing) {
+            chatResizing = false;
+            localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth));
+        }
+    }
+
+    function onChatResizeStart(e: MouseEvent) {
+        chatResizing = true;
+        chatResizeStartX = e.clientX;
+        chatResizeStartW = chatWidth;
+        e.preventDefault();
     }
 
     async function loadDocs() {
@@ -414,6 +450,7 @@
             <aside class="sidebar" style:width="{sidebarWidth}px">
                 <div class="toolbar">
                     <button onclick={() => { showNewViewForm = !showNewViewForm; newViewError = null; }}>+ View</button>
+                    <button class="chat-toggle" class:active={chatOpen} onclick={() => chatOpen = !chatOpen} title="AI assistant">AI</button>
                 </div>
                 {#if showNewViewForm}
                     <div class="new-item-form">
@@ -496,6 +533,14 @@
                     {@render dbWelcome()}
                 {/if}
             </main>
+            <!-- Chat panel (Views only) -->
+            {#if chatOpen}
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div class="chat-resize-handle" role="separator" onmousedown={onChatResizeStart}></div>
+                <div class="chat-pane" style:width="{chatWidth}px">
+                    <ViewChat currentView={currentView} {onApplyView} />
+                </div>
+            {/if}
         </div>
     {/if}
 </div>
@@ -557,6 +602,27 @@
         background: var(--accent);
     }
 
+    .chat-resize-handle {
+        width: 5px;
+        flex-shrink: 0;
+        cursor: col-resize;
+        background: var(--border-sub);
+        transition: background 0.15s;
+    }
+    .chat-resize-handle:hover,
+    .chat-resize-handle:active {
+        background: var(--accent);
+    }
+
+    .chat-pane {
+        flex-shrink: 0;
+        min-width: 240px;
+        max-width: 600px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
     /* ---- Sidebar toolbar ---- */
     .toolbar {
         display: flex;
@@ -579,6 +645,15 @@
     }
 
     .toolbar button:hover { background: var(--accent-hov); }
+
+    .toolbar .chat-toggle {
+        flex: 0 0 auto;
+        background: var(--bg-app);
+        color: var(--fg-dim);
+        border: 1px solid var(--border);
+    }
+    .toolbar .chat-toggle:hover { background: var(--bg-active); color: var(--fg); }
+    .toolbar .chat-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
     /* ---- New-item form ---- */
     .new-item-form {

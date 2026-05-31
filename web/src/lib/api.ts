@@ -328,6 +328,7 @@ export interface AiContext {
     mqtt: boolean;
     shedb: boolean;
     matter: boolean;
+    sampleDocs?: boolean;
 }
 
 export interface AiCurrentScript {
@@ -335,9 +336,17 @@ export interface AiCurrentScript {
     content: string;
 }
 
+export interface AiCurrentView {
+    id: string;
+    filter: string;
+    map: string;
+    reduce: string;
+}
+
 export interface AiChatRequest {
     messages: AiMessage[];
     currentScript?: AiCurrentScript | null;
+    currentView?: AiCurrentView | null;
     context: AiContext;
     modelOverride?: string;
 }
