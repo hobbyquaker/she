@@ -391,10 +391,7 @@ function createScript(source, name) {
 
 function runScript(script, name, origin) {
     const scriptDir = path.dirname(path.resolve(name));
-    const logLabel =
-        origin === 'builtin'
-            ? '[builtin] ' + path.basename(name, path.extname(name)) + ':'
-            : name + ':';
+    const logLabel = (origin || 'user') + '::' + path.basename(name) + ':';
 
     // Initialise per-script resource tracking
     if (!scriptJobs.has(name)) scriptJobs.set(name, []);
@@ -885,7 +882,7 @@ function runScript(script, name, origin) {
 function loadScript(file, origin) {
     origin = origin || 'user';
     file = file.replace(/\\/g, '/');
-    const loadLabel = origin === 'builtin' ? '[builtin] ' + path.basename(file) : file;
+    const loadLabel = (origin || 'user') + '::' + path.basename(file) + ':';
     /* istanbul ignore if */
     if (scripts[file]) {
         log.error(loadLabel, 'already loaded?!');
@@ -916,7 +913,7 @@ function loadScript(file, origin) {
 function unloadScript(file) {
     file = file.replace(/\\/g, '/');
     const origin = scriptOrigins.get(file) || 'user';
-    const unloadLabel = origin === 'builtin' ? '[builtin] ' + path.basename(file) : file;
+    const unloadLabel = (origin || 'user') + '::' + path.basename(file) + ':'
     log.info(unloadLabel, 'unloading');
     scriptOrigins.delete(file);
 
