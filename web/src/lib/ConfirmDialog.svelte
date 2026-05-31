@@ -32,8 +32,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="backdrop" onclick={() => choose(false)}></div>
+    <div class="backdrop" role="presentation" onclick={() => choose(false)}></div>
     <div class="dialog" role="dialog" aria-modal="true">
         <p>{message}</p>
         <div class="actions">

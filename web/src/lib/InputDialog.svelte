@@ -5,7 +5,7 @@
     let confirmLabel = $state('OK');
     let value = $state('');
     let resolve: ((v: string | null) => void) | null = null;
-    let input: HTMLInputElement;
+    let input: HTMLInputElement | undefined = $state();
 
     export function show(
         msg: string,
@@ -46,8 +46,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="backdrop" onclick={cancel}></div>
+    <div class="backdrop" role="presentation" onclick={cancel}></div>
     <div class="dialog" role="dialog" aria-modal="true">
         <p>{message}</p>
         <input
