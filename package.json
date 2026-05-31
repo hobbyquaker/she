@@ -63,12 +63,11 @@
                     },
     "repository":  {
                        "type":  "git",
-                       "url":  "https://github.com/hobbyquaker/mqtt-scripts"
+                       "url":  "https://github.com/hobbyquaker/she"
                    },
     "keywords":  [
                      "MQTT",
                      "javascript",
-                     "coffeescript",
                      "node.js",
                      "npm",
                      "sandbox",
@@ -81,7 +80,7 @@
                      "IoT"
                  ],
     "bugs":  {
-                 "url":  "https://github.com/hobbyquaker/mqtt-scripts/issues"
+                 "url":  "https://github.com/hobbyquaker/she/issues"
              },
-    "homepage":  "https://github.com/hobbyquaker/mqtt-scripts"
+    "homepage":  "https://github.com/hobbyquaker/she"
 }
