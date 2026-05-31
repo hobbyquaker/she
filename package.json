@@ -1,5 +1,5 @@
 {
-    "name":  "she",
+    "name":  "smart-home-engine",
     "version":  "0.10.3",
     "description":  "Node.js based script runner for use in MQTT based Smart Home environments",
     "main":  "src/index.js",
