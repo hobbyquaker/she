@@ -1,97 +1,223 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
-    import { fetchMqttState, publishMqtt, type MqttEntry } from '../lib/api.js';
+    import { fetchMqttState, publishMqtt } from '../lib/api.js';
 
-    let entries = $state<MqttEntry[]>([]);
+    /* ── Non-reactive data store ──────────────────────────────────────────────
+     * topicMap holds all known topic values. It is intentionally NOT $state —
+     * that avoids making Svelte deeply track a 2000-entry Map. Reactivity is
+     * driven solely by bumping `version` once per animation frame after all
+     * pending WS messages have been applied.
+     * ─────────────────────────────────────────────────────────────────────── */
+    const topicMap = new Map<string, { val: unknown; ts: number }>();
+    const pending = new Set<string>();
+    let rafId: number | null = null;
+    let version = $state(0);
+
+    function scheduleFlush() {
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(() => {
+            rafId = null;
+            for (const t of pending) ensureNode(t);
+            pending.clear();
+            version++;
+        });
+    }
+
+    /* ── Topic tree ───────────────────────────────────────────────────────── */
+    interface TreeNode {
+        seg: string;      // single path segment, e.g. "living"
+        path: string;     // full path,            e.g. "home/living"
+        children: Map<string, TreeNode>;
+        isLeaf: boolean;  // this path exists as a topic in topicMap
+    }
+
+    const roots = new Map<string, TreeNode>();
+
+    function ensureNode(topic: string) {
+        const parts = topic.split('/');
+        let map = roots;
+        let path = '';
+        for (let i = 0; i < parts.length; i++) {
+            const seg = parts[i];
+            path = i === 0 ? seg : `${path}/${seg}`;
+            if (!map.has(seg)) map.set(seg, { seg, path, children: new Map(), isLeaf: false });
+            const node = map.get(seg)!;
+            if (i === parts.length - 1) node.isLeaf = true;
+            map = node.children;
+        }
+    }
+
+    /* Assign a new Set on each toggle so Svelte detects the change. */
+    let expanded = $state(new Set<string>());
+
+    function toggleNode(path: string) {
+        const s = new Set(expanded);
+        s.has(path) ? s.delete(path) : s.add(path);
+        expanded = s;
+    }
+
+    /* ── Filter + virtual scroll ──────────────────────────────────────────── */
     let filter = $state('');
-    let loading = $state(true);
-    let loadError: string | null = $state(null);
 
-    // Publish form
-    let pubTopic = $state('');
-    let pubPayload = $state('');
-    let pubRetain = $state(false);
-    let pubQos = $state<0 | 1 | 2>(0);
-    let pubBusy = $state(false);
-    let pubError: string | null = $state(null);
-    let pubOk = $state(false);
+    const ROW_H = 24;    // px per row in the virtual-scroll list
+    const OVERSCAN = 5;  // extra rows above/below the visible viewport
+
+    let scrollTop  = $state(0);
+    let containerH = $state(300);
+
+    /* Flat sorted list — only materialised when filter is non-empty. */
+    let flatList = $derived.by(() => {
+        void version; // re-evaluate whenever data changes
+        if (!filter) return [] as Array<{ topic: string; val: unknown; ts: number }>;
+        const q = filter.toLowerCase();
+        const out: Array<{ topic: string; val: unknown; ts: number }> = [];
+        for (const [topic, e] of topicMap) {
+            if (topic.toLowerCase().includes(q)) out.push({ topic, ...e });
+        }
+        return out.sort((a, b) => a.topic.localeCompare(b.topic));
+    });
+
+    let vslice = $derived.by(() => {
+        const n = flatList.length;
+        const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+        const end   = Math.min(n, Math.ceil((scrollTop + containerH) / ROW_H) + OVERSCAN);
+        return { start, end, totalH: n * ROW_H, top: start * ROW_H };
+    });
+
+    /* ── Initial load ─────────────────────────────────────────────────────── */
+    let loading   = $state(true);
+    let loadError: string | null = $state(null);
 
     async function load() {
         loading = true;
         loadError = null;
         try {
-            entries = await fetchMqttState();
+            const entries = await fetchMqttState();
+            for (const e of entries) {
+                topicMap.set(e.topic, { val: e.val, ts: e.ts });
+                ensureNode(e.topic);
+            }
         } catch (e: unknown) {
             loadError = e instanceof Error ? e.message : String(e);
         } finally {
             loading = false;
+            version++;
         }
     }
 
-    // Live updates from the broker via WebSocket
-    const unsubscribe = subscribeWs('mqtt', (msg) => {
+    /* Live updates — write directly into the Map, queue topic for ensureNode,
+     * then schedule a batched rAF flush that bumps `version` once. */
+    const unsubWs = subscribeWs('mqtt', (msg) => {
         const { topic, val, ts } = msg as { topic: string; val: unknown; ts: number };
-        const idx = entries.findIndex((e) => e.topic === topic);
-        if (idx >= 0) {
-            entries[idx] = { topic, val, ts };
-        } else {
-            entries = [...entries, { topic, val, ts }].sort((a, b) => a.topic.localeCompare(b.topic));
-        }
+        topicMap.set(topic, { val, ts });
+        pending.add(topic);
+        scheduleFlush();
     });
 
-    onMount(load);
-    onDestroy(unsubscribe);
-
-    function fmtVal(val: unknown): string {
-        if (val === null || val === undefined) return '';
-        if (typeof val === 'object') return JSON.stringify(val);
-        return String(val);
-    }
-
-    function fmtAge(ts: number): string {
-        const diff = Math.floor((Date.now() - ts) / 1000);
-        if (diff < 60) return `${diff}s`;
-        if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-        return `${Math.floor(diff / 3600)}h`;
-    }
-
-    let filtered = $derived(
-        filter ? entries.filter((e) => e.topic.toLowerCase().includes(filter.toLowerCase())) : entries,
-    );
+    /* ── Publish ──────────────────────────────────────────────────────────── */
+    let pubTopic   = $state('');
+    let pubPayload = $state('');
+    let pubRetain  = $state(false);
+    let pubQos     = $state<0 | 1 | 2>(0);
+    let pubBusy    = $state(false);
+    let pubError: string | null = $state(null);
+    let pubOk      = $state(false);
 
     async function publish() {
         if (!pubTopic) return;
-        pubBusy = true;
-        pubError = null;
-        pubOk = false;
+        pubBusy = true; pubError = null; pubOk = false;
         try {
             await publishMqtt(pubTopic, pubPayload, pubRetain, pubQos);
             pubOk = true;
-            setTimeout(() => {
-                pubOk = false;
-            }, 2000);
+            setTimeout(() => { pubOk = false; }, 2000);
         } catch (e: unknown) {
             pubError = e instanceof Error ? e.message : String(e);
         } finally {
             pubBusy = false;
         }
     }
+
+    /* ── Helpers ──────────────────────────────────────────────────────────── */
+    function fmtVal(val: unknown): string {
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+    }
+
+    function fmtTime(ts: number): string {
+        return new Date(ts).toLocaleTimeString(undefined, {
+            hour: '2-digit', minute: '2-digit', hour12: false,
+        });
+    }
+
+    /* ── Derived ──────────────────────────────────────────────────────────── */
+    let rootList = $derived.by(() => {
+        void version;
+        return [...roots.values()].sort((a, b) => a.seg.localeCompare(b.seg));
+    });
+
+    let totalCount = $derived.by(() => { void version; return topicMap.size; });
+
+    onMount(load);
+    onDestroy(() => { unsubWs(); if (rafId !== null) cancelAnimationFrame(rafId); });
 </script>
 
+<!--
+    Recursive tree-node snippet.
+    `version` is referenced via `version >= 0` guards so the entire body
+    re-evaluates on each rAF flush.  Only expanded branches have DOM children —
+    collapsed nodes cost zero DOM nodes.
+-->
+{#snippet treeNode(n: TreeNode)}
+    {@const depth   = n.path.split('/').length - 1}
+    {@const isOpen  = expanded.has(n.path)}
+    {@const hasKids = version >= 0 && n.children.size > 0}
+    <div class="tn">
+        <div class="tr" style="--d: {depth}">
+            {#if hasKids}
+                <button
+                    class="chev"
+                    onclick={() => toggleNode(n.path)}
+                    aria-label={isOpen ? 'Collapse' : 'Expand'}
+                >{isOpen ? '▾' : '▸'}</button>
+            {:else}
+                <span class="chev-ph"></span>
+            {/if}
+            <span class="seg">{n.seg}</span>
+            {#if n.isLeaf && version >= 0}
+                {@const e = topicMap.get(n.path)}
+                {#if e !== undefined}
+                    <span class="tv" title={fmtVal(e.val)}>{fmtVal(e.val)}</span>
+                    <span class="tt">{fmtTime(e.ts)}</span>
+                {/if}
+            {/if}
+        </div>
+        {#if hasKids && isOpen}
+            <div class="tc">
+                {#each [...n.children.values()].sort((a, b) => a.seg.localeCompare(b.seg)) as child (child.path)}
+                    {@render treeNode(child)}
+                {/each}
+            </div>
+        {/if}
+    </div>
+{/snippet}
+
 <div class="page">
+    <!-- Toolbar -->
     <div class="toolbar">
         <h2>MQTT</h2>
-        <input class="filter" type="search" placeholder="Filter topics…" bind:value={filter} />
-        <span class="count">{filtered.length} / {entries.length}</span>
+        <input class="filter-in" type="search" placeholder="Filter topics…" bind:value={filter} />
+        <span class="count">
+            {#if filter}{flatList.length} /{/if} {totalCount}
+        </span>
     </div>
 
-    <div class="publish-bar">
-        <input class="pub-topic" type="text" placeholder="topic" bind:value={pubTopic} />
-        <input class="pub-payload" type="text" placeholder="payload" bind:value={pubPayload} />
-        <label class="retain-label">
-            <input type="checkbox" bind:checked={pubRetain} /> retain
-        </label>
+    <!-- Publish bar -->
+    <div class="pub-bar">
+        <input class="pt" type="text" placeholder="topic"   bind:value={pubTopic} />
+        <input class="pp" type="text" placeholder="payload" bind:value={pubPayload} />
+        <label class="rl"><input type="checkbox" bind:checked={pubRetain} /> retain</label>
         <select bind:value={pubQos}>
             <option value={0}>QoS 0</option>
             <option value={1}>QoS 1</option>
@@ -102,32 +228,44 @@
         {#if pubError}<span class="pub-err">{pubError}</span>{/if}
     </div>
 
+    <!-- Content -->
     {#if loading}
         <div class="info">Loading…</div>
     {:else if loadError}
-        <div class="info error">{loadError}</div>
-    {:else if filtered.length === 0}
-        <div class="info">No topics{filter ? ' matching filter' : ''}.</div>
+        <div class="info err">{loadError}</div>
+    {:else if filter}
+        <!-- Filter mode: virtual-scrolled flat list -->
+        {#if flatList.length === 0}
+            <div class="info">No topics match.</div>
+        {:else}
+            <div
+                class="vs"
+                bind:clientHeight={containerH}
+                onscroll={(e) => { scrollTop = (e.currentTarget as HTMLDivElement).scrollTop; }}
+            >
+                <div style="height: {vslice.totalH}px; position: relative;">
+                    <div class="vrows-abs" style="top: {vslice.top}px;">
+                        {#each flatList.slice(vslice.start, vslice.end) as row (row.topic)}
+                            <div class="vr">
+                                <span class="v-topic">{row.topic}</span>
+                                <span class="v-val" title={fmtVal(row.val)}>{fmtVal(row.val)}</span>
+                                <span class="v-ts">{fmtTime(row.ts)}</span>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+            </div>
+        {/if}
     {:else}
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Topic</th>
-                        <th>Value</th>
-                        <th>Age</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {#each filtered as entry (entry.topic)}
-                        <tr>
-                            <td class="topic">{entry.topic}</td>
-                            <td class="val">{fmtVal(entry.val)}</td>
-                            <td class="age">{fmtAge(entry.ts)}</td>
-                        </tr>
-                    {/each}
-                </tbody>
-            </table>
+        <!-- Tree mode: only expanded branches are in the DOM -->
+        <div class="tree-wrap">
+            {#if rootList.length === 0}
+                <div class="info">No topics yet.</div>
+            {:else}
+                {#each rootList as n (n.path)}
+                    {@render treeNode(n)}
+                {/each}
+            {/if}
         </div>
     {/if}
 </div>
@@ -140,6 +278,7 @@
         overflow: hidden;
     }
 
+    /* ── Toolbar ── */
     .toolbar {
         display: flex;
         align-items: center;
@@ -154,7 +293,7 @@
         font-weight: 600;
         color: #ccc;
     }
-    .filter {
+    .filter-in {
         flex: 1;
         max-width: 360px;
         background: #1e1e1e;
@@ -168,9 +307,11 @@
         font-size: 12px;
         color: #666;
         margin-left: auto;
+        white-space: nowrap;
     }
 
-    .publish-bar {
+    /* ── Publish bar ── */
+    .pub-bar {
         display: flex;
         align-items: center;
         gap: 6px;
@@ -178,14 +319,9 @@
         border-bottom: 1px solid #3c3c3c;
         flex-shrink: 0;
     }
-    .pub-topic {
-        width: 240px;
-    }
-    .pub-payload {
-        flex: 1;
-    }
-    .pub-topic,
-    .pub-payload {
+    .pt { width: 240px; }
+    .pp { flex: 1; }
+    .pt, .pp {
         background: #1e1e1e;
         border: 1px solid #3c3c3c;
         border-radius: 3px;
@@ -193,7 +329,7 @@
         padding: 3px 8px;
         font-size: 13px;
     }
-    .retain-label {
+    .rl {
         font-size: 12px;
         color: #888;
         display: flex;
@@ -218,76 +354,109 @@
         font-size: 12px;
         cursor: pointer;
     }
-    button:disabled {
-        opacity: 0.5;
-        cursor: default;
-    }
-    .pub-ok {
-        color: #4ec9b0;
-        font-size: 13px;
-    }
-    .pub-err {
-        color: #f48771;
-        font-size: 12px;
-    }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .pub-ok { color: #4ec9b0; font-size: 13px; }
+    .pub-err { color: #f48771; font-size: 12px; }
 
-    .info {
-        padding: 24px 16px;
-        color: #666;
-        font-size: 13px;
-    }
-    .info.error {
-        color: #f48771;
-    }
+    /* ── Shared ── */
+    .info { padding: 24px 16px; color: #666; font-size: 13px; }
+    .info.err { color: #f48771; }
 
-    .table-wrap {
+    /* ── Tree ── */
+    .tree-wrap {
         flex: 1;
         overflow: auto;
-    }
-    table {
-        width: 100%;
-        border-collapse: collapse;
         font-size: 13px;
     }
-    thead {
-        position: sticky;
-        top: 0;
-        background: #252526;
+    .tn { display: block; }
+    .tr {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 22px;
+        padding-left: calc(4px + var(--d, 0) * 16px);
+        cursor: default;
+        user-select: none;
     }
-    th {
-        text-align: left;
-        padding: 6px 12px;
+    .tr:hover { background: #2a2d2e; }
+    .chev {
+        background: none;
+        border: none;
         color: #888;
-        font-weight: 500;
-        border-bottom: 1px solid #3c3c3c;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        padding: 0;
+        width: 16px;
+        font-size: 10px;
+        cursor: pointer;
+        flex-shrink: 0;
+        line-height: 1;
     }
-    td {
-        padding: 4px 12px;
-        border-bottom: 1px solid #2d2d2d;
+    .chev:hover { color: #ccc; }
+    .chev-ph { width: 16px; flex-shrink: 0; display: inline-block; }
+    .seg {
         color: #ccc;
-    }
-    tr:hover td {
-        background: #2a2d2e;
-    }
-    .topic {
         font-family: monospace;
         font-size: 12px;
+        flex-shrink: 0;
+    }
+    .tv {
         color: #9cdcfe;
-    }
-    .val {
         font-family: monospace;
         font-size: 12px;
-        max-width: 400px;
+        margin-left: 8px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        flex: 1;
     }
-    .age {
-        color: #666;
+    .tt {
+        color: #555;
         font-size: 11px;
+        flex-shrink: 0;
+        margin-left: 8px;
+        padding-right: 12px;
+    }
+    .tc { display: block; }
+
+    /* ── Virtual scroll (filter mode) ── */
+    .vs {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        font-size: 13px;
+    }
+    .vrows-abs {
+        position: absolute;
+        width: 100%;
+    }
+    .vr {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 24px;
+        padding: 0 12px;
+    }
+    .vr:hover { background: #2a2d2e; }
+    .v-topic {
+        font-family: monospace;
+        font-size: 12px;
+        color: #9cdcfe;
+        white-space: nowrap;
+        flex-shrink: 0;
+        min-width: 200px;
+    }
+    .v-val {
+        font-family: monospace;
+        font-size: 12px;
+        color: #ccc;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+    }
+    .v-ts {
+        color: #555;
+        font-size: 11px;
+        flex-shrink: 0;
         white-space: nowrap;
     }
 </style>

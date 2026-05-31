@@ -84,7 +84,6 @@ async function close() {
     try {
         await _server.close();
     } catch (err) {
-        /* istanbul ignore next */
         _log?.error('matter controller close error:', err.message);
     } finally {
         _server = null;

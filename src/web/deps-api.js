@@ -85,18 +85,15 @@ router.get('/search', (req, res) => {
                 }));
                 res.json(results);
             } catch {
-                /* istanbul ignore next */
                 if (!res.headersSent) res.status(502).json({ error: 'Failed to parse npm registry response' });
             }
         });
     });
     npmReq.on('error', (err) => {
-        /* istanbul ignore next */
         if (!res.headersSent) res.status(502).json({ error: err.message });
     });
     npmReq.on('timeout', () => {
         npmReq.destroy();
-        /* istanbul ignore next */
         if (!res.headersSent) res.status(504).json({ error: 'npm registry timeout' });
     });
 });

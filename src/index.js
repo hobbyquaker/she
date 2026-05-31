@@ -48,7 +48,6 @@ const log = {
 const config = require('./config.js');
 const pkg = require('../package.json');
 
-/* istanbul ignore next */
 log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1 ? 'info' : config.verbosity);
 log.info('she ' + pkg.version + ' starting');
 log.debug('loaded config: ', config);
@@ -225,7 +224,6 @@ if (config.url) {
         }
     });
 
-    /* istanbul ignore next */
     mqtt.on('error', () => {
         log.error('mqtt error ' + config.url);
     });
@@ -252,7 +250,6 @@ if (config.url) {
             store.setObject('var::' + varName, state);
             mqtt.publish(topic, JSON.stringify(state), { retain: true });
         } else {
-            /* istanbul ignore next */
             if (!state) {
                 log.error('invalid state', topic, payload);
                 process.exit();
@@ -646,12 +643,9 @@ function runScript(script, name, origin) {
                 const varName = tmp.slice(2).join('/');
                 setVariable(varName, val);
             } else if (tmp[0] === config.variablePrefix && config.disableVariables) {
-                /* istanbul ignore next */
                 tmp[1] = 'status';
                 topic = tmp.join('/');
-                /* istanbul ignore next */
                 if (!store.has('mqtt::' + topic) || store.get('mqtt::' + topic) !== val) {
-                    /* istanbul ignore next */
                     tmp[1] = 'set';
                     topic = tmp.join('/');
                     she.mqttpub(topic, val, { retain: false });
@@ -875,7 +869,6 @@ function runScript(script, name, origin) {
     const context = vm.createContext(Sandbox);
 
     scriptDomain.on('error', (e) => {
-        /* istanbul ignore if */
         if (!e.stack) {
             log.error(logLabel, 'unknown exception');
             return;
@@ -902,7 +895,6 @@ function loadScript(file, origin) {
     origin = origin || 'user';
     file = file.replace(/\\/g, '/');
     const loadLabel = (origin || 'user') + '::' + path.basename(file) + ':';
-    /* istanbul ignore if */
     if (scripts[file]) {
         log.error(loadLabel, 'already loaded?!');
         return;
@@ -910,11 +902,9 @@ function loadScript(file, origin) {
 
     log.info(loadLabel, 'loading');
     fs.readFile(file, (err, src) => {
-        /* istanbul ignore if */
         if (err && err.code === 'ENOENT') {
             log.error(loadLabel, 'not found');
         } else if (err) {
-            /* istanbul ignore next */
             log.error(loadLabel, err);
         } else {
             if (file.match(/\.js$/)) {
@@ -1009,7 +999,6 @@ function loadBuiltinsDir(callback) {
 function loadSandbox(callback) {
     const dir = path.join(__dirname, 'sandbox');
     fs.readdir(dir, (err, data) => {
-        /* istanbul ignore if */
         if (err) {
             if (err.errno === 34) {
                 log.error('directory ' + path.resolve(dir) + ' not found');
@@ -1153,7 +1142,6 @@ function loadDir(dir) {
 }
 
 function start() {
-    /* istanbul ignore if */
     if (config.file) {
         if (typeof config.file === 'string') {
             loadScript(config.file);
@@ -1167,7 +1155,6 @@ function start() {
     loadSandbox(() => {
         loadBuiltinsDir(() => {
             if (config.dir) {
-                /* istanbul ignore else */
                 if (typeof config.dir === 'string') {
                     loadDir(config.dir);
                 } else {
@@ -1180,7 +1167,6 @@ function start() {
     });
 }
 
-/* istanbul ignore next */
 async function gracefulShutdown(signal) {
     log.info(`got ${signal}. exiting.`);
     if (config.matterStorage) {
@@ -1193,7 +1179,5 @@ async function gracefulShutdown(signal) {
     process.exit(0);
 }
 
-/* istanbul ignore next */
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-/* istanbul ignore next */
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

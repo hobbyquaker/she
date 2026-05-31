@@ -1,6 +1,6 @@
 {
     "name": "smart-home-engine",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Node.js based script runner for use in MQTT based Smart Home environments",
     "main": "src/index.js",
     "scripts": {
@@ -18,6 +18,11 @@
     "bin": {
         "she": "src/index.js"
     },
+    "files": [
+        "src/",
+        "sandbox/",
+        "dist/web/"
+    ],
     "author": "Sebastian 'hobbyquaker' Raff <hobbyquaker@gmail.com>",
     "license": "MIT",
     "dependencies": {
