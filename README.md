@@ -1,44 +1,55 @@
-﻿# she - smart home engine
+﻿<div align="center">
+  <img src="doc/she.jpg" alt="she – smart home engine" width="220" />
+</div>
+
+# she — smart home engine
 
 [![License][mit-badge]][mit-url]
 
-> Node.js script engine for MQTT- and/or Matter-based smart home ecosystems.
+Your home, your rules — written in plain JavaScript.
 
-**she** loads your `.js` files into a sandboxed VM that gives scripts easy access to MQTT topics, Matter devices, a built-in document store (sheDB), and a scheduler (cron + solar events). A built-in web UI lets you edit scripts, browse MQTT topics, manage Matter devices, and configure the daemon — all from a browser.
+**she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl. Just scripts that do exactly what you tell them.
 
-## Documentation
+- **MQTT** — subscribe, publish, react to state changes with wildcards, conditions, and delays
+- **Matter** — pair and control Thread/Wi-Fi devices directly from your scripts
+- **sheDB** — a lightweight document store with map/reduce views, right in the daemon
+- **Scheduler** — cron expressions *and* solar events (`sunrise`, `sunset`, …) in one call
+- **Web UI** — Monaco-based script editor, MQTT topic browser, device manager, live logs
 
-| File | Contents |
+## Docs
+
+| | |
 |---|---|
-| [doc/getting-started.md](doc/getting-started.md) | Installation, first script, Docker, config file |
-| [doc/cli.md](doc/cli.md) | All command-line options and environment variables |
-| [doc/sandbox-api.md](doc/sandbox-api.md) | Complete sandbox API reference |
-| [doc/http-api.md](doc/http-api.md) | HTTP server, authentication, REST endpoints, WebSocket |
-| [doc/examples.md](doc/examples.md) | Real-world script examples |
+| [Getting started](doc/getting-started.md) | Install, write your first script, configure |
+| [CLI reference](doc/cli.md) | All flags and environment variables |
+| [Sandbox API](doc/sandbox-api.md) | Everything available inside a script |
+| [HTTP API](doc/http-api.md) | REST endpoints and WebSocket |
+| [Examples](doc/examples.md) | Real-world script patterns |
 
-## Quick example
+## Quick look
 
 ```js
 // lights.js
 
-// React to motion sensor and control a light
+// Follow a motion sensor
 she.mqtt.sub('home//hall/motion', { change: true }, (topic, val) => {
     she.mqtt.set('home//hall/light', val ? 1 : 0);
 });
 
-// Switch outdoor lights at dawn and dusk
+// Solar schedule — no hardcoded times
 she.schedule('sunset',  () => she.mqtt.set('home//lights/outdoor', 1));
 she.schedule('sunrise', () => she.mqtt.set('home//lights/outdoor', 0));
 
-// Store device config in sheDB
+// Keep device metadata in sheDB
 she.db.set('hall/motion', { name: 'Hall PIR', location: 'hall' });
 ```
 
 ```bash
-she --dir ~/scripts --url mqtt://localhost --port 8080
+npm install -g she
+she --dir ~/scripts --url mqtt://localhost
 ```
 
-Then open **http://localhost:8080** in a browser to edit scripts, browse MQTT topics, and manage devices.
+Then open **http://localhost:8080** and start writing.
 
 ## License
 
