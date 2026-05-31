@@ -67,6 +67,14 @@
     let proposedOriginalModel: monaco.editor.ITextModel | null = null;
     let proposedModifiedModel: monaco.editor.ITextModel | null = null;
 
+    // Resizable panels
+    let asideWidth = $state(parseInt(localStorage.getItem('she-scripts-sidebar-width') ?? '220', 10));
+    let logHeight = $state(parseInt(localStorage.getItem('she-scripts-log-height') ?? '130', 10));
+    let chatWidth = $state(parseInt(localStorage.getItem('she-scripts-chat-width') ?? '340', 10));
+    let sidebarResizing = false, sidebarResizeStartX = 0, sidebarResizeStartW = 0;
+    let logResizing = false, logResizeStartY = 0, logResizeStartH = 0;
+    let chatResizing = false, chatResizeStartX = 0, chatResizeStartW = 0;
+
     const chatScript = $derived(
         activeTab && currentTab
             ? { path: activeTab, content: currentTab.model?.getValue() ?? currentTab.savedContent }
@@ -501,6 +509,23 @@ declare const she: {
         return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
     }
 
+    // ── Panel resize handlers ────────────────────────────────────────────────
+    function onSidebarResizeStart(e: MouseEvent) { sidebarResizing = true; sidebarResizeStartX = e.clientX; sidebarResizeStartW = asideWidth; e.preventDefault(); }
+    function onLogResizeStart(e: MouseEvent) { logResizing = true; logResizeStartY = e.clientY; logResizeStartH = logHeight; e.preventDefault(); }
+    function onChatResizeStart(e: MouseEvent) { chatResizing = true; chatResizeStartX = e.clientX; chatResizeStartW = chatWidth; e.preventDefault(); }
+
+    function onGlobalMouseMove(e: MouseEvent) {
+        if (sidebarResizing) asideWidth = Math.max(140, Math.min(500, sidebarResizeStartW + e.clientX - sidebarResizeStartX));
+        if (logResizing) logHeight = Math.max(60, Math.min(500, logResizeStartH - (e.clientY - logResizeStartY)));
+        if (chatResizing) chatWidth = Math.max(200, Math.min(700, chatResizeStartW - (e.clientX - chatResizeStartX)));
+    }
+
+    function onGlobalMouseUp() {
+        if (sidebarResizing) { sidebarResizing = false; localStorage.setItem('she-scripts-sidebar-width', String(asideWidth)); }
+        if (logResizing) { logResizing = false; localStorage.setItem('she-scripts-log-height', String(logHeight)); }
+        if (chatResizing) { chatResizing = false; localStorage.setItem('she-scripts-chat-width', String(chatWidth)); }
+    }
+
     function handleKeydown(e: KeyboardEvent) {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
         if (e.key === 'Escape') { dropdownOpen = false; ctxMenu = null; }
@@ -577,7 +602,7 @@ declare const she: {
     }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} onmousemove={onGlobalMouseMove} onmouseup={onGlobalMouseUp} />
 <ConfirmDialog bind:this={dialog} />
 <InputDialog bind:this={inputDialog} />
 
@@ -605,7 +630,7 @@ declare const she: {
 {/if}
 
 <div class="layout">
-    <aside>
+    <aside style:width="{asideWidth}px">
         <div class="toolbar">
             <button onclick={newFile} title="New script">+ File</button>
             <button onclick={newFolder} title="New folder">+ Folder</button>
@@ -681,6 +706,8 @@ declare const she: {
             {/each}
         </ul>
     </aside>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="sidebar-resize-handle" role="separator" onmousedown={onSidebarResizeStart}></div>
 
     <div class="editor-area">
         {#if tabs.length > 0}
@@ -743,7 +770,16 @@ declare const she: {
                 class:ai-open={chatOpen}
                 onclick={() => chatOpen = !chatOpen}
                 title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
-            >AI</button>
+            >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+                    <line x1="5.5" y1="5" x2="4" y2="2.5"/>
+                    <line x1="10.5" y1="5" x2="12" y2="2.5"/>
+                    <path d="M3 11 V7 A5 3.5 0 0 0 13 7 V11 Z" stroke-linejoin="round"/>
+                    <circle cx="6" cy="8.2" r="0.7" fill="currentColor" stroke="none"/>
+                    <circle cx="10" cy="8.2" r="0.7" fill="currentColor" stroke="none"/>
+                </svg>
+                AI
+            </button>
         </div>
 
         <div class="editor-body">
@@ -754,7 +790,7 @@ declare const she: {
                         <div class="welcome">
                             <div class="welcome-inner">
                                 <div class="welcome-logo">she</div>
-                                <p class="welcome-sub">smart-home-engine — a scriptable MQTT automation daemon</p>
+                                <p class="welcome-sub">Smart Home Engine — a scriptable smart home automation engine</p>
                                 <div class="welcome-hint">
                                     <strong>Quick start:</strong> click <kbd>+ File</kbd> in the sidebar to create your first script,
                                     or click an existing file to open it. Scripts run in a sandboxed VM with access to the
@@ -763,7 +799,7 @@ declare const she: {
                                 <div class="welcome-links">
                                     <a href="https://github.com/hobbyquaker/she" target="_blank" rel="noopener">GitHub</a>
                                     <span>·</span>
-                                    <a href="https://github.com/hobbyquaker/she#sandbox-api-surface" target="_blank" rel="noopener">API reference</a>
+                                    <a href="https://github.com/hobbyquaker/she/blob/main/doc/sandbox-api.md" target="_blank" rel="noopener">API reference</a>
                                     <span>·</span>
                                     <a href="https://github.com/hobbyquaker/she/blob/main/README.md" target="_blank" rel="noopener">README</a>
                                 </div>
@@ -784,7 +820,11 @@ declare const she: {
                     {/if}
                 </div>
 
-                <div class="log-panel" class:collapsed={!logPanelOpen}>
+                <div class="log-panel" class:collapsed={!logPanelOpen} style:height={logPanelOpen ? `${logHeight}px` : '26px'}>
+                    {#if logPanelOpen}
+                        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                        <div class="log-resize-handle" role="separator" onmousedown={onLogResizeStart}></div>
+                    {/if}
                     <div class="log-header">
                         <button class="log-toggle" onclick={toggleLogPanel}>
                             {logPanelOpen ? '▾' : '▸'} Script Log
@@ -812,7 +852,11 @@ declare const she: {
             </div>
 
             {#if chatOpen}
-                <Chat currentScript={chatScript} {onApply} />
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div class="chat-resize-handle" role="separator" onmousedown={onChatResizeStart}></div>
+                <div class="chat-container" style:width="{chatWidth}px">
+                    <Chat currentScript={chatScript} {onApply} />
+                </div>
             {/if}
         </div>
     </div>
@@ -822,9 +866,8 @@ declare const she: {
     .layout { display: flex; height: 100%; }
 
     aside {
-        width: 220px; flex-shrink: 0;
+        min-width: 140px; max-width: 500px; flex-shrink: 0;
         background: var(--bg-panel);
-        border-right: 1px solid var(--border-sub);
         display: flex; flex-direction: column; overflow: hidden;
     }
     .toolbar {
@@ -915,9 +958,36 @@ declare const she: {
         color: var(--fg-brand) !important;
         border: 1px solid var(--border) !important;
         font-weight: 600 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
     }
     .ai-toggle:hover { background: var(--bg-hover) !important; }
     .ai-toggle.ai-open { background: var(--fg-brand) !important; color: #fff !important; border-color: var(--fg-brand) !important; }
+
+    /* Resize handles */
+    .sidebar-resize-handle {
+        width: 5px; cursor: col-resize; flex-shrink: 0;
+        background: var(--border-sub); transition: background 0.15s;
+    }
+    .sidebar-resize-handle:hover, .sidebar-resize-handle:active { background: var(--accent); }
+
+    .log-resize-handle {
+        height: 5px; cursor: row-resize; flex-shrink: 0;
+        background: var(--border-sub); transition: background 0.15s;
+    }
+    .log-resize-handle:hover, .log-resize-handle:active { background: var(--accent); }
+
+    .chat-resize-handle {
+        width: 5px; cursor: col-resize; flex-shrink: 0;
+        background: var(--border-sub); transition: background 0.15s;
+    }
+    .chat-resize-handle:hover, .chat-resize-handle:active { background: var(--accent); }
+
+    .chat-container {
+        display: flex; flex-direction: column;
+        min-width: 200px; max-width: 700px; flex-shrink: 0;
+    }
 
     .tab-bar {
         display: flex; overflow-x: auto; background: var(--bg-app);
@@ -996,9 +1066,8 @@ declare const she: {
 
     .log-panel {
         flex-shrink: 0; display: flex; flex-direction: column;
-        border-top: 1px solid var(--border-sub); height: 130px;
+        border-top: 1px solid var(--border-sub);
     }
-    .log-panel.collapsed { height: 26px; }
     .log-header {
         display: flex; align-items: center; gap: 6px; padding: 4px 8px;
         background: var(--bg-panel); border-bottom: 1px solid var(--border-sub); flex-shrink: 0;

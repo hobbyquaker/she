@@ -3,18 +3,18 @@
 [![License][mit-badge]][mit-url]
 
 > [!WARNING]
-> **This project is under heavy development.** The API is changing frequently and there are no stability guarantees yet.
+> **This project is under heavy development and many features are not working yet.** The API is changing frequently and there are no stability guarantees yet.
 
 Your home, your rules - written in plain JavaScript.
 
 **she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl, no opinionated bloated schemata. Just scripts that do exactly what you tell them.
 
-- **Scripts** — Monaco-based web editor, git integration
+- **Scripts** — Monaco-based Script IDE, AI assistant, git integration, autocompletion, ...
 - **MQTT** — subscribe, publish, react to state changes with wildcards, conditions, and delays
 - **Matter** — pair and control Matter devices directly from your scripts
 - **sheDB** — a lightweight document store with map/reduce views, right in the daemon
 - **Scheduler** — cron expressions and solar events (`sunrise`, `sunset`, …) in one call
-- **Web UI** — Script editor, MQTT topic browser, Matter device manager, sheDB-Frontend, live logs
+- **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB-Frontend, log viewer
 
 ## Motivation
 
@@ -58,9 +58,11 @@ she.schedule('sunrise', () => she.mqtt.set('home//lights/outdoor', 0));
 she.db.set('hall/motion', { name: 'Hall PIR', location: 'hall' });
 ```
 
+## Quick start
+
 ```bash
-npm install -g she
-she --dir ~/scripts --url mqtt://localhost
+npm install -g smart-home-engine
+she
 ```
 
 Then open **http://localhost:8080** and start writing.

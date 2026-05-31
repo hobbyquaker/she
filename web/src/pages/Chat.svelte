@@ -263,7 +263,7 @@
 
 <style>
     .chat-panel {
-        width: 340px;
+        width: 100%;
         flex-shrink: 0;
         display: flex;
         flex-direction: column;
