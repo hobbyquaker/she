@@ -55,8 +55,8 @@
         left: 50%;
         transform: translate(-50%, -50%);
         z-index: 101;
-        background: #2d2d30;
-        border: 1px solid #454545;
+        background: var(--bg-widget);
+        border: 1px solid var(--border);
         border-radius: 6px;
         padding: 20px 24px 16px;
         min-width: 280px;
@@ -65,7 +65,7 @@
     p {
         margin: 0 0 20px;
         font-size: 13px;
-        color: #cccccc;
+        color: var(--fg);
         line-height: 1.4;
     }
     .actions {
@@ -81,23 +81,24 @@
         cursor: pointer;
     }
     .cancel {
-        background: #3c3c3c;
-        color: #cccccc;
+        background: var(--bg-input);
+        color: var(--fg);
     }
     .cancel:hover {
-        background: #484848;
+        background: var(--bg-active);
     }
-    button:not(.cancel) {
-        background: #0e639c;
+    button:not(.cancel):not(.danger) {
+        background: var(--accent);
         color: #fff;
     }
-    button:not(.cancel):hover {
-        background: #1177bb;
+    button:not(.cancel):not(.danger):hover {
+        background: var(--accent-hov);
     }
     button.danger {
-        background: #6c1717;
+        background: var(--accent-del);
+        color: #fff;
     }
     button.danger:hover {
-        background: #8b1e1e;
+        background: var(--accent-del-hov);
     }
 </style>

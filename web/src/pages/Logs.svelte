@@ -59,31 +59,31 @@
     .page { display: flex; flex-direction: column; height: 100%; }
     .toolbar {
         display: flex; align-items: center; gap: 8px;
-        padding: 6px 12px; background: #252526;
-        border-bottom: 1px solid #333; flex-shrink: 0;
+        padding: 6px 12px; background: var(--bg-panel);
+        border-bottom: 1px solid var(--border-sub); flex-shrink: 0;
     }
     h2 { font-size: 13px; font-weight: 600; flex: 1; }
     select {
-        background: #3c3c3c; color: #ccc; border: 1px solid #555;
+        background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
         padding: 2px 6px; border-radius: 3px; font-size: 12px;
     }
-    .cb { font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 4px; }
+    .cb { font-size: 12px; color: var(--fg-muted); display: flex; align-items: center; gap: 4px; }
     button {
-        background: #3c3c3c; color: #ccc; border: 1px solid #555;
+        background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
         padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 12px;
     }
-    button:hover { background: #444; }
+    button:hover { background: var(--bg-active); }
     .log {
         flex: 1; overflow-y: auto; padding: 4px 0;
         font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px;
     }
     .line { display: flex; gap: 8px; padding: 1px 12px; }
-    .line:hover { background: #2a2d2e; }
-    .ts { color: #666; flex-shrink: 0; }
+    .line:hover { background: var(--bg-hover); }
+    .ts { color: var(--fg-dim); flex-shrink: 0; }
     .lvl { width: 48px; flex-shrink: 0; font-weight: bold; }
-    .debug .lvl { color: #888; }
+    .debug .lvl { color: var(--fg-muted); }
     .info .lvl { color: #4fc1ff; }
-    .warn .lvl { color: #cca700; }
-    .error .lvl { color: #f48771; }
-    .msg { color: #d4d4d4; word-break: break-all; }
+    .warn .lvl { color: var(--fg-warn); }
+    .error .lvl { color: var(--fg-err); }
+    .msg { color: var(--fg-text); word-break: break-all; }
 </style>

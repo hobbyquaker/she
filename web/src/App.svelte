@@ -129,8 +129,8 @@
         gap: 4px;
         padding: 0 12px;
         height: 40px;
-        background: #252526;
-        border-bottom: 1px solid #333;
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border-sub);
         flex-shrink: 0;
     }
     .brand {
@@ -138,12 +138,12 @@
         font-size: 14px;
         letter-spacing: 2px;
         margin-right: 12px;
-        color: #569cd6;
+        color: var(--fg-brand);
     }
     button {
         background: none;
         border: none;
-        color: #cccccc;
+        color: var(--fg);
         cursor: pointer;
         padding: 6px 12px;
         border-radius: 3px;
@@ -152,7 +152,7 @@
         align-items: center;
         gap: 5px;
     }
-    button:hover { background: #2a2d2e; }
-    button.active { background: #37373d; color: #fff; }
+    button:hover { background: var(--bg-hover); }
+    button.active { background: var(--bg-active); color: var(--fg-text); }
     main { flex: 1; min-height: 0; }
 </style>

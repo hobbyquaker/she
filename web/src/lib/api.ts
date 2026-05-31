@@ -76,6 +76,12 @@ export function createScriptDir(dirPath: string): Promise<{ ok: boolean; path: s
     return request('POST', '/she/scripts/mkdir', { path: dirPath });
 }
 
+// ---- Git API ----
+
+export function commitFile(filePath: string, message: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/git/commit', { path: filePath, message });
+}
+
 // ---- Config API ----
 
 export function getConfig(): Promise<Record<string, unknown>> {

@@ -75,8 +75,8 @@
         left: 50%;
         transform: translate(-50%, -50%);
         z-index: 101;
-        background: #2d2d30;
-        border: 1px solid #454545;
+        background: var(--bg-widget);
+        border: 1px solid var(--border);
         border-radius: 6px;
         padding: 20px 24px 16px;
         min-width: 320px;
@@ -85,22 +85,22 @@
     p {
         margin: 0 0 12px;
         font-size: 13px;
-        color: #cccccc;
+        color: var(--fg);
     }
     input {
         width: 100%;
         box-sizing: border-box;
-        background: #1e1e1e;
-        border: 1px solid #454545;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
         border-radius: 3px;
-        color: #cccccc;
+        color: var(--fg);
         font-size: 13px;
         padding: 5px 8px;
         margin-bottom: 16px;
         outline: none;
     }
     input:focus {
-        border-color: #0e639c;
+        border-color: var(--accent);
     }
     .actions {
         display: flex;
@@ -115,8 +115,8 @@
         cursor: pointer;
     }
     .cancel {
-        background: #3c3c3c;
-        color: #cccccc;
+        background: var(--bg-input);
+        color: var(--fg);
     }
     .cancel:hover {
         background: #484848;

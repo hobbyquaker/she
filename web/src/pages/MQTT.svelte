@@ -284,28 +284,28 @@
         align-items: center;
         gap: 8px;
         padding: 6px 12px;
-        border-bottom: 1px solid #3c3c3c;
+        border-bottom: 1px solid var(--border);
         flex-shrink: 0;
     }
     .toolbar h2 {
         margin: 0;
         font-size: 14px;
         font-weight: 600;
-        color: #ccc;
+        color: var(--fg);
     }
     .filter-in {
         flex: 1;
         max-width: 360px;
-        background: #1e1e1e;
-        border: 1px solid #3c3c3c;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
         border-radius: 3px;
-        color: #ccc;
+        color: var(--fg);
         padding: 3px 8px;
         font-size: 13px;
     }
     .count {
         font-size: 12px;
-        color: #666;
+        color: var(--fg-dim);
         margin-left: auto;
         white-space: nowrap;
     }
@@ -316,37 +316,37 @@
         align-items: center;
         gap: 6px;
         padding: 6px 12px;
-        border-bottom: 1px solid #3c3c3c;
+        border-bottom: 1px solid var(--border);
         flex-shrink: 0;
     }
     .pt { width: 240px; }
     .pp { flex: 1; }
     .pt, .pp {
-        background: #1e1e1e;
-        border: 1px solid #3c3c3c;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
         border-radius: 3px;
-        color: #ccc;
+        color: var(--fg);
         padding: 3px 8px;
         font-size: 13px;
     }
     .rl {
         font-size: 12px;
-        color: #888;
+        color: var(--fg-muted);
         display: flex;
         align-items: center;
         gap: 4px;
         white-space: nowrap;
     }
     select {
-        background: #2d2d2d;
-        border: 1px solid #3c3c3c;
-        color: #ccc;
+        background: var(--bg-widget);
+        border: 1px solid var(--border);
+        color: var(--fg);
         padding: 3px 6px;
         font-size: 12px;
         border-radius: 3px;
     }
     button {
-        background: #0e639c;
+        background: var(--accent);
         border: none;
         color: #fff;
         padding: 4px 12px;
@@ -355,12 +355,12 @@
         cursor: pointer;
     }
     button:disabled { opacity: 0.5; cursor: default; }
-    .pub-ok { color: #4ec9b0; font-size: 13px; }
-    .pub-err { color: #f48771; font-size: 12px; }
+    .pub-ok { color: var(--fg-ok); font-size: 13px; }
+    .pub-err { color: var(--fg-err); font-size: 12px; }
 
     /* ── Shared ── */
-    .info { padding: 24px 16px; color: #666; font-size: 13px; }
-    .info.err { color: #f48771; }
+    .info { padding: 24px 16px; color: var(--fg-dim); font-size: 13px; }
+    .info.err { color: var(--fg-err); }
 
     /* ── Tree ── */
     .tree-wrap {
@@ -378,11 +378,11 @@
         cursor: default;
         user-select: none;
     }
-    .tr:hover { background: #2a2d2e; }
+    .tr:hover { background: var(--bg-hover); }
     .chev {
         background: none;
         border: none;
-        color: #888;
+        color: var(--fg-muted);
         padding: 0;
         width: 16px;
         font-size: 10px;
@@ -390,16 +390,16 @@
         flex-shrink: 0;
         line-height: 1;
     }
-    .chev:hover { color: #ccc; }
+    .chev:hover { color: var(--fg); }
     .chev-ph { width: 16px; flex-shrink: 0; display: inline-block; }
     .seg {
-        color: #ccc;
+        color: var(--fg);
         font-family: monospace;
         font-size: 12px;
         flex-shrink: 0;
     }
     .tv {
-        color: #9cdcfe;
+        color: var(--fg-value);
         font-family: monospace;
         font-size: 12px;
         margin-left: 8px;
@@ -409,7 +409,7 @@
         flex: 1;
     }
     .tt {
-        color: #555;
+        color: var(--fg-dim);
         font-size: 11px;
         flex-shrink: 0;
         margin-left: 8px;
@@ -435,11 +435,11 @@
         height: 24px;
         padding: 0 12px;
     }
-    .vr:hover { background: #2a2d2e; }
+    .vr:hover { background: var(--bg-hover); }
     .v-topic {
         font-family: monospace;
         font-size: 12px;
-        color: #9cdcfe;
+        color: var(--fg-value);
         white-space: nowrap;
         flex-shrink: 0;
         min-width: 200px;
@@ -447,14 +447,14 @@
     .v-val {
         font-family: monospace;
         font-size: 12px;
-        color: #ccc;
+        color: var(--fg);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         flex: 1;
     }
     .v-ts {
-        color: #555;
+        color: var(--fg-dim);
         font-size: 11px;
         flex-shrink: 0;
         white-space: nowrap;

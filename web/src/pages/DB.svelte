@@ -353,21 +353,21 @@
         display: flex;
         gap: 4px;
         padding: 4px 8px;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid var(--border-sub);
     }
 
     .panel-tabs button {
         background: none;
-        border: 1px solid #555;
-        color: #ccc;
+        border: 1px solid var(--border);
+        color: var(--fg);
         padding: 3px 12px;
         border-radius: 4px;
         cursor: pointer;
     }
 
     .panel-tabs button.active {
-        background: #444;
-        color: #fff;
+        background: var(--bg-active);
+        color: var(--fg-text);
     }
 
     .panel {
@@ -379,7 +379,7 @@
     .sidebar {
         width: 220px;
         min-width: 160px;
-        border-right: 1px solid #333;
+        border-right: 1px solid var(--border-sub);
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -390,15 +390,15 @@
         justify-content: space-between;
         align-items: center;
         padding: 6px 8px;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid var(--border-sub);
         font-size: 0.8rem;
-        color: #aaa;
+        color: var(--fg-muted);
     }
 
     .btn-icon {
         background: none;
-        border: 1px solid #555;
-        color: #ccc;
+        border: 1px solid var(--border);
+        color: var(--fg);
         width: 22px;
         height: 22px;
         border-radius: 3px;
@@ -411,21 +411,21 @@
         display: flex;
         gap: 4px;
         padding: 4px 6px;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid var(--border-sub);
     }
 
     .new-item-form input {
         flex: 1;
-        background: #222;
-        border: 1px solid #555;
-        color: #eee;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        color: var(--fg);
         padding: 2px 6px;
         border-radius: 3px;
         font-size: 0.82rem;
     }
 
     .new-item-form button {
-        background: #2a6099;
+        background: var(--accent);
         border: none;
         color: #fff;
         padding: 2px 8px;
@@ -448,7 +448,7 @@
         text-align: left;
         background: none;
         border: none;
-        color: #ccc;
+        color: var(--fg);
         padding: 5px 10px;
         cursor: pointer;
         font-size: 0.82rem;
@@ -457,8 +457,8 @@
 
     .sidebar li.selected button,
     .sidebar li button:hover {
-        background: #2a3a50;
-        color: #fff;
+        background: var(--bg-active);
+        color: var(--fg-text);
     }
 
     .editor-area {
@@ -474,19 +474,19 @@
         align-items: center;
         gap: 6px;
         padding: 6px 10px;
-        border-bottom: 1px solid #333;
+        border-bottom: 1px solid var(--border-sub);
     }
 
     .editor-title {
         flex: 1;
         font-weight: bold;
         font-size: 0.85rem;
-        color: #ddd;
+        color: var(--fg);
         word-break: break-all;
     }
 
     .editor-toolbar button {
-        background: #2a6099;
+        background: var(--accent);
         border: none;
         color: #fff;
         padding: 3px 10px;
@@ -496,12 +496,12 @@
     }
 
     .btn-danger {
-        background: #7a2020 !important;
+        background: var(--accent-del) !important;
     }
 
     .error-bar {
-        background: #4a1a1a;
-        color: #ff8080;
+        background: var(--bg-err-subtle);
+        color: var(--fg-err-subtle);
         padding: 4px 10px;
         font-size: 0.82rem;
     }
@@ -512,7 +512,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #666;
+        color: var(--fg-dim);
         font-size: 0.9rem;
     }
 
@@ -520,8 +520,8 @@
     .js-editor {
         flex: 1;
         width: 100%;
-        background: #1a1a1a;
-        color: #d4d4d4;
+        background: var(--bg-app);
+        color: var(--fg-text);
         border: none;
         font-family: 'Cascadia Code', 'Fira Mono', monospace;
         font-size: 0.82rem;
@@ -535,14 +535,14 @@
         flex-direction: column;
         padding: 6px 8px 0;
         font-size: 0.78rem;
-        color: #888;
+        color: var(--fg-muted);
         gap: 3px;
     }
 
     .filter-input {
-        background: #222;
-        border: 1px solid #444;
-        color: #ddd;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        color: var(--fg);
         padding: 3px 8px;
         border-radius: 3px;
         font-size: 0.82rem;
@@ -550,7 +550,7 @@
 
     .view-result {
         margin: 8px;
-        border: 1px solid #333;
+        border: 1px solid var(--border-sub);
         border-radius: 4px;
         overflow: hidden;
     }
@@ -560,23 +560,23 @@
         align-items: center;
         gap: 8px;
         padding: 4px 10px;
-        background: #1e1e1e;
-        border-bottom: 1px solid #333;
+        background: var(--bg-app);
+        border-bottom: 1px solid var(--border-sub);
         font-size: 0.8rem;
-        color: #aaa;
+        color: var(--fg-muted);
     }
 
     .badge-ok {
-        background: #1a3a1a;
-        color: #6fbf6f;
+        background: var(--bg-diff-add);
+        color: var(--fg-diff-add);
         padding: 1px 6px;
         border-radius: 3px;
         font-size: 0.75rem;
     }
 
     .badge-error {
-        background: #3a1a1a;
-        color: #bf6f6f;
+        background: var(--bg-diff-del);
+        color: var(--fg-diff-del);
         padding: 1px 6px;
         border-radius: 3px;
         font-size: 0.75rem;
@@ -586,8 +586,8 @@
     .result-error {
         margin: 0;
         padding: 8px;
-        background: #141414;
-        color: #d4d4d4;
+        background: var(--bg-app);
+        color: var(--fg-text);
         font-family: 'Cascadia Code', 'Fira Mono', monospace;
         font-size: 0.8rem;
         overflow: auto;
@@ -596,6 +596,7 @@
     }
 
     .result-error {
-        color: #ff8080;
+        color: var(--fg-err-subtle);
     }
 </style>
+

@@ -12,6 +12,16 @@ Your home, your rules — written in plain JavaScript.
 - **Scheduler** — cron expressions and solar events (`sunrise`, `sunset`, …) in one call
 - **Web UI** — Script editor, MQTT topic browser, Matter device manager, sheDB-Frontend, live logs
 
+## Motivation
+
+She is built around a simple idea: home automation should stay understandable, even as it grows. Instead of collecting adapters, bindings, integrations, and configuration layers, you work directly with devices, events, and logic. The result is a system that scales with your home without turning into a project of its own.
+
+Spend your time automating your home, not maintaining your automation software. Less clicking through configuration screens, fewer plugins talking to plugins, and no need for YAML archaeology when something stops working. Just a straightforward path from devices to automations, built on open standards and designed for people who prefer understanding their system over managing it.
+
+At some point every smart home platform starts promising simplicity and ends up teaching you its own ecosystem. She takes a different approach. It's built around devices, messages, and automation logic—not around ever-growing collections of adapters, bindings, and abstractions.
+
+The goal is simple: a smart home that remains understandable years later. No migration-guide marathons, no plugin jungles, no configuration archaeology. Just automation infrastructure that grows with your home instead of growing into a hobby of its own.
+
 ## Docs
 
 | | |

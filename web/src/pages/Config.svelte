@@ -1,6 +1,9 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { getConfig, putConfig } from '../lib/api.js';
+    import { getTheme, setTheme, type Theme } from '../lib/theme.js';
+
+    let theme = $state<Theme>(getTheme());
 
     // ── field state ───────────────────────────────────────────────────────
     // MQTT
@@ -136,6 +139,19 @@
         {#if msg}<p class="ok">{msg}</p>{/if}
 
         <form class="form" onsubmit={(e) => { e.preventDefault(); save(); }}>
+
+            <!-- ── Appearance ──────────────────────────────────────────── -->
+            <section>
+                <h3>Appearance</h3>
+                <div class="field">
+                    <label for="theme-select">Color theme</label>
+                    <select id="theme-select" bind:value={theme} onchange={() => setTheme(theme)}>
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                        <option value="system">System (OS preference)</option>
+                    </select>
+                </div>
+            </section>
 
             <!-- ── MQTT ──────────────────────────────────────────────── -->
             <section>
@@ -299,11 +315,11 @@
     h2 { font-size: 14px; font-weight: 600; flex: 1; margin: 0; }
 
     button {
-        background: #0e639c; color: #fff; border: none;
+        background: var(--accent); color: #fff; border: none;
         padding: 4px 14px; border-radius: 3px; cursor: pointer; font-size: 13px;
     }
     button:disabled { opacity: 0.4; cursor: default; }
-    button:not(:disabled):hover { background: #1177bb; }
+    button:not(:disabled):hover { background: var(--accent-hov); }
 
     /* ── form layout ─────────────────────────────────────────────────── */
     .form {
@@ -326,10 +342,10 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #858585;
+        color: var(--fg-muted);
         margin: 0 0 2px;
         padding-bottom: 4px;
-        border-bottom: 1px solid #2d2d2d;
+        border-bottom: 1px solid var(--border-sub);
     }
 
     .field {
@@ -345,7 +361,7 @@
 
     .field label {
         font-size: 13px;
-        color: #cccccc;
+        color: var(--fg);
         display: flex;
         align-items: center;
         gap: 5px;
@@ -361,9 +377,9 @@
     input[type='text'],
     input[type='number'],
     select {
-        background: #3c3c3c;
-        color: #cccccc;
-        border: 1px solid #555;
+        background: var(--bg-input);
+        color: var(--fg);
+        border: 1px solid var(--border);
         border-radius: 3px;
         padding: 4px 8px;
         font-size: 13px;
@@ -375,17 +391,17 @@
 
     input[type='text']:focus,
     input[type='number']:focus,
-    select:focus { border-color: #569cd6; }
+    select:focus { border-color: var(--fg-brand); }
 
     input[type='checkbox'] {
         width: 14px;
         height: 14px;
-        accent-color: #0e639c;
+        accent-color: var(--accent);
         cursor: pointer;
         flex-shrink: 0;
     }
 
-    input::placeholder { color: #555; }
+    input::placeholder { color: var(--fg-dim); }
 
     /* ── tooltip ─────────────────────────────────────────────────────── */
     .tip {
@@ -397,7 +413,7 @@
 
     .tip-icon {
         font-size: 11px;
-        color: #569cd6;
+        color: var(--fg-brand);
         cursor: default;
         line-height: 1;
         opacity: 0.7;
@@ -411,12 +427,12 @@
         left: 20px;
         top: 50%;
         transform: translateY(-50%);
-        background: #252526;
-        border: 1px solid #454545;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
         border-radius: 4px;
         padding: 7px 10px;
         font-size: 12px;
-        color: #cccccc;
+        color: var(--fg);
         width: 260px;
         line-height: 1.5;
         z-index: 100;
@@ -428,7 +444,7 @@
     .tip:hover .tip-box { display: block; }
 
     /* ── status messages ─────────────────────────────────────────────── */
-    .err  { color: #f48771; font-size: 13px; margin: 0; flex-shrink: 0; }
-    .ok   { color: #89d185; font-size: 13px; margin: 0; flex-shrink: 0; }
-    .note { color: #888;    font-size: 13px; margin: 0; }
+    .err  { color: var(--fg-err); font-size: 13px; margin: 0; flex-shrink: 0; }
+    .ok   { color: var(--fg-ok);  font-size: 13px; margin: 0; flex-shrink: 0; }
+    .note { color: var(--fg-muted); font-size: 13px; margin: 0; }
 </style>

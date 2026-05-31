@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy, tick } from 'svelte';
     import * as monaco from 'monaco-editor';
     import {
         listScriptsTree,
@@ -7,25 +7,58 @@
         writeScript,
         deleteScript,
         createScriptDir,
+        commitFile,
         type TreeEntry,
     } from '../lib/api.js';
+    import { subscribeLog, type LogEntry } from '../lib/ws.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
+
+    interface Tab {
+        path: string;
+        dirty: boolean;
+        savedContent: string;
+        model: monaco.editor.ITextModel | null;
+        logEntries: LogEntry[];
+    }
 
     let tree = $state<TreeEntry[]>([]);
     /** key = entry.path → true if expanded */
     let expandedDirs = $state<Record<string, boolean>>({});
-    let selected = $state<string | null>(null);
-    let dirty = $state(false);
-    let error = $state('');
+    let tabs = $state<Tab[]>([]);
+    let activeTab = $state<string | null>(null);
     let saving = $state(false);
+    let error = $state('');
+    let dropdownOpen = $state(false);
+    let logPanelOpen = $state(true);
+    let logEl = $state<HTMLDivElement | undefined>(undefined);
+
+    let scriptErrors = $state<Set<string>>(new Set());
+    const scriptHadError = new Set<string>();
 
     let editorContainer: HTMLDivElement;
     let editor: monaco.editor.IStandaloneCodeEditor;
+    let emptyModel: monaco.editor.ITextModel;
     let suppressChange = false;
-    let savedContent = '';
-    let dialog: { show: (msg: string, opts?: { confirm?: string; danger?: boolean }) => Promise<boolean> };
-    let inputDialog: { show: (msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }) => Promise<string | null> };
+    let unsubLog: (() => void) | null = null;
+    let _treeLoaded = false;
+    let _mounted = false;
+
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
+    let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
+
+    let currentTab = $derived(tabs.find(t => t.path === activeTab) ?? null);
+
+    const TABS_KEY   = 'she-tabs';
+    const ACTIVE_KEY = 'she-active-tab';
+    const LOG_KEY    = 'she-log-open';
+
+    $effect(() => {
+        if (!_mounted) return;
+        localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map(t => t.path)));
+        if (activeTab) localStorage.setItem(ACTIVE_KEY, activeTab);
+        else           localStorage.removeItem(ACTIVE_KEY);
+    });
 
     // Monaco sandbox type stubs for she API autocomplete
     const she_dts = `
@@ -90,7 +123,8 @@ declare const she: {
 `;
 
     onMount(async () => {
-        // Configure Monaco language service
+        logPanelOpen = localStorage.getItem(LOG_KEY) !== 'false';
+
         monaco.languages.typescript.javascriptDefaults.addExtraLib(she_dts, 'she-api.d.ts');
         monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
             target: monaco.languages.typescript.ScriptTarget.ES2022,
@@ -102,7 +136,9 @@ declare const she: {
             noSemanticValidation: true, // semantic checks are noisy for plain JS scripts
         });
 
+        emptyModel = monaco.editor.createModel('', 'javascript');
         editor = monaco.editor.create(editorContainer, {
+            model: emptyModel,
             theme: 'vs-dark',
             automaticLayout: true,
             minimap: { enabled: false },
@@ -112,13 +148,54 @@ declare const she: {
         });
 
         editor.onDidChangeModelContent(() => {
-            if (!suppressChange) dirty = editor.getValue() !== savedContent;
+            if (suppressChange) return;
+            const tab = tabs.find(t => t.path === activeTab);
+            if (tab) tab.dirty = editor.getValue() !== tab.savedContent;
+        });
+
+        unsubLog = subscribeLog((entry) => {
+            const match = entry.msg.match(/^user::([^:]+):/);
+            if (!match) return;
+            const basename = match[1];
+            if (entry.level === 'error') {
+                scriptHadError.add(basename);
+                if (!scriptErrors.has(basename)) {
+                    scriptErrors = new Set([...scriptErrors, basename]);
+                }
+            } else if (scriptHadError.has(basename)) {
+                scriptHadError.delete(basename);
+                const next = new Set(scriptErrors);
+                next.delete(basename);
+                scriptErrors = next;
+            }
+            const tab = tabs.find(t => t.path.split('/').pop() === basename);
+            if (tab) {
+                tab.logEntries = [...tab.logEntries.slice(-199), entry];
+                if (tab.path === activeTab && logPanelOpen && logEl) {
+                    tick().then(() => { if (logEl) logEl.scrollTop = logEl.scrollHeight; });
+                }
+            }
         });
 
         await loadTree();
+
+        const savedPaths = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]') as string[];
+        const savedActive = localStorage.getItem(ACTIVE_KEY);
+        for (const p of savedPaths) {
+            await openTabInternal(p, false);
+        }
+        const restoreActive = savedActive && tabs.some(t => t.path === savedActive)
+            ? savedActive : (tabs[0]?.path ?? null);
+        if (restoreActive) await switchTab(restoreActive);
+        _mounted = true;
     });
 
-    let _treeLoaded = false;
+    onDestroy(() => {
+        unsubLog?.();
+        for (const tab of tabs) tab.model?.dispose();
+        emptyModel?.dispose();
+        editor?.dispose();
+    });
 
     async function loadTree() {
         try {
@@ -129,76 +206,91 @@ declare const she: {
                 const dirs: Record<string, boolean> = {};
                 function collectDirs(entries: TreeEntry[]) {
                     for (const e of entries) {
-                        if (e.type === 'dir') {
-                            dirs[e.path] = true;
-                            if (e.children) collectDirs(e.children);
-                        }
+                        if (e.type === 'dir') { dirs[e.path] = true; if (e.children) collectDirs(e.children); }
                     }
                 }
                 collectDirs(tree);
                 expandedDirs = dirs;
             }
             error = '';
-        } catch (e: any) {
-            error = e.message;
-        }
+        } catch (e: any) { error = e.message; }
     }
 
-    function toggleDir(path: string) {
-        expandedDirs[path] = !expandedDirs[path];
-    }
+    function toggleDir(path: string) { expandedDirs[path] = !expandedDirs[path]; }
 
     async function toggleLib(dirPath: string, makeLib: boolean) {
         try {
-            if (makeLib) {
-                await writeScript(`${dirPath}/.shelib`, '');
-            } else {
-                await deleteScript(`${dirPath}/.shelib`);
-            }
+            if (makeLib) await writeScript(`${dirPath}/.shelib`, '');
+            else await deleteScript(`${dirPath}/.shelib`);
             await loadTree();
-        } catch (e: any) {
-            error = e.message;
-        }
+        } catch (e: any) { error = e.message; }
     }
 
-    async function selectFile(path: string) {
-        if (dirty && selected) {
-            if (!(await dialog.show('Discard unsaved changes?', { confirm: 'Discard' }))) return;
+    async function openTabInternal(path: string, andSwitch = true) {
+        if (tabs.some(t => t.path === path)) {
+            if (andSwitch) await switchTab(path);
+            return;
         }
-        selected = path;
         try {
             const { content } = await readScript(path);
-            savedContent = content;
-            // Create a per-file model with a .js URI so Monaco's JS language service
-            // runs syntax diagnostics (red underlines) on the correct file.
-            const oldModel = editor.getModel();
             const uri = monaco.Uri.parse(`file:///she-scripts/${encodeURIComponent(path)}`);
-            const newModel = monaco.editor.createModel(content, 'javascript', uri);
-            suppressChange = true;
-            editor.setModel(newModel);
-            suppressChange = false;
-            oldModel?.dispose();
-            dirty = false;
-            editor.setScrollPosition({ scrollTop: 0 });
-        } catch (e: any) {
-            error = e.message;
+            monaco.editor.getModel(uri)?.dispose();
+            const model = monaco.editor.createModel(content, 'javascript', uri);
+            tabs = [...tabs, { path, dirty: false, savedContent: content, model, logEntries: [] }];
+            if (andSwitch) await switchTab(path);
+        } catch (e: any) { error = (e as Error).message; }
+    }
+
+    async function openTab(path: string) { await openTabInternal(path, true); }
+
+    async function switchTab(path: string) {
+        const tab = tabs.find(t => t.path === path);
+        if (!tab?.model) return;
+        activeTab = path;
+        suppressChange = true;
+        editor.setModel(tab.model);
+        suppressChange = false;
+    }
+
+    async function closeTab(path: string) {
+        const tab = tabs.find(t => t.path === path);
+        if (!tab) return;
+        if (tab.dirty) {
+            if (!(await dialog.show(`Discard unsaved changes to ${path}?`, { confirm: 'Discard' }))) return;
+        }
+        const idx = tabs.findIndex(t => t.path === path);
+        tab.model?.dispose();
+        tabs = tabs.filter(t => t.path !== path);
+        if (activeTab === path) {
+            const next = tabs[idx] ?? tabs[idx - 1] ?? null;
+            if (next) await switchTab(next.path);
+            else { activeTab = null; editor.setModel(emptyModel); }
         }
     }
 
     async function save() {
-        if (!selected) return;
+        if (!activeTab) return;
+        const tab = tabs.find(t => t.path === activeTab);
+        if (!tab) return;
         saving = true;
         try {
             const value = editor.getValue();
-            await writeScript(selected, value);
-            savedContent = value;
-            dirty = false;
+            await writeScript(activeTab, value);
+            tab.savedContent = value;
+            tab.dirty = false;
             error = '';
-        } catch (e: any) {
-            error = e.message;
-        } finally {
-            saving = false;
-        }
+        } catch (e: any) { error = (e as Error).message; }
+        finally { saving = false; }
+    }
+
+    async function saveAndCommit() {
+        if (!activeTab) return;
+        await save();
+        if (error) return;
+        const msg = await inputDialog.show('Commit message:', { placeholder: 'Update script', confirm: 'Commit' });
+        if (!msg) return;
+        try { await commitFile(activeTab, msg); }
+        catch (e: any) { error = 'Git: ' + (e as Error).message; }
     }
 
     async function newFile() {
@@ -210,12 +302,12 @@ declare const she: {
         const p = name.endsWith('.js') ? name : `${name}.js`;
         await writeScript(p, `/* global she */\n'use strict';\n\n`);
         await loadTree();
-        await selectFile(p);
+        await openTabInternal(p, true);
     }
 
     async function newFolder() {
         const name = await inputDialog.show('New folder name:', {
-            placeholder: 'myfolder or parent/myfolder',
+            placeholder: 'myfolder',
             confirm: 'Create',
         });
         if (!name) return;
@@ -225,38 +317,46 @@ declare const she: {
     }
 
     async function saveAs() {
-        if (!selected) return;
+        if (!activeTab) return;
         const name = await inputDialog.show('Save as:', {
             placeholder: 'copy.js',
-            initial: selected,
+            initial: activeTab,
             confirm: 'Save',
         });
         if (!name) return;
         const p = name.endsWith('.js') ? name : `${name}.js`;
         await writeScript(p, editor.getValue());
         await loadTree();
-        await selectFile(p);
+        await openTabInternal(p, true);
     }
 
     async function del() {
-        if (!selected) return;
-        if (!(await dialog.show(`Delete ${selected}?`, { confirm: 'Delete', danger: true }))) return;
-        await deleteScript(selected);
-        selected = null;
-        editor.setValue('');
+        if (!activeTab) return;
+        if (!(await dialog.show(`Delete ${activeTab}?`, { confirm: 'Delete', danger: true }))) return;
+        const toDelete = activeTab;
+        await closeTab(toDelete);
+        await deleteScript(toDelete);
         await loadTree();
     }
 
+    function clearLog() { if (currentTab) currentTab.logEntries = []; }
+
+    function toggleLogPanel() {
+        logPanelOpen = !logPanelOpen;
+        localStorage.setItem(LOG_KEY, String(logPanelOpen));
+    }
+
+    function fmt(ts: number) {
+        return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
     function handleKeydown(e: KeyboardEvent) {
-        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-            e.preventDefault();
-            save();
-        }
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
+        if (e.key === 'Escape') dropdownOpen = false;
     }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
-
 <ConfirmDialog bind:this={dialog} />
 <InputDialog bind:this={inputDialog} />
 
@@ -267,9 +367,7 @@ declare const she: {
             <button onclick={newFolder} title="New folder">+ Folder</button>
             <button onclick={loadTree} title="Refresh" class="refresh">↻</button>
         </div>
-        {#if error}
-            <div class="err">{error}</div>
-        {/if}
+        {#if error}<div class="err">{error}</div>{/if}
 
         {#snippet treeEntry(entry: TreeEntry)}
             {#if entry.type === 'dir'}
@@ -280,11 +378,7 @@ declare const she: {
                         </button>
                         <span class="dir-name" class:lib={entry.lib}>{entry.name}</span>
                         <label class="lib-label" title="Library directory — .js files won't be loaded as scripts automatically">
-                            <input
-                                type="checkbox"
-                                checked={entry.lib}
-                                onchange={() => toggleLib(entry.path, !entry.lib)}
-                            />
+                            <input type="checkbox" checked={entry.lib} onchange={() => toggleLib(entry.path, !entry.lib)} />
                             lib
                         </label>
                     </div>
@@ -297,14 +391,19 @@ declare const she: {
                     {/if}
                 </li>
             {:else}
+                {@const basename = entry.name}
+                {@const hasErr = scriptErrors.has(basename)}
                 <li
                     class="tree-file"
-                    class:active={entry.path === selected}
-                    class:dirty={entry.path === selected && dirty}
+                    class:active={tabs.some(t => t.path === entry.path)}
+                    class:active-tab={entry.path === activeTab}
                     style="--depth: {entry.path.split('/').length - 1}"
                 >
-                    <button class:lib={entry.lib} onclick={() => selectFile(entry.path)}>
-                        {entry.name}
+                    <button class:lib={entry.lib} onclick={() => openTab(entry.path)}>
+                        <span class="badge" class:badge-shelib={entry.lib}>JS</span>
+                        <span class="fname">{entry.name}</span>
+                        {#if tabs.find(t => t.path === entry.path)?.dirty}<span class="dirty-dot">●</span>{/if}
+                        {#if hasErr}<span class="err-dot">●</span>{/if}
                     </button>
                 </li>
             {/if}
@@ -318,170 +417,233 @@ declare const she: {
     </aside>
 
     <div class="editor-area">
+        {#if tabs.length > 0}
+            <div class="tab-bar">
+                {#each tabs as tab (tab.path)}
+                    <div
+                        class="tab"
+                        class:active={tab.path === activeTab}
+                        onclick={() => switchTab(tab.path)}
+                        role="button"
+                        tabindex="0"
+                        onkeydown={(e) => e.key === 'Enter' && switchTab(tab.path)}
+                    >
+                        <span class="tab-label">{tab.path.split('/').pop()}</span>
+                        {#if tab.dirty}<span class="tab-dirty">●</span>{/if}
+                        <button class="tab-close" title="Close" onclick={(e) => { e.stopPropagation(); closeTab(tab.path); }}>×</button>
+                    </div>
+                {/each}
+            </div>
+        {/if}
+
         <div class="editor-toolbar">
-            <span class="filename">{selected ?? 'No file selected'}{dirty ? ' •' : ''}</span>
-            <button onclick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
-            {#if selected}
+            <span class="filename">{activeTab ?? 'No file selected'}</span>
+            <div class="split-wrap">
+                <div class="split-btn">
+                    <button class="split-main" onclick={save} disabled={!currentTab?.dirty || saving}>
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button class="split-arrow" onclick={() => dropdownOpen = !dropdownOpen} disabled={!activeTab} aria-label="Save options">▾</button>
+                </div>
+                {#if dropdownOpen}
+                    <div class="split-backdrop" role="presentation" onclick={() => dropdownOpen = false}></div>
+                    <div class="split-menu">
+                        <button onclick={() => { dropdownOpen = false; save(); }}>Save</button>
+                        <button onclick={() => { dropdownOpen = false; saveAndCommit(); }}>Save & Commit</button>
+                    </div>
+                {/if}
+            </div>
+            {#if activeTab}
                 <button onclick={saveAs}>Save As</button>
                 <button onclick={del} class="danger">Delete</button>
             {/if}
         </div>
+
         <div class="editor-container" bind:this={editorContainer}></div>
+
+        <div class="log-panel" class:collapsed={!logPanelOpen}>
+            <div class="log-header">
+                <button class="log-toggle" onclick={toggleLogPanel}>
+                    {logPanelOpen ? '▾' : '▸'} Script Log
+                    {#if activeTab}<span class="log-file"> — {activeTab.split('/').pop()}</span>{/if}
+                </button>
+                {#if logPanelOpen}
+                    <button class="log-clear" onclick={clearLog}>Clear</button>
+                {/if}
+            </div>
+            {#if logPanelOpen}
+                <div class="log-body" bind:this={logEl}>
+                    {#each currentTab?.logEntries ?? [] as e (e.ts + e.msg)}
+                        <div class="log-line {e.level}">
+                            <span class="ts">{fmt(e.ts)}</span>
+                            <span class="lvl">{e.level.toUpperCase()}</span>
+                            <span class="msg">{e.msg}</span>
+                        </div>
+                    {/each}
+                    {#if (currentTab?.logEntries.length ?? 0) === 0}
+                        <span class="log-empty">No log output for this script.</span>
+                    {/if}
+                </div>
+            {/if}
+        </div>
     </div>
 </div>
 
 <style>
-    .layout {
-        display: flex;
-        height: 100%;
-    }
+    .layout { display: flex; height: 100%; }
+
     aside {
-        width: 220px;
-        flex-shrink: 0;
-        background: #252526;
-        border-right: 1px solid #333;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
+        width: 220px; flex-shrink: 0;
+        background: var(--bg-panel);
+        border-right: 1px solid var(--border-sub);
+        display: flex; flex-direction: column; overflow: hidden;
     }
     .toolbar {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 8px;
-        border-bottom: 1px solid #333;
+        display: flex; align-items: center; gap: 4px; padding: 8px;
+        border-bottom: 1px solid var(--border-sub);
     }
     .toolbar button {
-        flex: 1;
-        background: #0e639c;
-        color: #fff;
-        border: none;
-        padding: 4px 6px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 12px;
-        line-height: 1;
+        flex: 1; background: var(--accent); color: #fff; border: none;
+        padding: 4px 6px; border-radius: 3px; cursor: pointer; font-size: 12px; line-height: 1;
     }
     .toolbar button.refresh { flex: 0 0 auto; padding: 4px 8px; }
-    .toolbar button:hover { background: #1177bb; }
-    /* ---- Tree view ---- */
-    .tree {
-        flex: 1;
-        overflow-y: auto;
-        list-style: none;
-        padding: 4px 0;
-        margin: 0;
-    }
+    .toolbar button:hover { background: var(--accent-hov); }
+
+    .tree { flex: 1; overflow-y: auto; list-style: none; padding: 4px 0; margin: 0; }
     .tree-dir, .tree-file { list-style: none; }
     .tree-children { list-style: none; padding: 0; margin: 0; }
     .dir-row {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 3px 12px 3px calc(8px + var(--depth, 0) * 12px);
-        cursor: default;
+        display: flex; align-items: center; gap: 4px;
+        padding: 3px 12px 3px calc(8px + var(--depth, 0) * 12px); cursor: default;
     }
     .chevron {
-        background: none;
-        border: none;
-        color: #858585;
-        cursor: pointer;
-        padding: 0;
-        font-size: 9px;
-        line-height: 1;
-        width: 12px;
-        flex-shrink: 0;
-        text-align: center;
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        padding: 0; font-size: 9px; line-height: 1; width: 12px; flex-shrink: 0; text-align: center;
     }
-    .dir-name {
-        color: #cccccc;
-        font-size: 12px;
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .dir-name.lib { color: #858585; font-style: italic; }
+    .dir-name { color: var(--fg); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dir-name.lib { color: var(--fg-muted); font-style: italic; }
     .lib-label {
-        display: flex;
-        align-items: center;
-        gap: 3px;
-        color: #858585;
-        font-size: 10px;
-        cursor: pointer;
-        flex-shrink: 0;
-        user-select: none;
+        display: flex; align-items: center; gap: 3px; color: var(--fg-muted);
+        font-size: 10px; cursor: pointer; flex-shrink: 0; user-select: none;
     }
-    .lib-label input[type='checkbox'] {
-        accent-color: #569cd6;
-        width: 10px;
-        height: 10px;
-        cursor: pointer;
-    }
+    .lib-label input[type='checkbox'] { accent-color: var(--fg-brand); width: 10px; height: 10px; cursor: pointer; }
+
     .tree-file button {
-        display: block;
-        width: 100%;
-        text-align: left;
-        background: none;
-        border: none;
-        color: #cccccc;
-        padding: 4px 12px 4px calc(20px + var(--depth, 0) * 12px);
-        cursor: pointer;
-        font-size: 12px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        display: flex; align-items: center; gap: 5px; width: 100%; text-align: left;
+        background: none; border: none; color: var(--fg);
+        padding: 3px 8px 3px calc(20px + var(--depth, 0) * 12px);
+        cursor: pointer; font-size: 12px;
     }
-    .tree-file button.lib { color: #858585; font-style: italic; }
-    .tree-file button:hover { background: #2a2d2e; }
-    .tree-file.active button { background: #37373d; color: #fff; }
-    .tree-file.dirty button { font-style: italic; }
-    .tree-file.dirty button::after {
-        content: ' \25CF';
-        font-size: 7px;
-        vertical-align: middle;
-        color: #e5c07b;
+    .tree-file button.lib .fname { color: var(--fg-muted); font-style: italic; }
+    .tree-file button:hover { background: var(--bg-hover); }
+    .tree-file.active-tab button { background: var(--bg-active); color: var(--fg-text); }
+    .tree-file.active:not(.active-tab) button { background: var(--bg-hover); }
+
+    .badge { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 2px; background: #f0c040; color: #1e1e1e; flex-shrink: 0; }
+    .badge.badge-shelib { background: var(--bg-widget); color: var(--fg-muted); }
+    .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dirty-dot { color: #e5c07b; font-size: 8px; flex-shrink: 0; }
+    .err-dot { color: var(--fg-err); font-size: 8px; flex-shrink: 0; }
+    .err { color: var(--fg-err); padding: 8px; font-size: 12px; }
+
+    .editor-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    .tab-bar {
+        display: flex; overflow-x: auto; background: var(--bg-app);
+        border-bottom: 1px solid var(--border-sub); flex-shrink: 0; height: 35px; scrollbar-width: none;
     }
-    .err {
-        color: #f48771;
-        padding: 8px;
-        font-size: 12px;
+    .tab-bar::-webkit-scrollbar { display: none; }
+    .tab {
+        display: flex; align-items: center; gap: 5px; padding: 0 10px; height: 35px;
+        min-width: 0; max-width: 180px; cursor: pointer; font-size: 12px;
+        color: var(--fg-muted); background: var(--bg-app);
+        border-right: 1px solid var(--border-sub); flex-shrink: 0; user-select: none;
     }
-    .editor-area {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
+    .tab:hover { background: var(--bg-hover); color: var(--fg); }
+    .tab.active { background: var(--bg-panel); color: var(--fg); border-top: 2px solid var(--fg-brand); }
+    .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .tab-dirty { color: #e5c07b; font-size: 8px; flex-shrink: 0; }
+    .tab-close {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        font-size: 14px; padding: 0; width: 16px; height: 16px;
+        display: flex; align-items: center; justify-content: center; border-radius: 2px; flex-shrink: 0;
     }
+    .tab-close:hover { background: var(--bg-hover); color: var(--fg); }
+
     .editor-toolbar {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        background: #252526;
-        border-bottom: 1px solid #333;
+        display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+        background: var(--bg-panel); border-bottom: 1px solid var(--border-sub); flex-shrink: 0;
     }
-    .filename {
-        flex: 1;
-        font-size: 12px;
-        color: #aaaaa;
+    .filename { flex: 1; font-size: 12px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .split-wrap { position: relative; flex-shrink: 0; }
+    .split-btn { display: flex; }
+    .split-main {
+        background: var(--accent); color: #fff; border: none;
+        padding: 4px 10px; border-radius: 3px 0 0 3px; cursor: pointer; font-size: 12px; line-height: 1;
     }
-    .editor-toolbar button {
-        background: #0e639c;
-        color: #fff;
-        border: none;
-        padding: 4px 10px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 12px;
-        line-height: 1;
+    .split-main:disabled { opacity: 0.4; cursor: default; }
+    .split-main:not(:disabled):hover { background: var(--accent-hov); }
+    .split-arrow {
+        background: var(--accent); color: #fff; border: none;
+        border-left: 1px solid rgba(255,255,255,0.2);
+        padding: 4px 6px; border-radius: 0 3px 3px 0; cursor: pointer; font-size: 10px; line-height: 1;
     }
-    .editor-toolbar button:disabled { opacity: 0.4; cursor: default; }
-    .editor-toolbar button:not(:disabled):hover { background: #1177bb; }
-    .editor-toolbar button.danger { background: #6c1717; }
-    .editor-toolbar button.danger:hover { background: #8b1e1e; }
-    .editor-container {
-        flex: 1;
-        min-height: 0;
+    .split-arrow:disabled { opacity: 0.4; cursor: default; }
+    .split-arrow:not(:disabled):hover { background: var(--accent-hov); }
+    .split-backdrop { position: fixed; inset: 0; z-index: 9; }
+    .split-menu {
+        position: absolute; top: calc(100% + 2px); right: 0; z-index: 10;
+        background: var(--bg-widget); border: 1px solid var(--border); border-radius: 3px;
+        display: flex; flex-direction: column; min-width: 140px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     }
+    .split-menu button {
+        background: none; border: none; color: var(--fg); text-align: left;
+        padding: 7px 12px; cursor: pointer; font-size: 12px;
+    }
+    .split-menu button:hover { background: var(--bg-hover); }
+
+    .editor-toolbar > button {
+        background: var(--accent); color: #fff; border: none;
+        padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; line-height: 1;
+    }
+    .editor-toolbar > button:disabled { opacity: 0.4; cursor: default; }
+    .editor-toolbar > button:not(:disabled):hover { background: var(--accent-hov); }
+    .editor-toolbar > button.danger { background: var(--accent-del); }
+    .editor-toolbar > button.danger:hover { background: var(--accent-del-hov); }
+
+    .editor-container { flex: 1; min-height: 0; }
+
+    .log-panel {
+        flex-shrink: 0; display: flex; flex-direction: column;
+        border-top: 1px solid var(--border-sub); height: 130px;
+    }
+    .log-panel.collapsed { height: 26px; }
+    .log-header {
+        display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+        background: var(--bg-panel); border-bottom: 1px solid var(--border-sub); flex-shrink: 0;
+    }
+    .log-toggle {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        font-size: 11px; padding: 0; flex: 1; text-align: left;
+    }
+    .log-toggle:hover { color: var(--fg); }
+    .log-file { font-style: italic; }
+    .log-clear {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        font-size: 11px; padding: 0 4px; border-radius: 2px;
+    }
+    .log-clear:hover { background: var(--bg-hover); color: var(--fg); }
+    .log-body { flex: 1; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; padding: 2px 0; }
+    .log-line { display: flex; gap: 8px; padding: 0 8px; line-height: 1.6; }
+    .log-line:hover { background: var(--bg-hover); }
+    .log-line .ts { color: var(--fg-dim); flex-shrink: 0; }
+    .log-line .lvl { width: 44px; flex-shrink: 0; font-weight: bold; }
+    .log-line.debug .lvl { color: var(--fg-muted); }
+    .log-line.info  .lvl { color: #4fc1ff; }
+    .log-line.warn  .lvl { color: var(--fg-warn); }
+    .log-line.error .lvl { color: var(--fg-err); }
+    .log-line .msg { color: var(--fg-text); word-break: break-all; }
+    .log-empty { color: var(--fg-dim); font-size: 11px; padding: 4px 8px; font-style: italic; }
 </style>

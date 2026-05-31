@@ -5,6 +5,109 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>she</title>
         <style>
+            :root {
+                /* ── Dark theme (default) ──────────────────────────── */
+                --bg-app:         #1e1e1e;
+                --bg-panel:       #252526;
+                --bg-widget:      #2d2d2d;
+                --bg-hover:       #2a2d2e;
+                --bg-active:      #37373d;
+                --bg-input:       #3c3c3c;
+                --border:         #3c3c3c;
+                --border-sub:     #333333;
+                --fg:             #cccccc;
+                --fg-muted:       #858585;
+                --fg-dim:         #555555;
+                --fg-text:        #d4d4d4;
+                --fg-brand:       #569cd6;
+                --fg-value:       #9cdcfe;
+                --fg-ok:          #4ec9b0;
+                --fg-warn:        #cca700;
+                --fg-err:         #f48771;
+                --accent:         #0e639c;
+                --accent-hov:     #1177bb;
+                --accent-del:     #6c1717;
+                --accent-del-hov: #8b1e1e;
+                --bg-warn-subtle: #3a2e00;
+                --border-warn:    #7a6300;
+                --fg-warn-subtle: #e5c07b;
+                --bg-err-subtle:  #3a1a1a;
+                --border-err:     #7a3030;
+                --fg-err-subtle:  #ff8080;
+                --bg-diff-add:    #1a3a1a;
+                --bg-diff-del:    #3a1a1a;
+                --fg-diff-add:    #6fbf6f;
+                --fg-diff-del:    #bf6f6f;
+            }
+            [data-theme="light"] {
+                /* ── Light theme ───────────────────────────────────── */
+                --bg-app:         #ffffff;
+                --bg-panel:       #f3f3f3;
+                --bg-widget:      #e8e8e8;
+                --bg-hover:       #e4e4e4;
+                --bg-active:      #d4d4d4;
+                --bg-input:       #ffffff;
+                --border:         #cecece;
+                --border-sub:     #e0e0e0;
+                --fg:             #3b3b3b;
+                --fg-muted:       #6e6e6e;
+                --fg-dim:         #aaaaaa;
+                --fg-text:        #2b2b2b;
+                --fg-brand:       #0070c1;
+                --fg-value:       #001080;
+                --fg-ok:          #008000;
+                --fg-warn:        #795e26;
+                --fg-err:         #cd3131;
+                --accent:         #0e639c;
+                --accent-hov:     #1177bb;
+                --accent-del:     #a31515;
+                --accent-del-hov: #c71515;
+                --bg-warn-subtle: #fff8e6;
+                --border-warn:    #cca700;
+                --fg-warn-subtle: #795e26;
+                --bg-err-subtle:  #fff0f0;
+                --border-err:     #cd3131;
+                --fg-err-subtle:  #cd3131;
+                --bg-diff-add:    #e6f9e6;
+                --bg-diff-del:    #f9e6e6;
+                --fg-diff-add:    #2a7a2a;
+                --fg-diff-del:    #7a2a2a;
+            }
+            @media (prefers-color-scheme: light) {
+                :root:not([data-theme="dark"]):not([data-theme="light"]) {
+                    --bg-app:         #ffffff;
+                    --bg-panel:       #f3f3f3;
+                    --bg-widget:      #e8e8e8;
+                    --bg-hover:       #e4e4e4;
+                    --bg-active:      #d4d4d4;
+                    --bg-input:       #ffffff;
+                    --border:         #cecece;
+                    --border-sub:     #e0e0e0;
+                    --fg:             #3b3b3b;
+                    --fg-muted:       #6e6e6e;
+                    --fg-dim:         #aaaaaa;
+                    --fg-text:        #2b2b2b;
+                    --fg-brand:       #0070c1;
+                    --fg-value:       #001080;
+                    --fg-ok:          #008000;
+                    --fg-warn:        #795e26;
+                    --fg-err:         #cd3131;
+                    --accent:         #0e639c;
+                    --accent-hov:     #1177bb;
+                    --accent-del:     #a31515;
+                    --accent-del-hov: #c71515;
+                    --bg-warn-subtle: #fff8e6;
+                    --border-warn:    #cca700;
+                    --fg-warn-subtle: #795e26;
+                    --bg-err-subtle:  #fff0f0;
+                    --border-err:     #cd3131;
+                    --fg-err-subtle:  #cd3131;
+                    --bg-diff-add:    #e6f9e6;
+                    --bg-diff-del:    #f9e6e6;
+                    --fg-diff-add:    #2a7a2a;
+                    --fg-diff-del:    #7a2a2a;
+                }
+            }
             * {
                 box-sizing: border-box;
                 margin: 0;
@@ -12,12 +115,21 @@
             }
             body {
                 font-family: 'Segoe UI', system-ui, sans-serif;
-                background: #1e1e1e;
-                color: #d4d4d4;
+                background: var(--bg-app);
+                color: var(--fg);
                 height: 100vh;
                 overflow: hidden;
             }
         </style>
+        <script>
+            /* Anti-FOUC: apply saved theme before first paint */
+            (function () {
+                var t = localStorage.getItem('she-theme') || 'dark';
+                if (t === 'dark' || t === 'light') {
+                    document.documentElement.setAttribute('data-theme', t);
+                }
+            })();
+        </script>
     </head>
     <body>
         <div id="app"></div>
