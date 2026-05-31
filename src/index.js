@@ -90,6 +90,7 @@ const StateStore = require('./lib/state-store');
 const sandboxModules = [];
 const store = new StateStore();
 const scripts = {};
+const scriptOrigins = new Map(); // file → 'builtin' | 'user'
 const subscriptions = [];
 const mqttEventCallbacks = [];
 const varSubscriptions = []; // store-based var:: subscriptions { key, handler, _script }
@@ -388,8 +389,12 @@ function createScript(source, name) {
     }
 }
 
-function runScript(script, name) {
+function runScript(script, name, origin) {
     const scriptDir = path.dirname(path.resolve(name));
+    const logLabel =
+        origin === 'builtin'
+            ? '[builtin] ' + path.basename(name, path.extname(name)) + ':'
+            : name + ':';
 
     // Initialise per-script resource tracking
     if (!scriptJobs.has(name)) scriptJobs.set(name, []);
@@ -397,10 +402,10 @@ function runScript(script, name) {
     const _myJobs = scriptJobs.get(name);
     const _myTimers = scriptTimers.get(name);
 
-    log.debug(name, 'creating domain');
+    log.debug(logLabel, 'creating domain');
     const scriptDomain = domain.create();
 
-    log.debug(name, 'creating sandbox');
+    log.debug(logLabel, 'creating sandbox');
 
     const she = {
         global: _global,
@@ -412,7 +417,7 @@ function runScript(script, name) {
          */
         debug() {
             const args = Array.prototype.slice.call(arguments);
-            args.unshift(name + ':');
+            args.unshift(logLabel);
             log.debug.apply(log, args);
         },
         /**
@@ -422,7 +427,7 @@ function runScript(script, name) {
          */
         info() {
             const args = Array.prototype.slice.call(arguments);
-            args.unshift(name + ':');
+            args.unshift(logLabel);
             log.info.apply(log, args);
         },
         /**
@@ -432,7 +437,7 @@ function runScript(script, name) {
          */
         warn() {
             const args = Array.prototype.slice.call(arguments);
-            args.unshift(name + ':');
+            args.unshift(logLabel);
             log.warn.apply(log, args);
         },
         /**
@@ -442,7 +447,7 @@ function runScript(script, name) {
          */
         error() {
             const args = Array.prototype.slice.call(arguments);
-            args.unshift(name + ':');
+            args.unshift(logLabel);
             log.error.apply(log, args);
         },
 
@@ -856,7 +861,7 @@ function runScript(script, name) {
     scriptDomain.on('error', (e) => {
         /* istanbul ignore if */
         if (!e.stack) {
-            log.error(name + ' unknown exception');
+            log.error(logLabel, 'unknown exception');
             return;
         }
         const lines = e.stack.split('\n');
@@ -868,38 +873,41 @@ function runScript(script, name) {
             stack.push(lines[i]);
         }
 
-        log.error(name + ' ' + e.name + ': ' + e.message + '\n' + stack.join('\n'));
+        log.error(logLabel + ' ' + e.name + ': ' + e.message + '\n' + stack.join('\n'));
     });
 
     scriptDomain.run(() => {
-        log.debug(name, 'running');
+        log.debug(logLabel, 'running');
         script.runInContext(context);
     });
 }
 
-function loadScript(file) {
+function loadScript(file, origin) {
+    origin = origin || 'user';
     file = file.replace(/\\/g, '/');
+    const loadLabel = origin === 'builtin' ? '[builtin] ' + path.basename(file) : file;
     /* istanbul ignore if */
     if (scripts[file]) {
-        log.error(file, 'already loaded?!');
+        log.error(loadLabel, 'already loaded?!');
         return;
     }
 
-    log.info(file, 'loading');
+    log.info(loadLabel, 'loading');
     fs.readFile(file, (err, src) => {
         /* istanbul ignore if */
         if (err && err.code === 'ENOENT') {
-            log.error(file, 'not found');
+            log.error(loadLabel, 'not found');
         } else if (err) {
             /* istanbul ignore next */
-            log.error(file, err);
+            log.error(loadLabel, err);
         } else {
             if (file.match(/\.js$/)) {
                 // Javascript
                 scripts[file] = createScript(src, file);
             }
             if (scripts[file]) {
-                runScript(scripts[file], file);
+                scriptOrigins.set(file, origin);
+                runScript(scripts[file], file, origin);
             }
         }
     });
@@ -907,7 +915,10 @@ function loadScript(file) {
 
 function unloadScript(file) {
     file = file.replace(/\\/g, '/');
-    log.info(file, 'unloading');
+    const origin = scriptOrigins.get(file) || 'user';
+    const unloadLabel = origin === 'builtin' ? '[builtin] ' + path.basename(file) : file;
+    log.info(unloadLabel, 'unloading');
+    scriptOrigins.delete(file);
 
     // Remove MQTT subscriptions belonging to this script
     for (let i = subscriptions.length - 1; i >= 0; i--) {
@@ -958,6 +969,25 @@ function unloadScript(file) {
 
     // Remove from scripts map so it can be re-loaded
     delete scripts[file];
+}
+
+function loadBuiltinsDir(callback) {
+    const dir = path.join(__dirname, 'scripts');
+    fs.readdir(dir, (err, data) => {
+        if (err) {
+            if (err.code !== 'ENOENT') {
+                log.error('readdir builtin scripts', dir, err);
+            }
+            callback();
+            return;
+        }
+        data.sort().forEach((file) => {
+            if (file.match(/\.js$/)) {
+                loadScript(path.join(dir, file), 'builtin');
+            }
+        });
+        callback();
+    });
 }
 
 function loadSandbox(callback) {
@@ -1057,16 +1087,18 @@ function start() {
     }
 
     loadSandbox(() => {
-        if (config.dir) {
-            /* istanbul ignore else */
-            if (typeof config.dir === 'string') {
-                loadDir(config.dir);
-            } else {
-                config.dir.forEach((dir) => {
-                    loadDir(dir);
-                });
+        loadBuiltinsDir(() => {
+            if (config.dir) {
+                /* istanbul ignore else */
+                if (typeof config.dir === 'string') {
+                    loadDir(config.dir);
+                } else {
+                    config.dir.forEach((dir) => {
+                        loadDir(dir);
+                    });
+                }
             }
-        }
+        });
     });
 }
 
