@@ -8,6 +8,14 @@ type LogHandler = (entry: LogEntry) => void;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type WsHandler = (msg: Record<string, any>) => void;
 
+const LOG_BUFFER_MAX = 2000;
+const _logBuffer: LogEntry[] = [];
+
+/** All log entries received since the page was opened (capped at LOG_BUFFER_MAX). */
+export function getLogBuffer(): LogEntry[] {
+    return _logBuffer.slice();
+}
+
 let _ws: WebSocket | null = null;
 const _handlers = new Set<LogHandler>();
 const _wsHandlers = new Map<string, Set<WsHandler>>();
@@ -35,6 +43,8 @@ function connect() {
             const msg = JSON.parse(ev.data);
             if (msg.type === 'log') {
                 const entry: LogEntry = { level: msg.level, msg: msg.msg, ts: msg.ts };
+                if (_logBuffer.length >= LOG_BUFFER_MAX) _logBuffer.shift();
+                _logBuffer.push(entry);
                 _handlers.forEach((h) => h(entry));
             }
             const bucket = _wsHandlers.get(msg.type);

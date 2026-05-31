@@ -176,21 +176,13 @@
     </nav>
 
     <main>
-        {#if page === 'scripts'}
-            <Scripts />
-        {:else if page === 'mqtt'}
-            <MQTT />
-        {:else if page === 'matter'}
-            <Matter />
-        {:else if page === 'db'}
-            <DB />
-        {:else if page === 'config'}
-            <Config />
-        {:else if page === 'packages'}
-            <Packages />
-        {:else}
-            <Logs />
-        {/if}
+        <div class="page-wrap" class:hidden={page !== 'scripts'}><Scripts active={page === 'scripts'} /></div>
+        <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
+        <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT /></div>
+        <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
+        <div class="page-wrap" class:hidden={page !== 'db'}><DB /></div>
+        <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
+        <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>
     </main>
 
     {#if showLogin}
@@ -323,7 +315,10 @@
     }
     .nav-logout:hover { background: var(--bg-hover); color: var(--fg); }
 
-    main { flex: 1; min-height: 0; }
+    main { flex: 1; min-height: 0; position: relative; }
+
+    .page-wrap { position: absolute; inset: 0; overflow: hidden; }
+    .page-wrap.hidden { display: none; }
 
     /* ── Login overlay ─────────────────────────────────────────────── */
     .login-overlay {

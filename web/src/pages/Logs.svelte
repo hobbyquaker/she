@@ -1,9 +1,9 @@
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import { subscribeLog, type LogEntry } from '../lib/ws.js';
+    import { onMount } from 'svelte';
+    import { subscribeLog, getLogBuffer, type LogEntry } from '../lib/ws.js';
 
-    const MAX_LINES = 500;
-    let entries = $state<LogEntry[]>([]);
+    const MAX_LINES = 2000;
+    let entries = $state<LogEntry[]>(getLogBuffer());
     let logEl: HTMLDivElement;
     let autoscroll = $state(true);
     let filterLevel = $state<'all' | 'debug' | 'info' | 'warn' | 'error'>('all');
@@ -11,20 +11,21 @@
     const levels = ['all', 'debug', 'info', 'warn', 'error'] as const;
     const levelOrder = { debug: 0, info: 1, warn: 2, error: 3 };
 
-    const unsubscribe = subscribeLog((entry) => {
+    subscribeLog((entry) => {
         entries = [...entries.slice(-(MAX_LINES - 1)), entry];
     });
 
-    $effect(() => {
-        // Read entries.length so this effect re-runs whenever new entries arrive.
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-        entries.length;
-        if (autoscroll && logEl) {
-            logEl.scrollTop = logEl.scrollHeight;
-        }
+    onMount(() => {
+        // Scroll to bottom on first show
+        if (logEl) logEl.scrollTop = logEl.scrollHeight;
     });
 
-    onDestroy(unsubscribe);
+    $effect(() => {
+        // Re-run whenever entries change; autoscroll to bottom.
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        entries.length;
+        if (autoscroll && logEl) logEl.scrollTop = logEl.scrollHeight;
+    });
 
     function clear() { entries = []; }
 

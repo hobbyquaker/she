@@ -89,12 +89,25 @@
     const TABS_KEY   = 'she-tabs';
     const ACTIVE_KEY = 'she-active-tab';
     const LOG_KEY    = 'she-log-open';
+    const CHAT_KEY   = 'she-chat-open';
+
+    let { active = true }: { active?: boolean } = $props();
 
     $effect(() => {
         if (!_mounted) return;
         localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map(t => t.path)));
         if (activeTab) localStorage.setItem(ACTIVE_KEY, activeTab);
         else           localStorage.removeItem(ACTIVE_KEY);
+    });
+
+    $effect(() => {
+        if (!_mounted) return;
+        localStorage.setItem(CHAT_KEY, String(chatOpen));
+    });
+
+    // Re-layout Monaco when the Scripts panel becomes visible after being hidden.
+    $effect(() => {
+        if (active && editor) editor.layout();
     });
 
     // Monaco sandbox type stubs for she API autocomplete
@@ -161,6 +174,7 @@ declare const she: {
 
     onMount(async () => {
         logPanelOpen = localStorage.getItem(LOG_KEY) !== 'false';
+        chatOpen     = localStorage.getItem(CHAT_KEY) === 'true';
 
         monaco.languages.typescript.javascriptDefaults.addExtraLib(she_dts, 'she-api.d.ts');
         monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
