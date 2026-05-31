@@ -270,7 +270,7 @@ if (config.url) {
 
 // sheDB — only init when --db-path is given
 if (config.dbPath) {
-    shedb.init({ dbPath: config.dbPath, dbRetain: config.dbRetain || false, mqttName: config.name, mqtt, log, broadcast });
+    shedb.init({ dbPath: config.dbPath, dbPublish: config.dbPublish || false, dbRetain: config.dbRetain || false, mqttName: config.name, mqtt, log, broadcast });
 }
 
 // Redis write-through cache — only init when config.redis.url is given

@@ -2,6 +2,15 @@
     import { onMount } from 'svelte';
     import { getConfig, putConfig } from '../lib/api.js';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
+    import L from 'leaflet';
+    import 'leaflet/dist/leaflet.css';
+    import markerIconUrl from 'leaflet/dist/images/marker-icon.png?url';
+    import markerRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png?url';
+    import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png?url';
+
+    // Fix Leaflet default icon paths when bundled with Vite
+    delete (L.Icon.Default.prototype as any)._getIconUrl;
+    L.Icon.Default.mergeOptions({ iconUrl: markerIconUrl, iconRetinaUrl: markerRetinaUrl, shadowUrl: markerShadowUrl });
 
     let theme = $state<Theme>(getTheme());
 
@@ -24,11 +33,18 @@
     let latitude       = $state<number | ''>(48.7408);
     let longitude      = $state<number | ''>(9.1778);
 
+    // Solar map / geolocation
+    let showMap        = $state(false);
+    let mapEl          = $state<HTMLDivElement | undefined>(undefined);
+    let geoLoading     = $state(false);
+    let leafletMarker  = $state<L.Marker | null>(null);
+
     // Logging
     let verbosity      = $state('info');
 
     // sheDB
     let dbPath         = $state('');
+    let dbPublish      = $state(false);
     let dbRetain       = $state(false);
 
     // Redis
@@ -49,10 +65,56 @@
         'dir', 'disableWatch',
         'latitude', 'longitude',
         'verbosity',
-        'dbPath', 'dbRetain',
+        'dbPath', 'dbPublish', 'dbRetain',
         'redis',
         'ai',
     ]);
+
+    // ── Leaflet map ────────────────────────────────────────────────────────
+    $effect(() => {
+        if (!mapEl) return;
+        const lat = typeof latitude  === 'number' ? latitude  : 48.7408;
+        const lng = typeof longitude === 'number' ? longitude : 9.1778;
+
+        const map = L.map(mapEl).setView([lat, lng], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        }).addTo(map);
+
+        const marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+        leafletMarker = marker;
+
+        const onPos = (pos: L.LatLng) => {
+            latitude  = +pos.lat.toFixed(6);
+            longitude = +pos.lng.toFixed(6);
+        };
+        marker.on('dragend', () => onPos(marker.getLatLng()));
+        map.on('click', (e) => { marker.setLatLng(e.latlng); onPos(e.latlng); });
+
+        return () => {
+            leafletMarker = null;
+            map.remove();
+        };
+    });
+
+    // Keep marker in sync when lat/lon text inputs change
+    $effect(() => {
+        if (!leafletMarker || latitude === '' || longitude === '') return;
+        leafletMarker.setLatLng([Number(latitude), Number(longitude)]);
+    });
+
+    function geolocate() {
+        if (!navigator.geolocation) { alert('Geolocation is not supported by this browser.'); return; }
+        geoLoading = true;
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                latitude  = +pos.coords.latitude.toFixed(6);
+                longitude = +pos.coords.longitude.toFixed(6);
+                geoLoading = false;
+            },
+            () => { geoLoading = false; }
+        );
+    }
 
     // ── status ────────────────────────────────────────────────────────────
     let loading = $state(true);
@@ -103,6 +165,7 @@
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.verbosity        === 'string')  verbosity    = cfg.verbosity;
             if (typeof cfg.dbPath           === 'string')  dbPath       = cfg.dbPath;
+            if (typeof cfg.dbPublish        === 'boolean') dbPublish    = cfg.dbPublish;
             if (typeof cfg.dbRetain         === 'boolean') dbRetain     = cfg.dbRetain;
             const redis = cfg.redis as { url?: string } | undefined;
             if (redis?.url) redisUrl = redis.url;
@@ -142,7 +205,10 @@
 
         if (dbPath) {
             cfg.dbPath = dbPath;
-            if (dbRetain) cfg.dbRetain = true;
+            if (dbPublish) {
+                cfg.dbPublish = true;
+                if (dbRetain) cfg.dbRetain = true;
+            }
         }
         if (redisUrl) cfg.redis = { url: redisUrl };
         if (aiProvider && aiModel) {
@@ -330,6 +396,23 @@
                         </label>
                         <input type="number" bind:value={longitude} step="0.0001" placeholder="9.1778" />
                     </div>
+                    <div class="field geo-actions">
+                        <label></label>
+                        <div class="geo-btns">
+                            <button class="geo-btn" onclick={geolocate} disabled={geoLoading}>
+                                {#if geoLoading}…{:else}📍 Use my location{/if}
+                            </button>
+                            <button class="geo-btn" onclick={() => showMap = !showMap}>
+                                {showMap ? 'Hide map' : 'Pick on map'}
+                            </button>
+                        </div>
+                    </div>
+                    {#if showMap}
+                    <div class="field">
+                        <label class="map-label">Map <span class="map-note">(click or drag marker to set location — requires internet for tiles)</span></label>
+                        <div class="map-container" bind:this={mapEl}></div>
+                    </div>
+                    {/if}
                 </section>
                 {/if}
 
@@ -364,12 +447,21 @@
                         <input type="text" bind:value={dbPath} placeholder="defaults to ~/.she/db" />
                     </div>
                     <div class="field field--check">
-                        <input type="checkbox" id="dbRetain" bind:checked={dbRetain} disabled={!dbPath} />
-                        <label for="dbRetain" class:muted={!dbPath}>
-                            Retain sheDB MQTT messages
-                            {@render tip('Publish sheDB documents as retained MQTT messages so other clients see the current value on subscribe.')}
+                        <input type="checkbox" id="dbPublish" bind:checked={dbPublish} disabled={!dbPath} />
+                        <label for="dbPublish" class:muted={!dbPath}>
+                            Publish documents to MQTT
+                            {@render tip('When enabled, every document change is published to {name}/db/doc/{id}. Individual views can publish independently via their own “mqttpub” setting.')}
                         </label>
                     </div>
+                    {#if dbPublish}
+                    <div class="field field--check">
+                        <input type="checkbox" id="dbRetain" bind:checked={dbRetain} disabled={!dbPath} />
+                        <label for="dbRetain" class:muted={!dbPath}>
+                            Retain document messages
+                            {@render tip('When enabled, MQTT messages for document changes are published as retained messages.')}
+                        </label>
+                    </div>
+                    {/if}
                 </section>
                 {/if}
 
@@ -692,4 +784,32 @@
     /* ── status messages ─────────────────────────────────────────────── */
     .err  { color: var(--fg-err); font-size: 13px; }
     .ok   { color: var(--fg-ok);  font-size: 13px; }
+
+    /* ── geo / map ───────────────────────────────────────────────────── */
+    .geo-actions { align-items: flex-start; }
+    .geo-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .geo-btn {
+        background: var(--bg-input);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .geo-btn:hover:not(:disabled) { background: var(--bg-hover); }
+    .geo-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .map-label { font-size: 13px; color: var(--fg); padding-top: 4px; }
+    .map-note  { font-size: 11px; color: var(--fg-dim); font-weight: 400; }
+
+    .map-container {
+        width: 100%;
+        height: 280px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        overflow: hidden;
+    }
 </style>

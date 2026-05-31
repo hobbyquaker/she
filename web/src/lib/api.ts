@@ -132,6 +132,8 @@ export interface ViewDefinition {
     filter?: string;
     map: string;
     reduce?: string;
+    mqttpub?: boolean;
+    retain?: boolean;
 }
 
 export interface ViewResult {

@@ -70,3 +70,38 @@ Every document automatically gets these read-only properties:
 By default sheDB stores its data in `~/.she/db/`. This can be configured via
 the `dbPath` option in `~/.she/config/config.json` or the `--db-path` CLI flag.
 Set it to an empty string to disable sheDB entirely.
+
+---
+
+## MQTT Publishing
+
+sheDB can optionally publish changes to the MQTT broker. All publishing is **opt-in** and controlled via `config.json`.
+
+### Document publishing
+
+Enable by setting `dbPublish: true` in your config (or via the Config page in the Web UI).
+
+When enabled, every document create/update/delete is published to:
+
+```
+{mqttName}/db/doc/{id}
+```
+
+- `{mqttName}` is the `name` value from config (default `logic`)
+- `{id}` is the document ID (e.g. `hue/lights/livingroom` → topic `logic/db/doc/hue/lights/livingroom`)
+- **Deleted** documents are published as an empty string (`""`)
+- Retain behaviour is controlled separately by `dbRetain: true`
+
+### View publishing
+
+Individual views can publish their result to MQTT independently of the global `dbPublish` setting.
+
+Set `mqttpub: true` on a view definition (via the **DB → Views** editor) to enable publishing for that view. The result is published to:
+
+```
+{mqttName}/db/view/{viewId}
+```
+
+Each time the view result changes (because a document changed), the new result array is published. The payload is a JSON-serialised array. Set `retain: true` on the view to publish as a retained message.
+
+> **Convention:** View IDs follow the same slash-separated convention as document IDs. A view named `hue/lights/on` publishes to `logic/db/view/hue/lights/on`.

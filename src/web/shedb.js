@@ -15,6 +15,7 @@ const mqttWildcard = require('../lib/mqtt-wildcards');
 let _core = null;
 let _mqtt = null;
 let _mqttName = '';
+let _dbPublish = false;
 let _dbRetain = false;
 let _broadcast = () => {};
 
@@ -33,9 +34,10 @@ const _listeners = []; // { pattern: string, callback: Function, _script: string
  * @param {Function} opts.broadcast - function(msg) to push a message to all WS clients
  * @returns {SheDBCore}
  */
-function init({ dbPath, dbRetain, mqttName, mqtt, log, broadcast }) {
+function init({ dbPath, dbPublish, dbRetain, mqttName, mqtt, log, broadcast }) {
     _mqtt = mqtt;
     _mqttName = mqttName;
+    _dbPublish = dbPublish;
     _dbRetain = dbRetain;
     _broadcast = broadcast;
 
@@ -51,8 +53,8 @@ function init({ dbPath, dbRetain, mqttName, mqtt, log, broadcast }) {
         _broadcast({ type: 'db:change', id, doc: doc || null });
         _broadcast({ type: 'db:ids', ids: Object.keys(_core.docs).sort() });
 
-        if (_dbRetain && _mqtt) {
-            _mqtt.publish(_mqttName + '/db/change/' + id, doc ? JSON.stringify(doc) : '', { retain: true });
+        if (_dbPublish && _mqtt) {
+            _mqtt.publish(_mqttName + '/db/doc/' + id, doc ? JSON.stringify(doc) : '', { retain: _dbRetain });
         }
 
         // Fire sandbox she.db.sub() listeners
@@ -70,6 +72,16 @@ function init({ dbPath, dbRetain, mqttName, mqtt, log, broadcast }) {
     _core.on('view', (id, view) => {
         _broadcast({ type: 'db:viewUpdate', id });
         _broadcast({ type: 'db:viewIds', ids: Object.keys(_core.queries).sort() });
+
+        // Per-view MQTT publish (independent of global dbPublish setting)
+        const query = _core.queries[id];
+        if (query && query.mqttpub && _mqtt && view && !view.error) {
+            _mqtt.publish(
+                _mqttName + '/db/view/' + id,
+                JSON.stringify(view.result ?? []),
+                { retain: query.retain === true }
+            );
+        }
     });
 
     return _core;

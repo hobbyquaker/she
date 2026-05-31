@@ -114,9 +114,16 @@ router.use('/views', (req, res) => {
     // PUT /she/db/views/<id>  — create/update view
     if (method === 'PUT') {
         if (!id || isResult) return res.status(400).json({ error: 'id required' });
-        const { filter, map, reduce } = req.body || {};
+        const { filter, map, reduce, mqttpub, retain } = req.body || {};
         if (typeof map !== 'string' || !map.trim()) return res.status(400).json({ error: '"map" function string is required' });
-        core.query(id, { filter: filter || undefined, map, reduce: reduce || undefined });
+        const payload = {
+            filter: filter || undefined,
+            map,
+            reduce: reduce || undefined,
+            ...(mqttpub ? { mqttpub: true } : {}),
+            ...(retain   ? { retain:   true } : {}),
+        };
+        core.query(id, payload);
         return res.json({ ok: true });
     }
 

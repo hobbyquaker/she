@@ -109,6 +109,34 @@ Pass `null` as the filter to process all documents.
 
 ---
 
+## MQTT Publishing
+
+Views can publish their result to MQTT automatically. This is configured **per view** in the Web UI (DB → Views → select a view → check **Publish to MQTT**). It is **independent** of the global `dbPublish` config option.
+
+### Properties
+
+| Property | Description |
+|----------|-------------|
+| `mqttpub` | If `true`, the view result is published to MQTT on every recalculation |
+| `retain` | If `true`, the message is published as a retained MQTT message |
+
+### Topic format
+
+```
+{mqttName}/db/view/{viewId}
+```
+
+Example: a view named `hue/lights/on` with `mqttName = 'logic'` publishes to:
+```
+logic/db/view/hue/lights/on
+```
+
+The payload is a JSON-serialised array (the view's result). The message is published every time a document changes that falls within the view's filter.
+
+> **Tip:** Name views like MQTT topics (slash-separated) so the resulting MQTT topics are self-descriptive and can be filtered with wildcards.
+
+---
+
 ## View Results via HTTP API
 
 ```

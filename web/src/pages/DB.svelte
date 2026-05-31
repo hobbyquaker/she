@@ -28,6 +28,8 @@
     let viewFilter = $state('');
     let viewMap = $state('// emit(this.someProperty)');
     let viewReduce = $state('');
+    let viewMqttPub = $state(false);
+    let viewRetain  = $state(false);
     let viewResult: ViewResult | null = $state(null);
     let viewLoading = $state(false);
     let viewError: string | null = $state(null);
@@ -147,6 +149,8 @@
             viewFilter = def.filter ?? '';
             viewMap = def.map;
             viewReduce = def.reduce ?? '';
+            viewMqttPub = def.mqttpub ?? false;
+            viewRetain  = def.retain  ?? false;
             viewResult = await getViewResult(id).catch(() => null);
         } catch (e: unknown) {
             viewError = e instanceof Error ? e.message : String(e);
@@ -162,6 +166,8 @@
             const def: ViewDefinition = { map: viewMap };
             if (viewFilter.trim()) def.filter = viewFilter.trim();
             if (viewReduce.trim()) def.reduce = viewReduce.trim();
+            if (viewMqttPub) def.mqttpub = true;
+            if (viewRetain)  def.retain  = true;
             await putView(selectedViewId, def);
         } catch (e: unknown) {
             viewError = e instanceof Error ? e.message : String(e);
@@ -186,6 +192,8 @@
             viewFilter = '';
             viewMap = '// emit(this.someProperty)';
             viewReduce = '';
+            viewMqttPub = false;
+            viewRetain  = false;
             viewResult = null;
         } catch (e: unknown) {
             viewError = e instanceof Error ? e.message : String(e);
@@ -450,6 +458,20 @@
                             <div class="view-section">
                                 <div class="section-title">Reduce <span class="section-hint">— receives <code>result</code> array, must <code>return</code> new value (optional)</span></div>
                                 <textarea class="code-editor" bind:value={viewReduce} spellcheck="false" rows="5"></textarea>
+                            </div>
+                            <div class="view-section view-section--options">
+                                <label class="opt-check">
+                                    <input type="checkbox" bind:checked={viewMqttPub} />
+                                    Publish to MQTT
+                                    <span class="section-hint">— result published to <code>{selectedViewId}</code> topic under <code>/db/view/</code> on every update</span>
+                                </label>
+                                {#if viewMqttPub}
+                                <label class="opt-check">
+                                    <input type="checkbox" bind:checked={viewRetain} />
+                                    Retain
+                                    <span class="section-hint">— send as retained MQTT message</span>
+                                </label>
+                                {/if}
                             </div>
                             {#if viewResult}
                                 <div class="view-result">
@@ -764,6 +786,25 @@
         letter-spacing: 0;
         color: var(--fg-dim);
     }
+
+    .view-section--options {
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .opt-check {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--fg);
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .opt-check input[type="checkbox"] { cursor: pointer; }
 
     .section-body {
         padding: 6px 8px;

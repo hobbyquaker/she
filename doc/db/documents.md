@@ -10,12 +10,19 @@ natural hierarchy that mirrors MQTT topics).
 
 The ID can be any string. MQTT wildcard characters (`#` and `+`) are **not** allowed.
 
-**Convention:** use the MQTT topic that describes the entity as the ID.
+**Convention:** structure IDs like MQTT topics — slash-separated segments that describe the entity type and identity. This makes wildcard subscriptions (`she.db.sub`) and view filters intuitive.
 
 ```
-hue/lights/livingroom
-zigbee/sensors/temperature/bedroom
-rooms/kitchen
+hue/lights/livingroom      → a Hue light named "livingroom"
+zigbee/sensors/temp/bed    → a Zigbee temperature sensor
+rooms/kitchen              → metadata about the kitchen room
+```
+
+If you enable document publishing (`dbPublish: true` in config), the MQTT topic for a document is `{name}/db/doc/{id}`. Following the topic-style ID convention means MQTT subscribers can use wildcards to filter by type:
+
+```
+logic/db/doc/hue/lights/#          → all lights
+logic/db/doc/zigbee/sensors/#      → all Zigbee sensors
 ```
 
 ---
