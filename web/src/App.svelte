@@ -44,11 +44,11 @@
             Scripts
         </button>
         <button class:active={page === 'mqtt'} onclick={() => navigate('mqtt')}>
-            <!-- MQTT: broadcast / pub-sub icon (WiFi-style arcs + base dot) -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="8" cy="13.5" r="0.9" fill="currentColor" stroke="none"/>
-                <path d="M5.5,11.5 a2.9,2.9 0,0,0 5,0"/>
-                <path d="M3,9 a5.5,5.5 0,0,0 10,0"/>
+            <!-- Derived from official MQTT logo (mqtt.org): three quarter-circle sectors from bottom-left -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" stroke="none">
+                <path d="M0,16 L0,12 A4,4 0 0,1 4,16 Z"/>
+                <path d="M0,10 A6,6 0 0,1 6,16 L9,16 A9,9 0 0,0 0,7 Z"/>
+                <path d="M0,5 A11,11 0 0,1 11,16 L14,16 A14,14 0 0,0 0,2 Z"/>
             </svg>
             MQTT
         </button>
