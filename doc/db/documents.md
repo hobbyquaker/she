@@ -18,11 +18,11 @@ zigbee/sensors/temp/bed    → a Zigbee temperature sensor
 rooms/kitchen              → metadata about the kitchen room
 ```
 
-If you enable document publishing (`dbPublish: true` in config), the MQTT topic for a document is `{name}/db/doc/{id}`. Following the topic-style ID convention means MQTT subscribers can use wildcards to filter by type:
+If you enable document publishing (`dbPublish: true` in config), the MQTT topic for a document is `{dbPrefix}doc/{id}` (default prefix: `she/db/`). Following the topic-style ID convention means MQTT subscribers can use wildcards to filter by type:
 
 ```
-logic/db/doc/hue/lights/#          → all lights
-logic/db/doc/zigbee/sensors/#      → all Zigbee sensors
+she/db/doc/hue/lights/#          → all lights
+she/db/doc/zigbee/sensors/#      → all Zigbee sensors
 ```
 
 ---

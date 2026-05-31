@@ -44,6 +44,7 @@ const config = require('yargs')
         disableVariables: false,
         disableWatch: false,
         dbRetain: false,
+        dbPrefix: 'she/db/',
     })
     .version()
     .help('help')

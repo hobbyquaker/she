@@ -77,6 +77,14 @@ Set it to an empty string to disable sheDB entirely.
 
 sheDB can optionally publish changes to the MQTT broker. All publishing is **opt-in** and controlled via `config.json`.
 
+### Topic prefix
+
+All sheDB MQTT topics share a common prefix, configurable via `dbPrefix` in `config.json` (or the Config page in the Web UI). The default is `she/db/`.
+
+| Config key | Default | Description |
+|------------|---------|-------------|
+| `dbPrefix` | `she/db/` | Prefix for all sheDB MQTT topics |
+
 ### Document publishing
 
 Enable by setting `dbPublish: true` in your config (or via the Config page in the Web UI).
@@ -84,11 +92,14 @@ Enable by setting `dbPublish: true` in your config (or via the Config page in th
 When enabled, every document create/update/delete is published to:
 
 ```
-{mqttName}/db/doc/{id}
+{dbPrefix}doc/{id}
 ```
 
-- `{mqttName}` is the `name` value from config (default `logic`)
-- `{id}` is the document ID (e.g. `hue/lights/livingroom` → topic `logic/db/doc/hue/lights/livingroom`)
+Example with defaults: a document with ID `hue/lights/livingroom` is published to:
+```
+she/db/doc/hue/lights/livingroom
+```
+
 - **Deleted** documents are published as an empty string (`""`)
 - Retain behaviour is controlled separately by `dbRetain: true`
 
@@ -99,9 +110,23 @@ Individual views can publish their result to MQTT independently of the global `d
 Set `mqttpub: true` on a view definition (via the **DB → Views** editor) to enable publishing for that view. The result is published to:
 
 ```
-{mqttName}/db/view/{viewId}
+{dbPrefix}view/{viewId}
 ```
 
-Each time the view result changes (because a document changed), the new result array is published. The payload is a JSON-serialised array. Set `retain: true` on the view to publish as a retained message.
+Example: a view named `hue/lights/on` publishes to `she/db/view/hue/lights/on`.
 
-> **Convention:** View IDs follow the same slash-separated convention as document IDs. A view named `hue/lights/on` publishes to `logic/db/view/hue/lights/on`.
+Each time the view result changes (because a document changed), the new result array is published as a JSON array. Set `retain: true` on the view to publish as a retained message.
+
+### MQTT command topics
+
+sheDB also listens for commands on the following topics (prefix `{dbPrefix}`):
+
+| Topic | Payload | Action |
+|-------|---------|--------|
+| `{dbPrefix}set/{id}` | JSON object | Create or overwrite document |
+| `{dbPrefix}extend/{id}` | JSON object | Deep-merge into document |
+| `{dbPrefix}delete/{id}` | *(any)* | Delete document |
+| `{dbPrefix}prop/{id}` | JSON `{method, prop, val}` | Mutate a single property |
+| `{dbPrefix}get/{id}` | *(any)* | Publish document to `{dbPrefix}result/{id}` |
+
+> **Convention:** View IDs follow the same slash-separated convention as document IDs. A view named `hue/lights/on` publishes to `she/db/view/hue/lights/on`.

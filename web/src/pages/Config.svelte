@@ -44,6 +44,7 @@
 
     // sheDB
     let dbPath         = $state('');
+    let dbPrefix       = $state('');
     let dbPublish      = $state(false);
     let dbRetain       = $state(false);
 
@@ -65,7 +66,7 @@
         'dir', 'disableWatch',
         'latitude', 'longitude',
         'verbosity',
-        'dbPath', 'dbPublish', 'dbRetain',
+        'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
         'redis',
         'ai',
     ]);
@@ -165,6 +166,7 @@
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.verbosity        === 'string')  verbosity    = cfg.verbosity;
             if (typeof cfg.dbPath           === 'string')  dbPath       = cfg.dbPath;
+            if (typeof cfg.dbPrefix         === 'string')  dbPrefix     = cfg.dbPrefix;
             if (typeof cfg.dbPublish        === 'boolean') dbPublish    = cfg.dbPublish;
             if (typeof cfg.dbRetain         === 'boolean') dbRetain     = cfg.dbRetain;
             const redis = cfg.redis as { url?: string } | undefined;
@@ -205,6 +207,7 @@
 
         if (dbPath) {
             cfg.dbPath = dbPath;
+            if (dbPrefix) cfg.dbPrefix = dbPrefix;
             if (dbPublish) {
                 cfg.dbPublish = true;
                 if (dbRetain) cfg.dbRetain = true;
@@ -446,11 +449,18 @@
                         </label>
                         <input type="text" bind:value={dbPath} placeholder="defaults to ~/.she/db" />
                     </div>
+                    <div class="field">
+                        <label>
+                            MQTT topic prefix
+                            {@render tip('Prefix for all sheDB MQTT topics. Defaults to she/db/ — documents publish to {prefix}doc/{id}, views to {prefix}view/{id}, commands use {prefix}set/{id} etc.')}
+                        </label>
+                        <input type="text" bind:value={dbPrefix} placeholder="she/db/ (default)" disabled={!dbPath} />
+                    </div>
                     <div class="field field--check">
                         <input type="checkbox" id="dbPublish" bind:checked={dbPublish} disabled={!dbPath} />
                         <label for="dbPublish" class:muted={!dbPath}>
                             Publish documents to MQTT
-                            {@render tip('When enabled, every document change is published to {name}/db/doc/{id}. Individual views can publish independently via their own “mqttpub” setting.')}
+                            {@render tip('When enabled, every document change is published to {dbPrefix}doc/{id}. Individual views can publish independently via their own "mqttpub" setting.')}
                         </label>
                     </div>
                     {#if dbPublish}

@@ -123,12 +123,12 @@ Views can publish their result to MQTT automatically. This is configured **per v
 ### Topic format
 
 ```
-{mqttName}/db/view/{viewId}
+{dbPrefix}view/{viewId}
 ```
 
-Example: a view named `hue/lights/on` with `mqttName = 'logic'` publishes to:
+Example: a view named `hue/lights/on` with the default prefix publishes to:
 ```
-logic/db/view/hue/lights/on
+she/db/view/hue/lights/on
 ```
 
 The payload is a JSON-serialised array (the view's result). The message is published every time a document changes that falls within the view's filter.

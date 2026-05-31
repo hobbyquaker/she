@@ -17,6 +17,7 @@ let _mqtt = null;
 let _mqttName = '';
 let _dbPublish = false;
 let _dbRetain = false;
+let _dbPrefix = 'she/db/';
 let _broadcast = () => {};
 
 /** Registry for she.db.sub() sandbox subscriptions */
@@ -34,11 +35,12 @@ const _listeners = []; // { pattern: string, callback: Function, _script: string
  * @param {Function} opts.broadcast - function(msg) to push a message to all WS clients
  * @returns {SheDBCore}
  */
-function init({ dbPath, dbPublish, dbRetain, mqttName, mqtt, log, broadcast }) {
+function init({ dbPath, dbPublish, dbRetain, dbPrefix, mqttName, mqtt, log, broadcast }) {
     _mqtt = mqtt;
     _mqttName = mqttName;
     _dbPublish = dbPublish;
     _dbRetain = dbRetain;
+    _dbPrefix = (dbPrefix && dbPrefix.endsWith('/')) ? dbPrefix : (dbPrefix || 'she/db/') + '/';
     _broadcast = broadcast;
 
     _core = new SheDBCore({ dbPath, log });
@@ -54,7 +56,7 @@ function init({ dbPath, dbPublish, dbRetain, mqttName, mqtt, log, broadcast }) {
         _broadcast({ type: 'db:ids', ids: Object.keys(_core.docs).sort() });
 
         if (_dbPublish && _mqtt) {
-            _mqtt.publish(_mqttName + '/db/doc/' + id, doc ? JSON.stringify(doc) : '', { retain: _dbRetain });
+            _mqtt.publish(_dbPrefix + 'doc/' + id, doc ? JSON.stringify(doc) : '', { retain: _dbRetain });
         }
 
         // Fire sandbox she.db.sub() listeners
@@ -77,7 +79,7 @@ function init({ dbPath, dbPublish, dbRetain, mqttName, mqtt, log, broadcast }) {
         const query = _core.queries[id];
         if (query && query.mqttpub && _mqtt && view && !view.error) {
             _mqtt.publish(
-                _mqttName + '/db/view/' + id,
+                _dbPrefix + 'view/' + id,
                 JSON.stringify(view.result ?? []),
                 { retain: query.retain === true }
             );
@@ -98,7 +100,7 @@ function init({ dbPath, dbPublish, dbRetain, mqttName, mqtt, log, broadcast }) {
 function handleMqttMessage(topic, payload) {
     if (!_core) return false;
 
-    const prefix = _mqttName + '/db/';
+    const prefix = _dbPrefix;
     if (!topic.startsWith(prefix)) return false;
 
     const rest = topic.slice(prefix.length);
@@ -137,7 +139,7 @@ function handleMqttMessage(topic, payload) {
         case 'get':
             if (_mqtt) {
                 const doc = _core.get(id);
-                _mqtt.publish(_mqttName + '/db/result/' + id, doc ? JSON.stringify(doc) : '');
+                _mqtt.publish(_dbPrefix + 'result/' + id, doc ? JSON.stringify(doc) : '');
             }
             break;
         default:
