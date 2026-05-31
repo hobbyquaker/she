@@ -78,8 +78,42 @@ export function createScriptDir(dirPath: string): Promise<{ ok: boolean; path: s
 
 // ---- Git API ----
 
+export interface GitChange {
+    status: string;
+    file: string;
+}
+
+export interface GitStatus {
+    branch: string;
+    changes: GitChange[];
+    ahead: number;
+    behind: number;
+}
+
+export interface GitRemote {
+    name: string;
+    fetch: string;
+    push: string;
+}
+
+export function gitStatus(): Promise<GitStatus> {
+    return request('GET', '/she/git/status');
+}
+
+export function gitRemotes(): Promise<GitRemote[]> {
+    return request('GET', '/she/git/remotes');
+}
+
 export function commitFile(filePath: string, message: string): Promise<{ ok: boolean }> {
     return request('POST', '/she/git/commit', { path: filePath, message });
+}
+
+export function commitFiles(files: string[], message: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/git/commit', { files, message });
+}
+
+export function gitPush(remote?: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    return request('POST', '/she/git/push', { remote });
 }
 
 // ---- Config API ----
@@ -165,10 +199,7 @@ export function searchNpm(q: string): Promise<NpmSearchResult[]> {
     return request('GET', `/she/deps/search?q=${encodeURIComponent(q)}`);
 }
 
-export function installDep(
-    name: string,
-    version?: string,
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+export function installDep(name: string, version?: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
     return request('POST', '/she/deps/install', { name, version: version ?? null });
 }
 
@@ -245,11 +276,6 @@ export function fetchMqttState(): Promise<MqttEntry[]> {
     return request('GET', '/she/mqtt/state');
 }
 
-export function publishMqtt(
-    topic: string,
-    payload: string,
-    retain = false,
-    qos: 0 | 1 | 2 = 0,
-): Promise<{ ok: boolean }> {
+export function publishMqtt(topic: string, payload: string, retain = false, qos: 0 | 1 | 2 = 0): Promise<{ ok: boolean }> {
     return request('POST', '/she/mqtt/publish', { topic, payload, retain, qos });
 }
