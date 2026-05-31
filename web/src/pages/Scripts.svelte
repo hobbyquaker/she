@@ -244,6 +244,7 @@ declare const she: {
     }
     .toolbar {
         display: flex;
+        align-items: center;
         gap: 4px;
         padding: 8px;
         border-bottom: 1px solid #333;
@@ -257,6 +258,7 @@ declare const she: {
         border-radius: 3px;
         cursor: pointer;
         font-size: 12px;
+        line-height: 1;
     }
     .toolbar button:hover { background: #1177bb; }
     ul {
@@ -315,6 +317,7 @@ declare const she: {
         border-radius: 3px;
         cursor: pointer;
         font-size: 12px;
+        line-height: 1;
     }
     .editor-toolbar button:disabled { opacity: 0.4; cursor: default; }
     .editor-toolbar button:not(:disabled):hover { background: #1177bb; }
