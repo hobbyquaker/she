@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { type AiMessage, type AiContext, type AiCurrentScript, streamChatWithAI, getAiConfig, type AiConfig } from '../lib/api.js';
+    import { type AiMessage, type AiContext, type AiCurrentScript, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, type AiConfig } from '../lib/api.js';
 
     interface Props {
         currentScript?: AiCurrentScript | null;
@@ -16,6 +16,16 @@
     let loading = $state(false);
     let error = $state('');
     let aiConfig = $state<AiConfig | null>(null);
+
+    // Model selection
+    let availableModels = $state<string[]>([]);
+    let selectedModel = $state<string>('');
+
+    // Ollama info popup
+    let showInfoPopup = $state(false);
+    let ollamaInfo = $state<OllamaModelInfo | null>(null);
+    let infoLoading = $state(false);
+    let infoError = $state('');
 
     let ctxApiref = $state(true);
     let ctxMqtt   = $state(false);
@@ -37,7 +47,24 @@
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
     $effect(() => {
-        getAiConfig().then(c => { aiConfig = c; }).catch(() => {});
+        getAiConfig().then(c => {
+            aiConfig = c;
+            if (c.configured && !selectedModel) selectedModel = c.model;
+        }).catch(() => {});
+    });
+
+    $effect(() => {
+        if (aiConfig?.configured) {
+            getAiModels().then(r => { availableModels = r.models; }).catch(() => {});
+        }
+    });
+
+    // Reset cached info when model changes
+    $effect(() => {
+        const _m = selectedModel;
+        void _m;
+        ollamaInfo = null;
+        infoError = '';
     });
 
     $effect(() => {
@@ -96,6 +123,25 @@
         return { filename: m[1], code: text.slice(m[0].length) };
     }
 
+    function formatBytes(bytes: number): string {
+        if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+        if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
+        return `${bytes} B`;
+    }
+
+    async function openInfoPopup() {
+        showInfoPopup = true;
+        if (ollamaInfo || infoLoading) return;
+        infoLoading = true;
+        infoError = '';
+        try {
+            ollamaInfo = await getOllamaModelInfo(selectedModel || aiConfig!.model);
+        } catch (e: any) {
+            infoError = (e as Error).message;
+        }
+        infoLoading = false;
+    }
+
     // ── Send ─────────────────────────────────────────────────────────────────
 
     async function send() {
@@ -112,7 +158,7 @@
 
         try {
             await streamChatWithAI(
-                { messages, currentScript, context },
+                { messages, currentScript, context, modelOverride: selectedModel || undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
             );
 
@@ -275,7 +321,75 @@
             {#if loading}…{:else}↑{/if}
         </button>
     </div>
+
+    <!-- Model bar -->
+    {#if configured && aiConfig}
+        <div class="model-bar">
+            <span class="model-provider">{aiConfig.provider}</span>
+            {#if availableModels.length > 0}
+                <select class="model-select" bind:value={selectedModel} disabled={loading}>
+                    {#each availableModels as m}
+                        <option value={m}>{m}</option>
+                    {/each}
+                </select>
+            {:else}
+                <span class="model-name">{selectedModel || aiConfig.model}</span>
+            {/if}
+            {#if aiConfig.provider === 'ollama'}
+                <button class="info-btn" onclick={openInfoPopup} title="Model info">ℹ</button>
+            {/if}
+        </div>
+    {/if}
 </div>
+
+<!-- Ollama model info popup (outside .chat-panel so overlay covers full viewport) -->
+{#if showInfoPopup}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="info-overlay" onclick={() => showInfoPopup = false}>
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="info-popup" onclick={(e) => e.stopPropagation()}>
+            <div class="info-popup-header">
+                <span>Ollama · {selectedModel || aiConfig?.model}</span>
+                <button onclick={() => showInfoPopup = false} title="Close">✕</button>
+            </div>
+            <div class="info-popup-body">
+                {#if infoLoading}
+                    <p class="info-status">Loading…</p>
+                {:else if infoError}
+                    <p class="info-status info-err">{infoError}</p>
+                {:else if ollamaInfo}
+                    <dl>
+                        {#if ollamaInfo.version}
+                            <dt>Ollama version</dt><dd>{ollamaInfo.version}</dd>
+                        {/if}
+                        {#if ollamaInfo.details?.family}
+                            <dt>Family</dt><dd>{ollamaInfo.details.family}</dd>
+                        {/if}
+                        {#if ollamaInfo.details?.parameter_size}
+                            <dt>Parameters</dt><dd>{ollamaInfo.details.parameter_size}</dd>
+                        {/if}
+                        {#if ollamaInfo.details?.quantization_level}
+                            <dt>Quantization</dt><dd>{ollamaInfo.details.quantization_level}</dd>
+                        {/if}
+                        {#if ollamaInfo.details?.format}
+                            <dt>Format</dt><dd>{ollamaInfo.details.format}</dd>
+                        {/if}
+                        {#if ollamaInfo.running && ollamaInfo.running.length > 0}
+                            <dt>Loaded</dt>
+                            <dd>
+                                {#each ollamaInfo.running as r}
+                                    <div class="running-model">{r.name} · {formatBytes(r.size_vram)} VRAM</div>
+                                {/each}
+                            </dd>
+                        {:else if ollamaInfo.running !== null}
+                            <dt>Loaded</dt><dd class="dim">Not in memory</dd>
+                        {/if}
+                    </dl>
+                {/if}
+            </div>
+        </div>
+    </div>
+{/if}
 
 <style>
     .chat-panel {
@@ -493,4 +607,118 @@
     }
     .send-btn:disabled { opacity: 0.4; cursor: default; }
     .send-btn:not(:disabled):hover { background: var(--accent-hov); }
+
+    /* ── Model bar ───────────────────────────────────────────────────────── */
+    .model-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 10px 5px;
+        background: var(--bg-panel);
+        flex-shrink: 0;
+    }
+    .model-provider {
+        font-size: 9px;
+        color: var(--fg-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        flex-shrink: 0;
+    }
+    .model-select {
+        flex: 1;
+        min-width: 0;
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg);
+        font-size: 11px;
+        padding: 1px 4px;
+        cursor: pointer;
+        font-family: inherit;
+    }
+    .model-select:disabled { opacity: 0.5; cursor: not-allowed; }
+    .model-select:focus { outline: none; border-color: var(--fg-brand); }
+    .model-name {
+        flex: 1;
+        font-size: 11px;
+        color: var(--fg-muted);
+        font-family: monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .info-btn {
+        background: none;
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg-muted);
+        font-size: 11px;
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        flex-shrink: 0;
+        line-height: 1;
+    }
+    .info-btn:hover { background: var(--bg-hover); color: var(--fg); border-color: var(--border); }
+
+    /* ── Info popup ──────────────────────────────────────────────────────── */
+    .info-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 300;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .info-popup {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        min-width: 260px;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+    }
+    .info-popup-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border-sub);
+        background: var(--bg-widget);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+    .info-popup-header button {
+        background: none;
+        border: none;
+        color: var(--fg-muted);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 0 2px;
+        line-height: 1;
+    }
+    .info-popup-header button:hover { color: var(--fg); }
+    .info-popup-body { padding: 10px 14px; }
+    .info-popup-body dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 5px 14px;
+        font-size: 11px;
+        align-items: baseline;
+    }
+    .info-popup-body dt { color: var(--fg-muted); white-space: nowrap; }
+    .info-popup-body dd { margin: 0; color: var(--fg); word-break: break-word; }
+    .info-popup-body .dim { color: var(--fg-dim); font-style: italic; }
+    .running-model { font-size: 10px; line-height: 1.6; }
+    .info-status { font-size: 11px; color: var(--fg-muted); margin: 0; }
+    .info-err { color: var(--fg-err) !important; }
 </style>

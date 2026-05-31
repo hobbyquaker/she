@@ -339,6 +339,7 @@ export interface AiChatRequest {
     messages: AiMessage[];
     currentScript?: AiCurrentScript | null;
     context: AiContext;
+    modelOverride?: string;
 }
 
 export interface AiChatResponse {
@@ -353,8 +354,37 @@ export interface AiConfig {
     baseUrl: string;
 }
 
+export interface OllamaModelDetails {
+    family?: string;
+    families?: string[];
+    format?: string;
+    parameter_size?: string;
+    quantization_level?: string;
+}
+
+export interface OllamaRunningModel {
+    name: string;
+    size: number;
+    size_vram: number;
+    expires_at: string;
+}
+
+export interface OllamaModelInfo {
+    version: string | null;
+    details: OllamaModelDetails | null;
+    running: OllamaRunningModel[] | null;
+}
+
 export function getAiConfig(): Promise<AiConfig> {
     return request('GET', '/she/ai/config');
+}
+
+export function getAiModels(): Promise<{ models: string[] }> {
+    return request('GET', '/she/ai/models');
+}
+
+export function getOllamaModelInfo(model: string): Promise<OllamaModelInfo> {
+    return request('GET', `/she/ai/model-info?model=${encodeURIComponent(model)}`);
 }
 
 export function chatWithAI(body: AiChatRequest): Promise<AiChatResponse> {

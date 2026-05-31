@@ -376,6 +376,64 @@ router.get('/config', (req, res) => {
     });
 });
 
+// GET /she/ai/models — list available models for the configured provider
+router.get('/models', async (req, res) => {
+    const ai = readAiConfig(req.app.locals.configPath);
+    if (!ai?.provider) return res.json({ models: [] });
+
+    const base = (ai.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+
+    try {
+        if (ai.provider === 'ollama') {
+            const r = await fetch(`${base}/api/tags`);
+            if (!r.ok) throw new Error(`Ollama /api/tags returned ${r.status}`);
+            const json = await r.json();
+            const models = (json.models || []).map((m) => m.name || m.model).filter(Boolean).sort();
+            return res.json({ models });
+        } else if (ai.provider === 'anthropic') {
+            return res.json({ models: [] }); // no public list endpoint
+        } else {
+            // OpenAI / LM Studio / etc. — try /v1/models
+            const h = { 'Content-Type': 'application/json' };
+            if (ai.apiKey) h['Authorization'] = `Bearer ${ai.apiKey}`;
+            const r = await fetch(`${base}/v1/models`, { headers: h });
+            if (!r.ok) throw new Error(`/v1/models returned ${r.status}`);
+            const json = await r.json();
+            const models = (json.data || []).map((m) => m.id).filter(Boolean).sort();
+            return res.json({ models });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message, models: [] });
+    }
+});
+
+// GET /she/ai/model-info — Ollama-specific: version, model details, running models
+// Query param: ?model=<name>  (defaults to configured model)
+router.get('/model-info', async (req, res) => {
+    const ai = readAiConfig(req.app.locals.configPath);
+    if (!ai?.provider || !ai?.model) return res.status(400).json({ error: 'Not configured' });
+    if (ai.provider !== 'ollama') return res.status(400).json({ error: 'Model info is only available for Ollama' });
+
+    const base = (ai.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+    const model = (typeof req.query.model === 'string' && req.query.model) ? req.query.model : ai.model;
+
+    const [versionRes, showRes, psRes] = await Promise.allSettled([
+        fetch(`${base}/api/version`).then((r) => r.json()),
+        fetch(`${base}/api/show`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: model, model }),
+        }).then((r) => r.json()),
+        fetch(`${base}/api/ps`).then((r) => r.json()),
+    ]);
+
+    res.json({
+        version: versionRes.status === 'fulfilled' ? versionRes.value.version : null,
+        details: showRes.status === 'fulfilled' ? showRes.value.details : null,
+        running: psRes.status === 'fulfilled' ? (psRes.value.models || []) : null,
+    });
+});
+
 // POST /she/ai/chat — non-streaming
 router.post('/chat', async (req, res) => {
     const ai = readAiConfig(req.app.locals.configPath);
@@ -383,18 +441,19 @@ router.post('/chat', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, context = {} } = req.body || {};
+    const { messages = [], currentScript, context = {}, modelOverride } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
+    const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
     const systemPrompt = buildSystemPrompt(context, currentScript ?? null, _store);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     try {
         let result;
         if (ai.provider === 'anthropic') {
-            result = await callAnthropic(ai, fullMessages);
+            result = await callAnthropic(aiWithModel, fullMessages);
         } else {
-            result = await callOpenAICompat(ai, fullMessages);
+            result = await callOpenAICompat(aiWithModel, fullMessages);
         }
         res.json(result);
     } catch (e) {
@@ -409,8 +468,10 @@ router.post('/chat/stream', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, context = {} } = req.body || {};
+    const { messages = [], currentScript, context = {}, modelOverride } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
+
+    const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
 
     res.set({
         'Content-Type': 'text/event-stream',
@@ -428,9 +489,9 @@ router.post('/chat/stream', async (req, res) => {
         const onToken = (t) => send({ token: t });
 
         if (ai.provider === 'anthropic') {
-            await streamAnthropic(ai, fullMessages, onToken);
+            await streamAnthropic(aiWithModel, fullMessages, onToken);
         } else {
-            await streamOpenAICompat(ai, fullMessages, onToken);
+            await streamOpenAICompat(aiWithModel, fullMessages, onToken);
         }
 
         res.write('data: [DONE]\n\n');
