@@ -65,6 +65,8 @@ if (typeof config.port !== 'undefined') {
             log.error('http server start failed:', err.message);
             process.exit(1);
         });
+} else {
+    log.info('web server disabled — add "port" to config.json to enable');
 }
 
 const chokidar = require('chokidar');
@@ -980,7 +982,7 @@ function loadSandbox(callback) {
                     ignoreInitial: true,
                     usePolling: true,
                 });
-                sandboxWatcher.on('ready', () => log.info('watch', dir, 'initialized'));
+                sandboxWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
                 sandboxWatcher.on('all', (event, filePath) => {
                     sandboxWatcher.close();
                     log.info(filePath, 'sandbox change detected. exiting.');
