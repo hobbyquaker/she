@@ -60,10 +60,45 @@
     let redisUrl       = $state('');
 
     // AI Assistant
-    let aiProvider     = $state('ollama');
-    let aiBaseUrl      = $state('');
-    let aiModel        = $state('');
-    let aiApiKey       = $state('');
+    interface AiPreset {
+        id: string; label: string; provider: string;
+        baseUrl: string; defaultModel: string;
+        freeNote: string; apiKeyUrl: string;
+    }
+    const AI_PRESETS: AiPreset[] = [
+        { id: 'ollama',    label: 'Ollama (local)',                       provider: 'ollama',    baseUrl: '',                                                         defaultModel: '',                           freeNote: '',                                              apiKeyUrl: '' },
+        { id: 'lmstudio',  label: 'LM Studio (local)',                    provider: 'openai',    baseUrl: 'http://localhost:1234',                                     defaultModel: '',                           freeNote: '',                                              apiKeyUrl: '' },
+        { id: 'groq',      label: 'Groq — Qwen 2.5 Coder 32B (free)',     provider: 'openai',    baseUrl: 'https://api.groq.com/openai/v1',                           defaultModel: 'qwen-2.5-coder-32b',         freeNote: '14 400 req/day · no credit card needed',        apiKeyUrl: 'https://console.groq.com/keys' },
+        { id: 'gemini',    label: 'Google Gemini 2.0 Flash (free)',        provider: 'openai',    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',  defaultModel: 'gemini-2.0-flash',           freeNote: '15 RPM · 1 000 000 tokens/day · no credit card', apiKeyUrl: 'https://aistudio.google.com/apikey' },
+        { id: 'openai',    label: 'OpenAI (paid)',                         provider: 'openai',    baseUrl: '',                                                         defaultModel: 'gpt-4o-mini',                freeNote: '',                                              apiKeyUrl: 'https://platform.openai.com/api-keys' },
+        { id: 'anthropic', label: 'Anthropic (paid)',                      provider: 'anthropic', baseUrl: '',                                                         defaultModel: 'claude-3-5-haiku-20241022',  freeNote: '',                                              apiKeyUrl: 'https://console.anthropic.com/settings/keys' },
+    ];
+
+    let aiPreset   = $state('ollama');
+    let aiProvider = $state('ollama');
+    let aiBaseUrl  = $state('');
+    let aiModel    = $state('');
+    let aiApiKey   = $state('');
+
+    function detectAiPreset(provider: string, baseUrl: string): string {
+        if (provider === 'anthropic') return 'anthropic';
+        if (provider === 'ollama')    return 'ollama';
+        if (!baseUrl) return 'openai';
+        if (baseUrl.includes('localhost:1234'))  return 'lmstudio';
+        if (baseUrl.includes('groq.com'))        return 'groq';
+        if (baseUrl.includes('googleapis.com'))  return 'gemini';
+        return 'openai';
+    }
+
+    function onPresetChange() {
+        const p = AI_PRESETS.find(x => x.id === aiPreset);
+        if (!p) return;
+        aiProvider = p.provider;
+        aiBaseUrl  = p.baseUrl;
+        aiModel    = p.defaultModel;
+    }
+
+    const activePreset = $derived(AI_PRESETS.find(p => p.id === aiPreset));
 
     // Unknown keys from config.json — preserved on save
     let extra          = $state<Record<string, unknown>>({});
@@ -187,6 +222,7 @@
             if (ai?.baseUrl)  aiBaseUrl  = ai.baseUrl;
             if (ai?.model)    aiModel    = ai.model;
             if (ai?.apiKey)   aiApiKey   = ai.apiKey;
+            aiPreset = detectAiPreset(aiProvider, aiBaseUrl);
             extra = Object.fromEntries(Object.entries(cfg).filter(([k]) => !KNOWN.has(k)));
         } catch (e: any) {
             errMsg = e.message;
@@ -586,40 +622,49 @@
                     <div class="field">
                         <label>
                             Provider
-                            {@render tip('LLM provider. Ollama and LM Studio use the OpenAI-compatible /v1/chat/completions API at the Base URL below.')}
+                            {@render tip('Choose a provider. Free options need a free API key from the provider\'s website — no credit card required.')}
                         </label>
-                        <select bind:value={aiProvider}>
-                            <option value="ollama">Ollama (local)</option>
-                            <option value="lmstudio">LM Studio (local)</option>
-                            <option value="openai">OpenAI</option>
-                            <option value="anthropic">Anthropic</option>
+                        <select bind:value={aiPreset} onchange={onPresetChange}>
+                            {#each AI_PRESETS as preset}
+                                <option value={preset.id}>{preset.label}</option>
+                            {/each}
                         </select>
                     </div>
-                    {#if aiProvider !== 'anthropic'}
+                    {#if activePreset?.freeNote || activePreset?.apiKeyUrl}
+                        <div class="preset-note" class:free={!!activePreset.freeNote}>
+                            {#if activePreset.freeNote}
+                                <span class="free-badge">FREE</span> {activePreset.freeNote}
+                            {/if}
+                            {#if activePreset.apiKeyUrl}
+                                &nbsp;— <a href={activePreset.apiKeyUrl} target="_blank" rel="noreferrer">Get API key ↗</a>
+                            {/if}
+                        </div>
+                    {/if}
+                    {#if aiPreset !== 'anthropic'}
                         <div class="field">
                             <label>
                                 Base URL
-                                {@render tip('Base URL of the LLM API. For Ollama: http://localhost:11434. For LM Studio: http://localhost:1234. OpenAI uses api.openai.com automatically.')}
+                                {@render tip('Base URL of the LLM API. Auto-filled for cloud presets. For Ollama: http://localhost:11434.')} 
                             </label>
                             <input type="text" bind:value={aiBaseUrl} placeholder={
-                                aiProvider === 'ollama' ? 'http://localhost:11434' :
-                                aiProvider === 'lmstudio' ? 'http://localhost:1234' :
-                                'https://api.openai.com'
+                                aiPreset === 'ollama'   ? 'http://localhost:11434' :
+                                aiPreset === 'lmstudio' ? 'http://localhost:1234'  :
+                                activePreset?.baseUrl ?? ''
                             } />
                         </div>
                     {/if}
                     <div class="field">
                         <label>
                             Model
-                            {@render tip('Model identifier. Examples: llama3.2, qwen2.5-coder:7b, gpt-4o, claude-3-5-sonnet-20241022')}
+                            {@render tip('Model identifier. Suggested default is filled in when you choose a preset.')} 
                         </label>
-                        <input type="text" bind:value={aiModel} placeholder="e.g. llama3.2 or gpt-4o" />
+                        <input type="text" bind:value={aiModel} placeholder={activePreset?.defaultModel || 'e.g. llama3.2'} />
                     </div>
-                    {#if aiProvider === 'openai' || aiProvider === 'anthropic'}
+                    {#if aiPreset !== 'ollama' && aiPreset !== 'lmstudio'}
                         <div class="field">
                             <label>
                                 API key
-                                {@render tip('API key for the provider. Stored in config.json. For local providers (Ollama, LM Studio) this is usually not needed.')}
+                                {@render tip('Stored in config.json. Not needed for local providers.')}
                             </label>
                             <input type="password" bind:value={aiApiKey} placeholder="sk-…" autocomplete="off" />
                         </div>
@@ -931,6 +976,29 @@
 
     .field-error { font-size: 12px; color: var(--fg-err); padding: 2px 0; }
     .field-ok    { font-size: 12px; color: var(--fg-ok);  padding: 2px 0; }
+
+    .preset-note {
+        grid-column: 1 / -1;
+        font-size: 11px;
+        color: var(--fg-muted);
+        padding: 4px 0 4px 212px;
+        line-height: 1.4;
+    }
+    .preset-note.free { color: var(--fg-ok, #4caf50); }
+    .preset-note a { color: inherit; text-decoration: underline; }
+    .free-badge {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: rgba(76, 175, 80, 0.18);
+        border: 1px solid rgba(76, 175, 80, 0.4);
+        color: var(--fg-ok, #4caf50);
+        vertical-align: middle;
+        margin-right: 2px;
+    }
 
     .save-auth-btn {
         background: var(--accent);
