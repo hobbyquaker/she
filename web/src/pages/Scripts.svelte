@@ -208,7 +208,7 @@ declare const she: {
         {/if}
         <ul>
             {#each files as f (f.path)}
-                <li class:active={f.path === selected}>
+                <li class:active={f.path === selected} class:dirty={f.path === selected && dirty}>
                     <button onclick={() => selectFile(f.path)}>{f.path}</button>
                 </li>
             {/each}
@@ -281,6 +281,8 @@ declare const she: {
     }
     li button:hover { background: #2a2d2e; }
     li.active button { background: #37373d; color: #fff; }
+    li.dirty button { font-style: italic; }
+    li.dirty button::after { content: ' \25CF'; font-size: 7px; vertical-align: middle; color: #e5c07b; }
     .err {
         color: #f48771;
         padding: 8px;
@@ -296,10 +298,9 @@ declare const she: {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 4px 12px;
+        padding: 8px 12px;
         background: #252526;
         border-bottom: 1px solid #333;
-        height: 36px;
     }
     .filename {
         flex: 1;
@@ -310,7 +311,7 @@ declare const she: {
         background: #0e639c;
         color: #fff;
         border: none;
-        padding: 3px 10px;
+        padding: 4px 10px;
         border-radius: 3px;
         cursor: pointer;
         font-size: 12px;
