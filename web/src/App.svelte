@@ -44,11 +44,9 @@
             Scripts
         </button>
         <button class:active={page === 'mqtt'} onclick={() => navigate('mqtt')}>
-            <!-- Derived from official MQTT logo (mqtt.org): three quarter-circle sectors from bottom-left -->
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" stroke="none" style="margin-right: -2px">
-                <path d="M0,16 L0,12 A4,4 0 0,1 4,16 Z"/>
-                <path d="M0,10 A6,6 0 0,1 6,16 L9,16 A9,9 0 0,0 0,7 Z"/>
-                <path d="M0,5 A11,11 0 0,1 11,16 L14,16 A14,14 0 0,0 0,2 Z"/>
+            <!-- MQTT logo: square badge with three arc-band cutouts from bottom-left corner (mqtt.org geometry) -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" stroke="none" style="vertical-align: middle">
+                <path fill-rule="evenodd" d="M2,0 H14 A2,2 0 0,1 16,2 V14 A2,2 0 0,1 14,16 H0 V2 A2,2 0 0,1 2,0 Z M0,16 L0,12 A4,4 0 0,1 4,16 Z M0,10.5 A5.5,5.5 0 0,1 5.5,16 L9,16 A9,9 0 0,0 0,7 Z M0,5.5 A10.5,10.5 0 0,1 10.5,16 L13.5,16 A13.5,13.5 0 0,0 0,2.5 Z"/>
             </svg>
             MQTT
         </button>

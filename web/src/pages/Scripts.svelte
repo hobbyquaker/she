@@ -14,6 +14,7 @@
     let editorContainer: HTMLDivElement;
     let editor: monaco.editor.IStandaloneCodeEditor;
     let suppressChange = false;
+    let savedContent = '';
     let dialog: { show: (msg: string, opts?: { confirm?: string; danger?: boolean }) => Promise<boolean> };
     let inputDialog: { show: (msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }) => Promise<string | null> };
 
@@ -93,7 +94,6 @@ declare const she: {
         });
 
         editor = monaco.editor.create(editorContainer, {
-            language: 'javascript',
             theme: 'vs-dark',
             automaticLayout: true,
             minimap: { enabled: false },
@@ -103,7 +103,7 @@ declare const she: {
         });
 
         editor.onDidChangeModelContent(() => {
-            if (!suppressChange) dirty = true;
+            if (!suppressChange) dirty = editor.getValue() !== savedContent;
         });
 
         await loadFiles();
@@ -123,12 +123,19 @@ declare const she: {
             if (!(await dialog.show('Discard unsaved changes?', { confirm: 'Discard' }))) return;
         }
         selected = path;
-        dirty = false;
         try {
             const { content } = await readScript(path);
+            savedContent = content;
+            // Create a per-file model with a .js URI so Monaco's JS language service
+            // runs syntax diagnostics (red underlines) on the correct file.
+            const oldModel = editor.getModel();
+            const uri = monaco.Uri.parse(`file:///she-scripts/${encodeURIComponent(path)}`);
+            const newModel = monaco.editor.createModel(content, 'javascript', uri);
             suppressChange = true;
-            editor.setValue(content);
+            editor.setModel(newModel);
             suppressChange = false;
+            oldModel?.dispose();
+            dirty = false;
             editor.setScrollPosition({ scrollTop: 0 });
         } catch (e: any) {
             error = e.message;
@@ -139,7 +146,9 @@ declare const she: {
         if (!selected) return;
         saving = true;
         try {
-            await writeScript(selected, editor.getValue());
+            const value = editor.getValue();
+            await writeScript(selected, value);
+            savedContent = value;
             dirty = false;
             error = '';
         } catch (e: any) {
