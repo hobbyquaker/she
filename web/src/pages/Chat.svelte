@@ -1,0 +1,478 @@
+<script lang="ts">
+    import { type AiMessage, type AiContext, type AiCurrentScript, streamChatWithAI, getAiConfig, type AiConfig } from '../lib/api.js';
+
+    interface Props {
+        currentScript?: AiCurrentScript | null;
+        onApply?: (code: string) => void;
+    }
+
+    let { currentScript = null, onApply }: Props = $props();
+
+    // ── State ────────────────────────────────────────────────────────────────
+    let messages = $state<AiMessage[]>([]);
+    let streamingContent = $state<string | null>(null); // null = not streaming
+    let input = $state('');
+    let loading = $state(false);
+    let error = $state('');
+    let aiConfig = $state<AiConfig | null>(null);
+
+    let ctxApiref = $state(true);
+    let ctxMqtt   = $state(false);
+    let ctxShedb  = $state(false);
+    let ctxMatter = $state(false);
+
+    let inputEl: HTMLTextAreaElement;
+    let messagesEl: HTMLDivElement;
+
+    // ── Derived ──────────────────────────────────────────────────────────────
+    const context = $derived<AiContext>({
+        apiref: ctxApiref,
+        mqtt:   ctxMqtt,
+        shedb:  ctxShedb,
+        matter: ctxMatter,
+    });
+
+    const configured = $derived(aiConfig?.configured ?? false);
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+    $effect(() => {
+        getAiConfig().then(c => { aiConfig = c; }).catch(() => {});
+    });
+
+    $effect(() => {
+        // Auto-scroll to bottom when messages or streaming content changes
+        if (messagesEl) {
+            // Use the fact that we read messages/streamingContent to track them
+            const _ = messages.length + (streamingContent?.length ?? 0);
+            void _;
+            requestAnimationFrame(() => {
+                if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+            });
+        }
+    });
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    interface Block {
+        type: 'text' | 'code';
+        text: string;
+        lang?: string;
+    }
+
+    function parseBlocks(content: string): Block[] {
+        const blocks: Block[] = [];
+        const re = /```(\w*)\n([\s\S]*?)```/g;
+        let last = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(content)) !== null) {
+            if (m.index > last) blocks.push({ type: 'text', text: content.slice(last, m.index) });
+            blocks.push({ type: 'code', lang: m[1] || 'text', text: m[2].trimEnd() });
+            last = m.index + m[0].length;
+        }
+        if (last < content.length) blocks.push({ type: 'text', text: content.slice(last) });
+        return blocks;
+    }
+
+    function copyCode(text: string) {
+        navigator.clipboard.writeText(text).catch(() => {});
+    }
+
+    function applyCode(text: string) {
+        onApply?.(text);
+    }
+
+    function isJsBlock(lang: string | undefined): boolean {
+        return !lang || lang === 'js' || lang === 'javascript';
+    }
+
+    // ── Send ─────────────────────────────────────────────────────────────────
+
+    async function send() {
+        const text = input.trim();
+        if (!text || loading) return;
+        input = '';
+        error = '';
+        loading = true;
+
+        const userMsg: AiMessage = { role: 'user', content: text };
+        messages = [...messages, userMsg];
+
+        streamingContent = '';
+
+        try {
+            await streamChatWithAI(
+                { messages, currentScript, context },
+                (token) => { streamingContent = (streamingContent ?? '') + token; },
+            );
+
+            messages = [...messages, { role: 'assistant', content: streamingContent ?? '' }];
+        } catch (e: any) {
+            error = (e as Error).message;
+        } finally {
+            streamingContent = null;
+            loading = false;
+        }
+    }
+
+    function handleKeydown(e: KeyboardEvent) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            send();
+        }
+    }
+
+    function clearHistory() { messages = []; error = ''; }
+
+    const SUGGESTIONS = [
+        'Explain what this script does',
+        'Add error handling',
+        'Add a 30-minute schedule before sunrise',
+        'Write a script to forward MQTT topic A to B',
+    ];
+
+    function useSuggestion(s: string) {
+        input = s;
+        inputEl?.focus();
+    }
+</script>
+
+<div class="chat-panel">
+    <!-- Header -->
+    <div class="chat-header">
+        <span class="chat-title">AI Assistant</span>
+        {#if aiConfig}
+            <span class="chat-model" title="Provider: {aiConfig.provider}">
+                {#if configured}{aiConfig.provider} · {aiConfig.model}{:else}Not configured{/if}
+            </span>
+        {/if}
+        {#if messages.length > 0}
+            <button class="clear-btn" onclick={clearHistory} title="Clear conversation">✕</button>
+        {/if}
+    </div>
+
+    <!-- Messages -->
+    <div class="messages" bind:this={messagesEl}>
+        {#if !configured}
+            <div class="unconfigured">
+                Configure an AI provider in the <strong>Config</strong> tab to use the AI assistant.
+            </div>
+        {:else if messages.length === 0 && streamingContent === null}
+            <!-- Suggestion chips -->
+            <div class="suggestions">
+                <p class="suggestions-hint">
+                    {#if currentScript}
+                        Chatting in context of <code>{currentScript.path.split('/').pop()}</code>
+                    {:else}
+                        No script open. Ask a general she scripting question.
+                    {/if}
+                </p>
+                {#each SUGGESTIONS as s}
+                    <button class="chip" onclick={() => useSuggestion(s)}>{s}</button>
+                {/each}
+            </div>
+        {/if}
+
+        {#each messages as msg (msg)}
+            <div class="message {msg.role}">
+                {#if msg.role === 'user'}
+                    <div class="msg-content user-text">{msg.content}</div>
+                {:else}
+                    {@const blocks = parseBlocks(msg.content)}
+                    <div class="msg-content">
+                        {#each blocks as block}
+                            {#if block.type === 'text'}
+                                <p class="text-block">{block.text}</p>
+                            {:else}
+                                <div class="code-block">
+                                    <div class="code-header">
+                                        <span class="code-lang">{block.lang}</span>
+                                        <div class="code-actions">
+                                            <button onclick={() => copyCode(block.text)}>Copy</button>
+                                            {#if isJsBlock(block.lang) && currentScript}
+                                                <button class="apply-btn" onclick={() => applyCode(block.text)}>Apply to editor</button>
+                                            {/if}
+                                        </div>
+                                    </div>
+                                    <pre><code>{block.text}</code></pre>
+                                </div>
+                            {/if}
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+        {/each}
+
+        <!-- Streaming message -->
+        {#if streamingContent !== null}
+            <div class="message assistant streaming">
+                <div class="msg-content">
+                    {#each parseBlocks(streamingContent) as block}
+                        {#if block.type === 'text'}
+                            <p class="text-block">{block.text}</p>
+                        {:else}
+                            <div class="code-block">
+                                <div class="code-header">
+                                    <span class="code-lang">{block.lang}</span>
+                                </div>
+                                <pre><code>{block.text}</code></pre>
+                            </div>
+                        {/if}
+                    {/each}
+                    <span class="cursor">▋</span>
+                </div>
+            </div>
+        {/if}
+    </div>
+
+    <!-- Error -->
+    {#if error}
+        <div class="chat-error">{error}</div>
+    {/if}
+
+    <!-- Context toggles -->
+    <div class="context-row">
+        <label title="Include she API reference in context">
+            <input type="checkbox" bind:checked={ctxApiref} /> API ref
+        </label>
+        <label title="Include current MQTT state in context">
+            <input type="checkbox" bind:checked={ctxMqtt} /> MQTT
+        </label>
+        <label title="Include sheDB document IDs in context">
+            <input type="checkbox" bind:checked={ctxShedb} /> DB
+        </label>
+        <label title="Include paired Matter devices in context">
+            <input type="checkbox" bind:checked={ctxMatter} /> Matter
+        </label>
+    </div>
+
+    <!-- Input -->
+    <div class="input-row">
+        <textarea
+            bind:this={inputEl}
+            bind:value={input}
+            onkeydown={handleKeydown}
+            placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline)' : 'AI not configured'}
+            rows="3"
+            disabled={loading || !configured}
+        ></textarea>
+        <button class="send-btn" onclick={send} disabled={!input.trim() || loading || !configured}>
+            {#if loading}…{:else}↑{/if}
+        </button>
+    </div>
+</div>
+
+<style>
+    .chat-panel {
+        width: 340px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-panel);
+        border-left: 1px solid var(--border-sub);
+        min-height: 0;
+        height: 100%;
+    }
+
+    .chat-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
+    }
+    .chat-title { font-size: 12px; font-weight: 600; color: var(--fg); flex: 1; }
+    .chat-model { font-size: 10px; color: var(--fg-muted); }
+    .clear-btn {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        font-size: 11px; padding: 1px 4px; border-radius: 2px;
+    }
+    .clear-btn:hover { background: var(--bg-hover); color: var(--fg); }
+
+    .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-height: 0;
+    }
+
+    .unconfigured {
+        padding: 20px 14px;
+        color: var(--fg-muted);
+        font-size: 12px;
+        line-height: 1.5;
+    }
+    .unconfigured strong { color: var(--fg); }
+
+    .suggestions {
+        padding: 12px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .suggestions-hint { font-size: 11px; color: var(--fg-muted); margin: 0 0 6px; }
+    .suggestions-hint code { color: var(--fg-brand); background: var(--bg-widget); padding: 0 3px; border-radius: 2px; }
+    .chip {
+        background: var(--bg-widget);
+        border: 1px solid var(--border-sub);
+        color: var(--fg);
+        font-size: 11px;
+        padding: 5px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        text-align: left;
+    }
+    .chip:hover { background: var(--bg-hover); border-color: var(--border); }
+
+    .message {
+        padding: 0 10px;
+    }
+    .message.user { align-self: flex-end; max-width: 90%; }
+    .message.assistant { align-self: flex-start; width: 100%; }
+
+    .msg-content { font-size: 12px; line-height: 1.5; }
+
+    .user-text {
+        background: var(--accent);
+        color: #fff;
+        border-radius: 10px 10px 2px 10px;
+        padding: 7px 10px;
+        word-break: break-word;
+        white-space: pre-wrap;
+    }
+
+    .text-block {
+        color: var(--fg-text);
+        margin: 4px 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .text-block:first-child { margin-top: 0; }
+    .text-block:last-child { margin-bottom: 0; }
+
+    .code-block {
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 4px;
+        margin: 6px 0;
+        overflow: hidden;
+        font-size: 11px;
+    }
+    .code-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        background: var(--bg-widget);
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .code-lang { color: var(--fg-muted); font-size: 10px; flex: 1; }
+    .code-actions { display: flex; gap: 4px; }
+    .code-actions button, .apply-btn {
+        background: none;
+        border: 1px solid var(--border-sub);
+        color: var(--fg-muted);
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+    .code-actions button:hover { background: var(--bg-hover); color: var(--fg); }
+    .apply-btn { color: var(--fg-brand) !important; border-color: var(--fg-brand) !important; }
+    .apply-btn:hover { background: rgba(var(--accent-rgb, 31,139,76), 0.15) !important; }
+    pre {
+        margin: 0;
+        padding: 8px;
+        overflow-x: auto;
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--fg-text);
+    }
+    code { font-family: inherit; }
+
+    .streaming .msg-content { opacity: 0.92; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .cursor { animation: blink 0.9s step-end infinite; color: var(--fg-brand); font-size: 14px; line-height: 1; }
+
+    .chat-error {
+        background: rgba(200,50,50,0.15);
+        border-top: 1px solid rgba(200,50,50,0.4);
+        color: var(--fg-err);
+        font-size: 11px;
+        padding: 6px 10px;
+        flex-shrink: 0;
+        word-break: break-word;
+    }
+
+    .context-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 5px 10px;
+        border-top: 1px solid var(--border-sub);
+        background: var(--bg-app);
+        flex-shrink: 0;
+    }
+    .context-row label {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 10px;
+        color: var(--fg-muted);
+        cursor: pointer;
+        user-select: none;
+    }
+    .context-row label:hover { color: var(--fg); }
+    .context-row input[type='checkbox'] {
+        accent-color: var(--fg-brand);
+        width: 11px;
+        height: 11px;
+    }
+
+    .input-row {
+        display: flex;
+        gap: 6px;
+        padding: 6px 10px 8px;
+        border-top: 1px solid var(--border-sub);
+        background: var(--bg-panel);
+        flex-shrink: 0;
+        align-items: flex-end;
+    }
+    textarea {
+        flex: 1;
+        resize: none;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--fg);
+        font-size: 12px;
+        padding: 6px 8px;
+        font-family: inherit;
+        line-height: 1.4;
+        min-height: 0;
+    }
+    textarea:focus { outline: none; border-color: var(--fg-brand); }
+    textarea::placeholder { color: var(--fg-dim); }
+    textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .send-btn {
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        width: 32px;
+        height: 32px;
+        cursor: pointer;
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .send-btn:disabled { opacity: 0.4; cursor: default; }
+    .send-btn:not(:disabled):hover { background: var(--accent-hov); }
+</style>

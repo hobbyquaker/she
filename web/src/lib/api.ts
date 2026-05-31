@@ -279,3 +279,99 @@ export function fetchMqttState(): Promise<MqttEntry[]> {
 export function publishMqtt(topic: string, payload: string, retain = false, qos: 0 | 1 | 2 = 0): Promise<{ ok: boolean }> {
     return request('POST', '/she/mqtt/publish', { topic, payload, retain, qos });
 }
+
+// ---- AI Assistant API ----
+
+export interface AiMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
+export interface AiContext {
+    apiref: boolean;
+    mqtt: boolean;
+    shedb: boolean;
+    matter: boolean;
+}
+
+export interface AiCurrentScript {
+    path: string;
+    content: string;
+}
+
+export interface AiChatRequest {
+    messages: AiMessage[];
+    currentScript?: AiCurrentScript | null;
+    context: AiContext;
+}
+
+export interface AiChatResponse {
+    message: string;
+    usage?: { prompt_tokens: number; completion_tokens: number };
+}
+
+export interface AiConfig {
+    configured: boolean;
+    provider: string;
+    model: string;
+    baseUrl: string;
+}
+
+export function getAiConfig(): Promise<AiConfig> {
+    return request('GET', '/she/ai/config');
+}
+
+export function chatWithAI(body: AiChatRequest): Promise<AiChatResponse> {
+    return request('POST', '/she/ai/chat', body);
+}
+
+/**
+ * Stream a chat response via SSE.
+ * onToken is called for each text token; the returned promise resolves when done.
+ */
+export async function streamChatWithAI(body: AiChatRequest, onToken: (token: string) => void): Promise<void> {
+    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (_token) h['Authorization'] = `Bearer ${_token}`;
+
+    const res = await fetch('/she/ai/chat/stream', {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error((err as { error?: string }).error ?? res.statusText);
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const data = line.slice(6).trim();
+                if (data === '[DONE]') return;
+                try {
+                    const json = JSON.parse(data) as { token?: string; error?: string };
+                    if (json.error) throw new Error(json.error);
+                    if (json.token) onToken(json.token);
+                } catch (e) {
+                    // re-throw real errors; skip malformed JSON
+                    if (e instanceof SyntaxError) continue;
+                    throw e;
+                }
+            }
+        }
+    } finally {
+        reader.releaseLock();
+    }
+}

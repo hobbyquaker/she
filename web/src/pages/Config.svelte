@@ -34,6 +34,12 @@
     // Redis
     let redisUrl       = $state('');
 
+    // AI Assistant
+    let aiProvider     = $state('ollama');
+    let aiBaseUrl      = $state('');
+    let aiModel        = $state('');
+    let aiApiKey       = $state('');
+
     // Unknown keys from config.json — preserved on save
     let extra          = $state<Record<string, unknown>>({});
 
@@ -45,6 +51,7 @@
         'verbosity',
         'dbPath', 'dbRetain',
         'redis',
+        'ai',
     ]);
 
     // ── status ────────────────────────────────────────────────────────────
@@ -71,6 +78,11 @@
             if (typeof cfg.dbRetain         === 'boolean') dbRetain     = cfg.dbRetain;
             const redis = cfg.redis as { url?: string } | undefined;
             if (redis?.url) redisUrl = redis.url;
+            const ai = cfg.ai as { provider?: string; baseUrl?: string; model?: string; apiKey?: string } | undefined;
+            if (ai?.provider) aiProvider = ai.provider;
+            if (ai?.baseUrl)  aiBaseUrl  = ai.baseUrl;
+            if (ai?.model)    aiModel    = ai.model;
+            if (ai?.apiKey)   aiApiKey   = ai.apiKey;
             extra = Object.fromEntries(Object.entries(cfg).filter(([k]) => !KNOWN.has(k)));
         } catch (e: any) {
             errMsg = e.message;
@@ -105,6 +117,14 @@
             if (dbRetain) cfg.dbRetain = true;
         }
         if (redisUrl) cfg.redis = { url: redisUrl };
+        if (aiProvider && aiModel) {
+            cfg.ai = {
+                provider: aiProvider,
+                ...(aiBaseUrl  ? { baseUrl:  aiBaseUrl }  : {}),
+                model:    aiModel,
+                ...(aiApiKey   ? { apiKey:   aiApiKey }   : {}),
+            };
+        }
 
         saving = true;
         try {
@@ -303,6 +323,56 @@
                     </label>
                     <input type="text" bind:value={redisUrl} placeholder="leave empty to disable" />
                 </div>
+            </section>
+
+            <!-- ── AI Assistant ──────────────────────────────────────── -->
+            <section>
+                <h3>AI Assistant</h3>
+
+                <div class="field">
+                    <label>
+                        Provider
+                        {@render tip('LLM provider. Ollama and LM Studio use the OpenAI-compatible /v1/chat/completions API at the Base URL below.')}
+                    </label>
+                    <select bind:value={aiProvider}>
+                        <option value="ollama">Ollama (local)</option>
+                        <option value="lmstudio">LM Studio (local)</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                    </select>
+                </div>
+
+                {#if aiProvider !== 'anthropic'}
+                    <div class="field">
+                        <label>
+                            Base URL
+                            {@render tip('Base URL of the LLM API. For Ollama: http://localhost:11434. For LM Studio: http://localhost:1234. OpenAI uses api.openai.com automatically.')}
+                        </label>
+                        <input type="text" bind:value={aiBaseUrl} placeholder={
+                            aiProvider === 'ollama' ? 'http://localhost:11434' :
+                            aiProvider === 'lmstudio' ? 'http://localhost:1234' :
+                            'https://api.openai.com'
+                        } />
+                    </div>
+                {/if}
+
+                <div class="field">
+                    <label>
+                        Model
+                        {@render tip('Model identifier. Examples: llama3.2, qwen2.5-coder:7b, gpt-4o, claude-3-5-sonnet-20241022')}
+                    </label>
+                    <input type="text" bind:value={aiModel} placeholder="e.g. llama3.2 or gpt-4o" />
+                </div>
+
+                {#if aiProvider === 'openai' || aiProvider === 'anthropic'}
+                    <div class="field">
+                        <label>
+                            API key
+                            {@render tip('API key for the provider. Stored in config.json. For local providers (Ollama, LM Studio) this is usually not needed.')}
+                        </label>
+                        <input type="password" bind:value={aiApiKey} placeholder="sk-…" autocomplete="off" />
+                    </div>
+                {/if}
             </section>
 
         </form>

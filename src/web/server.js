@@ -9,6 +9,7 @@ const { router: matterRouter } = require('./matter-api');
 const { router: mqttRouter } = require('./mqtt-api');
 const { router: depsRouter } = require('./deps-api');
 const { router: gitRouter } = require('./git-api');
+const { router: aiRouter } = require('./ai-api');
 const { attachWss, closeWss } = require('./log-ws');
 
 const app = express();
@@ -44,6 +45,9 @@ app.use('/she/deps', depsRouter);
 
 // Git integration: /she/git/*
 app.use('/she/git', gitRouter);
+
+// AI assistant proxy: /she/ai/*
+app.use('/she/ai', aiRouter);
 
 // Graceful daemon restart — exit(0) and let the process manager restart
 app.post('/she/restart', (req, res) => {

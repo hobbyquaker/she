@@ -16,6 +16,7 @@
     import { subscribeLog, type LogEntry } from '../lib/ws.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
+    import Chat from './Chat.svelte';
 
     interface Tab {
         path: string;
@@ -47,6 +48,20 @@
     let unsubLog: (() => void) | null = null;
     let _treeLoaded = false;
     let _mounted = false;
+
+    // Chat panel & diff view
+    let chatOpen = $state(false);
+    let proposedCode = $state<string | null>(null);
+    let diffEditorContainer = $state<HTMLDivElement | undefined>(undefined);
+    let diffEditor: monaco.editor.IStandaloneDiffEditor | null = null;
+    let proposedOriginalModel: monaco.editor.ITextModel | null = null;
+    let proposedModifiedModel: monaco.editor.ITextModel | null = null;
+
+    const chatScript = $derived(
+        activeTab && currentTab
+            ? { path: activeTab, content: currentTab.model?.getValue() ?? currentTab.savedContent }
+            : null,
+    );
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
     let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
@@ -376,6 +391,76 @@ declare const she: {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
         if (e.key === 'Escape') dropdownOpen = false;
     }
+
+    // ── AI apply / diff view ──────────────────────────────────────────────────
+
+    async function onApply(code: string) {
+        proposedCode = code;
+        await tick();
+        if (!diffEditorContainer) return;
+
+        // Dispose any previous diff editor
+        proposedOriginalModel?.dispose();
+        proposedModifiedModel?.dispose();
+        diffEditor?.dispose();
+
+        const originalContent = currentTab?.model?.getValue() ?? '';
+        proposedOriginalModel = monaco.editor.createModel(originalContent, 'javascript');
+        proposedModifiedModel = monaco.editor.createModel(code, 'javascript');
+
+        diffEditor = monaco.editor.createDiffEditor(diffEditorContainer, {
+            theme: 'vs-dark',
+            readOnly: true,
+            renderSideBySide: true,
+            automaticLayout: true,
+            minimap: { enabled: false },
+            fontSize: 13,
+            scrollBeyondLastLine: false,
+        });
+        diffEditor.setModel({
+            original: proposedOriginalModel,
+            modified: proposedModifiedModel,
+        });
+    }
+
+    async function acceptProposal() {
+        if (proposedCode === null || !activeTab) return;
+        const code = proposedCode;
+        proposedCode = null;
+
+        // Apply to the Monaco model
+        const tab = tabs.find(t => t.path === activeTab);
+        if (tab?.model) {
+            suppressChange = true;
+            tab.model.setValue(code);
+            suppressChange = false;
+            tab.dirty = false;
+            tab.savedContent = code;
+        }
+
+        // Write to disk
+        try {
+            await writeScript(activeTab, code);
+            error = '';
+            loadGitStatus();
+        } catch (e: any) { error = (e as Error).message; }
+
+        cleanupDiffEditor();
+    }
+
+    function discardProposal() {
+        proposedCode = null;
+        cleanupDiffEditor();
+    }
+
+    function cleanupDiffEditor() {
+        diffEditor?.dispose();
+        diffEditor = null;
+        proposedOriginalModel?.dispose();
+        proposedOriginalModel = null;
+        proposedModifiedModel?.dispose();
+        proposedModifiedModel = null;
+    }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -494,33 +579,61 @@ declare const she: {
                 <button onclick={saveAs}>Save As</button>
                 <button onclick={del} class="danger">Delete</button>
             {/if}
+            <button
+                class="ai-toggle"
+                class:ai-open={chatOpen}
+                onclick={() => chatOpen = !chatOpen}
+                title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
+            >AI</button>
         </div>
 
-        <div class="editor-container" bind:this={editorContainer}></div>
-
-        <div class="log-panel" class:collapsed={!logPanelOpen}>
-            <div class="log-header">
-                <button class="log-toggle" onclick={toggleLogPanel}>
-                    {logPanelOpen ? '▾' : '▸'} Script Log
-                    {#if activeTab}<span class="log-file"> — {activeTab.split('/').pop()}</span>{/if}
-                </button>
-                {#if logPanelOpen}
-                    <button class="log-clear" onclick={clearLog}>Clear</button>
-                {/if}
-            </div>
-            {#if logPanelOpen}
-                <div class="log-body" bind:this={logEl}>
-                    {#each currentTab?.logEntries ?? [] as e (e.ts + e.msg)}
-                        <div class="log-line {e.level}">
-                            <span class="ts">{fmt(e.ts)}</span>
-                            <span class="lvl">{e.level.toUpperCase()}</span>
-                            <span class="msg">{e.msg}</span>
+        <div class="editor-body">
+            <div class="editor-left">
+                <div class="editor-stack">
+                    <div class="editor-container" bind:this={editorContainer}></div>
+                    {#if proposedCode !== null}
+                        <div class="diff-overlay">
+                            <div class="diff-bar">
+                                <span class="diff-title">Proposed changes — <em>{activeTab?.split('/').pop()}</em></span>
+                                <div class="diff-actions">
+                                    <button class="accept-btn" onclick={acceptProposal}>Accept</button>
+                                    <button class="discard-btn" onclick={discardProposal}>Discard</button>
+                                </div>
+                            </div>
+                            <div class="diff-container" bind:this={diffEditorContainer}></div>
                         </div>
-                    {/each}
-                    {#if (currentTab?.logEntries.length ?? 0) === 0}
-                        <span class="log-empty">No log output for this script.</span>
                     {/if}
                 </div>
+
+                <div class="log-panel" class:collapsed={!logPanelOpen}>
+                    <div class="log-header">
+                        <button class="log-toggle" onclick={toggleLogPanel}>
+                            {logPanelOpen ? '▾' : '▸'} Script Log
+                            {#if activeTab}<span class="log-file"> — {activeTab.split('/').pop()}</span>{/if}
+                        </button>
+                        {#if logPanelOpen}
+                            <button class="log-clear" onclick={clearLog}>Clear</button>
+                        {/if}
+                    </div>
+                    {#if logPanelOpen}
+                        <div class="log-body" bind:this={logEl}>
+                            {#each currentTab?.logEntries ?? [] as e (e.ts + e.msg)}
+                                <div class="log-line {e.level}">
+                                    <span class="ts">{fmt(e.ts)}</span>
+                                    <span class="lvl">{e.level.toUpperCase()}</span>
+                                    <span class="msg">{e.msg}</span>
+                                </div>
+                            {/each}
+                            {#if (currentTab?.logEntries.length ?? 0) === 0}
+                                <span class="log-empty">No log output for this script.</span>
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
+            </div>
+
+            {#if chatOpen}
+                <Chat currentScript={chatScript} {onApply} />
             {/if}
         </div>
     </div>
@@ -584,6 +697,48 @@ declare const she: {
     .err { color: var(--fg-err); padding: 8px; font-size: 12px; }
 
     .editor-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    .editor-body { flex: 1; display: flex; min-height: 0; }
+    .editor-left { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+    .editor-stack { flex: 1; position: relative; min-height: 0; }
+    .editor-container { position: absolute; inset: 0; }
+
+    /* Diff overlay — sits on top of the editor-container */
+    .diff-overlay {
+        position: absolute; inset: 0; z-index: 10;
+        display: flex; flex-direction: column;
+        background: var(--bg-app);
+    }
+    .diff-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 5px 10px; background: var(--bg-panel);
+        border-bottom: 1px solid var(--border-sub); flex-shrink: 0;
+    }
+    .diff-title { flex: 1; font-size: 12px; color: var(--fg-muted); }
+    .diff-title em { color: var(--fg); font-style: normal; }
+    .diff-actions { display: flex; gap: 6px; }
+    .accept-btn {
+        background: #1a6b30; color: #fff; border: none;
+        padding: 3px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;
+    }
+    .accept-btn:hover { background: #22883d; }
+    .discard-btn {
+        background: none; color: var(--fg-muted);
+        border: 1px solid var(--border); padding: 3px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;
+    }
+    .discard-btn:hover { background: var(--bg-hover); color: var(--fg); }
+    .diff-container { flex: 1; min-height: 0; }
+
+    /* AI toggle button */
+    .ai-toggle {
+        background: var(--bg-widget) !important;
+        color: var(--fg-brand) !important;
+        border: 1px solid var(--border) !important;
+        font-weight: 600 !important;
+    }
+    .ai-toggle:hover { background: var(--bg-hover) !important; }
+    .ai-toggle.ai-open { background: var(--fg-brand) !important; color: #fff !important; border-color: var(--fg-brand) !important; }
 
     .tab-bar {
         display: flex; overflow-x: auto; background: var(--bg-app);
@@ -658,7 +813,7 @@ declare const she: {
     .editor-toolbar > button.danger { background: var(--accent-del); }
     .editor-toolbar > button.danger:hover { background: var(--accent-del-hov); }
 
-    .editor-container { flex: 1; min-height: 0; }
+    /* editor-container is now absolute inside .editor-stack */
 
     .log-panel {
         flex-shrink: 0; display: flex; flex-direction: column;
