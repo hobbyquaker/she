@@ -38,10 +38,37 @@
     // ---- New document dialog ----
     let newDocId = $state('');
     let showNewDocForm = $state(false);
+    let newDocError: string | null = $state(null);
 
     // ---- New view dialog ----
     let newViewId = $state('');
     let showNewViewForm = $state(false);
+    let newViewError: string | null = $state(null);
+
+    // ---- Resizable sidebar ----
+    const SIDEBAR_WIDTH_KEY = 'she-db-sidebar-width';
+    let sidebarWidth = $state(parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY) ?? '220', 10));
+    let resizing = false;
+    let resizeStartX = 0;
+    let resizeStartWidth = 0;
+
+    function onResizeStart(e: MouseEvent) {
+        resizing = true;
+        resizeStartX = e.clientX;
+        resizeStartWidth = sidebarWidth;
+        e.preventDefault();
+    }
+
+    function onResizeMove(e: MouseEvent) {
+        if (!resizing) return;
+        sidebarWidth = Math.max(140, Math.min(500, resizeStartWidth + e.clientX - resizeStartX));
+    }
+
+    function onResizeEnd() {
+        if (!resizing) return;
+        resizing = false;
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    }
 
     async function loadDocs() {
         try {
@@ -97,14 +124,16 @@
     }
 
     async function createDoc() {
-        if (!newDocId.trim()) return;
+        const id = newDocId.trim();
+        if (!id) return;
+        newDocError = null;
         try {
-            await putDoc(newDocId.trim(), {});
+            await putDoc(id, {});
             showNewDocForm = false;
-            await selectDoc(newDocId.trim());
             newDocId = '';
+            await selectDoc(id);
         } catch (e: unknown) {
-            docError = e instanceof Error ? e.message : String(e);
+            newDocError = e instanceof Error ? e.message : String(e);
         }
     }
 
@@ -166,13 +195,14 @@
     async function createView() {
         if (!newViewId.trim()) return;
         const id = newViewId.trim();
+        newViewError = null;
         try {
             await putView(id, { map: '// emit(this.someProperty)' });
             showNewViewForm = false;
             newViewId = '';
             await selectView(id);
         } catch (e: unknown) {
-            viewError = e instanceof Error ? e.message : String(e);
+            newViewError = e instanceof Error ? e.message : String(e);
         }
     }
 
@@ -213,7 +243,7 @@
     });
 </script>
 
-<div class="db-root">
+<div class="db-root" role="presentation" onmousemove={onResizeMove} onmouseup={onResizeEnd} onmouseleave={onResizeEnd}>
     <!-- Panel tabs -->
     <div class="panel-tabs">
         <button class:active={panel === 'docs'} onclick={() => (panel = 'docs')}>Documents</button>
@@ -223,16 +253,17 @@
     {#if panel === 'docs'}
         <div class="panel">
             <!-- Left sidebar: doc list -->
-            <aside class="sidebar">
+            <aside class="sidebar" style:width="{sidebarWidth}px">
                 <div class="sidebar-header">
                     <span>Documents ({docIds.length})</span>
-                    <button class="btn-icon" onclick={() => (showNewDocForm = !showNewDocForm)} title="New document">+</button>
+                    <button class="btn-icon" onclick={() => { showNewDocForm = !showNewDocForm; newDocError = null; }} title="New document">+</button>
                 </div>
                 {#if showNewDocForm}
                     <div class="new-item-form">
                         <input bind:value={newDocId} placeholder="device/lamp1" onkeydown={(e) => e.key === 'Enter' && createDoc()} />
                         <button onclick={createDoc}>Create</button>
                     </div>
+                    {#if newDocError}<div class="form-error">{newDocError}</div>{/if}
                 {/if}
                 <ul>
                     {#each docIds as id (id)}
@@ -242,6 +273,8 @@
                     {/each}
                 </ul>
             </aside>
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <div class="resize-handle" role="separator" onmousedown={onResizeStart}></div>
 
             <!-- Right editor area -->
             <main class="editor-area">
@@ -267,16 +300,17 @@
     {:else}
         <div class="panel">
             <!-- Left sidebar: view list -->
-            <aside class="sidebar">
+            <aside class="sidebar" style:width="{sidebarWidth}px">
                 <div class="sidebar-header">
                     <span>Views ({viewIds.length})</span>
-                    <button class="btn-icon" onclick={() => (showNewViewForm = !showNewViewForm)} title="New view">+</button>
+                    <button class="btn-icon" onclick={() => { showNewViewForm = !showNewViewForm; newViewError = null; }} title="New view">+</button>
                 </div>
                 {#if showNewViewForm}
                     <div class="new-item-form">
                         <input bind:value={newViewId} placeholder="myView" onkeydown={(e) => e.key === 'Enter' && createView()} />
                         <button onclick={createView}>Create</button>
                     </div>
+                    {#if newViewError}<div class="form-error">{newViewError}</div>{/if}
                 {/if}
                 <ul>
                     {#each viewIds as id (id)}
@@ -286,6 +320,8 @@
                     {/each}
                 </ul>
             </aside>
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <div class="resize-handle" role="separator" onmousedown={onResizeStart}></div>
 
             <!-- Right: view definition editor + result -->
             <main class="editor-area">
@@ -377,45 +413,39 @@
     }
 
     .sidebar {
-        width: 220px;
-        min-width: 160px;
-        border-right: 1px solid var(--border-sub);
+        min-width: 140px;
+        max-width: 500px;
+        flex-shrink: 0;
+        border-right: none;
         display: flex;
         flex-direction: column;
         overflow: hidden;
     }
 
-    .sidebar-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 6px 8px;
-        border-bottom: 1px solid var(--border-sub);
-        font-size: 0.8rem;
-        color: var(--fg-muted);
+    .resize-handle {
+        width: 5px;
+        flex-shrink: 0;
+        cursor: col-resize;
+        background: var(--border-sub);
+        transition: background 0.15s;
+        position: relative;
     }
-
-    .btn-icon {
-        background: none;
-        border: 1px solid var(--border);
-        color: var(--fg);
-        width: 22px;
-        height: 22px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 1rem;
-        line-height: 1;
+    .resize-handle:hover,
+    .resize-handle:active {
+        background: var(--accent);
     }
 
     .new-item-form {
         display: flex;
+        flex-wrap: wrap;
         gap: 4px;
         padding: 4px 6px;
         border-bottom: 1px solid var(--border-sub);
     }
 
     .new-item-form input {
-        flex: 1;
+        flex: 1 1 0;
+        min-width: 60px;
         background: var(--bg-app);
         border: 1px solid var(--border);
         color: var(--fg);
@@ -425,6 +455,7 @@
     }
 
     .new-item-form button {
+        flex-shrink: 0;
         background: var(--accent);
         border: none;
         color: #fff;
@@ -432,6 +463,13 @@
         border-radius: 3px;
         cursor: pointer;
         font-size: 0.82rem;
+    }
+
+    .form-error {
+        padding: 2px 6px 4px;
+        font-size: 0.78rem;
+        color: var(--error, #e05252);
+        border-bottom: 1px solid var(--border-sub);
     }
 
     .sidebar ul {

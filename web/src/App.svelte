@@ -44,6 +44,20 @@
             </svg>
             Scripts
         </button>
+        <button class:active={page === 'packages'} onclick={() => navigate('packages')}>
+            <!-- npm logo reproduced in line-art: outer box + n, p, m letter strokes -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">
+                <rect x="0.75" y="0.75" width="14.5" height="14.5" rx="1"/>
+                <!-- n -->
+                <path d="M2,11 V5 H5 V11"/>
+                <!-- p (with descender) -->
+                <path d="M6,12 V5 H9 V8 H6"/>
+                <!-- m (wide, two arches via center divider) -->
+                <path d="M10,11 V5 H15 V11"/>
+                <line x1="12.5" y1="5" x2="12.5" y2="11"/>
+            </svg>
+            Packages
+        </button>
         <button class:active={page === 'mqtt'} onclick={() => navigate('mqtt')}>
             <!-- MQTT logo: square badge with three arc-band cutouts from bottom-left corner (mqtt.org geometry) -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" stroke="none" style="vertical-align: middle">
@@ -86,15 +100,6 @@
                 <circle cx="12" cy="12" r="3"/>
             </svg>
             Config
-        </button>
-        <button class:active={page === 'packages'} onclick={() => navigate('packages')}>
-            <!-- Box / package icon -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="0.5,4 8,8 15.5,4"/>
-                <polyline points="8,8 8,15.5"/>
-                <polygon points="8,0.5 15.5,4 8,7.5 0.5,4"/>
-            </svg>
-            Packages
         </button>
     </nav>
 

@@ -6,6 +6,7 @@
         readScript,
         writeScript,
         deleteScript,
+        renameScript,
         createScriptDir,
         commitFile,
         gitStatus,
@@ -17,6 +18,7 @@
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import Chat from './Chat.svelte';
+    import { registerCompletionProviders } from '../lib/completions.js';
 
     interface Tab {
         path: string;
@@ -29,6 +31,14 @@
     let tree = $state<TreeEntry[]>([]);
     /** key = entry.path → true if expanded */
     let expandedDirs = $state<Record<string, boolean>>({});
+    /** currently selected directory (for "new file inside") */
+    let selectedDir = $state<string | null>(null);
+    /** context menu state */
+    let ctxMenu = $state<{ x: number; y: number; entry: TreeEntry } | null>(null);
+    /** drag source path */
+    let dragSrc = $state<string | null>(null);
+    /** folder path being dragged over */
+    let dragOver = $state<string | null>(null);
     let tabs = $state<Tab[]>([]);
     let activeTab = $state<string | null>(null);
     let saving = $state(false);
@@ -154,6 +164,8 @@ declare const she: {
             noSyntaxValidation: false,
             noSemanticValidation: true, // semantic checks are noisy for plain JS scripts
         });
+
+        registerCompletionProviders();
 
         emptyModel = monaco.editor.createModel('', 'javascript');
         editor = monaco.editor.create(editorContainer, {
@@ -331,8 +343,10 @@ declare const she: {
     }
 
     async function newFile() {
+        const prefix = selectedDir ? `${selectedDir}/` : '';
         const name = await inputDialog.show('New script name:', {
-            placeholder: 'myscript.js or folder/myscript.js',
+            placeholder: prefix ? `${prefix}myscript.js` : 'myscript.js or folder/myscript.js',
+            initial: prefix,
             confirm: 'Create',
         });
         if (!name) return;
@@ -343,8 +357,10 @@ declare const she: {
     }
 
     async function newFolder() {
+        const prefix = selectedDir ? `${selectedDir}/` : '';
         const name = await inputDialog.show('New folder name:', {
-            placeholder: 'myfolder',
+            placeholder: prefix ? `${prefix}subfolder` : 'myfolder',
+            initial: prefix,
             confirm: 'Create',
         });
         if (!name) return;
@@ -353,8 +369,106 @@ declare const she: {
         await loadTree();
     }
 
+    // ── Context menu ─────────────────────────────────────────────────────────
+    function openCtxMenu(e: MouseEvent, entry: TreeEntry) {
+        e.preventDefault();
+        ctxMenu = { x: e.clientX, y: e.clientY, entry };
+    }
+
+    function closeCtxMenu() { ctxMenu = null; }
+
+    async function ctxNewFileHere(dirPath: string) {
+        closeCtxMenu();
+        selectedDir = dirPath;
+        expandedDirs[dirPath] = true;
+        await newFile();
+    }
+
+    async function ctxNewFolderHere(dirPath: string) {
+        closeCtxMenu();
+        selectedDir = dirPath;
+        await newFolder();
+    }
+
+    async function ctxRename(entry: TreeEntry) {
+        closeCtxMenu();
+        const newName = await inputDialog.show(
+            entry.type === 'dir' ? 'Rename folder:' : 'Rename script:',
+            { initial: entry.path, placeholder: entry.path, confirm: 'Rename' },
+        );
+        if (!newName || newName === entry.path) return;
+        const target = (entry.type === 'file' && !newName.endsWith('.js')) ? `${newName}.js` : newName;
+        try {
+            await renameScript(entry.path, target);
+            // update any open tab
+            const tab = tabs.find(t => t.path === entry.path);
+            if (tab) {
+                tab.path = target;
+                if (activeTab === entry.path) activeTab = target;
+            }
+            await loadTree();
+        } catch (e: any) { error = e.message; }
+    }
+
+    async function ctxDelete(entry: TreeEntry) {
+        closeCtxMenu();
+        if (!(await dialog.show(`Delete ${entry.path}?`, { confirm: 'Delete', danger: true }))) return;
+        if (entry.type === 'file') {
+            await closeTab(entry.path);
+            await deleteScript(entry.path);
+        }
+        await loadTree();
+    }
+
+    // ── Drag-drop ─────────────────────────────────────────────────────────────
+    function onDragStart(e: DragEvent, path: string) {
+        dragSrc = path;
+        e.dataTransfer?.setData('text/plain', path);
+    }
+
+    function onDragOver(e: DragEvent, dirPath: string) {
+        e.preventDefault();
+        e.dataTransfer && (e.dataTransfer.dropEffect = 'move');
+        dragOver = dirPath;
+    }
+
+    function onDragLeave() { dragOver = null; }
+
+    async function onDrop(e: DragEvent, dirPath: string) {
+        e.preventDefault();
+        dragOver = null;
+
+        // OS file drop: create new scripts from dropped files
+        if (e.dataTransfer?.files?.length) {
+            for (const file of Array.from(e.dataTransfer.files)) {
+                if (!file.name.endsWith('.js')) continue;
+                const text = await file.text();
+                const target = `${dirPath}/${file.name}`;
+                await writeScript(target, text);
+            }
+            await loadTree();
+            return;
+        }
+
+        // Internal drag: rename/move
+        const src = dragSrc ?? e.dataTransfer?.getData('text/plain');
+        dragSrc = null;
+        if (!src || src === dirPath) return;
+        const filename = src.split('/').pop()!;
+        const target = `${dirPath}/${filename}`;
+        if (target === src) return;
+        try {
+            await renameScript(src, target);
+            const tab = tabs.find(t => t.path === src);
+            if (tab) {
+                tab.path = target;
+                if (activeTab === src) activeTab = target;
+            }
+            await loadTree();
+        } catch (e: any) { error = e.message; }
+    }
+
     async function saveAs() {
-        if (!activeTab) return;
         const name = await inputDialog.show('Save as:', {
             placeholder: 'copy.js',
             initial: activeTab,
@@ -389,7 +503,7 @@ declare const she: {
 
     function handleKeydown(e: KeyboardEvent) {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
-        if (e.key === 'Escape') dropdownOpen = false;
+        if (e.key === 'Escape') { dropdownOpen = false; ctxMenu = null; }
     }
 
     // ── AI apply / diff view ──────────────────────────────────────────────────
@@ -467,6 +581,29 @@ declare const she: {
 <ConfirmDialog bind:this={dialog} />
 <InputDialog bind:this={inputDialog} />
 
+<!-- context menu -->
+{#if ctxMenu}
+    <div
+        class="ctx-backdrop"
+        role="presentation"
+        onclick={closeCtxMenu}
+        oncontextmenu={(e) => { e.preventDefault(); closeCtxMenu(); }}
+    ></div>
+    <div class="ctx-menu" style:left="{ctxMenu.x}px" style:top="{ctxMenu.y}px">
+        {#if ctxMenu.entry.type === 'dir'}
+            <button onclick={() => ctxNewFileHere(ctxMenu!.entry.path)}>New file here</button>
+            <button onclick={() => ctxNewFolderHere(ctxMenu!.entry.path)}>New subfolder here</button>
+            <hr/>
+            <button onclick={() => ctxRename(ctxMenu!.entry)}>Rename folder…</button>
+        {:else}
+            <button onclick={() => openTab(ctxMenu!.entry.path)}>Open</button>
+            <button onclick={() => ctxRename(ctxMenu!.entry)}>Rename…</button>
+            <hr/>
+            <button class="danger" onclick={() => ctxDelete(ctxMenu!.entry)}>Delete</button>
+        {/if}
+    </div>
+{/if}
+
 <div class="layout">
     <aside>
         <div class="toolbar">
@@ -479,11 +616,30 @@ declare const she: {
         {#snippet treeEntry(entry: TreeEntry)}
             {#if entry.type === 'dir'}
                 <li class="tree-dir">
-                    <div class="dir-row" style="--depth: {entry.path.split('/').length - 1}">
+                    <div
+                        class="dir-row"
+                        class:dir-selected={selectedDir === entry.path}
+                        class:drag-target={dragOver === entry.path}
+                        style="--depth: {entry.path.split('/').length - 1}"
+                        role="treeitem"
+                        aria-selected={selectedDir === entry.path}
+                        tabindex="-1"
+                        ondragover={(e) => onDragOver(e, entry.path)}
+                        ondragleave={onDragLeave}
+                        ondrop={(e) => onDrop(e, entry.path)}
+                        oncontextmenu={(e) => openCtxMenu(e, entry)}
+                    >
                         <button class="chevron" onclick={() => toggleDir(entry.path)}>
                             {expandedDirs[entry.path] ? '▾' : '▸'}
                         </button>
-                        <span class="dir-name" class:lib={entry.lib}>{entry.name}</span>
+                        <span
+                            class="dir-name"
+                            class:lib={entry.lib}
+                            role="button"
+                            tabindex="0"
+                            onclick={() => { selectedDir = entry.path; expandedDirs[entry.path] = true; }}
+                            onkeydown={(e) => e.key === 'Enter' && (selectedDir = entry.path)}
+                        >{entry.name}</span>
                         <label class="lib-label" title="Library directory — .js files won't be loaded as scripts automatically">
                             <input type="checkbox" checked={entry.lib} onchange={() => toggleLib(entry.path, !entry.lib)} />
                             lib
@@ -505,6 +661,9 @@ declare const she: {
                     class:active={tabs.some(t => t.path === entry.path)}
                     class:active-tab={entry.path === activeTab}
                     style="--depth: {entry.path.split('/').length - 1}"
+                    draggable="true"
+                    ondragstart={(e) => onDragStart(e, entry.path)}
+                    oncontextmenu={(e) => openCtxMenu(e, entry)}
                 >
                     <button class:lib={entry.lib} onclick={() => openTab(entry.path)}>
                         <span class="badge" class:badge-shelib={entry.lib}>JS</span>
@@ -591,6 +750,26 @@ declare const she: {
             <div class="editor-left">
                 <div class="editor-stack">
                     <div class="editor-container" bind:this={editorContainer}></div>
+                    {#if !activeTab}
+                        <div class="welcome">
+                            <div class="welcome-inner">
+                                <div class="welcome-logo">she</div>
+                                <p class="welcome-sub">smart-home-engine — a scriptable MQTT automation daemon</p>
+                                <div class="welcome-hint">
+                                    <strong>Quick start:</strong> click <kbd>+ File</kbd> in the sidebar to create your first script,
+                                    or click an existing file to open it. Scripts run in a sandboxed VM with access to the
+                                    <code>she</code> object for MQTT, scheduling, and more.
+                                </div>
+                                <div class="welcome-links">
+                                    <a href="https://github.com/hobbyquaker/she" target="_blank" rel="noopener">GitHub</a>
+                                    <span>·</span>
+                                    <a href="https://github.com/hobbyquaker/she#sandbox-api-surface" target="_blank" rel="noopener">API reference</a>
+                                    <span>·</span>
+                                    <a href="https://github.com/hobbyquaker/she/blob/main/README.md" target="_blank" rel="noopener">README</a>
+                                </div>
+                            </div>
+                        </div>
+                    {/if}
                     {#if proposedCode !== null}
                         <div class="diff-overlay">
                             <div class="diff-bar">
@@ -846,4 +1025,62 @@ declare const she: {
     .log-line.error .lvl { color: var(--fg-err); }
     .log-line .msg { color: var(--fg-text); word-break: break-all; }
     .log-empty { color: var(--fg-dim); font-size: 11px; padding: 4px 8px; font-style: italic; }
+
+    /* ── Folder selected / drag target ─────────────────────────────────────── */
+    .dir-row.dir-selected { background: var(--bg-hover); }
+    .dir-row.dir-selected .dir-name { color: var(--fg-brand); }
+    .dir-row.drag-target { background: var(--bg-active); outline: 1px dashed var(--fg-brand); outline-offset: -1px; }
+    .dir-name { cursor: pointer; }
+    .dir-name:hover { color: var(--fg-brand); }
+
+    /* ── Context menu ───────────────────────────────────────────────────────── */
+    .ctx-backdrop { position: fixed; inset: 0; z-index: 99; }
+    .ctx-menu {
+        position: fixed; z-index: 100;
+        background: var(--bg-widget); border: 1px solid var(--border);
+        border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+        display: flex; flex-direction: column; min-width: 160px; padding: 3px 0;
+    }
+    .ctx-menu button {
+        background: none; border: none; color: var(--fg); text-align: left;
+        padding: 6px 14px; cursor: pointer; font-size: 12px;
+    }
+    .ctx-menu button:hover { background: var(--bg-hover); }
+    .ctx-menu button.danger { color: var(--fg-err); }
+    .ctx-menu hr { border: none; border-top: 1px solid var(--border-sub); margin: 3px 0; }
+
+    /* ── Welcome page ───────────────────────────────────────────────────────── */
+    .welcome {
+        position: absolute; inset: 0; z-index: 5;
+        background: var(--bg-app);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .welcome-inner {
+        max-width: 480px; text-align: center; padding: 32px 24px;
+    }
+    .welcome-logo {
+        font-size: 52px; font-weight: 700; letter-spacing: -2px;
+        color: var(--fg-brand); line-height: 1; margin-bottom: 8px;
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+    }
+    .welcome-sub {
+        color: var(--fg-muted); font-size: 13px; margin: 0 0 24px;
+    }
+    .welcome-hint {
+        background: var(--bg-panel); border: 1px solid var(--border-sub);
+        border-radius: 6px; padding: 14px 18px; font-size: 13px; color: var(--fg);
+        line-height: 1.6; text-align: left; margin-bottom: 20px;
+    }
+    .welcome-hint kbd {
+        background: var(--bg-widget); border: 1px solid var(--border);
+        border-radius: 3px; padding: 1px 5px; font-size: 11px; font-family: inherit;
+    }
+    .welcome-hint code { color: var(--fg-brand); font-size: 12px; }
+    .welcome-links {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        font-size: 12px;
+    }
+    .welcome-links a { color: var(--fg-brand); text-decoration: none; }
+    .welcome-links a:hover { text-decoration: underline; }
+    .welcome-links span { color: var(--fg-dim); }
 </style>
