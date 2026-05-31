@@ -15,6 +15,8 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.ref }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -29,4 +31,4 @@ jobs:
               run: npm run build:web
 
             - name: Publish to npm
-              run: npm publish --provenance
+              run: npm publish --provenance --access public
