@@ -92,7 +92,7 @@ Enable by setting `dbPublish: true` in your config (or via the Config page in th
 When enabled, every document create/update/delete is published to:
 
 ```
-{dbPrefix}doc/{id}
+she/db/doc/{id}
 ```
 
 Example with defaults: a document with ID `hue/lights/livingroom` is published to:
@@ -110,7 +110,7 @@ Individual views can publish their result to MQTT independently of the global `d
 Set `mqttpub: true` on a view definition (via the **DB → Views** editor) to enable publishing for that view. The result is published to:
 
 ```
-{dbPrefix}view/{viewId}
+she/db/view/{viewId}
 ```
 
 Example: a view named `hue/lights/on` publishes to `she/db/view/hue/lights/on`.
@@ -123,10 +123,10 @@ sheDB also listens for commands on the following topics (prefix `{dbPrefix}`):
 
 | Topic | Payload | Action |
 |-------|---------|--------|
-| `{dbPrefix}set/{id}` | JSON object | Create or overwrite document |
-| `{dbPrefix}extend/{id}` | JSON object | Deep-merge into document |
-| `{dbPrefix}delete/{id}` | *(any)* | Delete document |
-| `{dbPrefix}prop/{id}` | JSON `{method, prop, val}` | Mutate a single property |
-| `{dbPrefix}get/{id}` | *(any)* | Publish document to `{dbPrefix}result/{id}` |
+| `she/db/set/{id}` | JSON object | Create or overwrite document |
+| `she/db/extend/{id}` | JSON object | Deep-merge into document |
+| `she/db/delete/{id}` | *(any)* | Delete document |
+| `she/db/prop/{id}` | JSON `{method, prop, val}` | Mutate a single property |
+| `she/db/get/{id}` | *(any)* | Publish document to `{dbPrefix}result/{id}` |
 
 > **Convention:** View IDs follow the same slash-separated convention as document IDs. A view named `hue/lights/on` publishes to `she/db/view/hue/lights/on`.
