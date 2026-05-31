@@ -36,10 +36,10 @@
     <nav>
         <span class="brand">she</span>
         <button class:active={page === 'scripts'} onclick={() => navigate('scripts')}>Scripts</button>
-        <button class:active={page === 'config'} onclick={() => navigate('config')}>Config</button>
-        <button class:active={page === 'logs'} onclick={() => navigate('logs')}>Logs</button>
-        <button class:active={page === 'db'} onclick={() => navigate('db')}>DB</button>
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>Matter</button>
+        <button class:active={page === 'db'} onclick={() => navigate('db')}>DB</button>
+        <button class:active={page === 'logs'} onclick={() => navigate('logs')}>Logs</button>
+        <button class:active={page === 'config'} onclick={() => navigate('config')}>Config</button>
     </nav>
 
     <main>
