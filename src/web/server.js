@@ -34,11 +34,14 @@ app.use('/she/db', shedbRouter);
 app.use('/she/matter', matterRouter);
 
 // Serve the built Svelte SPA from dist/web/
+// Hashed assets (JS/CSS) are immutable; index.html must never be cached so
+// browsers always pick up a freshly deployed version.
 const distWeb = path.resolve(__dirname, '../../dist/web');
-app.use(express.static(distWeb));
-// SPA fallback — serve index.html for any non-API route
+app.use(express.static(distWeb, { index: false })); // don't auto-serve index.html
+// SPA fallback — serve index.html for any non-API route, always no-cache
 app.use((req, res, next) => {
     if (req.path.startsWith('/she') || req.path.startsWith('/api')) return next();
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(distWeb, 'index.html'));
 });
 
