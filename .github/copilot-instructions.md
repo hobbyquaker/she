@@ -126,6 +126,48 @@ Server → client message types:
 - `{type:'db:ids', ids}` — document ID list update
 - `{type:'db:change', id, doc}` — document created/updated/deleted
 
+## AI Assistant Configuration
+
+Users can configure an AI provider in the **Config** tab. No GitHub login or GitHub Models are used — the user supplies credentials for a service they already have. Settings are stored in `config.json` under the `ai` key:
+
+```json
+{
+  "ai": {
+    "provider": "openai",
+    "apiKey": "sk-…",
+    "baseUrl": "",
+    "model": "gpt-4o"
+  }
+}
+```
+
+### Supported providers
+
+| `provider` | Auth | `baseUrl` default | Example models |
+|------------|------|-------------------|----------------|
+| `openai` | `apiKey` (`sk-…`) | `https://api.openai.com/v1` | `gpt-4o`, `gpt-4o-mini` |
+| `anthropic` | `apiKey` (`sk-ant-…`) | `https://api.anthropic.com` | `claude-3-5-sonnet-20241022`, `claude-3-haiku-20240307` |
+| `ollama` | none (local) | `http://localhost:11434` | `llama3.2`, `mistral`, `codellama` |
+| `lmstudio` | none (local) | `http://localhost:1234/v1` | any model loaded in LM Studio |
+
+### Config UI (`web/src/pages/Config.svelte`)
+
+Add an **AI Assistant** section (below Redis) that conditionally renders:
+- **Provider** dropdown — always shown; `''` means disabled
+- **API key** (password input) — shown only for `openai` / `anthropic`
+- **Base URL** — shown only for `ollama` / `lmstudio`; placeholder adapts to provider default
+- **Model** — shown for any non-empty provider; placeholder adapts to provider
+
+Add `'ai'` to the `KNOWN` set so it is never dropped into the `extra` catch-all.
+
+Save/load: `cfg.ai` is a sub-object `{ provider, apiKey?, baseUrl?, model? }`.
+
+### Backend usage
+
+`config.ai` is a plain sub-object read from `config.json` via yargs' `.config()` loader.
+Use it to proxy AI API calls on behalf of the user (e.g. AI-assisted script generation).
+**Never log `config.ai.apiKey`.**
+
 ## Testing
 
 - Framework: **Jest 29** (`testTimeout: 180000`, `forceExit: true`)
