@@ -101,7 +101,7 @@ beforeAll((done) => {
     brokerServer.listen(0, () => {
         brokerPort = brokerServer.address().port;
         tmpConfigFile = path.join(os.tmpdir(), `she-integration-test-${Date.now()}-${process.pid}.json`);
-        fs.writeFileSync(tmpConfigFile, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug' }));
+        fs.writeFileSync(tmpConfigFile, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0 }));
         msArgs = ['-d', path.join(__dirname, '../testscripts'), '--config', tmpConfigFile];
         mqtt = Mqtt.connect(`mqtt://127.0.0.1:${brokerPort}`);
         mqtt.on('message', (topic, payload) => {

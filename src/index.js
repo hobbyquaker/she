@@ -65,8 +65,6 @@ if (typeof config.port !== 'undefined') {
             log.error('http server start failed:', err.message);
             process.exit(1);
         });
-} else {
-    log.info('web server disabled — add "port" to config.json to enable');
 }
 
 const chokidar = require('chokidar');

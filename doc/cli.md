@@ -18,7 +18,7 @@ Usage: mqtt-scripts [options]
 | `-w` | `--disable-watch` | `false` | Disable file watching — process will not exit on file changes. |
 | `-l` | `--latitude` | `48.7408` | Latitude for solar-event calculations (`sunSchedule`). |
 | `-m` | `--longitude` | `9.1778` | Longitude for solar-event calculations (`sunSchedule`). |
-| `-p` | `--port` | — | HTTP server port. `0` = OS-assigned. Omit to disable the HTTP server entirely. |
+| `-p` | `--port` | `8080` | HTTP server port. `0` = OS-assigned random port. |
 | `-k` | `--api-key` | — | Bearer token required on all HTTP requests. Omit to disable authentication. |
 | `-h` | `--help` | — | Show help. |
 

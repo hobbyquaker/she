@@ -27,8 +27,9 @@ const config = require('yargs')
     })
     .option('port', {
         alias: 'p',
-        describe: 'HTTP server port (0 = OS-assigned random port; omit to disable the web server)',
+        describe: 'HTTP server port (0 = OS-assigned random port)',
         type: 'number',
+        default: 8080,
     })
     .config('config', 'path to JSON config file', (cfgPath) => {
         try {
