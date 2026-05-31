@@ -1,6 +1,6 @@
-# Sandbox API Reference
+﻿# Sandbox API Reference
 
-Every `.js` file loaded by mqtt-scripts runs in an isolated VM sandbox. All sandbox methods live on the `she` object injected into every script.
+Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox methods live on the `she` object injected into every script.
 
 ---
 
@@ -24,7 +24,7 @@ she.error('unexpected state', err.message);
 
 ---
 
-## she.mqtt � MQTT access
+## she.mqtt -- MQTT access
 
 All MQTT operations are available under `she.mqtt`. This is the primary API for script authors.
 
@@ -34,7 +34,7 @@ Subscribe to one or more MQTT topics.
 
 | Param | Type | Description |
 |---|---|---|
-| `topic` | `string \| string[]` | Topic or array of topics. MQTT wildcards (`+`, `#`) are supported. |
+| `topic` | `string \| string[]` | Topic or array of topics. MQTT wildcards (`+`, `#`) are supported. Use `+//` as shorthand for `+/status/`. |
 | `[options]` | `object \| function \| string` | Options object, or shorthand for `options.condition`. |
 | `[options.change]` | `boolean` | Only call callback when the value actually changes. |
 | `[options.retain]` | `boolean` | Also call callback for retained messages received on connect. |
@@ -47,9 +47,9 @@ Subscribe to one or more MQTT topics.
 
 | Param | Type | Description |
 |---|---|---|
-| `topic` | `string` | The topic that fired (wildcard characters replaced with actual segments). |
+| `topic` | `string` | The topic that fired. |
 | `val` | `any` | The `val` property of the new state. |
-| `obj` | `object` | Full new state: `{ val, ts, lc }` (timestamp, last-change time). |
+| `obj` | `object` | Full new state: `{ val, ts, lc }`. |
 | `objPrev` | `object` | Previous state object. |
 | `msg` | `object` | Raw MQTT.js message object. |
 
@@ -69,7 +69,7 @@ she.mqtt.sub('home/presence', 'val === true', () => {
     she.mqtt.pub('home/alarm/off', 1);
 });
 
-// delayed execution � useful for debouncing
+// delayed execution -- useful for debouncing
 she.mqtt.sub('home/motion/hall', { change: true, shift: 5 }, (topic, val) => {
     if (!val) she.mqtt.set('home/light/hall', 0);
 });
@@ -87,15 +87,13 @@ Every MQTT topic tracked by she has an in-memory **state object** with three fie
 | `ts` | `number` | Unix timestamp (ms) of the **last received message**, regardless of whether the value changed. |
 | `lc` | `number` | Unix timestamp (ms) of the **last value change**. Carries the previous value forward when the same value arrives again. |
 
-`lc` ≤ `ts` always holds. When a topic is seen for the first time, `lc === ts`.
+`lc` <= `ts` always holds. When a topic is seen for the first time, `lc === ts`.
 
-### Accessing the state object
-
-**In a `she.mqtt.sub()` callback — the `obj` and `objPrev` parameters:**
+**In a `she.mqtt.sub()` callback:**
 
 ```js
 she.mqtt.sub('home/sensor/temp', (topic, val, obj, objPrev) => {
-    she.log('new value:',      val);          // shorthand — same as obj.val
+    she.log('new value:',      val);          // shorthand -- same as obj.val
     she.log('received at:',    obj.ts);       // ms timestamp of this message
     she.log('last changed:',   obj.lc);       // ms timestamp of last value change
     she.log('previous value:', objPrev.val);  // val from the previous message
@@ -105,25 +103,14 @@ she.mqtt.sub('home/sensor/temp', (topic, val, obj, objPrev) => {
 **Via `she.mqtt.getProp()`:**
 
 ```js
-// full state object
-const state = she.mqtt.getProp('home/sensor/temp');
-// → { val: 21.5, ts: 1718000000123, lc: 1718000000123 }
-
-// individual fields
-const ts = she.mqtt.getProp('home/sensor/temp', 'ts');
-const lc = she.mqtt.getProp('home/sensor/temp', 'lc');
-```
-
-**Via `she.mqtt.age()` — uses `lc` internally:**
-
-```js
-// seconds elapsed since the value last changed
-const seconds = she.mqtt.age('home/sensor/temp');
+const state = she.mqtt.getProp('home/sensor/temp');         // { val, ts, lc }
+const ts    = she.mqtt.getProp('home/sensor/temp', 'ts');   // ms of last message
+const lc    = she.mqtt.getProp('home/sensor/temp', 'lc');   // ms of last change
 ```
 
 ### Variable topics
 
-Topics under the variable prefix (default `var//`) always store their state as a JSON object, so the broker retains and restores the full `{ val, ts, lc }` object across daemon restarts. Regular (non-variable) topics rebuild their state from retained MQTT messages each time the daemon starts.
+Topics under the variable prefix (default `var`) are stored in the `var::` namespace and published retained, so the broker restores their full `{ val, ts, lc }` state across daemon restarts.
 
 ---
 
@@ -156,7 +143,7 @@ she.mqtt.set(['home/light/kitchen', 'home/light/hall'], 0);
 
 ---
 
-### she.mqtt.get(topic) ? any
+### she.mqtt.get(topic)
 
 Returns the last known value for a topic, or `undefined` if the topic has never been seen.
 
@@ -168,15 +155,14 @@ if (she.mqtt.get('home/presence') === true) {
 
 ---
 
-### she.mqtt.getProp(topic, ...property) ? any
+### she.mqtt.getProp(topic, ...property)
 
-Returns a specific property from a topic's full state object.
-If `property` is omitted, the whole state object is returned.
+Returns a specific property from a topic's full state object. If `property` is omitted, the whole state object is returned.
 
 ```js
-const ts = she.mqtt.getProp('home/sensor/temp', 'ts');   // timestamp of last message
-const lc = she.mqtt.getProp('home/sensor/temp', 'lc');   // timestamp of last change
-const all = she.mqtt.getProp('home/sensor/temp');          // { val, ts, lc }
+const ts  = she.mqtt.getProp('home/sensor/temp', 'ts');   // timestamp of last message
+const lc  = she.mqtt.getProp('home/sensor/temp', 'lc');   // timestamp of last change
+const all = she.mqtt.getProp('home/sensor/temp');           // { val, ts, lc }
 ```
 
 ---
@@ -195,16 +181,16 @@ Forward value changes from one or more source topics to one or more target topic
 // simple forward
 she.mqtt.link('hm//remote/button1', 'home/light/kitchen');
 
-// fixed value � any change on source publishes 0 to target
+// fixed value -- any change on source publishes 0 to target
 she.mqtt.link('hm//remote/allOff', 'home/lights/all', 0);
 
-// transform � convert Fahrenheit to Celsius
+// transform -- convert Fahrenheit to Celsius
 she.mqtt.link('sensor/temp/raw', 'sensor/temp/celsius', (raw) => (raw - 32) / 1.8);
 ```
 
 ---
 
-### she.mqtt.age(topic) ? number
+### she.mqtt.age(topic)
 
 Returns the number of **seconds** since the topic's value last changed.
 
@@ -217,9 +203,88 @@ if (she.mqtt.age('home/motion/hall') > 300) {
 
 ---
 
-## she.now() ? number
+### she.mqtt.on(event, callback)
+
+Register a callback for MQTT connection lifecycle events.
+
+| `event` | Description |
+|---|---|
+| `'connect'` | Fired when the MQTT connection is established (or re-established). |
+| `'disconnect'` | Fired when the MQTT connection is lost. |
+
+```js
+she.mqtt.on('connect', () => she.log('broker connected'));
+she.mqtt.on('disconnect', () => she.warn('broker disconnected'));
+```
+
+---
+
+## Universal key-based API
+
+These methods work across all namespaces (`mqtt::`, `var::`, `matter::`), providing a unified interface regardless of where data lives.
+
+### she.on(key, callback)
+
+Subscribe to value changes for a namespaced key. Fires immediately with the current value (retain semantics).
+
+| Namespace | Example key | Description |
+|---|---|---|
+| `mqtt::` | `mqtt::home/sensor/temp` | Subscribes to an MQTT topic |
+| `var::` | `var::myCounter` | Subscribes to a variable |
+| `matter::` | `matter::1/1/onOff/onOff` | Subscribes to a Matter attribute |
+
+Callback receives `(val, obj, prevObj)`.
+
+```js
+she.on('mqtt::home/sensor/temp', (val) => she.log('temp:', val));
+she.on('var::nightMode', (val) => she.log('night mode:', val));
+she.on('matter::1/1/onOff/onOff', (val) => she.log('bulb:', val));
+```
+
+---
+
+### she.set(key, val)
+
+Write a value to a namespaced key. Supported namespaces: `mqtt::` (publishes) and `var::` (sets variable).
+
+```js
+she.set('mqtt::home/light/hall', 1);
+she.set('var::nightMode', true);
+```
+
+---
+
+### she.get(key)
+
+Read the current value for a namespaced key. Returns `undefined` if not set.
+
+```js
+const temp = she.get('mqtt::home/sensor/temp');
+const mode = she.get('var::nightMode');
+```
+
+---
+
+### she.getObject(key)
+
+Read the full state object `{ val, ts, lc }` for a namespaced key.
+
+```js
+const state = she.getObject('mqtt::home/sensor/temp');
+// { val: 21.5, ts: 1718000000123, lc: 1718000000123 }
+```
+
+---
+
+## she.now()
 
 Returns the current time in milliseconds since the Unix epoch (equivalent to `Date.now()`).
+
+---
+
+## she.age(topic)
+
+Returns the number of seconds since the given MQTT topic's value last changed. Shorthand for `she.mqtt.age(topic)`.
 
 ---
 
@@ -230,7 +295,7 @@ Schedule a recurring or one-shot callback, including solar events based on sun p
 | Param | Type | Description |
 |---|---|---|
 | `pattern` | `string \| Date \| object \| array` | Cron string, suncalc event name, `Date` object, node-schedule object literal, or an array of any mix. |
-| `[options.shift]` | `number` | Offset in seconds for solar events (-86400 … 86400). Negative = before, positive = after. |
+| `[options.shift]` | `number` | Offset in seconds for solar events (-86400 to 86400). Negative = before, positive = after. |
 | `[options.random]` | `number` | Random additional delay in seconds. |
 | `callback` | `function` | Called with no arguments. |
 
@@ -240,7 +305,7 @@ Cron strings must contain at least one space. A string **without** spaces is int
 // every full hour
 she.schedule('0 * * * *', () => she.log('tick'));
 
-// Monday�Friday, random between 07:30 and 08:00
+// Monday-Friday, random between 07:30 and 08:00
 she.schedule('30 7 * * 1-5', { random: 30 * 60 }, () => {
     she.mqtt.pub('home/alarm/morning', 1);
 });
@@ -251,7 +316,7 @@ she.schedule(new Date(2026, 11, 24, 18, 0, 0), () => she.log('Merry Christmas!')
 // multiple patterns in one call
 she.schedule(['0 8 * * *', '0 20 * * *'], callback);
 
-// raise blinds 27–33 minutes before sunrise
+// raise blinds 27-33 minutes before sunrise
 she.schedule('sunrise', { shift: -1620, random: 360 }, () => she.mqtt.set('home/blinds', 'up'));
 
 // switch outdoor lights on at sunset +/- up to 10 random minutes
@@ -308,51 +373,186 @@ she.timer('home/doorbell', 'home/light/entrance', 30_000);
 
 ---
 
-## she.api � HTTP endpoint registration
+## she.link(source, target, [value])
 
-Registers HTTP endpoints scoped to the current script. Requires the daemon to be started with `--port`.
-
-```js
-she.api.get(path, handler)
-she.api.post(path, handler)
-she.api.put(path, handler)
-she.api.delete(path, handler)
-```
-
-Routes are mounted at `/api/<scriptName><path>` where `scriptName` is the filename without the `.js` extension.
-
-**Handler signatures:**
-- `GET` / `DELETE`: `(req) => value | Promise`
-- `POST` / `PUT`: `(req, body) => value | Promise`
-
-`req` exposes `{ params, query, headers }`. The return value is sent as JSON. Throw or return a rejected Promise to respond with HTTP 500.
-
-```js
-// GET /api/controller/status
-she.api.get('/status', () => ({
-    uptime: process.uptime(),
-    presence: she.mqtt.get('home/presence'),
-}));
-
-// GET /api/controller/sensor/living -> { temp: 21.5 }
-she.api.get('/sensor/:room', (req) => ({
-    temp: she.mqtt.get('home/sensor/' + req.params.room + '/temp'),
-}));
-
-// POST /api/controller/scene
-she.api.post('/scene', (req, body) => {
-    she.mqtt.pub('home/scene/set', body.name);
-    return { ok: true };
-});
-```
-
-See [http-api.md](http-api.md) for authentication details and system endpoints.
+Shorthand for `she.mqtt.link()`. See above.
 
 ---
 
-## she.influx — InfluxDB integration
+## she.global
 
-Exposes a small API for reading and writing to InfluxDB. Enabled when the daemon is started with an `influx` config block (e.g. in `~/.she/config.json`):
+A plain object shared across all running scripts. Use it to pass values between scripts without going through MQTT.
+
+```js
+// script-a.js
+she.global.sharedCounter = 0;
+
+// script-b.js
+she.global.sharedCounter++;
+she.log('counter:', she.global.sharedCounter);
+```
+
+---
+
+## she.db -- sheDB document store
+
+Available when `--db-path` is configured. All methods are no-ops (or return `undefined`/`[]`) when sheDB is not initialised, so scripts do not need to guard against it.
+
+### she.db.get(id)
+
+Returns the document with the given ID, or `undefined` if not found.
+
+```js
+const device = she.db.get('devices/hall/pir');
+if (device) she.log(device.name);
+```
+
+---
+
+### she.db.set(id, doc)
+
+Create or fully overwrite a document.
+
+```js
+she.db.set('devices/hall/pir', { name: 'Hall PIR', location: 'hall', active: true });
+```
+
+---
+
+### she.db.extend(id, partial)
+
+Deep-merge `partial` into an existing document. Creates the document if it does not exist.
+
+```js
+she.db.extend('devices/hall/pir', { lastSeen: Date.now() });
+```
+
+---
+
+### she.db.delete(id)
+
+Delete a document.
+
+```js
+she.db.delete('devices/hall/pir');
+```
+
+---
+
+### she.db.prop(id, method, prop, val)
+
+Mutate a nested property without rewriting the whole document.
+
+| `method` | Description |
+|---|---|
+| `'set'` | Set `prop` to `val` (overwrites if exists) |
+| `'create'` | Set `prop` to `val` only if it does not already exist |
+| `'del'` | Delete `prop` (`val` is ignored) |
+
+`prop` uses dot-notation for nested paths, e.g. `'config.network.ip'`.
+
+```js
+she.db.prop('devices/hall/pir', 'set', 'active', false);
+she.db.prop('devices/hall/pir', 'del', 'lastSeen');
+```
+
+---
+
+### she.db.sub(pattern, callback)
+
+Subscribe to document changes matching an MQTT wildcard pattern. The callback fires when any matching document is created, updated, or deleted. Subscriptions are automatically removed when the script is hot-reloaded.
+
+```js
+she.db.sub('devices/#', (id, doc) => {
+    if (doc === null) she.log(id, 'was deleted');
+    else she.log(id, 'changed:', doc);
+});
+```
+
+---
+
+### she.db.query(filter, mapFn, [reduceFn])
+
+Ad-hoc synchronous query -- runs immediately, does not persist.
+
+| Param | Type | Description |
+|---|---|---|
+| `filter` | `string \| null` | MQTT wildcard to pre-filter document IDs. `null` = all documents. |
+| `mapFn` | `function` | Called as `mapFn(doc, emit)`. Call `emit(item)` to include an item in the result. |
+| `[reduceFn]` | `function` | Called as `reduceFn(results)`. Return value replaces the result array. |
+
+```js
+// list all active devices in the hall
+const active = she.db.query('devices/hall/#', (doc, emit) => {
+    if (doc.active) emit(doc.name);
+});
+she.log('active:', active);
+```
+
+---
+
+## she.matter -- Matter device control
+
+Available when `--matter-storage` is configured. Methods throw or log errors if the Matter controller is not running.
+
+### she.matter.sub(nodeId, endpointId, clusterName, attrName, callback)
+
+Subscribe to attribute changes on a paired Matter device. Returns a `listenerId`.
+
+| Param | Type | Description |
+|---|---|---|
+| `nodeId` | `string` | Decimal node ID string |
+| `endpointId` | `number` | Endpoint number |
+| `clusterName` | `string` | camelCase cluster name, e.g. `'onOff'` |
+| `attrName` | `string` | camelCase attribute name, e.g. `'onOff'` |
+| `callback` | `function` | Called as `callback(value, oldValue)` |
+
+```js
+const id = she.matter.sub('1', 1, 'onOff', 'onOff', (val) => {
+    she.log('bulb is now', val ? 'on' : 'off');
+});
+```
+
+---
+
+### she.matter.unsub(listenerId)
+
+Cancel a specific Matter attribute subscription.
+
+```js
+she.matter.unsub(id);
+```
+
+---
+
+### she.matter.get(nodeId, endpointId, clusterName, attrName)
+
+Read a single attribute value. Returns a Promise.
+
+```js
+const isOn = await she.matter.get('1', 1, 'onOff', 'onOff');
+she.log('current state:', isOn);
+```
+
+---
+
+### she.matter.send(nodeId, endpointId, clusterName, command, [args])
+
+Invoke a cluster command. Returns a Promise.
+
+```js
+// toggle a smart bulb
+await she.matter.send('1', 1, 'onOff', 'toggle');
+
+// set brightness level
+await she.matter.send('1', 1, 'levelControl', 'moveToLevel', { level: 128, transitionTime: 10 });
+```
+
+---
+
+## she.influx -- InfluxDB integration
+
+Enabled when an `influx` config block is present in `config.json`:
 
 ```json
 {
@@ -367,9 +567,7 @@ Exposes a small API for reading and writing to InfluxDB. Enabled when the daemon
 
 All methods return Promises. When InfluxDB is not configured every method resolves to an empty result immediately.
 
----
-
-### she.influx.query(fluxQuery) → Promise\<object[]\>
+### she.influx.query(fluxQuery)
 
 Execute an arbitrary [Flux query](https://docs.influxdata.com/flux/v0/) and return the result rows as plain objects.
 
@@ -381,25 +579,18 @@ she.influx.query(`
 `).then((rows) => she.log(rows));
 ```
 
----
+### she.influx.write(measurement, fields, [tags], [timestamp])
 
-### she.influx.write(measurement, fields, [tags], [timestamp]) → Promise\<void\>
-
-Write a single data point. `fields` is `{ fieldName: value }`. Number fields become float fields; boolean and string types are handled automatically.
+Write a single data point. `fields` is `{ fieldName: value }`.
 
 ```js
-// write temperature with a room tag
 she.influx.write('temperature', { value: 21.5 }, { room: 'living' });
-
-// write without tags, using an explicit timestamp (ms since epoch)
 she.influx.write('events', { count: 1 }, {}, Date.now());
 ```
 
----
+### she.influx.getLast(topic, n)
 
-### she.influx.getLast(topic, n) → Promise\<{ ts: number, val: any }[]\>
-
-Return the last `n` recorded values for an MQTT `topic`. Assumes data was stored with a `topic` tag and the measurement value in the `_value` field (e.g. by an InfluxDB Telegraf MQTT consumer).
+Return the last `n` recorded values for an MQTT `topic`.
 
 ```js
 she.influx.getLast('home/sensor/temp', 10).then((pts) => {
@@ -407,25 +598,20 @@ she.influx.getLast('home/sensor/temp', 10).then((pts) => {
 });
 ```
 
----
-
-### she.influx.getRange(topic, from, to) → Promise\<{ ts: number, val: any }[]\>
+### she.influx.getRange(topic, from, to)
 
 Return all recorded values for an MQTT `topic` within the given time range. `from` and `to` accept a `Date`, ISO string, or millisecond timestamp.
 
 ```js
-const from = new Date('2024-01-01');
-const to   = new Date('2024-01-02');
-she.influx.getRange('home/energy/meter', from, to).then((pts) => {
-    she.log('readings:', pts.length);
-});
+she.influx.getRange('home/energy/meter', new Date('2024-01-01'), new Date('2024-01-02'))
+    .then((pts) => she.log('readings:', pts.length));
 ```
 
 ---
 
-## she.elastic — Elasticsearch integration
+## she.elastic -- Elasticsearch integration
 
-Exposes a small API for searching and indexing documents in Elasticsearch. Enabled when the daemon is started with an `elastic` config block:
+Enabled when an `elastic` config block is present in `config.json`:
 
 ```json
 {
@@ -438,9 +624,7 @@ Exposes a small API for searching and indexing documents in Elasticsearch. Enabl
 
 All methods return Promises. When Elasticsearch is not configured every method resolves to an empty result immediately.
 
----
-
-### she.elastic.search(index, query) → Promise\<{ hits: object[], total: number }\>
+### she.elastic.search(index, query)
 
 Run an Elasticsearch [query DSL](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl.html) against an index.
 
@@ -450,9 +634,7 @@ she.elastic.search('events', { match_all: {} }).then(({ hits, total }) => {
 });
 ```
 
----
-
-### she.elastic.get(index, id) → Promise\<object|null\>
+### she.elastic.get(index, id)
 
 Retrieve a single document by ID. Returns `null` when the document does not exist.
 
@@ -462,9 +644,7 @@ she.elastic.get('devices', 'living-room-sensor').then((doc) => {
 });
 ```
 
----
-
-### she.elastic.index(index, doc, [id]) → Promise\<{ id: string }\>
+### she.elastic.index(index, doc, [id])
 
 Create or replace a document. Omit `id` to let Elasticsearch auto-generate one.
 
@@ -473,9 +653,7 @@ she.elastic.index('events', { type: 'motion', room: 'hall', ts: Date.now() })
     .then(({ id }) => she.log('indexed as', id));
 ```
 
----
-
-### she.elastic.find(index, field, text, [size=10]) → Promise\<object[]\>
+### she.elastic.find(index, field, text, [size=10])
 
 Convenience wrapper for a `match` query on a single field.
 
@@ -484,4 +662,3 @@ she.elastic.find('events', 'room', 'living', 5).then((docs) => {
     she.log('found:', docs);
 });
 ```
-
