@@ -22,9 +22,9 @@
     let error = $state('');
     let aiConfig = $state<AiConfig | null>(null);
 
-    // Model selection
+    // Model selection — persisted in localStorage
     let availableModels = $state<string[]>([]);
-    let selectedModel = $state<string>('');
+    let selectedModel = $state<string>(localStorage.getItem('she:selectedModel') ?? '');
 
     // Always-apply session flag (per script, resets on script change)
     let autoApplyScript = $state<string | null>(null);
@@ -109,8 +109,14 @@
     $effect(() => {
         getAiConfig().then(c => {
             aiConfig = c;
+            // Use localStorage value if present, else fall back to config model
             if (c.configured && !selectedModel) selectedModel = c.model;
         }).catch(() => {});
+    });
+
+    // Persist model selection across page reloads
+    $effect(() => {
+        if (selectedModel) localStorage.setItem('she:selectedModel', selectedModel);
     });
 
     $effect(() => {

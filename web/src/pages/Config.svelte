@@ -80,6 +80,10 @@
     let aiModel    = $state('');
     let aiApiKey   = $state('');
 
+    // Per-preset settings cache — remembers customised values when switching presets
+    const presetCache: Record<string, { baseUrl: string; model: string; apiKey: string }> = {};
+    let previousPreset = 'ollama';
+
     function detectAiPreset(provider: string, baseUrl: string): string {
         if (provider === 'anthropic') return 'anthropic';
         if (provider === 'ollama')    return 'ollama';
@@ -91,11 +95,20 @@
     }
 
     function onPresetChange() {
+        // Save current values for the preset we're leaving
+        presetCache[previousPreset] = { baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey };
+
         const p = AI_PRESETS.find(x => x.id === aiPreset);
         if (!p) return;
         aiProvider = p.provider;
-        aiBaseUrl  = p.baseUrl;
-        aiModel    = p.defaultModel;
+
+        // Restore previously cached values, or fall back to preset defaults
+        const cached = presetCache[aiPreset];
+        aiBaseUrl = cached?.baseUrl ?? p.baseUrl;
+        aiModel   = cached?.model   ?? p.defaultModel;
+        aiApiKey  = cached?.apiKey  ?? '';
+
+        previousPreset = aiPreset;
     }
 
     const activePreset = $derived(AI_PRESETS.find(p => p.id === aiPreset));
@@ -223,6 +236,7 @@
             if (ai?.model)    aiModel    = ai.model;
             if (ai?.apiKey)   aiApiKey   = ai.apiKey;
             aiPreset = detectAiPreset(aiProvider, aiBaseUrl);
+            previousPreset = aiPreset;
             extra = Object.fromEntries(Object.entries(cfg).filter(([k]) => !KNOWN.has(k)));
         } catch (e: any) {
             errMsg = e.message;
