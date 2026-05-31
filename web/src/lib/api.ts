@@ -165,3 +165,24 @@ export function sendMatterCommand(
 ): Promise<{ ok: boolean; result: unknown }> {
     return request('POST', `/she/matter/devices/${nodeId}/command`, { endpointId, clusterName, command, args });
 }
+
+// ---- MQTT API ----
+
+export interface MqttEntry {
+    topic: string;
+    val: unknown;
+    ts: number;
+}
+
+export function fetchMqttState(): Promise<MqttEntry[]> {
+    return request('GET', '/she/mqtt/state');
+}
+
+export function publishMqtt(
+    topic: string,
+    payload: string,
+    retain = false,
+    qos: 0 | 1 | 2 = 0,
+): Promise<{ ok: boolean }> {
+    return request('POST', '/she/mqtt/publish', { topic, payload, retain, qos });
+}

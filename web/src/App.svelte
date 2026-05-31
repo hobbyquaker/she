@@ -5,9 +5,10 @@
     import Logs from './pages/Logs.svelte';
     import DB from './pages/DB.svelte';
     import Matter from './pages/Matter.svelte';
+    import MQTT from './pages/MQTT.svelte';
 
-    type Page = 'scripts' | 'config' | 'logs' | 'db' | 'matter';
-    const validPages: Page[] = ['scripts', 'config', 'logs', 'db', 'matter'];
+    type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config';
+    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config'];
 
     function pageFromHash(): Page {
         const hash = location.hash.slice(1) as Page;
@@ -42,13 +43,24 @@
             </svg>
             Scripts
         </button>
-        <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
+        <button class:active={page === 'mqtt'} onclick={() => navigate('mqtt')}>
+            <!-- MQTT: broadcast / pub-sub icon (WiFi-style arcs + base dot) -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="4" y="4" width="8" height="8" rx="1"/>
-                <line x1="7" y1="4" x2="7" y2="2"/><line x1="9" y1="4" x2="9" y2="2"/>
-                <line x1="7" y1="12" x2="7" y2="14"/><line x1="9" y1="12" x2="9" y2="14"/>
-                <line x1="4" y1="7" x2="2" y2="7"/><line x1="4" y1="9" x2="2" y2="9"/>
-                <line x1="12" y1="7" x2="14" y2="7"/><line x1="12" y1="9" x2="14" y2="9"/>
+                <circle cx="8" cy="13.5" r="0.9" fill="currentColor" stroke="none"/>
+                <path d="M5.5,11.5 a2.9,2.9 0,0,0 5,0"/>
+                <path d="M3,9 a5.5,5.5 0,0,0 10,0"/>
+            </svg>
+            MQTT
+        </button>
+        <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
+            <!-- Matter logo: three arrows converging to a central point -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8,2 L8,7"/>
+                <path d="M6,5 L8,7.5 L10,5"/>
+                <path d="M2.5,14 L6,10"/>
+                <path d="M6.2,12.8 L6,10 L3.2,10.2"/>
+                <path d="M13.5,14 L10,10"/>
+                <path d="M9.8,12.8 L10,10 L12.8,10.2"/>
             </svg>
             Matter
         </button>
@@ -69,12 +81,10 @@
             Logs
         </button>
         <button class:active={page === 'config'} onclick={() => navigate('config')}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="8" cy="8" r="2.5"/>
-                <line x1="8" y1="1" x2="8" y2="3"/><line x1="8" y1="13" x2="8" y2="15"/>
-                <line x1="1" y1="8" x2="3" y2="8"/><line x1="13" y1="8" x2="15" y2="8"/>
-                <line x1="3.1" y1="3.1" x2="4.5" y2="4.5"/><line x1="11.5" y1="11.5" x2="12.9" y2="12.9"/>
-                <line x1="12.9" y1="3.1" x2="11.5" y2="4.5"/><line x1="4.5" y1="11.5" x2="3.1" y2="12.9"/>
+            <!-- Gear / settings icon (Lucide settings path, 24x24 viewBox) -->
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
             </svg>
             Config
         </button>
@@ -83,12 +93,14 @@
     <main>
         {#if page === 'scripts'}
             <Scripts />
-        {:else if page === 'config'}
-            <Config />
-        {:else if page === 'db'}
-            <DB />
+        {:else if page === 'mqtt'}
+            <MQTT />
         {:else if page === 'matter'}
             <Matter />
+        {:else if page === 'db'}
+            <DB />
+        {:else if page === 'config'}
+            <Config />
         {:else}
             <Logs />
         {/if}

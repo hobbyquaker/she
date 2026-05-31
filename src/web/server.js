@@ -6,6 +6,7 @@ const { router: configRouter } = require('./config-api');
 const { router: scriptsRouter } = require('./scripts-api');
 const { router: shedbRouter } = require('./shedb-api');
 const { router: matterRouter } = require('./matter-api');
+const { router: mqttRouter } = require('./mqtt-api');
 const { attachWss, closeWss } = require('./log-ws');
 
 const app = express();
@@ -32,6 +33,9 @@ app.use('/she/db', shedbRouter);
 
 // Matter controller REST API: /she/matter/*
 app.use('/she/matter', matterRouter);
+
+// MQTT state snapshot and publish: /she/mqtt/*
+app.use('/she/mqtt', mqttRouter);
 
 // Serve the built Svelte SPA from dist/web/
 // Hashed assets (JS/CSS) are immutable; index.html must never be cached so

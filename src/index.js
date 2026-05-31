@@ -190,6 +190,10 @@ function sunScheduleEvent(obj, shift) {
 let mqtt = null;
 let connected = false;
 
+// Wire up the MQTT API: pass the state store and a getter for the live MQTT client.
+// The getter always returns the current value of `mqtt` (null until connected).
+require('./web/mqtt-api').init(store, () => mqtt);
+
 if (!config.url) {
     log.warn('no MQTT broker URL configured — set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
 }
