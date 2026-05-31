@@ -31,9 +31,10 @@ function connect() {
     const url = wsUrl();
     // Append token as query param (WS handshake doesn't support custom headers in browsers)
     const tok = getToken();
-    _ws = new WebSocket(tok ? `${url}?token=${encodeURIComponent(tok)}` : url);
+    const ws = new WebSocket(tok ? `${url}?token=${encodeURIComponent(tok)}` : url);
+    _ws = ws;
 
-    _ws.onmessage = (ev) => {
+    ws.onmessage = (ev) => {
         try {
             const msg = JSON.parse(ev.data);
             if (msg.type === 'log') {
@@ -47,15 +48,18 @@ function connect() {
         }
     };
 
-    _ws.onclose = () => {
-        _ws = null;
+    ws.onclose = () => {
+        // Only clear _ws if it still points to this socket.
+        // A newer socket may have been created already (e.g. a re-subscribe
+        // happened before this stale close event fired).
+        if (_ws === ws) _ws = null;
         if (totalSubscribers() > 0) {
             _reconnectTimer = setTimeout(connect, 3000);
         }
     };
 
-    _ws.onerror = () => {
-        _ws?.close();
+    ws.onerror = () => {
+        ws.close();
     };
 }
 

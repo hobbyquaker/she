@@ -16,6 +16,9 @@
     });
 
     $effect(() => {
+        // Read entries.length so this effect re-runs whenever new entries arrive.
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        entries.length;
         if (autoscroll && logEl) {
             logEl.scrollTop = logEl.scrollHeight;
         }
