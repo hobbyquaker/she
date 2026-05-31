@@ -4,9 +4,10 @@
     interface Props {
         currentScript?: AiCurrentScript | null;
         onApply?: (code: string) => void;
+        onCreateFile?: (suggestedName: string, code: string) => void;
     }
 
-    let { currentScript = null, onApply }: Props = $props();
+    let { currentScript = null, onApply, onCreateFile }: Props = $props();
 
     // ── State ────────────────────────────────────────────────────────────────
     let messages = $state<AiMessage[]>([]);
@@ -85,6 +86,16 @@
         return !lang || lang === 'js' || lang === 'javascript';
     }
 
+    /**
+     * If the code block starts with `// @new-file: filename.js`, extract the
+     * suggested filename and strip that line from the code to be saved.
+     */
+    function getNewFileHint(text: string): { filename: string; code: string } | null {
+        const m = text.match(/^\/\/ @new-file:\s*(\S+\.js)[ \t]*\n/);
+        if (!m) return null;
+        return { filename: m[1], code: text.slice(m[0].length) };
+    }
+
     // ── Send ─────────────────────────────────────────────────────────────────
 
     async function send() {
@@ -127,7 +138,8 @@
         'Explain what this script does',
         'Add error handling',
         'Add a 30-minute schedule before sunrise',
-        'Write a script to forward MQTT topic A to B',
+        'Write a new script that forwards MQTT topic A to topic B',
+        'Write a new script that turns lights on at sunset',
     ];
 
     function useSuggestion(s: string) {
@@ -183,17 +195,21 @@
                             {#if block.type === 'text'}
                                 <p class="text-block">{block.text}</p>
                             {:else}
+                                {@const hint = isJsBlock(block.lang) ? getNewFileHint(block.text) : null}
+                                {@const displayCode = hint ? hint.code : block.text}
                                 <div class="code-block">
                                     <div class="code-header">
-                                        <span class="code-lang">{block.lang}</span>
+                                        <span class="code-lang">{hint ? `new: ${hint.filename}` : block.lang}</span>
                                         <div class="code-actions">
-                                            <button onclick={() => copyCode(block.text)}>Copy</button>
-                                            {#if isJsBlock(block.lang) && currentScript}
+                                            <button onclick={() => copyCode(displayCode)}>Copy</button>
+                                            {#if hint && onCreateFile}
+                                                <button class="create-btn" onclick={() => onCreateFile!(hint.filename, hint.code)}>Save as new file…</button>
+                                            {:else if isJsBlock(block.lang) && currentScript}
                                                 <button class="apply-btn" onclick={() => applyCode(block.text)}>Apply to editor</button>
                                             {/if}
                                         </div>
                                     </div>
-                                    <pre><code>{block.text}</code></pre>
+                                    <pre><code>{displayCode}</code></pre>
                                 </div>
                             {/if}
                         {/each}
@@ -383,6 +399,8 @@
     .code-actions button:hover { background: var(--bg-hover); color: var(--fg); }
     .apply-btn { color: var(--fg-brand) !important; border-color: var(--fg-brand) !important; }
     .apply-btn:hover { background: rgba(var(--accent-rgb, 31,139,76), 0.15) !important; }
+    .create-btn { color: var(--accent) !important; border-color: var(--accent) !important; font-weight: 600; }
+    .create-btn:hover { background: rgba(var(--accent-rgb, 31,139,76), 0.15) !important; }
     pre {
         margin: 0;
         padding: 8px;

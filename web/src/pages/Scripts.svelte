@@ -579,6 +579,21 @@ declare const she: {
 
     // ── AI apply / diff view ──────────────────────────────────────────────────
 
+    async function onCreateFile(suggestedName: string, code: string) {
+        const name = await inputDialog.show('Save new script as:', {
+            placeholder: 'myscript.js',
+            initial: suggestedName,
+            confirm: 'Create',
+        });
+        if (!name) return;
+        const p = name.endsWith('.js') ? name : `${name}.js`;
+        try {
+            await writeScript(p, code);
+            await loadTree();
+            await openTabInternal(p, true);
+        } catch (e: any) { error = (e as Error).message; }
+    }
+
     async function onApply(code: string) {
         proposedCode = code;
         await tick();
@@ -901,7 +916,7 @@ declare const she: {
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div class="chat-resize-handle" role="separator" onmousedown={onChatResizeStart}></div>
                 <div class="chat-container" style:width="{chatWidth}px">
-                    <Chat currentScript={chatScript} {onApply} />
+                    <Chat currentScript={chatScript} {onApply} {onCreateFile} />
                 </div>
             {/if}
         </div>
