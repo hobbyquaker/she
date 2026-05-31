@@ -128,7 +128,14 @@ function buildSystemPrompt(requestCtx, currentScript, store) {
 she is a Node.js daemon that runs user JavaScript scripts in a sandboxed VM for home automation.
 When proposing changes to a script, always output the COMPLETE new file content in a single fenced \`\`\`javascript code block. Never output partial diffs or fragments — the user applies the full file at once.
 Keep any existing header comments and the 'use strict'; directive.
-When the user asks you to CREATE a new script (not modify the current one), start the code block with a special hint as its very first line: // @new-file: descriptive-name.js — use a short kebab-case filename. The UI will offer to save it as a new file.`,
+When the user asks you to CREATE a new script (not modify the current one), place a special hint as the very first line INSIDE the code block (right after the opening \`\`\`javascript fence line), like this:
+\`\`\`javascript
+// @new-file: descriptive-name.js
+/* global she */
+'use strict';
+// ... rest of script
+\`\`\`
+Use a short kebab-case filename. Do NOT put the hint outside or before the code block. The UI will detect it and offer to save the file.`,
     ];
 
     if (requestCtx.apiref) {

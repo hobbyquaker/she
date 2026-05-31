@@ -120,16 +120,23 @@
     }
 
     function parseBlocks(content: string): Block[] {
+        // Normalize: if an @new-file hint appears on the line immediately before a
+        // code fence (outside it), move it inside the fence as the first line.
+        // LLMs sometimes emit the hint outside the ``` block instead of inside.
+        const normalized = content.replace(
+            /(\n|^)(\/{2} @[a-z-]+:[^\n]+)\n(```\w*)\n/g,
+            '$1$3\n$2\n',
+        );
         const blocks: Block[] = [];
         const re = /```(\w*)\n([\s\S]*?)```/g;
         let last = 0;
         let m: RegExpExecArray | null;
-        while ((m = re.exec(content)) !== null) {
-            if (m.index > last) blocks.push({ type: 'text', text: content.slice(last, m.index) });
+        while ((m = re.exec(normalized)) !== null) {
+            if (m.index > last) blocks.push({ type: 'text', text: normalized.slice(last, m.index) });
             blocks.push({ type: 'code', lang: m[1] || 'text', text: m[2].trimEnd() });
             last = m.index + m[0].length;
         }
-        if (last < content.length) blocks.push({ type: 'text', text: content.slice(last) });
+        if (last < normalized.length) blocks.push({ type: 'text', text: normalized.slice(last) });
         return blocks;
     }
 
