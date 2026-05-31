@@ -190,6 +190,10 @@ function sunScheduleEvent(obj, shift) {
 let mqtt = null;
 let connected = false;
 
+if (!config.url) {
+    log.warn('no MQTT broker URL configured — set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
+}
+
 if (config.url) {
     mqtt = modules.mqtt.connect(config.url, { will: { topic: config.name + '/connected', payload: '0', retain: true } });
     mqtt.publish(config.name + '/connected', '2', { retain: true });
@@ -976,7 +980,7 @@ function loadSandbox(callback) {
                     ignoreInitial: true,
                     usePolling: true,
                 });
-                sandboxWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
+                sandboxWatcher.on('ready', () => log.info('watch', dir, 'initialized'));
                 sandboxWatcher.on('all', (event, filePath) => {
                     sandboxWatcher.close();
                     log.info(filePath, 'sandbox change detected. exiting.');
@@ -1012,7 +1016,7 @@ function loadDir(dir) {
                     ignoreInitial: true,
                     usePolling: true,
                 });
-                dirWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
+                dirWatcher.on('ready', () => log.info('watch', dir, 'initialized'));
                 dirWatcher.on('all', (event, filePath) => {
                     filePath = filePath.replace(/\\/g, '/');
                     if (event === 'change' && filePath.endsWith('.js')) {
