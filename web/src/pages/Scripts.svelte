@@ -8,6 +8,9 @@
         deleteScript,
         createScriptDir,
         commitFile,
+        gitStatus,
+        gitPush,
+        type GitStatus,
         type TreeEntry,
     } from '../lib/api.js';
     import { subscribeLog, type LogEntry } from '../lib/ws.js';
@@ -31,6 +34,7 @@
     let error = $state('');
     let dropdownOpen = $state(false);
     let logPanelOpen = $state(true);
+    let gitInfo = $state<GitStatus | null>(null);
     let logEl = $state<HTMLDivElement | undefined>(undefined);
 
     let scriptErrors = $state<Set<string>>(new Set());
@@ -178,6 +182,7 @@ declare const she: {
         });
 
         await loadTree();
+        loadGitStatus();
 
         const savedPaths = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]') as string[];
         const savedActive = localStorage.getItem(ACTIVE_KEY);
@@ -268,6 +273,11 @@ declare const she: {
         }
     }
 
+    async function loadGitStatus() {
+        try { gitInfo = await gitStatus(); }
+        catch { gitInfo = null; }
+    }
+
     async function save() {
         if (!activeTab) return;
         const tab = tabs.find(t => t.path === activeTab);
@@ -279,6 +289,7 @@ declare const she: {
             tab.savedContent = value;
             tab.dirty = false;
             error = '';
+            loadGitStatus();
         } catch (e: any) { error = (e as Error).message; }
         finally { saving = false; }
     }
@@ -289,8 +300,19 @@ declare const she: {
         if (error) return;
         const msg = await inputDialog.show('Commit message:', { placeholder: 'Update script', confirm: 'Commit' });
         if (!msg) return;
-        try { await commitFile(activeTab, msg); }
-        catch (e: any) { error = 'Git: ' + (e as Error).message; }
+        try {
+            await commitFile(activeTab, msg);
+            loadGitStatus();
+        } catch (e: any) { error = 'Git: ' + (e as Error).message; }
+    }
+
+    async function push() {
+        dropdownOpen = false;
+        try {
+            await gitPush();
+            await loadGitStatus();
+            error = '';
+        } catch (e: any) { error = 'Git push: ' + (e as Error).message; }
     }
 
     async function newFile() {
@@ -438,6 +460,20 @@ declare const she: {
 
         <div class="editor-toolbar">
             <span class="filename">{activeTab ?? 'No file selected'}</span>
+            {#if gitInfo}
+                <span class="git-status">
+                    <span class="git-branch" title="Branch: {gitInfo.branch}">⎇ {gitInfo.branch}</span>
+                    {#if gitInfo.changes.length > 0}
+                        <span class="git-changes" title="{gitInfo.changes.length} uncommitted change(s)">✎{gitInfo.changes.length}</span>
+                    {/if}
+                    {#if gitInfo.ahead > 0}
+                        <span class="git-ahead" title="{gitInfo.ahead} commit(s) ahead of upstream">↑{gitInfo.ahead}</span>
+                    {/if}
+                    {#if gitInfo.behind > 0}
+                        <span class="git-behind" title="{gitInfo.behind} commit(s) behind upstream">↓{gitInfo.behind}</span>
+                    {/if}
+                </span>
+            {/if}
             <div class="split-wrap">
                 <div class="split-btn">
                     <button class="split-main" onclick={save} disabled={!currentTab?.dirty || saving}>
@@ -450,6 +486,7 @@ declare const she: {
                     <div class="split-menu">
                         <button onclick={() => { dropdownOpen = false; save(); }}>Save</button>
                         <button onclick={() => { dropdownOpen = false; saveAndCommit(); }}>Save & Commit</button>
+                        <button onclick={push} disabled={!gitInfo}>Push</button>
                     </div>
                 {/if}
             </div>
@@ -603,6 +640,14 @@ declare const she: {
         padding: 7px 12px; cursor: pointer; font-size: 12px;
     }
     .split-menu button:hover { background: var(--bg-hover); }
+    .split-menu button:disabled { opacity: 0.4; cursor: default; }
+    .split-menu button:disabled:hover { background: none; }
+
+    .git-status { display: flex; align-items: center; gap: 5px; flex-shrink: 0; font-size: 11px; }
+    .git-branch { color: var(--fg-muted); }
+    .git-changes { color: var(--fg-warn); font-weight: 600; }
+    .git-ahead { color: #4fc1ff; font-weight: 600; }
+    .git-behind { color: var(--fg-err); font-weight: 600; }
 
     .editor-toolbar > button {
         background: var(--accent); color: #fff; border: none;
