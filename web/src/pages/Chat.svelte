@@ -32,21 +32,26 @@
     let statusIdx = $state(0);
 
     const STATUS_MESSAGES = [
-        'Reticulating splines…',
-        'Consulting the oracle…',
-        'Warming up neurons…',
-        'Traversing the graph…',
-        'Summoning tokens…',
-        'Aligning gradients…',
-        'Hallucinating thoughtfully…',
-        'Tokenizing the vibes…',
-        'Decoding the latent space…',
-        'Calibrating priors…',
-        'Sampling from the distribution…',
-        'Fuzzing the matrix…',
-        'Talking to the void…',
-        'Manifesting an answer…',
-        'Running gradient descent…',
+        '[core]  reticulating splines…',
+        '[io]    calibrating the flux capacitor…',
+        '[net]   pinging the oracle (no response)…',
+        '[gpu]   overclocking the neurons…',
+        '[fs]    loading sarcasm module v4.2…',
+        '[mem]   defragmenting the embedding space…',
+        '[sched] running gradient descent into madness…',
+        '[net]   synchronizing with the hive mind…',
+        '[model] tickling the transformer…',
+        '[io]    consulting rubber duck debugger…',
+        '[core]  solving P=NP as a warmup…',
+        '[gpu]   burning GPU cycles for warmth…',
+        '[mem]   compressing knowledge into tensors…',
+        '[net]   asking my inner voice (busy)…',
+        '[fs]    mining opinions from the void…',
+        '[core]  summoning attention heads…',
+        '[io]    tokenizing the vibes…',
+        '[sched] hallucinating thoughtfully…',
+        '[net]   traversing the knowledge graph…',
+        '[model] manifesting an answer…',
     ];
 
     let ctxApiref = $state(true);
@@ -655,10 +660,21 @@
         padding: 1px;
         background: var(--border);
         transition: background 0.2s;
+        position: relative;
     }
     .textarea-wrap:focus-within { background: var(--fg-brand); }
     .textarea-wrap.loading,
     .textarea-wrap.loading:focus-within {
+        padding: 1.5px;
+        background: transparent;
+        transition: none;
+    }
+    /* Gradient border ring — only the padding area is painted via CSS mask */
+    .textarea-wrap.loading::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
         padding: 1.5px;
         background: conic-gradient(
             from var(--border-angle),
@@ -672,8 +688,11 @@
             transparent 95%,
             transparent 100%
         );
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
         animation: border-spin 2s linear infinite;
-        transition: none;
+        pointer-events: none;
     }
     textarea {
         flex: 1;
@@ -743,7 +762,8 @@
     }
     .status-shimmer {
         font-size: 11px;
-        font-style: italic;
+        font-family: monospace;
+        font-style: normal;
         background: linear-gradient(
             90deg,
             var(--fg-dim)   0%,
