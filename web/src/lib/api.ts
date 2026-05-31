@@ -394,14 +394,16 @@ export function chatWithAI(body: AiChatRequest): Promise<AiChatResponse> {
 /**
  * Stream a chat response via SSE.
  * onToken is called for each text token; the returned promise resolves when done.
+ * Pass an AbortSignal to support cancellation.
  */
-export async function streamChatWithAI(body: AiChatRequest, onToken: (token: string) => void): Promise<void> {
+export async function streamChatWithAI(body: AiChatRequest, onToken: (token: string) => void, signal?: AbortSignal): Promise<void> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
 
     const res = await fetch('/she/ai/chat/stream', {
         method: 'POST',
         headers: h,
         body: JSON.stringify(body),
+        signal,
     });
 
     if (!res.ok) {

@@ -27,6 +27,28 @@
     let infoLoading = $state(false);
     let infoError = $state('');
 
+    // Streaming cancellation + status shimmer
+    let abortController: AbortController | null = null;
+    let statusIdx = $state(0);
+
+    const STATUS_MESSAGES = [
+        'Reticulating splines…',
+        'Consulting the oracle…',
+        'Warming up neurons…',
+        'Traversing the graph…',
+        'Summoning tokens…',
+        'Aligning gradients…',
+        'Hallucinating thoughtfully…',
+        'Tokenizing the vibes…',
+        'Decoding the latent space…',
+        'Calibrating priors…',
+        'Sampling from the distribution…',
+        'Fuzzing the matrix…',
+        'Talking to the void…',
+        'Manifesting an answer…',
+        'Running gradient descent…',
+    ];
+
     let ctxApiref = $state(true);
     let ctxMqtt   = $state(false);
     let ctxShedb  = $state(false);
@@ -65,6 +87,16 @@
         void _m;
         ollamaInfo = null;
         infoError = '';
+    });
+
+    // Cycle status messages while loading
+    $effect(() => {
+        if (!loading) return;
+        statusIdx = Math.floor(Math.random() * STATUS_MESSAGES.length);
+        const t = setInterval(() => {
+            statusIdx = (statusIdx + 1) % STATUS_MESSAGES.length;
+        }, 2500);
+        return () => clearInterval(t);
     });
 
     $effect(() => {
@@ -155,20 +187,34 @@
         messages = [...messages, userMsg];
 
         streamingContent = '';
+        abortController = new AbortController();
 
         try {
             await streamChatWithAI(
                 { messages, currentScript, context, modelOverride: selectedModel || undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
+                abortController.signal,
             );
-
             messages = [...messages, { role: 'assistant', content: streamingContent ?? '' }];
         } catch (e: any) {
-            error = (e as Error).message;
+            if ((e as Error).name === 'AbortError') {
+                // Save partial response if anything was streamed
+                const partial = streamingContent;
+                if (partial && partial.trim()) {
+                    messages = [...messages, { role: 'assistant', content: partial + '\n\n*[stopped]*' }];
+                }
+            } else {
+                error = (e as Error).message;
+            }
         } finally {
+            abortController = null;
             streamingContent = null;
             loading = false;
         }
+    }
+
+    function stop() {
+        abortController?.abort();
     }
 
     function handleKeydown(e: KeyboardEvent) {
@@ -309,18 +355,29 @@
 
     <!-- Input -->
     <div class="input-row">
-        <textarea
-            bind:this={inputEl}
-            bind:value={input}
-            onkeydown={handleKeydown}
-            placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline)' : 'AI not configured'}
-            rows="3"
-            disabled={loading || !configured}
-        ></textarea>
-        <button class="send-btn" onclick={send} disabled={!input.trim() || loading || !configured}>
-            {#if loading}…{:else}↑{/if}
-        </button>
+        <div class="textarea-wrap" class:loading>
+            <textarea
+                bind:this={inputEl}
+                bind:value={input}
+                onkeydown={handleKeydown}
+                placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline)' : 'AI not configured'}
+                rows="3"
+                disabled={loading || !configured}
+            ></textarea>
+        </div>
+        {#if loading}
+            <button class="stop-btn" onclick={stop} title="Stop generation">■</button>
+        {:else}
+            <button class="send-btn" onclick={send} disabled={!input.trim() || !configured}>↑</button>
+        {/if}
     </div>
+
+    <!-- Status bar (visible while streaming) -->
+    {#if loading}
+        <div class="status-row">
+            <span class="status-shimmer">{STATUS_MESSAGES[statusIdx]}</span>
+        </div>
+    {/if}
 
     <!-- Model bar -->
     {#if configured && aiConfig}
@@ -574,11 +631,49 @@
         flex-shrink: 0;
         align-items: flex-end;
     }
+    /* Spinning border around textarea */
+    @property --border-angle {
+        syntax: '<angle>';
+        initial-value: 0deg;
+        inherits: false;
+    }
+    @keyframes border-spin {
+        to { --border-angle: 360deg; }
+    }
+    .textarea-wrap {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        border-radius: 5px;
+        padding: 1px;
+        background: var(--border);
+        transition: background 0.2s;
+    }
+    .textarea-wrap:focus-within { background: var(--fg-brand); }
+    .textarea-wrap.loading,
+    .textarea-wrap.loading:focus-within {
+        padding: 1.5px;
+        background: conic-gradient(
+            from var(--border-angle),
+            transparent 0%,
+            transparent 45%,
+            #3baee0 60%,
+            #90d4ff 68%,
+            #ffffff 73%,
+            #90d4ff 78%,
+            #3baee0 88%,
+            transparent 95%,
+            transparent 100%
+        );
+        animation: border-spin 2s linear infinite;
+        transition: none;
+    }
     textarea {
         flex: 1;
+        min-width: 0;
         resize: none;
         background: var(--bg-app);
-        border: 1px solid var(--border);
+        border: none;
         border-radius: 4px;
         color: var(--fg);
         font-size: 12px;
@@ -587,7 +682,7 @@
         line-height: 1.4;
         min-height: 0;
     }
-    textarea:focus { outline: none; border-color: var(--fg-brand); }
+    textarea:focus { outline: none; }
     textarea::placeholder { color: var(--fg-dim); }
     textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -607,6 +702,57 @@
     }
     .send-btn:disabled { opacity: 0.4; cursor: default; }
     .send-btn:not(:disabled):hover { background: var(--accent-hov); }
+
+    .stop-btn {
+        background: rgba(200, 60, 60, 0.12);
+        color: #e06060;
+        border: 1px solid rgba(200, 60, 60, 0.35);
+        border-radius: 4px;
+        width: 32px;
+        height: 32px;
+        cursor: pointer;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .stop-btn:hover { background: rgba(200, 60, 60, 0.25); border-color: rgba(200, 60, 60, 0.65); }
+
+    /* Status shimmer bar */
+    @keyframes shimmer {
+        0%   { background-position: -300% center; }
+        100% { background-position:  300% center; }
+    }
+    .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 10px 4px;
+        background: var(--bg-panel);
+        flex-shrink: 0;
+        min-height: 20px;
+    }
+    .status-shimmer {
+        font-size: 11px;
+        font-style: italic;
+        background: linear-gradient(
+            90deg,
+            var(--fg-dim)   0%,
+            var(--fg-muted) 25%,
+            var(--fg-brand) 43%,
+            #d0f0ff         50%,
+            var(--fg-brand) 57%,
+            var(--fg-muted) 75%,
+            var(--fg-dim)   100%
+        );
+        background-size: 300% auto;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: shimmer 2.5s linear infinite;
+    }
 
     /* ── Model bar ───────────────────────────────────────────────────────── */
     .model-bar {
