@@ -364,8 +364,10 @@
                         <input type="text" bind:value={varPrefix} placeholder="var" />
                     </div>
                     <div class="field field--check">
-                        <input type="checkbox" id="disableVars" bind:checked={disableVars} />
-                        <label for="disableVars">
+                        <span></span>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={disableVars} />
+                            <span class="checkmark"></span>
                             Disable variable system
                             {@render tip('When enabled, var/set/… messages are not processed and no var/status/… retained messages are published.')}
                         </label>
@@ -454,8 +456,10 @@
                         <input type="text" bind:value={dir} placeholder="~/.she/scripts (default)" />
                     </div>
                     <div class="field field--check">
-                        <input type="checkbox" id="disableWatch" bind:checked={disableWatch} />
-                        <label for="disableWatch">
+                        <span></span>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={disableWatch} />
+                            <span class="checkmark"></span>
                             Disable file watching
                             {@render tip('When enabled the daemon will not watch for file changes and will not hot-reload scripts.')}
                         </label>
@@ -539,16 +543,20 @@
                         <input type="text" bind:value={dbPrefix} placeholder="she/db/ (default)" disabled={!dbPath} />
                     </div>
                     <div class="field field--check">
-                        <input type="checkbox" id="dbPublish" bind:checked={dbPublish} disabled={!dbPath} />
-                        <label for="dbPublish" class:muted={!dbPath}>
+                        <span></span>
+                        <label class="check-label" class:muted={!dbPath}>
+                            <input type="checkbox" bind:checked={dbPublish} disabled={!dbPath} />
+                            <span class="checkmark"></span>
                             Publish documents to MQTT
                             {@render tip('When enabled, every document change is published to {dbPrefix}doc/{id}. Individual views can publish independently via their own "mqttpub" setting.')}
                         </label>
                     </div>
                     {#if dbPublish}
                     <div class="field field--check">
-                        <input type="checkbox" id="dbRetain" bind:checked={dbRetain} disabled={!dbPath} />
-                        <label for="dbRetain" class:muted={!dbPath}>
+                        <span></span>
+                        <label class="check-label" class:muted={!dbPath}>
+                            <input type="checkbox" bind:checked={dbRetain} disabled={!dbPath} />
+                            <span class="checkmark"></span>
                             Retain document messages
                             {@render tip('When enabled, MQTT messages for document changes are published as retained messages.')}
                         </label>
@@ -787,8 +795,6 @@
         gap: 12px;
     }
 
-    .field--check { grid-template-columns: auto 1fr; }
-
     .field label {
         font-size: 13px;
         color: var(--fg);
@@ -798,7 +804,53 @@
         white-space: nowrap;
     }
 
-    .field--check label { white-space: normal; }
+    /* ── custom checkbox ─────────────────────────────────────────── */
+    .check-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--fg);
+        white-space: normal;
+        user-select: none;
+    }
+    .check-label input[type='checkbox'] {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+    .checkmark {
+        flex-shrink: 0;
+        width: 15px;
+        height: 15px;
+        border: 1.5px solid var(--border);
+        border-radius: 3px;
+        background: var(--bg-input);
+        position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .check-label input:checked + .checkmark {
+        background: var(--accent);
+        border-color: var(--accent);
+    }
+    .check-label input:checked + .checkmark::after {
+        content: '';
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 4px;
+        height: 8px;
+        border: 1.5px solid #fff;
+        border-top: none;
+        border-left: none;
+        transform: rotate(45deg);
+    }
+    .check-label:hover .checkmark { border-color: var(--accent); }
+    .check-label.muted { opacity: 0.4; cursor: default; }
+    .check-label.muted:hover .checkmark { border-color: var(--border); }
 
     .muted { opacity: 0.4; }
 
