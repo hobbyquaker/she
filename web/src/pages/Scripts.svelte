@@ -62,6 +62,8 @@
     // Chat panel & diff view
     let chatOpen = $state(false);
     let proposedCode = $state<string | null>(null);
+    let autoAccept = $state(false);
+    let acceptDropOpen = $state(false);
     let diffEditorContainer = $state<HTMLDivElement | undefined>(undefined);
     let diffEditor: monaco.editor.IStandaloneDiffEditor | null = null;
     let proposedOriginalModel: monaco.editor.ITextModel | null = null;
@@ -595,6 +597,12 @@ declare const she: {
     }
 
     async function onApply(code: string) {
+        if (autoAccept && activeTab) {
+            // Skip the diff view and apply directly
+            proposedCode = code;
+            await acceptProposal();
+            return;
+        }
         proposedCode = code;
         await tick();
         if (!diffEditorContainer) return;
@@ -622,6 +630,13 @@ declare const she: {
             modified: proposedModifiedModel,
         });
     }
+
+    // Reset auto-accept when the active script changes
+    $effect(() => {
+        void activeTab;
+        autoAccept = false;
+        acceptDropOpen = false;
+    });
 
     async function acceptProposal() {
         if (proposedCode === null || !activeTab) return;
@@ -872,7 +887,24 @@ declare const she: {
                             <div class="diff-bar">
                                 <span class="diff-title">Proposed changes — <em>{activeTab?.split('/').pop()}</em></span>
                                 <div class="diff-actions">
-                                    <button class="accept-btn" onclick={acceptProposal}>Accept</button>
+                                    <div class="split-wrap">
+                                        <div class="split-btn accept-split">
+                                            <button class="split-main" onclick={acceptProposal}>
+                                                {autoAccept ? 'Auto-accept ✓' : 'Accept'}
+                                            </button>
+                                            <button class="split-arrow" onclick={() => acceptDropOpen = !acceptDropOpen} aria-label="Accept options">▾</button>
+                                        </div>
+                                        {#if acceptDropOpen}
+                                            <div class="split-backdrop" role="presentation" onclick={() => acceptDropOpen = false}></div>
+                                            <div class="split-menu">
+                                                {#if !autoAccept}
+                                                    <button onclick={() => { acceptDropOpen = false; autoAccept = true; acceptProposal(); }}>Always accept in this session</button>
+                                                {:else}
+                                                    <button onclick={() => { acceptDropOpen = false; autoAccept = false; }}>Disable auto-accept</button>
+                                                {/if}
+                                            </div>
+                                        {/if}
+                                    </div>
                                     <button class="discard-btn" onclick={discardProposal}>Discard</button>
                                 </div>
                             </div>
@@ -1001,11 +1033,15 @@ declare const she: {
     .diff-title { flex: 1; font-size: 12px; color: var(--fg-muted); }
     .diff-title em { color: var(--fg); font-style: normal; }
     .diff-actions { display: flex; gap: 6px; }
-    .accept-btn {
-        background: #1a6b30; color: #fff; border: none;
-        padding: 3px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;
+    .accept-btn { display: none; } /* superseded by split button */
+    .accept-split .split-main,
+    .accept-split .split-arrow {
+        background: #1a6b30;
     }
-    .accept-btn:hover { background: #22883d; }
+    .accept-split .split-main:not(:disabled):hover,
+    .accept-split .split-arrow:not(:disabled):hover {
+        background: #22883d;
+    }
     .discard-btn {
         background: none; color: var(--fg-muted);
         border: 1px solid var(--border); padding: 3px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;

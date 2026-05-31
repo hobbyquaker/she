@@ -950,7 +950,7 @@
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        animation: shimmer 2.5s linear infinite;
+        animation: shimmer 12s linear infinite;
     }
 
     /* ── Model bar ───────────────────────────────────────────────────────── */
