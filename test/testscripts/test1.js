@@ -76,7 +76,7 @@ she.mqttsub('test1', (topic, val) => {
 
 she.mqttpub(['test1', 'test2'], { val: true });
 
-she.setValue('$testvar1', true);
-she.setValue('$testvar1', true);
+she.set('var::testvar1', true);
+she.set('var::testvar1', true);
 she.setValue('var/set/testvar2', true);
 she.setValue('var/set/testvar2', { val: true });

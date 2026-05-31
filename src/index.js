@@ -92,6 +92,7 @@ const store = new StateStore();
 const scripts = {};
 const subscriptions = [];
 const mqttEventCallbacks = [];
+const varSubscriptions = []; // store-based var:: subscriptions { key, handler, _script }
 
 // Per-script resource tracking for hot-reload
 const scriptJobs = new Map(); // scriptFile → node-schedule Job[]
@@ -225,6 +226,7 @@ if (config.url) {
         if (topicArr[0] === config.variablePrefix && topicArr[1] === 'set' && !config.disableVariables) {
             topicArr[1] = 'status';
             topic = topicArr.join('/');
+            const varName = topicArr.slice(2).join('/');
             oldState = store.getObject('mqtt::' + topic) || {};
             const ts = new Date().getTime();
 
@@ -232,6 +234,7 @@ if (config.url) {
 
             state.lc = state.val === oldState.val ? oldState.lc : ts;
             store.setObject('mqtt::' + topic, state);
+            store.setObject('var::' + varName, state);
             mqtt.publish(topic, JSON.stringify(state), { retain: true });
         } else {
             /* istanbul ignore next */
@@ -327,6 +330,38 @@ function stateChange(topic, state, oldState, msg) {
 }
 
 const mqttWildcards = require('./lib/mqtt-wildcards');
+
+/**
+ * Write a variable to the var:: store namespace, sync mqtt:: for backwards
+ * compat, fire mqttsub callbacks, and (mqtt backend) publish retained.
+ * @param {string} name - bare variable name (e.g. 'testvar1')
+ * @param {*}      val
+ */
+function setVariable(name, val) {
+    const storeKey = 'var::' + name;
+    const mqttTopic = config.variablePrefix + '/status/' + name;
+    const oldState = store.getObject(storeKey) || {};
+    const ts = new Date().getTime();
+
+    let newState;
+    if (typeof val === 'object' && val !== null && 'val' in val) {
+        newState = { val: val.val, ts: val.ts || ts };
+        newState.lc = newState.val !== oldState.val ? newState.ts : (oldState.lc || newState.ts);
+    } else {
+        newState = { val, ts };
+        newState.lc = val !== oldState.val ? ts : (oldState.lc || ts);
+    }
+
+    const changed = newState.val !== oldState.val;
+    store.setObject(storeKey, newState);              // primary: fires 'change' → she.on() callbacks
+    store.setObject('mqtt::' + mqttTopic, newState);  // compat: so mqttsub('var//name') still works
+    stateChange(mqttTopic, newState, oldState, {});   // fires mqttsub callbacks
+
+    const backend = (config.variables && config.variables.backend) || 'mqtt';
+    if (backend === 'mqtt' && mqtt && connected && changed) {
+        mqtt.publish(mqttTopic, JSON.stringify(newState), { retain: true });
+    }
+}
 
 function createScript(source, name) {
     log.debug(name, 'compiling');
@@ -436,7 +471,6 @@ function runScript(script, name) {
             }
 
             if (typeof topic === 'string') {
-                topic = topic.replace(/^\$/, config.variablePrefix + '/status/');
                 topic = topic.replace(/^([^/]+)\/\//, '$1/status/');
 
                 if (typeof options.condition === 'string') {
@@ -574,7 +608,7 @@ function runScript(script, name) {
          * @param {(string|string[])} topic - topic or array of topics to set value on
          * @param {mixed} val
          */
-        setValue: function Sandbox_setValue(topic, val, publishUnchanged) {
+        setValue: function Sandbox_setValue(topic, val) {
             if (typeof topic === 'object' && topic.length > 0) {
                 topic = Array.prototype.slice.call(topic);
                 topic.forEach((tp) => {
@@ -583,33 +617,11 @@ function runScript(script, name) {
                 return;
             }
 
-            let changed;
-
-            topic = topic.replace(/^\$/, config.variablePrefix + '//');
-
             const tmp = topic.split('/');
             if (tmp[0] === config.variablePrefix && !config.disableVariables) {
-                // Variable
-
-                tmp[1] = 'status';
-                topic = tmp.join('/');
-                const oldState = store.getObject('mqtt::' + topic) || {};
-                const ts = new Date().getTime();
-                if (typeof val === 'object') {
-                    val.ts = ts;
-                } else {
-                    val = { val, ts };
-                }
-                if (val.val !== oldState.val) {
-                    val.lc = ts;
-                    changed = true;
-                }
-                store.setObject('mqtt::' + topic, val);
-                stateChange(topic, val, oldState, {});
-                if (changed || publishUnchanged) {
-                    she.mqttpub(topic, val, { retain: true });
-                }
-                /* istanbul ignore next */ // TODO tests!
+                // Variable — delegate to setVariable (handles var:: store + MQTT publish)
+                const varName = tmp.slice(2).join('/');
+                setVariable(varName, val);
             } else if (tmp[0] === config.variablePrefix && config.disableVariables) {
                 /* istanbul ignore next */
                 tmp[1] = 'status';
@@ -619,7 +631,7 @@ function runScript(script, name) {
                     /* istanbul ignore next */
                     tmp[1] = 'set';
                     topic = tmp.join('/');
-                    she.mqttpub(topic, val, { retain: false }); // TODO really retain false?!
+                    she.mqttpub(topic, val, { retain: false });
                 }
             } else {
                 topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
@@ -633,7 +645,6 @@ function runScript(script, name) {
          * @returns {mixed} the topics value
          */
         getValue: function Sandbox_getValue(topic) {
-            topic = topic.replace(/^\$/, config.variablePrefix + '/status/');
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
             return store.get('mqtt::' + topic);
         },
@@ -673,7 +684,7 @@ function runScript(script, name) {
          */
         get: function Sandbox_she_get(key) {
             if (key.startsWith('var::')) {
-                return store.get('mqtt::' + config.variablePrefix + '/status/' + key.slice(5));
+                return store.get('var::' + key.slice(5));
             }
             return store.get(key);
         },
@@ -686,7 +697,7 @@ function runScript(script, name) {
          */
         getObject: function Sandbox_she_getObject(key) {
             if (key.startsWith('var::')) {
-                return store.getObject('mqtt::' + config.variablePrefix + '/status/' + key.slice(5));
+                return store.getObject('var::' + key.slice(5));
             }
             return store.getObject(key);
         },
@@ -707,9 +718,16 @@ function runScript(script, name) {
                     callback(val, obj, prevObj);
                 });
             } else if (key.startsWith('var::')) {
-                she.mqttsub(config.variablePrefix + '/status/' + key.slice(5), { retain: true }, (_topic, val, obj, prevObj) => {
-                    callback(val, obj, prevObj);
-                });
+                const varStoreKey = 'var::' + key.slice(5);
+                const boundCb = scriptDomain.bind(callback);
+                const varHandler = (changedKey, val, obj, prevObj) => {
+                    if (changedKey === varStoreKey) boundCb(val, obj, prevObj);
+                };
+                store.on('change', varHandler);
+                varSubscriptions.push({ key: varStoreKey, handler: varHandler, _script: name });
+                // Fire immediately if var already has a value (retain semantics)
+                const currentVarObj = store.getObject(varStoreKey);
+                if (currentVarObj !== undefined) boundCb(currentVarObj.val, currentVarObj, undefined);
             } else if (key.startsWith('matter::')) {
                 const parts = key.slice(8).split('/');
                 if (parts.length !== 4) throw new TypeError('she.on: invalid matter key (expected matter::nodeId/ep/Cluster/attr)');
@@ -733,7 +751,7 @@ function runScript(script, name) {
             if (key.startsWith('mqtt::')) {
                 she.mqttpub(key.slice(6), val);
             } else if (key.startsWith('var::')) {
-                she.setValue(config.variablePrefix + '//' + key.slice(5), val);
+                setVariable(key.slice(5), val);
             } else if (key.startsWith('matter::')) {
                 throw new Error('she.set: matter:: write not yet implemented');
             } else {
@@ -903,6 +921,14 @@ function unloadScript(file) {
     if (timers) {
         timers.forEach((id) => clearTimeout(id));
         scriptTimers.delete(file);
+    }
+
+    // Remove store-based var:: subscriptions belonging to this script
+    for (let i = varSubscriptions.length - 1; i >= 0; i--) {
+        if (varSubscriptions[i]._script === file) {
+            store.removeListener('change', varSubscriptions[i].handler);
+            varSubscriptions.splice(i, 1);
+        }
     }
 
     // Remove shedb listeners belonging to this script
