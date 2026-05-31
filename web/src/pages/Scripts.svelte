@@ -190,6 +190,8 @@ declare const she: {
             if (suppressChange) return;
             const tab = tabs.find(t => t.path === activeTab);
             if (tab) tab.dirty = editor.getValue() !== tab.savedContent;
+            if (syntaxCheckTimer) clearTimeout(syntaxCheckTimer);
+            syntaxCheckTimer = setTimeout(runSyntaxCheck, 600);
         });
 
         unsubLog = subscribeLog((entry) => {
@@ -231,6 +233,7 @@ declare const she: {
     });
 
     onDestroy(() => {
+        if (syntaxCheckTimer) clearTimeout(syntaxCheckTimer);
         unsubLog?.();
         for (const tab of tabs) tab.model?.dispose();
         emptyModel?.dispose();
@@ -290,6 +293,7 @@ declare const she: {
         suppressChange = true;
         editor.setModel(tab.model);
         suppressChange = false;
+        runSyntaxCheck();
     }
 
     async function closeTab(path: string) {
@@ -507,6 +511,34 @@ declare const she: {
 
     function fmt(ts: number) {
         return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    // ── Syntax checking ──────────────────────────────────────────────────
+    let syntaxCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
+    async function runSyntaxCheck() {
+        const tab = tabs.find(t => t.path === activeTab);
+        if (!tab?.model) return;
+        const model = tab.model;
+        try {
+            const getWorker = await monaco.languages.typescript.getJavaScriptWorker();
+            const worker = await getWorker(model.uri);
+            const diags = await worker.getSyntacticDiagnostics(model.uri.toString());
+            const markers: monaco.editor.IMarkerData[] = diags.map(d => {
+                const start = model.getPositionAt(d.start ?? 0);
+                const end = model.getPositionAt((d.start ?? 0) + (d.length ?? 0));
+                return {
+                    severity: monaco.MarkerSeverity.Error,
+                    startLineNumber: start.lineNumber,
+                    startColumn: start.column,
+                    endLineNumber: end.lineNumber,
+                    endColumn: end.column,
+                    message: typeof d.messageText === 'string' ? d.messageText : JSON.stringify(d.messageText),
+                    source: 'she-syntax',
+                };
+            });
+            monaco.editor.setModelMarkers(model, 'she-syntax', markers);
+        } catch { /* worker not ready yet */ }
     }
 
     // ── Panel resize handlers ────────────────────────────────────────────────
