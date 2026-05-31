@@ -365,16 +365,16 @@ function setVariable(name, val) {
     let newState;
     if (typeof val === 'object' && val !== null && 'val' in val) {
         newState = { val: val.val, ts: val.ts || ts };
-        newState.lc = newState.val !== oldState.val ? newState.ts : (oldState.lc || newState.ts);
+        newState.lc = newState.val !== oldState.val ? newState.ts : oldState.lc || newState.ts;
     } else {
         newState = { val, ts };
-        newState.lc = val !== oldState.val ? ts : (oldState.lc || ts);
+        newState.lc = val !== oldState.val ? ts : oldState.lc || ts;
     }
 
     const changed = newState.val !== oldState.val;
-    store.setObject(storeKey, newState);              // primary: fires 'change' → she.on() callbacks
-    store.setObject('mqtt::' + mqttTopic, newState);  // compat: so mqttsub('var//name') still works
-    stateChange(mqttTopic, newState, oldState, {});   // fires mqttsub callbacks
+    store.setObject(storeKey, newState); // primary: fires 'change' → she.on() callbacks
+    store.setObject('mqtt::' + mqttTopic, newState); // compat: so mqttsub('var//name') still works
+    stateChange(mqttTopic, newState, oldState, {}); // fires mqttsub callbacks
 
     const backend = (config.variables && config.variables.backend) || 'mqtt';
     if (backend === 'mqtt' && mqtt && connected && changed) {
@@ -922,7 +922,7 @@ function loadScript(file, origin) {
 function unloadScript(file) {
     file = file.replace(/\\/g, '/');
     const origin = scriptOrigins.get(file) || 'user';
-    const unloadLabel = (origin || 'user') + '::' + path.basename(file) + ':'
+    const unloadLabel = (origin || 'user') + '::' + path.basename(file) + ':';
     log.info(unloadLabel, 'unloading');
     scriptOrigins.delete(file);
 

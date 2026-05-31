@@ -44,12 +44,7 @@ function readPackageJson() {
  * Allows scoped (@scope/name) and plain names; lowercase; no path traversal.
  */
 function isValidPkgName(name) {
-    return (
-        typeof name === 'string' &&
-        name.length > 0 &&
-        name.length <= 214 &&
-        /^(@[a-z0-9][a-z0-9_\-.]*\/)?[a-z0-9][a-z0-9_\-.]*$/.test(name)
-    );
+    return typeof name === 'string' && name.length > 0 && name.length <= 214 && /^(@[a-z0-9][a-z0-9_\-.]*\/)?[a-z0-9][a-z0-9_\-.]*$/.test(name);
 }
 
 /** Allow semver ranges, tags, and dist-tags (no shell-special chars). */

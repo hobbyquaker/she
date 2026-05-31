@@ -118,7 +118,10 @@ afterAll((done) => {
     mqtt.end(true, {}, () => {
         brokerServer.close(() => {
             broker.close(() => {
-                if (tmpConfigFile) try { fs.unlinkSync(tmpConfigFile); } catch {}
+                if (tmpConfigFile)
+                    try {
+                        fs.unlinkSync(tmpConfigFile);
+                    } catch {}
                 done();
             });
         });

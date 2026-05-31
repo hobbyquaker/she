@@ -126,7 +126,10 @@ afterAll((done) => {
     mqtt.end(true, {}, () => {
         brokerServer.close(() => {
             broker.close(() => {
-                if (tmpConfigFile) try { require('fs').unlinkSync(tmpConfigFile); } catch {}
+                if (tmpConfigFile)
+                    try {
+                        require('fs').unlinkSync(tmpConfigFile);
+                    } catch {}
                 done();
             });
         });

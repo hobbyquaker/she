@@ -96,10 +96,7 @@ beforeAll((done) => {
 
         mqtt = Mqtt.connect(`mqtt://127.0.0.1:${brokerPort}`);
         mqtt.on('connect', () => {
-            fs.writeFileSync(
-                path.join(scriptsDir, 'config.json'),
-                JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0, dbPath }),
-            );
+            fs.writeFileSync(path.join(scriptsDir, 'config.json'), JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0, dbPath }));
             const msArgs = ['-d', scriptsDir];
             ms = cp.spawn(process.execPath, [msCmd, ...msArgs]);
             const rlOut = readline.createInterface({ input: ms.stdout, crlfDelay: Infinity });

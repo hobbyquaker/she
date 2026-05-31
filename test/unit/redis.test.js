@@ -103,9 +103,13 @@ describe('src/lib/redis', () => {
 
     it('logs error and returns when ioredis not available', async () => {
         jest.resetModules();
-        jest.mock('ioredis', () => {
-            throw new Error('Cannot find module');
-        }, { virtual: true });
+        jest.mock(
+            'ioredis',
+            () => {
+                throw new Error('Cannot find module');
+            },
+            { virtual: true },
+        );
         const mod = require('../../src/lib/redis');
         const store = makeStore();
         const log = makeLog();
