@@ -1,5 +1,6 @@
 {
-    "name": "she-ui",
+    "name": "she-her",
+    "description": "her - home ecosystem renderer",
     "private": true,
     "version": "0.1.0",
     "type": "module",

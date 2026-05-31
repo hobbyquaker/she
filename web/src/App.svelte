@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import Scripts from './pages/Scripts.svelte';
     import Config from './pages/Config.svelte';
     import Logs from './pages/Logs.svelte';
@@ -6,17 +7,39 @@
     import Matter from './pages/Matter.svelte';
 
     type Page = 'scripts' | 'config' | 'logs' | 'db' | 'matter';
-    let page = $state<Page>('scripts');
+    const validPages: Page[] = ['scripts', 'config', 'logs', 'db', 'matter'];
+
+    function pageFromHash(): Page {
+        const hash = location.hash.slice(1) as Page;
+        return validPages.includes(hash) ? hash : 'scripts';
+    }
+
+    let page = $state<Page>(pageFromHash());
+
+    function navigate(p: Page) {
+        page = p;
+        location.hash = p;
+    }
+
+    onMount(() => {
+        // Set hash on initial load if missing
+        if (!location.hash) location.hash = page;
+        const onHashChange = () => {
+            page = pageFromHash();
+        };
+        window.addEventListener('hashchange', onHashChange);
+        return () => window.removeEventListener('hashchange', onHashChange);
+    });
 </script>
 
 <div class="shell">
     <nav>
         <span class="brand">she</span>
-        <button class:active={page === 'scripts'} onclick={() => (page = 'scripts')}>Scripts</button>
-        <button class:active={page === 'config'} onclick={() => (page = 'config')}>Config</button>
-        <button class:active={page === 'logs'} onclick={() => (page = 'logs')}>Logs</button>
-        <button class:active={page === 'db'} onclick={() => (page = 'db')}>DB</button>
-        <button class:active={page === 'matter'} onclick={() => (page = 'matter')}>Matter</button>
+        <button class:active={page === 'scripts'} onclick={() => navigate('scripts')}>Scripts</button>
+        <button class:active={page === 'config'} onclick={() => navigate('config')}>Config</button>
+        <button class:active={page === 'logs'} onclick={() => navigate('logs')}>Logs</button>
+        <button class:active={page === 'db'} onclick={() => navigate('db')}>DB</button>
+        <button class:active={page === 'matter'} onclick={() => navigate('matter')}>Matter</button>
     </nav>
 
     <main>
