@@ -24,6 +24,27 @@ echo "==> Installing on remote..."
     rm -f "/tmp/$TARBALL" /tmp/package-lock.json
     cd "$REMOTE_DIR"
     npm ci --omit=dev
+
+    # Migrate ~/.she to new subfolder layout (idempotent)
+    SHE_DIR="$HOME/.she"
+    if [ -d "$SHE_DIR" ]; then
+        echo "==> Migrating $SHE_DIR to new subfolder layout..."
+        mkdir -p "$SHE_DIR/config" "$SHE_DIR/scripts" "$SHE_DIR/db"
+
+        # Move config.json -> config/config.json
+        if [ -f "$SHE_DIR/config.json" ] && [ ! -f "$SHE_DIR/config/config.json" ]; then
+            echo "    Moving config.json -> config/config.json"
+            mv "$SHE_DIR/config.json" "$SHE_DIR/config/config.json"
+        fi
+
+        # Move *.js script files -> scripts/
+        for f in "$SHE_DIR"/*.js; do
+            [ -f "$f" ] || continue
+            echo "    Moving $(basename "$f") -> scripts/"
+            mv "$f" "$SHE_DIR/scripts/"
+        done
+    fi
+
     #systemctl restart smart-home-engine
 EOF
 
