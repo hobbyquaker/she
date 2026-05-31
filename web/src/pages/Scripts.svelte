@@ -3,6 +3,7 @@
     import * as monaco from 'monaco-editor';
     import { listScripts, readScript, writeScript, deleteScript, type ScriptEntry } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
+    import InputDialog from '../lib/InputDialog.svelte';
 
     let files = $state<ScriptEntry[]>([]);
     let selected = $state<string | null>(null);
@@ -14,6 +15,7 @@
     let editor: monaco.editor.IStandaloneCodeEditor;
     let suppressChange = false;
     let dialog: { show: (msg: string, opts?: { confirm?: string; danger?: boolean }) => Promise<boolean> };
+    let inputDialog: { show: (msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }) => Promise<string | null> };
 
     // Monaco sandbox type stubs for she API autocomplete
     const she_dts = `
@@ -83,6 +85,11 @@ declare const she: {
         monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
             target: monaco.languages.typescript.ScriptTarget.ES2022,
             allowNonTsExtensions: true,
+            checkJs: true,
+        });
+        monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+            noSyntaxValidation: false,
+            noSemanticValidation: true, // semantic checks are noisy for plain JS scripts
         });
 
         editor = monaco.editor.create(editorContainer, {
@@ -143,10 +150,27 @@ declare const she: {
     }
 
     async function newFile() {
-        const name = prompt('New script name (without .js):');
+        const name = await inputDialog.show('New script name:', {
+            placeholder: 'myscript.js',
+            confirm: 'Create',
+        });
         if (!name) return;
         const path = name.endsWith('.js') ? name : `${name}.js`;
         await writeScript(path, `/* global she */\n'use strict';\n\n`);
+        await loadFiles();
+        await selectFile(path);
+    }
+
+    async function saveAs() {
+        if (!selected) return;
+        const name = await inputDialog.show('Save as:', {
+            placeholder: 'copy.js',
+            initial: selected,
+            confirm: 'Save',
+        });
+        if (!name) return;
+        const path = name.endsWith('.js') ? name : `${name}.js`;
+        await writeScript(path, editor.getValue());
         await loadFiles();
         await selectFile(path);
     }
@@ -171,6 +195,7 @@ declare const she: {
 <svelte:window onkeydown={handleKeydown} />
 
 <ConfirmDialog bind:this={dialog} />
+<InputDialog bind:this={inputDialog} />
 
 <div class="layout">
     <aside>
@@ -195,6 +220,7 @@ declare const she: {
             <span class="filename">{selected ?? 'No file selected'}{dirty ? ' •' : ''}</span>
             <button onclick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save'}</button>
             {#if selected}
+                <button onclick={saveAs}>Save As</button>
                 <button onclick={del} class="danger">Delete</button>
             {/if}
         </div>
