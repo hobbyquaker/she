@@ -526,7 +526,7 @@ declare const she: {
     }
 
     function fmt(ts: number) {
-        return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     }
 
     // ── Syntax checking ──────────────────────────────────────────────────
