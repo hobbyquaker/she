@@ -1,5 +1,3 @@
-import { getToken } from './api.js';
-
 export interface LogEntry {
     level: 'debug' | 'info' | 'warn' | 'error';
     msg: string;
@@ -29,9 +27,7 @@ function wsUrl() {
 function connect() {
     if (_ws) return;
     const url = wsUrl();
-    // Append token as query param (WS handshake doesn't support custom headers in browsers)
-    const tok = getToken();
-    const ws = new WebSocket(tok ? `${url}?token=${encodeURIComponent(tok)}` : url);
+    const ws = new WebSocket(url);
     _ws = ws;
 
     ws.onmessage = (ev) => {

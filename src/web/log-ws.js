@@ -12,11 +12,18 @@ const _clients = new Set();
  *   - { type: 'ping' }               — keepalive every 30 s
  *
  * @param {import('http').Server} httpServer
+ * @param {(req: import('http').IncomingMessage) => boolean} [authCheck]
+ *   Optional function that receives the upgrade request and returns true if
+ *   the connection should be allowed. Defaults to always-allow.
  */
-function attachWss(httpServer) {
+function attachWss(httpServer, authCheck = () => true) {
     _wss = new WebSocketServer({ server: httpServer, path: '/she/ws' });
 
-    _wss.on('connection', (ws) => {
+    _wss.on('connection', (ws, req) => {
+        if (!authCheck(req)) {
+            ws.close(1008, 'Unauthorized');
+            return;
+        }
         _clients.add(ws);
         ws.on('close', () => _clients.delete(ws));
         ws.on('error', () => _clients.delete(ws));

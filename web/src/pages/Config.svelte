@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, type AuthMode } from '../lib/api.js';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
@@ -23,7 +23,15 @@
 
     // Web server
     let port           = $state<number | ''>(8080);
-    let apiKey         = $state('');
+    let bindAddress    = $state('');
+
+    // Authentication
+    let authMode       = $state<AuthMode>('none');
+    let authPassword   = $state('');
+    let authProxyHeader = $state('X-Remote-User');
+    let authSaving     = $state(false);
+    let authMsg        = $state('');
+    let authErr        = $state('');
 
     // Scripts
     let dir            = $state('');
@@ -62,7 +70,7 @@
 
     const KNOWN = new Set([
         'url', 'name', 'variablePrefix', 'disableVariables',
-        'port', 'apiKey',
+        'port', 'bindAddress', 'auth', 'password', 'proxyHeader',
         'dir', 'disableWatch',
         'latitude', 'longitude',
         'verbosity',
@@ -129,8 +137,9 @@
 
     const SECTIONS = [
         { id: 'appearance', label: 'Appearance',  terms: ['theme','color','dark','light'] },
+        { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix'] },
-        { id: 'webserver',  label: 'Web server',   terms: ['port','api key','http','auth','server'] },
+        { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
         { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
         { id: 'solar',      label: 'Solar events', terms: ['latitude','longitude','sunrise','sunset','geo'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
@@ -159,7 +168,9 @@
             if (typeof cfg.variablePrefix   === 'string')  varPrefix    = cfg.variablePrefix;
             if (typeof cfg.disableVariables === 'boolean') disableVars  = cfg.disableVariables;
             if (typeof cfg.port             === 'number')  port         = cfg.port;
-            if (typeof cfg.apiKey           === 'string')  apiKey       = cfg.apiKey;
+            if (typeof cfg.bindAddress      === 'string')  bindAddress  = cfg.bindAddress;
+            if (typeof cfg.auth             === 'string')  authMode     = cfg.auth as AuthMode;
+            if (typeof cfg.proxyHeader      === 'string')  authProxyHeader = cfg.proxyHeader;
             if (typeof cfg.dir              === 'string')  dir          = cfg.dir;
             if (typeof cfg.disableWatch     === 'boolean') disableWatch = cfg.disableWatch;
             if (typeof cfg.latitude         === 'number')  latitude     = cfg.latitude;
@@ -184,6 +195,29 @@
         }
     });
 
+    async function saveAuth() {
+        authErr = '';
+        authMsg = '';
+        if (authMode === 'password' && !authPassword) {
+            authErr = 'A password is required to enable password authentication.';
+            return;
+        }
+        authSaving = true;
+        try {
+            await setupAuth(
+                authMode,
+                authMode === 'password' ? authPassword : undefined,
+                authMode === 'proxy' ? authProxyHeader : undefined,
+            );
+            authPassword = '';
+            authMsg = 'Authentication settings saved.';
+        } catch (e: any) {
+            authErr = e.message;
+        } finally {
+            authSaving = false;
+        }
+    }
+
     async function save() {
         errMsg = '';
         msg    = '';
@@ -195,7 +229,7 @@
         if (disableVars)    cfg.disableVariables = true;
 
         if (port !== '')    cfg.port        = Number(port);
-        if (apiKey)         cfg.apiKey      = apiKey;
+        if (bindAddress)    cfg.bindAddress = bindAddress;
 
         if (dir)            cfg.dir         = dir;
         if (disableWatch)   cfg.disableWatch = true;
@@ -339,6 +373,54 @@
                 </section>
                 {/if}
 
+                <!-- ── Authentication ────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'auth')}
+                <section id="sec-auth">
+                    <h3>Authentication</h3>
+                    <div class="field">
+                        <label>
+                            Mode
+                            {@render tip('none: no authentication required. password: single-user password login. proxy: trust a header set by nginx/authentik.')}
+                        </label>
+                        <select bind:value={authMode}>
+                            <option value="none">None (open)</option>
+                            <option value="password">Password</option>
+                            <option value="proxy">Proxy header (nginx / authentik)</option>
+                        </select>
+                    </div>
+                    {#if authMode === 'password'}
+                    <div class="field">
+                        <label>
+                            {authPassword ? 'New password' : 'Password'}
+                            {@render tip('Set a new password. Leave empty to keep the current password (if already set).')}
+                        </label>
+                        <input type="password" bind:value={authPassword} placeholder="Enter new password" autocomplete="new-password" />
+                    </div>
+                    {/if}
+                    {#if authMode === 'proxy'}
+                    <div class="field">
+                        <label>
+                            Proxy user header
+                            {@render tip('The HTTP header that nginx/authentik sets after successful authentication. Default: X-Remote-User')}
+                        </label>
+                        <input type="text" bind:value={authProxyHeader} placeholder="X-Remote-User" />
+                    </div>
+                    {/if}
+                    {#if authErr}<div class="field-error">{authErr}</div>{/if}
+                    {#if authMsg}<div class="field-ok">{authMsg}</div>{/if}
+                    <div class="field">
+                        <label></label>
+                        <button
+                            class="save-auth-btn"
+                            onclick={saveAuth}
+                            disabled={authSaving || (authMode === 'password' && !authPassword)}
+                        >
+                            {authSaving ? 'Saving…' : 'Apply authentication settings'}
+                        </button>
+                    </div>
+                </section>
+                {/if}
+
                 <!-- ── Web server ────────────────────────────────── -->
                 {#if visibleSections.some(s => s.id === 'webserver')}
                 <section id="sec-webserver">
@@ -352,10 +434,10 @@
                     </div>
                     <div class="field">
                         <label>
-                            API key
-                            {@render tip('Bearer token required on all HTTP and WebSocket requests. Leave empty to disable authentication.')}
+                            Bind address
+                            {@render tip('Interface she listens on. Use 127.0.0.1 when running behind nginx (recommended with proxy auth). Default: 0.0.0.0')}
                         </label>
-                        <input type="text" bind:value={apiKey} placeholder="leave empty to disable auth" autocomplete="off" />
+                        <input type="text" bind:value={bindAddress} placeholder="0.0.0.0 (default)" />
                     </div>
                 </section>
                 {/if}
@@ -794,6 +876,21 @@
     /* ── status messages ─────────────────────────────────────────────── */
     .err  { color: var(--fg-err); font-size: 13px; }
     .ok   { color: var(--fg-ok);  font-size: 13px; }
+
+    .field-error { font-size: 12px; color: var(--fg-err); padding: 2px 0; }
+    .field-ok    { font-size: 12px; color: var(--fg-ok);  padding: 2px 0; }
+
+    .save-auth-btn {
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+    .save-auth-btn:disabled { opacity: 0.4; cursor: default; }
+    .save-auth-btn:not(:disabled):hover { background: var(--accent-hov); }
 
     /* ── geo / map ───────────────────────────────────────────────────── */
     .geo-actions { align-items: flex-start; }

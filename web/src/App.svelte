@@ -7,6 +7,7 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
+    import { getAuthMode, login, logout, onUnauthorized, type AuthMode } from './lib/api.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -19,18 +20,58 @@
     let page = $state<Page>(pageFromHash());
     let latestVersion = $state<string | null>(null);
 
+    // ── Auth ────────────────────────────────────────────────────────────────
+    let authMode = $state<AuthMode>('none');
+    let showLogin = $state(false);
+    let loginPassword = $state('');
+    let loginError = $state('');
+    let loginLoading = $state(false);
+
+    onUnauthorized(() => { showLogin = true; });
+
+    async function handleLogin() {
+        loginError = '';
+        loginLoading = true;
+        try {
+            await login(loginPassword);
+            loginPassword = '';
+            showLogin = false;
+        } catch (e: any) {
+            loginError = e.message ?? 'Login failed';
+        } finally {
+            loginLoading = false;
+        }
+    }
+
+    async function handleLogout() {
+        await logout();
+        showLogin = true;
+    }
+
     function navigate(p: Page) {
         page = p;
         location.hash = p;
     }
 
-    onMount(() => {
+    onMount(async () => {
         // Set hash on initial load if missing
         if (!location.hash) location.hash = page;
         const onHashChange = () => {
             page = pageFromHash();
         };
         window.addEventListener('hashchange', onHashChange);
+
+        // Detect auth mode — show login overlay immediately if in password mode
+        try {
+            authMode = await getAuthMode();
+            if (authMode === 'password') {
+                // Probe a protected endpoint to check if we already have a valid session
+                const probe = await fetch('/she/scripts');
+                if (probe.status === 401) showLogin = true;
+            }
+        } catch {
+            // best-effort
+        }
 
         // Check for newer version on npm (best-effort, silent on failure)
         fetch('https://registry.npmjs.org/smart-home-engine/latest')
@@ -122,6 +163,15 @@
                     <circle cx="12" cy="12" r="3"/>
                 </svg>
             </button>
+            {#if authMode === 'password'}
+            <button class="nav-logout" onclick={handleLogout} title="Logout">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16 17 21 12 16 7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            </button>
+            {/if}
         </div>
     </nav>
 
@@ -142,6 +192,32 @@
             <Logs />
         {/if}
     </main>
+
+    {#if showLogin}
+    <div class="login-overlay">
+        <form class="login-box" onsubmit={(e) => { e.preventDefault(); handleLogin(); }}>
+            <div class="login-brand">she</div>
+            <h2>Sign in</h2>
+            <div class="login-field">
+                <label for="she-password">Password</label>
+                <input
+                    id="she-password"
+                    type="password"
+                    bind:value={loginPassword}
+                    placeholder="Enter password"
+                    autocomplete="current-password"
+                    disabled={loginLoading}
+                />
+            </div>
+            {#if loginError}
+            <div class="login-error">{loginError}</div>
+            {/if}
+            <button type="submit" class="login-btn" disabled={loginLoading || !loginPassword}>
+                {loginLoading ? 'Signing in…' : 'Sign in'}
+            </button>
+        </form>
+    </div>
+    {/if}
 </div>
 
 <style>
@@ -235,5 +311,87 @@
     .nav-settings:hover { background: var(--bg-hover); }
     .nav-settings.active { background: var(--bg-active); color: var(--fg-text); }
 
+    .nav-logout {
+        background: none;
+        border: none;
+        color: var(--fg-muted);
+        cursor: pointer;
+        padding: 6px 8px;
+        border-radius: 3px;
+        display: flex;
+        align-items: center;
+    }
+    .nav-logout:hover { background: var(--bg-hover); color: var(--fg); }
+
     main { flex: 1; min-height: 0; }
+
+    /* ── Login overlay ─────────────────────────────────────────────── */
+    .login-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    .login-box {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 32px 36px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 280px;
+    }
+    .login-brand {
+        font-weight: 700;
+        font-size: 22px;
+        letter-spacing: 3px;
+        color: var(--fg-brand);
+        text-align: center;
+    }
+    .login-box h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 500;
+        text-align: center;
+        color: var(--fg);
+    }
+    .login-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .login-field label {
+        font-size: 12px;
+        color: var(--fg-dim);
+    }
+    .login-field input {
+        padding: 7px 10px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--fg);
+        font-size: 13px;
+    }
+    .login-field input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+    .login-error {
+        font-size: 12px;
+        color: var(--fg-error, #e06c75);
+        text-align: center;
+    }
+    .login-btn {
+        padding: 8px;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        justify-content: center;
+    }
+    .login-btn:hover:not(:disabled) { background: var(--accent-hov); }
+    .login-btn:disabled { opacity: 0.5; cursor: default; }
 </style>

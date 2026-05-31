@@ -53,9 +53,17 @@ log.info('she ' + pkg.version + ' starting');
 log.debug('loaded config: ', config);
 
 if (typeof config.port !== 'undefined') {
+    // Validate: password mode requires a password hash
+    if (config.auth === 'password' && !config.password) {
+        log.error('auth is set to "password" but no password is configured. Set a password via the web UI Config → Authentication section first.');
+        process.exit(1);
+    }
     require('./web/server')
         .startServer(config.port, {
-            apiKey: config.apiKey,
+            auth: config.auth,
+            password: config.password || null,
+            proxyHeader: config.proxyHeader,
+            bindAddress: config.bindAddress,
             configPath: config.config,
             scriptDir: config.dir || null,
         })

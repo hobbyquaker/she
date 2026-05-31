@@ -11,18 +11,21 @@ const { router: depsRouter } = require('./deps-api');
 const { router: gitRouter } = require('./git-api');
 const { router: aiRouter } = require('./ai-api');
 const { attachWss, closeWss } = require('./log-ws');
+const { init: initAuth, authMiddleware, checkAuth, router: authRouter } = require('./auth');
 
 const app = express();
 app.use(express.json());
 
-// Lazy auth check — _apiKey is populated by startServer(); null = auth disabled.
-// Covers both /she/* (internal system routes) and /api/* (user-script routes).
-let _apiKey = null;
-app.use(['/she', '/api'], (req, res, next) => {
-    if (!_apiKey) return next();
-    const auth = req.headers['authorization'];
-    if (auth === `Bearer ${_apiKey}`) return next();
-    res.status(401).json({ error: 'Unauthorized' });
+// Public auth routes — always accessible regardless of auth mode.
+// Must be mounted BEFORE the auth middleware.
+app.use('/she/auth', authRouter);
+
+// Auth middleware for all /she/* routes except the public auth endpoints above.
+// /api/* is intentionally excluded — user scripts control their own auth.
+const OPEN_SHE_PATHS = new Set(['/she/auth/mode', '/she/auth/login', '/she/auth/logout']);
+app.use('/she', (req, res, next) => {
+    if (OPEN_SHE_PATHS.has(req.originalUrl.split('?')[0])) return next();
+    authMiddleware(req, res, next);
 });
 
 // Config REST endpoints: GET /she/config and PUT /she/config
@@ -90,20 +93,26 @@ let httpServer = null;
 /**
  * Start listening. Resolves with the actual port (useful when port 0 is given).
  * @param {number} port
- * @param {{ apiKey?: string, configPath?: string, scriptDir?: string }} [options]
+ * @param {{ auth?: string, password?: string, proxyHeader?: string, bindAddress?: string, configPath?: string, scriptDir?: string }} [options]
  * @returns {Promise<number>}
  */
 function startServer(port, options = {}) {
-    _apiKey = options.apiKey || null;
+    initAuth({
+        auth: options.auth || 'none',
+        password: options.password || null,
+        proxyHeader: options.proxyHeader || 'X-Remote-User',
+        configPath: options.configPath || null,
+    });
     if (options.configPath) {
         app.locals.configPath = options.configPath;
     }
     if (options.scriptDir) {
         app.locals.scriptDir = options.scriptDir;
     }
+    const host = options.bindAddress || '0.0.0.0';
     return new Promise((resolve, reject) => {
-        httpServer = app.listen(port, () => {
-            attachWss(httpServer);
+        httpServer = app.listen(port, host, () => {
+            attachWss(httpServer, checkAuth);
             resolve(httpServer.address().port);
         });
         httpServer.on('error', reject);

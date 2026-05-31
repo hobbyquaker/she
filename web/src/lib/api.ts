@@ -1,19 +1,11 @@
-/** Auth token — set once on startup from localStorage. */
-let _token = localStorage.getItem('she_token') ?? '';
-
-export function setToken(t: string) {
-    _token = t;
-    localStorage.setItem('she_token', t);
-}
-
-export function getToken() {
-    return _token;
+/** Called when any /she/* request returns 401 — App.svelte wires this to show the login overlay. */
+let _onUnauthorized: (() => void) | null = null;
+export function onUnauthorized(cb: () => void) {
+    _onUnauthorized = cb;
 }
 
 function headers(extra: Record<string, string> = {}) {
-    const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra };
-    if (_token) h['Authorization'] = `Bearer ${_token}`;
-    return h;
+    return { 'Content-Type': 'application/json', ...extra };
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -22,11 +14,53 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
         headers: headers(),
         body: body !== undefined ? JSON.stringify(body) : undefined,
     });
+    if (res.status === 401) {
+        if (_onUnauthorized) _onUnauthorized();
+        throw new Error('Unauthorized');
+    }
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error ?? res.statusText);
     }
     return res.json();
+}
+
+// ---- Auth API ----
+
+export type AuthMode = 'none' | 'password' | 'proxy';
+
+export async function getAuthMode(): Promise<AuthMode> {
+    const res = await fetch('/she/auth/mode');
+    const data = await res.json();
+    return data.mode as AuthMode;
+}
+
+export async function login(password: string): Promise<void> {
+    const res = await fetch('/she/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error ?? 'Login failed');
+    }
+}
+
+export async function logout(): Promise<void> {
+    await fetch('/she/auth/logout', { method: 'POST' });
+}
+
+export async function setupAuth(mode: AuthMode, password?: string, proxyHeader?: string): Promise<void> {
+    const res = await fetch('/she/auth/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, password, proxyHeader }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error ?? 'Setup failed');
+    }
 }
 
 // ---- Scripts API ----
@@ -333,7 +367,6 @@ export function chatWithAI(body: AiChatRequest): Promise<AiChatResponse> {
  */
 export async function streamChatWithAI(body: AiChatRequest, onToken: (token: string) => void): Promise<void> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (_token) h['Authorization'] = `Bearer ${_token}`;
 
     const res = await fetch('/she/ai/chat/stream', {
         method: 'POST',

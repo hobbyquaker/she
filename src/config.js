@@ -45,6 +45,9 @@ const config = require('yargs')
         disableWatch: false,
         dbRetain: false,
         dbPrefix: 'she/db/',
+        auth: 'none',
+        proxyHeader: 'X-Remote-User',
+        bindAddress: '0.0.0.0',
     })
     .version()
     .help('help')

@@ -1,6 +1,6 @@
 {
     "name":  "smart-home-engine",
-    "version":  "0.10.4",
+    "version":  "0.11.0",
     "description":  "Node.js based script runner for use in MQTT based Smart Home environments",
     "main":  "src/index.js",
     "scripts":  {
@@ -26,6 +26,7 @@
     "author":  "Sebastian \u0027hobbyquaker\u0027 Raff \u003chobbyquaker@gmail.com\u003e",
     "license":  "MIT",
     "dependencies":  {
+                         "bcryptjs":  "^2.4.3",
                          "@elastic/elasticsearch":  "^9.4.2",
                          "@influxdata/influxdb-client":  "^1.35.0",
                          "@matter/main":  "^0.17.0",
