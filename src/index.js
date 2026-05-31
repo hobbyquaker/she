@@ -260,6 +260,13 @@ if (config.dbPath) {
     shedb.init({ dbPath: config.dbPath, dbRetain: config.dbRetain || false, mqttName: config.name, mqtt, log, broadcast });
 }
 
+// Redis write-through cache — only init when config.redis.url is given
+if (config.redis && config.redis.url) {
+    require('./lib/redis')
+        .init({ url: config.redis.url, store, log })
+        .catch((err) => log.error('redis init failed:', err.message));
+}
+
 // InfluxDB — only init when --influx is set
 if (config.influx) {
     require('./influx').init(config.influx);
