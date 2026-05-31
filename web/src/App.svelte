@@ -17,6 +17,7 @@
     }
 
     let page = $state<Page>(pageFromHash());
+    let latestVersion = $state<string | null>(null);
 
     function navigate(p: Page) {
         page = p;
@@ -30,6 +31,13 @@
             page = pageFromHash();
         };
         window.addEventListener('hashchange', onHashChange);
+
+        // Check for newer version on npm (best-effort, silent on failure)
+        fetch('https://registry.npmjs.org/smart-home-engine/latest')
+            .then(r => r.json())
+            .then((d: { version?: string }) => { if (d.version && d.version !== __APP_VERSION__) latestVersion = d.version; })
+            .catch(() => {});
+
         return () => window.removeEventListener('hashchange', onHashChange);
     });
 </script>
@@ -93,14 +101,28 @@
             </svg>
             Logs
         </button>
-        <button class:active={page === 'config'} onclick={() => navigate('config')}>
-            <!-- Gear / settings icon (Lucide settings path, 24x24 viewBox) -->
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-                <circle cx="12" cy="12" r="3"/>
-            </svg>
-            Config
-        </button>
+
+        <!-- right side: version · github · settings -->
+        <div class="nav-spacer"></div>
+        <div class="nav-right">
+            <span class="version">
+                v{__APP_VERSION__}
+                {#if latestVersion}
+                    <a class="update-badge" href="https://www.npmjs.com/package/smart-home-engine" target="_blank" rel="noopener" title="Update available: v{latestVersion}">↑ {latestVersion}</a>
+                {/if}
+            </span>
+            <a class="nav-icon" href="https://github.com/hobbyquaker/she" target="_blank" rel="noopener" title="GitHub">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+            </a>
+            <button class="nav-settings" class:active={page === 'config'} onclick={() => navigate('config')} title="Settings">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                </svg>
+            </button>
+        </div>
     </nav>
 
     <main>
@@ -159,5 +181,59 @@
     }
     button:hover { background: var(--bg-hover); }
     button.active { background: var(--bg-active); color: var(--fg-text); }
+
+    .nav-spacer { flex: 1; }
+
+    .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .version {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--fg-dim);
+        padding: 0 6px;
+        white-space: nowrap;
+    }
+
+    .update-badge {
+        background: var(--accent);
+        color: #fff;
+        font-size: 10px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        text-decoration: none;
+        line-height: 1.6;
+    }
+    .update-badge:hover { background: var(--accent-hov); }
+
+    .nav-icon {
+        display: flex;
+        align-items: center;
+        padding: 6px 8px;
+        color: var(--fg-muted);
+        border-radius: 3px;
+        text-decoration: none;
+        line-height: 0;
+    }
+    .nav-icon:hover { background: var(--bg-hover); color: var(--fg); }
+
+    .nav-settings {
+        background: none;
+        border: none;
+        color: var(--fg);
+        cursor: pointer;
+        padding: 6px 8px;
+        border-radius: 3px;
+        display: flex;
+        align-items: center;
+    }
+    .nav-settings:hover { background: var(--bg-hover); }
+    .nav-settings.active { background: var(--bg-active); color: var(--fg-text); }
+
     main { flex: 1; min-height: 0; }
 </style>

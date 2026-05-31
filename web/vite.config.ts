@@ -1,8 +1,15 @@
+import { createRequire } from 'module';
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import monacoEditorPlugin from 'vite-plugin-monaco-editor';
 
+const require = createRequire(import.meta.url);
+const { version } = require('./package.json') as { version: string };
+
 export default defineConfig({
+    define: {
+        __APP_VERSION__: JSON.stringify(version),
+    },
     plugins: [
         svelte(),
         monacoEditorPlugin.default({
