@@ -100,7 +100,7 @@
         statusIdx = Math.floor(Math.random() * STATUS_MESSAGES.length);
         const t = setInterval(() => {
             statusIdx = (statusIdx + 1) % STATUS_MESSAGES.length;
-        }, 2500);
+        }, 10000);
         return () => clearInterval(t);
     });
 
@@ -322,6 +322,15 @@
             </div>
         {/each}
 
+        <!-- Status shimmer while waiting for first token -->
+        {#if loading && streamingContent === null}
+            <div class="message assistant">
+                <div class="msg-content">
+                    <span class="status-shimmer">{STATUS_MESSAGES[statusIdx]}</span>
+                </div>
+            </div>
+        {/if}
+
         <!-- Streaming message -->
         {#if streamingContent !== null}
             <div class="message assistant streaming">
@@ -338,7 +347,6 @@
                             </div>
                         {/if}
                     {/each}
-                    <span class="cursor">▋</span>
                 </div>
             </div>
         {/if}
@@ -383,13 +391,6 @@
             <button class="send-btn" onclick={send} disabled={!input.trim() || !configured}>↑</button>
         {/if}
     </div>
-
-    <!-- Status bar (visible while streaming) -->
-    {#if loading}
-        <div class="status-row">
-            <span class="status-shimmer">{STATUS_MESSAGES[statusIdx]}</span>
-        </div>
-    {/if}
 
     <!-- Model bar -->
     {#if configured && aiConfig}
@@ -596,8 +597,7 @@
     code { font-family: inherit; }
 
     .streaming .msg-content { opacity: 0.92; }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-    .cursor { animation: blink 0.9s step-end infinite; color: var(--fg-brand); font-size: 14px; line-height: 1; }
+
 
     .chat-error {
         background: rgba(200,50,50,0.15);
@@ -750,15 +750,6 @@
     @keyframes shimmer {
         0%   { background-position: -300% center; }
         100% { background-position:  300% center; }
-    }
-    .status-row {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2px 10px 4px;
-        background: var(--bg-panel);
-        flex-shrink: 0;
-        min-height: 20px;
     }
     .status-shimmer {
         font-size: 11px;
