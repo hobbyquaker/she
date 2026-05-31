@@ -65,7 +65,7 @@ Toggle the **lib** checkbox on any folder in the Scripts tree view to add or rem
 - Packages run with full Node.js privileges — the same trust level as your own scripts.
 - Review packages before installing; supply-chain attacks and malicious code in npm packages are a real risk.
 - Native add-ons (`.node` binaries) work but must match the Node.js ABI version.
-- **she** targets trusted, home-network environments. Do not expose the web UI to untrusted networks without strong authentication (`apiKey` in `~/.she/config.json`).
+- **she** targets trusted, home-network environments. Do not expose the web UI to untrusted networks without enabling authentication (`"auth": "password"` or `"auth": "proxy"` in `~/.she/config.json`).
 
 ## Daemon restart
 

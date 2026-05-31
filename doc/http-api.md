@@ -21,22 +21,64 @@ The built-in web UI is served from the same port as an SPA (Single-Page Applicat
 
 ## Authentication
 
-Set `--api-key <token>` (or `SHE_API_KEY`) to require a Bearer token on **all** requests to `/she/*`.
+she supports three authentication modes, configured via `auth` in `config.json` (or `--auth` on the CLI):
 
-**Request header:**
+| Mode | Description |
+|------|-------------|
+| `none` | No authentication — all `/she/*` endpoints are open. **Default.** Suitable for a private LAN. |
+| `password` | Single-user login. A hashed password is stored in `config.json`. The web UI shows a login form; successful login sets an HttpOnly session cookie valid for 7 days. |
+| `proxy` | Trust an HTTP header set by an upstream reverse proxy (e.g. nginx + authentik). The header name defaults to `X-Remote-User` and is configurable via `proxyHeader`. |
 
+**Important:** Routes under `/api/*` (user-script endpoints) are intentionally **not** covered by she-level auth — scripts are responsible for their own access control on those paths.
+
+### Auth endpoints (always public)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/she/auth/mode` | Returns `{ "mode": "none" \| "password" \| "proxy" }` |
+| `POST` | `/she/auth/login` | `{ "password": "..." }` — sets `she_session` cookie on success |
+| `POST` | `/she/auth/logout` | Clears the session cookie |
+| `POST` | `/she/auth/setup` | Change auth mode / password / proxyHeader at runtime (see Config tab in web UI) |
+
+### Setting up password mode
+
+Use the **Config → Authentication** section in the web UI to set a password and switch to `password` mode. Changes take effect immediately without a restart.
+
+Alternatively, set the hashed password in `config.json` directly:
+
+```bash
+node -e "const b=require('bcryptjs');console.log(b.hashSync('my-password',10))" 
 ```
-Authorization: Bearer <token>
+
+Then in `config.json`:
+
+```json
+{
+  "auth": "password",
+  "password": "$2a$10$..."
+}
 ```
 
-Requests without the header, or with the wrong token, receive:
+### Setting up proxy mode
+
+Configure nginx (or another proxy) to authenticate requests and forward the username in a header. Set she to bind on `127.0.0.1` so only the proxy can reach it:
+
+```json
+{
+  "auth": "proxy",
+  "proxyHeader": "X-Remote-User",
+  "bindAddress": "127.0.0.1"
+}
+```
+
+See [nginx.conf](nginx.conf) for a full example with TLS and authentik forward auth.
+
+### Unauthorized response
 
 ```
 HTTP 401
 { "error": "Unauthorized" }
 ```
-
-Omit `--api-key` entirely to disable authentication (suitable for a private LAN).
 
 ---
 
@@ -317,7 +359,7 @@ Writes a new config file. All CLI option keys are accepted (camelCase).
   "dir": "/opt/scripts",
   "verbosity": "debug",
   "port": 8080,
-  "apiKey": "change-me"
+  "auth": "none"
 }
 ```
 
@@ -335,11 +377,7 @@ A daemon restart is required for the new config to take effect.
 
 Connect to the WebSocket endpoint for a live stream of logs, MQTT state changes, and sheDB events.
 
-**Optional authentication:** append `?token=<apiKey>` to the URL when `--api-key` is set.
-
-```js
-const ws = new WebSocket('ws://localhost:8080/she/ws?token=my-secret');
-```
+In `password` mode the WebSocket connection is authenticated via the same session cookie the browser sends automatically. No extra token parameter is needed.
 
 ### Messages from server
 
@@ -397,13 +435,20 @@ curl http://localhost:8080/she/db/docs/devices/hall/pir
 # List paired Matter devices
 curl http://localhost:8080/she/matter/devices
 
-# Read config (with auth)
-curl -H "Authorization: Bearer my-secret" http://localhost:8080/she/config
+# Read config (no auth / none mode)
+curl http://localhost:8080/she/config
 
 # Write config
 curl -X PUT -H "Content-Type: application/json" \
-     -H "Authorization: Bearer my-secret" \
      -d '{"url":"mqtt://newbroker","dir":"/opt/scripts"}' \
      http://localhost:8080/she/config
+
+# Login and keep the session cookie
+curl -c cookies.txt -X POST -H "Content-Type: application/json" \
+     -d '{"password":"my-password"}' \
+     http://localhost:8080/she/auth/login
+
+# Use the session cookie for subsequent requests
+curl -b cookies.txt http://localhost:8080/she/scripts
 ```
 

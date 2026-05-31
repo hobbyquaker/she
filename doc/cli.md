@@ -19,7 +19,9 @@ Usage: she [options]
 | | `--disable-watch` | `false` | Disable file watching (scripts are not reloaded on change). |
 | | `--latitude` | `48.7408` | Latitude for solar-event scheduling (`she.schedule('sunrise', ...)`). |
 | | `--longitude` | `9.1778` | Longitude for solar-event scheduling. |
-| | `--api-key` | — | Bearer token required on all HTTP/WebSocket requests. Auth disabled when omitted. |
+| | `--auth` | `none` | Authentication mode: `none` (open), `password` (single-user login), `proxy` (trust HTTP header set by nginx/authentik). |
+| | `--proxy-header` | `X-Remote-User` | HTTP header carrying the authenticated user in `proxy` mode. |
+| | `--bind-address` | `0.0.0.0` | Interface the HTTP server binds to. Use `127.0.0.1` when behind nginx. |
 | | `--db-path` | — | Path to sheDB storage file. sheDB is disabled when omitted. |
 | | `--db-retain` | `false` | Publish sheDB document changes as retained MQTT messages. |
 | | `--matter-storage` | — | Enable the Matter controller. Pass a directory path or `true` (uses `~/.she/matter`). |
@@ -47,7 +49,9 @@ Every option can be provided as an environment variable with the `SHE_` prefix i
 | `--name` | `SHE_NAME` |
 | `--verbosity` | `SHE_VERBOSITY` |
 | `--port` | `SHE_PORT` |
-| `--api-key` | `SHE_API_KEY` |
+| `--auth` | `SHE_AUTH` |
+| `--proxy-header` | `SHE_PROXY_HEADER` |
+| `--bind-address` | `SHE_BIND_ADDRESS` |
 | `--db-path` | `SHE_DB_PATH` |
 | `--db-retain` | `SHE_DB_RETAIN` |
 | `--matter-storage` | `SHE_MATTER_STORAGE` |
@@ -70,7 +74,8 @@ The config file is plain JSON. Keys match long option names in camelCase:
   "latitude": 52.52,
   "longitude": 13.405,
   "port": 8080,
-  "apiKey": "change-me",
+  "bindAddress": "0.0.0.0",
+  "auth": "none",
   "dbPath": "/opt/she/db.json",
   "matterStorage": "/opt/she/matter"
 }
