@@ -11,6 +11,7 @@
     },
     "dependencies": {
         "@types/leaflet": "^1.9.21",
+        "highlight.js": "^11.11.1",
         "leaflet": "^1.9.4",
         "monaco-editor": "^0.52.0"
     },

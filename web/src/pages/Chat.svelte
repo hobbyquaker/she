@@ -1,5 +1,8 @@
 <script lang="ts">
     import { type AiMessage, type AiContext, type AiCurrentScript, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, type AiConfig } from '../lib/api.js';
+    import hljs from 'highlight.js/lib/core';
+    import javascript from 'highlight.js/lib/languages/javascript';
+    hljs.registerLanguage('javascript', javascript);
 
     interface Props {
         currentScript?: AiCurrentScript | null;
@@ -20,6 +23,15 @@
     // Model selection
     let availableModels = $state<string[]>([]);
     let selectedModel = $state<string>('');
+
+    // Always-apply session flag (per script, resets on script change)
+    let autoApplyScript = $state<string | null>(null);
+    const autoApply = $derived(
+        autoApplyScript !== null && currentScript?.path === autoApplyScript,
+    );
+
+    // Collapsed/expanded code block tracking
+    let expandedBlocks = $state(new Set<string>());
 
     // Ollama info popup
     let showInfoPopup = $state(false);
@@ -73,6 +85,25 @@
     const configured = $derived(aiConfig?.configured ?? false);
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
+    // Reset auto-apply when the active script changes
+    $effect(() => {
+        const path = currentScript?.path;
+        if (autoApplyScript !== null && path !== autoApplyScript) autoApplyScript = null;
+    });
+
+    // Auto-apply last assistant message when flag is set
+    $effect(() => {
+        if (!autoApply) return;
+        const last = messages.at(-1);
+        if (!last || last.role !== 'assistant') return;
+        const blocks = parseBlocks(last.content);
+        const jsBlock = blocks.find(b => b.type === 'code' && isJsBlock(b.lang));
+        if (jsBlock) {
+            const hint = getNewFileHint(jsBlock.text);
+            onApply?.(hint ? hint.code : jsBlock.text);
+        }
+    });
+
     $effect(() => {
         getAiConfig().then(c => {
             aiConfig = c;
@@ -145,11 +176,57 @@
         return blocks;
     }
 
+    const CODE_COLLAPSE_LINES = 15;
+
+    function shouldCollapse(code: string): boolean {
+        return code.split('\n').length > CODE_COLLAPSE_LINES;
+    }
+
+    function toggleBlock(id: string): void {
+        const next = new Set(expandedBlocks);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        expandedBlocks = next;
+    }
+
+    function highlightCode(code: string, lang: string): string {
+        if (isJsBlock(lang)) {
+            try { return hljs.highlight(code, { language: 'javascript' }).value; } catch { /* fallthrough */ }
+        }
+        return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /** Like parseBlocks but handles an unclosed code fence at the end of streamed content. */
+    function parseBlocksStreaming(content: string): Block[] {
+        const normalized = content.replace(
+            /(\n|^)(\/{2} @[a-z-]+:[^\n]+)\n(```\w*)\n/g,
+            '$1$3\n$2\n',
+        );
+        const blocks: Block[] = [];
+        const re = /```(\w*)\n([\s\S]*?)```/g;
+        let last = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(normalized)) !== null) {
+            if (m.index > last) blocks.push({ type: 'text', text: normalized.slice(last, m.index) });
+            blocks.push({ type: 'code', lang: m[1] || 'text', text: m[2].trimEnd() });
+            last = m.index + m[0].length;
+        }
+        const tail = normalized.slice(last);
+        const openFence = tail.match(/```(\w*)\n([\s\S]*)$/);
+        if (openFence) {
+            if (openFence.index! > 0) blocks.push({ type: 'text', text: tail.slice(0, openFence.index) });
+            blocks.push({ type: 'code', lang: openFence[1] || 'text', text: openFence[2] });
+        } else if (tail) {
+            blocks.push({ type: 'text', text: tail });
+        }
+        return blocks;
+    }
+
     function copyCode(text: string) {
         navigator.clipboard.writeText(text).catch(() => {});
     }
 
-    function applyCode(text: string) {
+    function applyCode(text: string, setAutoApply = false) {
+        if (setAutoApply && currentScript) autoApplyScript = currentScript.path;
         onApply?.(text);
     }
 
@@ -198,7 +275,6 @@
         const userMsg: AiMessage = { role: 'user', content: text };
         messages = [...messages, userMsg];
 
-        streamingContent = '';
         abortController = new AbortController();
 
         try {
@@ -288,19 +364,22 @@
             </div>
         {/if}
 
-        {#each messages as msg (msg)}
+        {#each messages as msg, msgIdx}
             <div class="message {msg.role}">
                 {#if msg.role === 'user'}
                     <div class="msg-content user-text">{msg.content}</div>
                 {:else}
                     {@const blocks = parseBlocks(msg.content)}
                     <div class="msg-content">
-                        {#each blocks as block}
+                        {#each blocks as block, blockIdx}
                             {#if block.type === 'text'}
                                 <p class="text-block">{block.text}</p>
                             {:else}
                                 {@const hint = isJsBlock(block.lang) ? getNewFileHint(block.text) : null}
                                 {@const displayCode = hint ? hint.code : block.text}
+                                {@const bid = `${msgIdx}:${blockIdx}`}
+                                {@const collapsible = shouldCollapse(displayCode)}
+                                {@const isExp = expandedBlocks.has(bid)}
                                 <div class="code-block">
                                     <div class="code-header">
                                         <span class="code-lang">{hint ? `new: ${hint.filename}` : block.lang}</span>
@@ -309,11 +388,23 @@
                                             {#if hint && onCreateFile}
                                                 <button class="create-btn" onclick={() => onCreateFile!(hint.filename, hint.code)}>Save as new file…</button>
                                             {:else if isJsBlock(block.lang) && currentScript}
-                                                <button class="apply-btn" onclick={() => applyCode(block.text)}>Apply to editor</button>
+                                                <button class="apply-btn" onclick={() => applyCode(block.text)}>Apply</button>
+                                                {#if autoApply}
+                                                    <span class="auto-badge" title="Auto-applying AI code to this script in this session">auto ✓</span>
+                                                {:else}
+                                                    <button class="apply-auto-btn" onclick={() => applyCode(block.text, true)} title="Apply and always apply for this script in this session">always</button>
+                                                {/if}
                                             {/if}
                                         </div>
                                     </div>
-                                    <pre><code>{displayCode}</code></pre>
+                                    <div class="code-body" class:collapsed={collapsible && !isExp}>
+                                        <pre><code class="hljs">{@html highlightCode(displayCode, block.lang ?? '')}</code></pre>
+                                        {#if collapsible}
+                                            <button class="expand-btn" onclick={() => toggleBlock(bid)}>
+                                                {isExp ? '▲ collapse' : '▼ expand'}
+                                            </button>
+                                        {/if}
+                                    </div>
                                 </div>
                             {/if}
                         {/each}
@@ -335,7 +426,7 @@
         {#if streamingContent !== null}
             <div class="message assistant streaming">
                 <div class="msg-content">
-                    {#each parseBlocks(streamingContent) as block}
+                    {#each parseBlocksStreaming(streamingContent) as block}
                         {#if block.type === 'text'}
                             <p class="text-block">{block.text}</p>
                         {:else}
@@ -343,7 +434,7 @@
                                 <div class="code-header">
                                     <span class="code-lang">{block.lang}</span>
                                 </div>
-                                <pre><code>{block.text}</code></pre>
+                                <pre><code class="hljs">{@html highlightCode(block.text, block.lang ?? '')}</code></pre>
                             </div>
                         {/if}
                     {/each}
@@ -583,8 +674,46 @@
     .code-actions button:hover { background: var(--bg-hover); color: var(--fg); }
     .apply-btn { color: var(--fg-brand) !important; border-color: var(--fg-brand) !important; }
     .apply-btn:hover { background: rgba(var(--accent-rgb, 31,139,76), 0.15) !important; }
+    .apply-auto-btn {
+        color: var(--fg-muted) !important;
+        border-style: dashed !important;
+        font-size: 10px;
+    }
+    .apply-auto-btn:hover { color: var(--fg-brand) !important; border-color: var(--fg-brand) !important; }
+    .auto-badge {
+        font-size: 10px;
+        color: var(--fg-brand);
+        padding: 1px 4px;
+        border: 1px solid var(--fg-brand);
+        border-radius: 3px;
+        opacity: 0.75;
+    }
     .create-btn { color: var(--accent) !important; border-color: var(--accent) !important; font-weight: 600; }
     .create-btn:hover { background: rgba(var(--accent-rgb, 31,139,76), 0.15) !important; }
+
+    /* Collapsible code body */
+    .code-body { position: relative; }
+    .code-body.collapsed pre {
+        max-height: 200px;
+        overflow: hidden;
+        -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+        mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+    }
+    .expand-btn {
+        display: block;
+        width: 100%;
+        background: none;
+        border: none;
+        border-top: 1px solid var(--border-sub);
+        color: var(--fg-muted);
+        font-size: 10px;
+        padding: 3px 8px;
+        cursor: pointer;
+        text-align: center;
+        letter-spacing: 0.03em;
+    }
+    .expand-btn:hover { background: var(--bg-hover); color: var(--fg); }
+
     pre {
         margin: 0;
         padding: 8px;
@@ -595,6 +724,36 @@
         color: var(--fg-text);
     }
     code { font-family: inherit; }
+
+    /* highlight.js token colours (atom-one-dark palette, no background) */
+    :global(code.hljs) { background: transparent; padding: 0; color: var(--fg-text); }
+    :global(.hljs-comment),
+    :global(.hljs-quote)              { color: #5c6370; font-style: italic; }
+    :global(.hljs-keyword),
+    :global(.hljs-selector-tag),
+    :global(.hljs-addition)           { color: #c678dd; }
+    :global(.hljs-number),
+    :global(.hljs-literal),
+    :global(.hljs-deletion)           { color: #d19a66; }
+    :global(.hljs-string),
+    :global(.hljs-doctag),
+    :global(.hljs-regexp),
+    :global(.hljs-meta .hljs-string)  { color: #98c379; }
+    :global(.hljs-title),
+    :global(.hljs-section),
+    :global(.hljs-built_in)           { color: #61afef; }
+    :global(.hljs-type),
+    :global(.hljs-class .hljs-title)  { color: #e5c07b; }
+    :global(.hljs-tag),
+    :global(.hljs-name),
+    :global(.hljs-attr),
+    :global(.hljs-variable),
+    :global(.hljs-template-variable),
+    :global(.hljs-params)             { color: #e06c75; }
+    :global(.hljs-meta),
+    :global(.hljs-link)               { color: #56b6c2; }
+    :global(.hljs-emphasis)           { font-style: italic; }
+    :global(.hljs-strong)             { font-weight: bold; }
 
     .streaming .msg-content { opacity: 0.92; }
 
