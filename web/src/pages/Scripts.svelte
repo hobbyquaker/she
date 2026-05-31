@@ -1,11 +1,20 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import * as monaco from 'monaco-editor';
-    import { listScripts, readScript, writeScript, deleteScript, type ScriptEntry } from '../lib/api.js';
+    import {
+        listScriptsTree,
+        readScript,
+        writeScript,
+        deleteScript,
+        createScriptDir,
+        type TreeEntry,
+    } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
 
-    let files = $state<ScriptEntry[]>([]);
+    let tree = $state<TreeEntry[]>([]);
+    /** key = entry.path → true if expanded */
+    let expandedDirs = $state<Record<string, boolean>>({});
     let selected = $state<string | null>(null);
     let dirty = $state(false);
     let error = $state('');
@@ -106,13 +115,47 @@ declare const she: {
             if (!suppressChange) dirty = editor.getValue() !== savedContent;
         });
 
-        await loadFiles();
+        await loadTree();
     });
 
-    async function loadFiles() {
+    let _treeLoaded = false;
+
+    async function loadTree() {
         try {
-            files = await listScripts();
+            tree = await listScriptsTree();
+            if (!_treeLoaded) {
+                _treeLoaded = true;
+                // Auto-expand all directories on first load
+                const dirs: Record<string, boolean> = {};
+                function collectDirs(entries: TreeEntry[]) {
+                    for (const e of entries) {
+                        if (e.type === 'dir') {
+                            dirs[e.path] = true;
+                            if (e.children) collectDirs(e.children);
+                        }
+                    }
+                }
+                collectDirs(tree);
+                expandedDirs = dirs;
+            }
             error = '';
+        } catch (e: any) {
+            error = e.message;
+        }
+    }
+
+    function toggleDir(path: string) {
+        expandedDirs[path] = !expandedDirs[path];
+    }
+
+    async function toggleLib(dirPath: string, makeLib: boolean) {
+        try {
+            if (makeLib) {
+                await writeScript(`${dirPath}/.shelib`, '');
+            } else {
+                await deleteScript(`${dirPath}/.shelib`);
+            }
+            await loadTree();
         } catch (e: any) {
             error = e.message;
         }
@@ -160,14 +203,25 @@ declare const she: {
 
     async function newFile() {
         const name = await inputDialog.show('New script name:', {
-            placeholder: 'myscript.js',
+            placeholder: 'myscript.js or folder/myscript.js',
             confirm: 'Create',
         });
         if (!name) return;
-        const path = name.endsWith('.js') ? name : `${name}.js`;
-        await writeScript(path, `/* global she */\n'use strict';\n\n`);
-        await loadFiles();
-        await selectFile(path);
+        const p = name.endsWith('.js') ? name : `${name}.js`;
+        await writeScript(p, `/* global she */\n'use strict';\n\n`);
+        await loadTree();
+        await selectFile(p);
+    }
+
+    async function newFolder() {
+        const name = await inputDialog.show('New folder name:', {
+            placeholder: 'myfolder or parent/myfolder',
+            confirm: 'Create',
+        });
+        if (!name) return;
+        await createScriptDir(name);
+        expandedDirs[name] = true;
+        await loadTree();
     }
 
     async function saveAs() {
@@ -178,10 +232,10 @@ declare const she: {
             confirm: 'Save',
         });
         if (!name) return;
-        const path = name.endsWith('.js') ? name : `${name}.js`;
-        await writeScript(path, editor.getValue());
-        await loadFiles();
-        await selectFile(path);
+        const p = name.endsWith('.js') ? name : `${name}.js`;
+        await writeScript(p, editor.getValue());
+        await loadTree();
+        await selectFile(p);
     }
 
     async function del() {
@@ -190,7 +244,7 @@ declare const she: {
         await deleteScript(selected);
         selected = null;
         editor.setValue('');
-        await loadFiles();
+        await loadTree();
     }
 
     function handleKeydown(e: KeyboardEvent) {
@@ -209,17 +263,56 @@ declare const she: {
 <div class="layout">
     <aside>
         <div class="toolbar">
-            <button onclick={newFile} title="New script">+ New</button>
-            <button onclick={loadFiles} title="Refresh">↻</button>
+            <button onclick={newFile} title="New script">+ File</button>
+            <button onclick={newFolder} title="New folder">+ Folder</button>
+            <button onclick={loadTree} title="Refresh" class="refresh">↻</button>
         </div>
         {#if error}
             <div class="err">{error}</div>
         {/if}
-        <ul>
-            {#each files as f (f.path)}
-                <li class:active={f.path === selected} class:dirty={f.path === selected && dirty}>
-                    <button onclick={() => selectFile(f.path)}>{f.path}</button>
+
+        {#snippet treeEntry(entry: TreeEntry)}
+            {#if entry.type === 'dir'}
+                <li class="tree-dir">
+                    <div class="dir-row" style="--depth: {entry.path.split('/').length - 1}">
+                        <button class="chevron" onclick={() => toggleDir(entry.path)}>
+                            {expandedDirs[entry.path] ? '▾' : '▸'}
+                        </button>
+                        <span class="dir-name" class:lib={entry.lib}>{entry.name}</span>
+                        <label class="lib-label" title="Library directory — .js files won't be loaded as scripts automatically">
+                            <input
+                                type="checkbox"
+                                checked={entry.lib}
+                                onchange={() => toggleLib(entry.path, !entry.lib)}
+                            />
+                            lib
+                        </label>
+                    </div>
+                    {#if expandedDirs[entry.path] && entry.children}
+                        <ul class="tree-children">
+                            {#each entry.children as child (child.path)}
+                                {@render treeEntry(child)}
+                            {/each}
+                        </ul>
+                    {/if}
                 </li>
+            {:else}
+                <li
+                    class="tree-file"
+                    class:active={entry.path === selected}
+                    class:dirty={entry.path === selected && dirty}
+                    style="--depth: {entry.path.split('/').length - 1}"
+                >
+                    <button class:lib={entry.lib} onclick={() => selectFile(entry.path)}>
+                        {entry.name}
+                    </button>
+                </li>
+            {/if}
+        {/snippet}
+
+        <ul class="tree">
+            {#each tree as entry (entry.path)}
+                {@render treeEntry(entry)}
             {/each}
         </ul>
     </aside>
@@ -263,37 +356,92 @@ declare const she: {
         background: #0e639c;
         color: #fff;
         border: none;
-        padding: 4px 8px;
+        padding: 4px 6px;
         border-radius: 3px;
         cursor: pointer;
         font-size: 12px;
         line-height: 1;
     }
+    .toolbar button.refresh { flex: 0 0 auto; padding: 4px 8px; }
     .toolbar button:hover { background: #1177bb; }
-    ul {
+    /* ---- Tree view ---- */
+    .tree {
         flex: 1;
         overflow-y: auto;
         list-style: none;
         padding: 4px 0;
+        margin: 0;
     }
-    li button {
+    .tree-dir, .tree-file { list-style: none; }
+    .tree-children { list-style: none; padding: 0; margin: 0; }
+    .dir-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 12px 3px calc(8px + var(--depth, 0) * 12px);
+        cursor: default;
+    }
+    .chevron {
+        background: none;
+        border: none;
+        color: #858585;
+        cursor: pointer;
+        padding: 0;
+        font-size: 9px;
+        line-height: 1;
+        width: 12px;
+        flex-shrink: 0;
+        text-align: center;
+    }
+    .dir-name {
+        color: #cccccc;
+        font-size: 12px;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .dir-name.lib { color: #858585; font-style: italic; }
+    .lib-label {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        color: #858585;
+        font-size: 10px;
+        cursor: pointer;
+        flex-shrink: 0;
+        user-select: none;
+    }
+    .lib-label input[type='checkbox'] {
+        accent-color: #569cd6;
+        width: 10px;
+        height: 10px;
+        cursor: pointer;
+    }
+    .tree-file button {
         display: block;
         width: 100%;
         text-align: left;
         background: none;
         border: none;
         color: #cccccc;
-        padding: 5px 12px;
+        padding: 4px 12px 4px calc(20px + var(--depth, 0) * 12px);
         cursor: pointer;
         font-size: 12px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
-    li button:hover { background: #2a2d2e; }
-    li.active button { background: #37373d; color: #fff; }
-    li.dirty button { font-style: italic; }
-    li.dirty button::after { content: ' \25CF'; font-size: 7px; vertical-align: middle; color: #e5c07b; }
+    .tree-file button.lib { color: #858585; font-style: italic; }
+    .tree-file button:hover { background: #2a2d2e; }
+    .tree-file.active button { background: #37373d; color: #fff; }
+    .tree-file.dirty button { font-style: italic; }
+    .tree-file.dirty button::after {
+        content: ' \25CF';
+        font-size: 7px;
+        vertical-align: middle;
+        color: #e5c07b;
+    }
     .err {
         color: #f48771;
         padding: 8px;

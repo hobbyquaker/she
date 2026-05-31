@@ -79,6 +79,12 @@ const modules = {
     'suncalc': require('suncalc'),
 };
 
+// Require function anchored at ~/.she/ so user-installed npm packages
+// in ~/.she/node_modules/ are resolved by sandbox scripts.
+const Module = require('module');
+const { STORAGE_ROOT } = require('./lib/storage');
+const _userRequire = Module.createRequire(path.join(STORAGE_ROOT, '_anchor.js'));
+
 const domain = modules.domain;
 const vm = modules.vm;
 const fs = modules.fs;
@@ -815,18 +821,31 @@ function runScript(script, name, origin) {
                 return modules[md];
             }
             try {
-                let tmp;
+                let result;
                 if (md.match(/^\.\//) || md.match(/^\.\.\//)) {
-                    tmp = './' + path.relative(__dirname, path.join(scriptDir, md));
+                    // Relative import — resolve from the script's own directory
+                    const tmp = './' + path.relative(__dirname, path.join(scriptDir, md));
+                    she.debug('require', tmp);
+                    result = require(tmp);
                 } else {
-                    tmp = md;
-                    if (fs.existsSync(path.join(scriptDir, 'node_modules', md, 'package.json'))) {
-                        tmp = path.join(scriptDir, 'node_modules', md);
+                    // Absolute import — try ~/.she/node_modules/ first (user-installed),
+                    // then fall back to engine's own require (builtins + engine deps).
+                    try {
+                        result = _userRequire(md);
+                        she.debug('require (user)', md);
+                    } catch {
+                        const localMod = path.join(scriptDir, 'node_modules', md, 'package.json');
+                        if (fs.existsSync(localMod)) {
+                            result = require(path.join(scriptDir, 'node_modules', md));
+                            she.debug('require (local)', md);
+                        } else {
+                            result = require(md);
+                            she.debug('require', md);
+                        }
                     }
                 }
-                she.debug('require', tmp);
-                modules[md] = require(tmp);
-                return modules[md];
+                modules[md] = result;
+                return result;
             } catch (err) {
                 const lines = err.stack.split('\n');
                 const stack = [];
@@ -1024,51 +1043,113 @@ function loadSandbox(callback) {
     });
 }
 
-function loadDir(dir) {
-    fs.readdir(dir, (err, data) => {
-        /* istanbul ignore if */
-        if (err) {
-            if (err.errno === 34) {
-                log.error('directory ' + path.resolve(dir) + ' not found');
-            } else {
-                log.error('readdir', dir, err);
-            }
-        } else {
-            data.sort().forEach((file) => {
-                if (file.match(/\.js$/)) {
-                    loadScript(path.join(dir, file));
-                }
-            });
+/**
+ * Returns true if any ancestor directory of absFile (between it and scriptRoot)
+ * contains a .shelib marker file.
+ */
+function isLibFile(absFile, scriptRoot) {
+    const root = path.resolve(scriptRoot);
+    let dir = path.dirname(path.resolve(absFile));
+    while (dir.length >= root.length && dir.startsWith(root)) {
+        if (dir !== root && fs.existsSync(path.join(dir, '.shelib'))) return true;
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+    }
+    return false;
+}
 
-            if (!config.disableWatch) {
-                const dirWatcher = chokidar.watch(dir, {
-                    ignored: (p, stats) => stats?.isFile() && !p.endsWith('.js'),
-                    persistent: true,
-                    ignoreInitial: true,
-                    usePolling: true,
-                });
-                dirWatcher.on('ready', () => log.info('watch', dir, 'initialized'));
-                dirWatcher.on('all', (event, filePath) => {
-                    filePath = filePath.replace(/\\/g, '/');
-                    if (event === 'change' && filePath.endsWith('.js')) {
-                        log.info(filePath, 'change detected. hot-reloading.');
-                        unloadScript(filePath);
-                        loadScript(filePath);
-                    } else if (event === 'add' && filePath.endsWith('.js')) {
-                        log.info(filePath, 'added. loading.');
-                        loadScript(filePath);
-                    } else if (event === 'unlink') {
-                        log.info(filePath, 'removed. unloading.');
-                        unloadScript(filePath);
-                    } else {
-                        dirWatcher.close();
-                        log.info(filePath, 'change detected. exiting.');
-                        process.exit(0);
+/**
+ * Recursively load all user .js scripts from a directory tree.
+ * Files inside directories that contain a .shelib marker are skipped.
+ */
+function loadDirRecursive(dir, scriptRoot) {
+    let entries;
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+        log.error('readdir', dir, err);
+        return;
+    }
+    entries
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((entry) => {
+            const abs = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                loadDirRecursive(abs, scriptRoot);
+            } else if (entry.name.endsWith('.js') && !isLibFile(abs, scriptRoot)) {
+                loadScript(abs.replace(/\\/g, '/'));
+            }
+        });
+}
+
+function loadDir(dir) {
+    const scriptRoot = path.resolve(dir);
+    loadDirRecursive(scriptRoot, scriptRoot);
+
+    if (!config.disableWatch) {
+        const dirWatcher = chokidar.watch(dir, {
+            ignored: (p, stats) => {
+                const name = path.basename(p);
+                return stats?.isFile() && !name.endsWith('.js') && name !== '.shelib';
+            },
+            persistent: true,
+            ignoreInitial: true,
+            usePolling: true,
+        });
+        dirWatcher.on('ready', () => log.info('watch', dir, 'initialized'));
+        dirWatcher.on('all', (event, filePath) => {
+            filePath = filePath.replace(/\\/g, '/');
+            const basename = path.basename(filePath);
+
+            // .shelib marker changes — warn only, manual restart required
+            if (basename === '.shelib') {
+                if (event === 'add') {
+                    log.warn(filePath, 'library marker added — .js files in this directory will no longer load as scripts after daemon restart');
+                } else if (event === 'unlink') {
+                    log.warn(filePath, 'library marker removed — .js files in this directory will load as scripts after daemon restart');
+                }
+                return;
+            }
+
+            // Directory events — handle gracefully (no process.exit)
+            if (event === 'addDir') return;
+
+            if (event === 'unlinkDir') {
+                const absDir = path.resolve(filePath);
+                Object.keys(scripts).forEach((scriptFile) => {
+                    const absScript = path.resolve(scriptFile);
+                    if (absScript.startsWith(absDir + path.sep) || absScript === absDir) {
+                        log.info(scriptFile, 'directory removed. unloading.');
+                        unloadScript(scriptFile);
                     }
                 });
+                return;
             }
-        }
-    });
+
+            if (event === 'change' && filePath.endsWith('.js')) {
+                if (isLibFile(filePath, dir)) {
+                    log.warn(filePath, 'is a library file — scripts that require() it will see the old version until they or the daemon are restarted');
+                    return;
+                }
+                log.info(filePath, 'change detected. hot-reloading.');
+                unloadScript(filePath);
+                loadScript(filePath);
+            } else if (event === 'add' && filePath.endsWith('.js')) {
+                if (isLibFile(filePath, dir)) {
+                    log.debug(filePath, 'is a library file — not loading as script');
+                    return;
+                }
+                log.info(filePath, 'added. loading.');
+                loadScript(filePath);
+            } else if (event === 'unlink' && filePath.endsWith('.js')) {
+                if (scripts[filePath]) {
+                    log.info(filePath, 'removed. unloading.');
+                    unloadScript(filePath);
+                }
+            }
+        });
+    }
 }
 
 function start() {

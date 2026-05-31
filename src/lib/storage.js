@@ -39,4 +39,30 @@ function ensureRoot() {
     fs.mkdirSync(STORAGE_ROOT, { recursive: true });
 }
 
-module.exports = { STORAGE_ROOT, getStoragePath, getConfigPath, ensureStorageDir, ensureRoot };
+/**
+ * Ensure ~/.she/package.json exists so npm can install packages there.
+ * Creates a minimal private package.json if missing.
+ */
+function ensureUserPackageJson() {
+    const pkgPath = path.join(STORAGE_ROOT, 'package.json');
+    if (!fs.existsSync(pkgPath)) {
+        fs.writeFileSync(
+            pkgPath,
+            JSON.stringify(
+                {
+                    name: 'she-user-scripts',
+                    version: '1.0.0',
+                    private: true,
+                    description: 'User-installed npm packages for she scripts',
+                    dependencies: {},
+                },
+                null,
+                2,
+            ) + '\n',
+            'utf8',
+        );
+    }
+    return pkgPath;
+}
+
+module.exports = { STORAGE_ROOT, getStoragePath, getConfigPath, ensureStorageDir, ensureRoot, ensureUserPackageJson };

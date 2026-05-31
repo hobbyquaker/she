@@ -35,10 +35,25 @@ export interface ScriptEntry {
     path: string;
     size: number;
     mtime: number;
+    lib?: boolean;
+}
+
+export interface TreeEntry {
+    type: 'file' | 'dir';
+    name: string;
+    path: string;
+    lib: boolean;
+    size?: number;
+    mtime?: number;
+    children?: TreeEntry[];
 }
 
 export function listScripts(): Promise<ScriptEntry[]> {
     return request('GET', '/she/scripts');
+}
+
+export function listScriptsTree(): Promise<TreeEntry[]> {
+    return request('GET', '/she/scripts/tree');
 }
 
 export function readScript(path: string): Promise<{ path: string; content: string }> {
@@ -55,6 +70,10 @@ export function deleteScript(path: string): Promise<{ ok: boolean }> {
 
 export function renameScript(path: string, newPath: string): Promise<{ ok: boolean }> {
     return request('POST', `/she/scripts/${path}/rename`, { newPath });
+}
+
+export function createScriptDir(dirPath: string): Promise<{ ok: boolean; path: string }> {
+    return request('POST', '/she/scripts/mkdir', { path: dirPath });
 }
 
 // ---- Config API ----
@@ -117,6 +136,48 @@ export function putView(id: string, view: ViewDefinition): Promise<{ ok: boolean
 
 export function deleteView(id: string): Promise<{ ok: boolean }> {
     return request('DELETE', `/she/db/views/${id}`);
+}
+
+// ---- Deps API ----
+
+export interface DepEntry {
+    name: string;
+    version: string;
+}
+
+export interface NpmSearchResult {
+    name: string;
+    version: string;
+    description: string;
+}
+
+export function listDeps(): Promise<DepEntry[]> {
+    return request('GET', '/she/deps');
+}
+
+export function searchNpm(q: string): Promise<NpmSearchResult[]> {
+    return request('GET', `/she/deps/search?q=${encodeURIComponent(q)}`);
+}
+
+export function installDep(
+    name: string,
+    version?: string,
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    return request('POST', '/she/deps/install', { name, version: version ?? null });
+}
+
+export function removeDep(name: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    return request('POST', '/she/deps/remove', { name });
+}
+
+export function updateDep(name: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    return request('POST', '/she/deps/update', { name });
+}
+
+// ---- Daemon restart ----
+
+export function restartDaemon(): Promise<{ ok: boolean }> {
+    return request('POST', '/she/restart');
 }
 
 export function getViewResult(id: string): Promise<ViewResult> {

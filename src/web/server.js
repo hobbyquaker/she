@@ -7,6 +7,7 @@ const { router: scriptsRouter } = require('./scripts-api');
 const { router: shedbRouter } = require('./shedb-api');
 const { router: matterRouter } = require('./matter-api');
 const { router: mqttRouter } = require('./mqtt-api');
+const { router: depsRouter } = require('./deps-api');
 const { attachWss, closeWss } = require('./log-ws');
 
 const app = express();
@@ -36,6 +37,15 @@ app.use('/she/matter', matterRouter);
 
 // MQTT state snapshot and publish: /she/mqtt/*
 app.use('/she/mqtt', mqttRouter);
+
+// npm package management: /she/deps/*
+app.use('/she/deps', depsRouter);
+
+// Graceful daemon restart — exit(0) and let the process manager restart
+app.post('/she/restart', (req, res) => {
+    res.json({ ok: true });
+    setTimeout(() => process.exit(0), 200);
+});
 
 // Serve the built Svelte SPA from dist/web/
 // Hashed assets (JS/CSS) are immutable; index.html must never be cached so

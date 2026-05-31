@@ -23,24 +23,66 @@ function getRoot(req) {
     return req.app.locals.scriptDir || null;
 }
 
-function walk(dir, base) {
+/** True if the directory itself contains a .shelib marker. */
+function hasShelibMarker(absDir) {
+    return fs.existsSync(path.join(absDir, '.shelib'));
+}
+
+/** Flat list of all .js files with metadata and lib flag. */
+function walk(dir, base, parentIsLib) {
     let entries;
     try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
         return [];
     }
+    const lib = parentIsLib || (base !== '' && hasShelibMarker(dir));
     const results = [];
     for (const entry of entries) {
+        if (entry.name === '.shelib') continue;
         const rel = base ? `${base}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
-            results.push(...walk(path.join(dir, entry.name), rel));
+            results.push(...walk(path.join(dir, entry.name), rel, lib));
         } else if (entry.name.endsWith('.js')) {
             const stat = fs.statSync(path.join(dir, entry.name));
-            results.push({ path: rel, size: stat.size, mtime: stat.mtimeMs });
+            results.push({ path: rel, size: stat.size, mtime: stat.mtimeMs, lib });
         }
     }
     return results;
+}
+
+/**
+ * Nested tree of all .js files and subdirectories.
+ * Each node: { type:'file'|'dir', name, path, lib, size?, mtime?, children? }
+ */
+function buildTree(dir, base, parentIsLib) {
+    let entries;
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+        return [];
+    }
+    const selfIsLib = base !== '' && hasShelibMarker(dir);
+    const lib = parentIsLib || selfIsLib;
+    const result = [];
+    for (const entry of entries) {
+        if (entry.name === '.shelib') continue;
+        const rel = base ? `${base}/${entry.name}` : entry.name;
+        const abs = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            const childIsLib = lib || hasShelibMarker(abs);
+            const children = buildTree(abs, rel, childIsLib);
+            result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, children });
+        } else if (entry.name.endsWith('.js')) {
+            const stat = fs.statSync(abs);
+            result.push({ type: 'file', name: entry.name, path: rel, lib, size: stat.size, mtime: stat.mtimeMs });
+        }
+    }
+    result.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+    });
+    return result;
 }
 
 // All routes dispatched via router.use to avoid path-to-regexp v8 wildcard issues.
@@ -51,9 +93,14 @@ router.use((req, res) => {
     const method = req.method.toUpperCase();
     const filePath = req.path.replace(/^\/+/, '');
 
-    // GET /she/scripts  — list all .js files with metadata
+    // GET /she/scripts  — flat list of all .js files with metadata
     if (method === 'GET' && !filePath) {
-        return res.json(walk(root, ''));
+        return res.json(walk(root, '', false));
+    }
+
+    // GET /she/scripts/tree  — nested tree structure
+    if (method === 'GET' && filePath === 'tree') {
+        return res.json(buildTree(root, '', false));
     }
 
     // GET /she/scripts/<path>  — read file content
@@ -73,7 +120,10 @@ router.use((req, res) => {
     if (method === 'PUT') {
         const abs = safePath(root, filePath);
         if (!abs) return res.status(400).json({ error: 'Invalid path' });
-        if (!abs.endsWith('.js')) return res.status(400).json({ error: 'Only .js files are allowed' });
+        const basename = path.basename(abs);
+        if (!basename.endsWith('.js') && basename !== '.shelib') {
+            return res.status(400).json({ error: 'Only .js and .shelib files are allowed' });
+        }
         const content = typeof req.body?.content === 'string' ? req.body.content : null;
         if (content === null) return res.status(400).json({ error: 'Missing body.content string' });
         try {
@@ -95,6 +145,20 @@ router.use((req, res) => {
             return res.json({ ok: true });
         } catch (err) {
             if (err.code === 'ENOENT') return res.status(404).json({ error: 'Not found' });
+            return res.status(500).json({ error: err.message });
+        }
+    }
+
+    // POST /she/scripts/mkdir  — create a directory
+    if (method === 'POST' && filePath === 'mkdir') {
+        const dirPath = typeof req.body?.path === 'string' ? req.body.path : null;
+        if (!dirPath) return res.status(400).json({ error: 'Missing body.path string' });
+        const abs = safePath(root, dirPath);
+        if (!abs) return res.status(400).json({ error: 'Invalid path' });
+        try {
+            fs.mkdirSync(abs, { recursive: true });
+            return res.json({ ok: true, path: dirPath });
+        } catch (err) {
             return res.status(500).json({ error: err.message });
         }
     }

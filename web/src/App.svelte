@@ -6,9 +6,10 @@
     import DB from './pages/DB.svelte';
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
+    import Packages from './pages/Packages.svelte';
 
-    type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config';
-    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config'];
+    type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
+    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
 
     function pageFromHash(): Page {
         const hash = location.hash.slice(1) as Page;
@@ -86,6 +87,15 @@
             </svg>
             Config
         </button>
+        <button class:active={page === 'packages'} onclick={() => navigate('packages')}>
+            <!-- Box / package icon -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="0.5,4 8,8 15.5,4"/>
+                <polyline points="8,8 8,15.5"/>
+                <polygon points="8,0.5 15.5,4 8,7.5 0.5,4"/>
+            </svg>
+            Packages
+        </button>
     </nav>
 
     <main>
@@ -99,6 +109,8 @@
             <DB />
         {:else if page === 'config'}
             <Config />
+        {:else if page === 'packages'}
+            <Packages />
         {:else}
             <Logs />
         {/if}
