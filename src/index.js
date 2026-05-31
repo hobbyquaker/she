@@ -82,7 +82,7 @@ const modules = {
 // in ~/.she/node_modules/ are resolved by sandbox scripts.
 const Module = require('module');
 const { STORAGE_ROOT } = require('./lib/storage');
-const _userRequire = Module.createRequire(path.join(STORAGE_ROOT, '_anchor.js'));
+const _userRequire = Module.createRequire(modules.path.join(STORAGE_ROOT, '_anchor.js'));
 
 const domain = modules.domain;
 const vm = modules.vm;
