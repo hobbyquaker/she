@@ -420,6 +420,7 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        background: var(--bg-panel);
     }
 
     .resize-handle {
