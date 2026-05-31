@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import * as monaco from 'monaco-editor';
     import { listScripts, readScript, writeScript, deleteScript, type ScriptEntry } from '../lib/api.js';
+    import ConfirmDialog from '../lib/ConfirmDialog.svelte';
 
     let files = $state<ScriptEntry[]>([]);
     let selected = $state<string | null>(null);
@@ -12,6 +13,7 @@
     let editorContainer: HTMLDivElement;
     let editor: monaco.editor.IStandaloneCodeEditor;
     let suppressChange = false;
+    let dialog: { show: (msg: string, opts?: { confirm?: string; danger?: boolean }) => Promise<boolean> };
 
     // Monaco sandbox type stubs for she API autocomplete
     const she_dts = `
@@ -111,7 +113,7 @@ declare const she: {
 
     async function selectFile(path: string) {
         if (dirty && selected) {
-            if (!confirm('Discard unsaved changes?')) return;
+            if (!(await dialog.show('Discard unsaved changes?', { confirm: 'Discard' }))) return;
         }
         selected = path;
         dirty = false;
@@ -151,7 +153,7 @@ declare const she: {
 
     async function del() {
         if (!selected) return;
-        if (!confirm(`Delete ${selected}?`)) return;
+        if (!(await dialog.show(`Delete ${selected}?`, { confirm: 'Delete', danger: true }))) return;
         await deleteScript(selected);
         selected = null;
         editor.setValue('');
@@ -167,6 +169,8 @@ declare const she: {
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
+
+<ConfirmDialog bind:this={dialog} />
 
 <div class="layout">
     <aside>
