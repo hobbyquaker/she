@@ -300,7 +300,7 @@
                         Database path
                         {@render tip('Path to the sheDB data directory. Leave empty to disable sheDB.')}
                     </label>
-                    <input type="text" bind:value={dbPath} placeholder="leave empty to disable" />
+                    <input type="text" bind:value={dbPath} placeholder="defaults to ~/.she/db" />
                 </div>
 
                 <div class="field field--check">

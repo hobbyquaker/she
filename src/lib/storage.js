@@ -5,6 +5,9 @@ const os = require('os');
 const path = require('path');
 
 const STORAGE_ROOT = path.join(os.homedir(), '.she');
+const CONFIG_ROOT = path.join(STORAGE_ROOT, 'config');
+const SCRIPTS_ROOT = path.join(STORAGE_ROOT, 'scripts');
+const DB_ROOT = path.join(STORAGE_ROOT, 'db');
 
 /**
  * Return the absolute path for a named sub-directory of ~/.she/.
@@ -15,10 +18,10 @@ function getStoragePath(name) {
 }
 
 /**
- * Return the path to the shared config file: ~/.she/config.json.
+ * Return the path to the shared config file: ~/.she/config/config.json.
  */
 function getConfigPath() {
-    return path.join(STORAGE_ROOT, 'config.json');
+    return path.join(CONFIG_ROOT, 'config.json');
 }
 
 /**
@@ -32,11 +35,14 @@ function ensureStorageDir(name) {
 }
 
 /**
- * Create ~/.she/ itself if it does not already exist.
+ * Create ~/.she/ and its standard subdirectories if they don't already exist.
  * Called once at daemon startup before anything else runs.
  */
 function ensureRoot() {
     fs.mkdirSync(STORAGE_ROOT, { recursive: true });
+    fs.mkdirSync(CONFIG_ROOT, { recursive: true });
+    fs.mkdirSync(SCRIPTS_ROOT, { recursive: true });
+    fs.mkdirSync(DB_ROOT, { recursive: true });
 }
 
 /**
@@ -65,4 +71,4 @@ function ensureUserPackageJson() {
     return pkgPath;
 }
 
-module.exports = { STORAGE_ROOT, getStoragePath, getConfigPath, ensureStorageDir, ensureRoot, ensureUserPackageJson };
+module.exports = { STORAGE_ROOT, CONFIG_ROOT, SCRIPTS_ROOT, DB_ROOT, getStoragePath, getConfigPath, ensureStorageDir, ensureRoot, ensureUserPackageJson };

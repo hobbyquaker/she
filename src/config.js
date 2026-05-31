@@ -4,25 +4,19 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// Pre-parse --dir/-d before yargs runs so we know where to load config.json from.
-function getRootDir() {
-    const argv = process.argv.slice(2);
-    for (let i = 0; i < argv.length; i++) {
-        if ((argv[i] === '--dir' || argv[i] === '-d') && argv[i + 1]) return argv[i + 1];
-        const m = argv[i].match(/^--dir=(.+)$/);
-        if (m) return m[1];
-    }
-    return path.join(os.homedir(), '.she');
-}
-
-const rootDir = getRootDir();
-const configPath = path.join(rootDir, 'config.json');
+// Default config file location (can be overridden with --config on the CLI)
+const configPath = path.join(os.homedir(), '.she', 'config', 'config.json');
 
 const config = require('yargs')
     .option('dir', {
         alias: 'd',
-        describe: 'root directory for scripts and config (config.json is read from here)',
-        default: path.join(os.homedir(), '.she'),
+        describe: 'directory to load user scripts from',
+        default: path.join(os.homedir(), '.she', 'scripts'),
+        type: 'string',
+    })
+    .option('db-path', {
+        describe: 'path to sheDB data directory (empty string to disable)',
+        default: path.join(os.homedir(), '.she', 'db'),
         type: 'string',
     })
     .option('port', {
