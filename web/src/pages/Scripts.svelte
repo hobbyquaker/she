@@ -11,6 +11,7 @@
 
     let editorContainer: HTMLDivElement;
     let editor: monaco.editor.IStandaloneCodeEditor;
+    let suppressChange = false;
 
     // Monaco sandbox type stubs for she API autocomplete
     const she_dts = `
@@ -93,7 +94,7 @@ declare const she: {
         });
 
         editor.onDidChangeModelContent(() => {
-            dirty = true;
+            if (!suppressChange) dirty = true;
         });
 
         await loadFiles();
@@ -116,7 +117,9 @@ declare const she: {
         dirty = false;
         try {
             const { content } = await readScript(path);
+            suppressChange = true;
             editor.setValue(content);
+            suppressChange = false;
             editor.setScrollPosition({ scrollTop: 0 });
         } catch (e: any) {
             error = e.message;
