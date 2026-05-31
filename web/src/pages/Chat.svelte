@@ -2,7 +2,9 @@
     import { type AiMessage, type AiContext, type AiCurrentScript, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, type AiConfig } from '../lib/api.js';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
+    import { marked } from 'marked';
     hljs.registerLanguage('javascript', javascript);
+    marked.use({ breaks: true, gfm: true });
 
     interface Props {
         currentScript?: AiCurrentScript | null;
@@ -195,6 +197,10 @@
         return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    function renderMd(text: string): string {
+        return marked.parse(text) as string;
+    }
+
     /** Like parseBlocks but handles an unclosed code fence at the end of streamed content. */
     function parseBlocksStreaming(content: string): Block[] {
         const normalized = content.replace(
@@ -373,7 +379,7 @@
                     <div class="msg-content">
                         {#each blocks as block, blockIdx}
                             {#if block.type === 'text'}
-                                <p class="text-block">{block.text}</p>
+                                <div class="text-block">{@html renderMd(block.text)}</div>
                             {:else}
                                 {@const hint = isJsBlock(block.lang) ? getNewFileHint(block.text) : null}
                                 {@const displayCode = hint ? hint.code : block.text}
@@ -428,7 +434,7 @@
                 <div class="msg-content">
                     {#each parseBlocksStreaming(streamingContent) as block}
                         {#if block.type === 'text'}
-                            <p class="text-block">{block.text}</p>
+                            <div class="text-block">{@html renderMd(block.text)}</div>
                         {:else}
                             <div class="code-block">
                                 <div class="code-header">
@@ -638,11 +644,27 @@
     .text-block {
         color: var(--fg-text);
         margin: 4px 0;
-        white-space: pre-wrap;
         word-break: break-word;
     }
     .text-block:first-child { margin-top: 0; }
-    .text-block:last-child { margin-bottom: 0; }
+    .text-block:last-child  { margin-bottom: 0; }
+    /* Markdown rendered inside text blocks */
+    :global(.text-block > *:first-child) { margin-top: 0; }
+    :global(.text-block > *:last-child)  { margin-bottom: 0; }
+    :global(.text-block p)          { margin: 4px 0; }
+    :global(.text-block strong)     { font-weight: 600; color: var(--fg); }
+    :global(.text-block em)         { font-style: italic; }
+    :global(.text-block ul),
+    :global(.text-block ol)         { margin: 4px 0; padding-left: 18px; }
+    :global(.text-block li)         { margin: 2px 0; }
+    :global(.text-block table)      { border-collapse: collapse; margin: 6px 0; width: 100%; }
+    :global(.text-block th)         { background: var(--bg-widget); font-weight: 600; padding: 3px 8px; border: 1px solid var(--border-sub); text-align: left; }
+    :global(.text-block td)         { padding: 3px 8px; border: 1px solid var(--border-sub); }
+    :global(.text-block tr:nth-child(even) td) { background: rgba(255,255,255,0.03); }
+    :global(.text-block code)       { background: var(--bg-widget); padding: 1px 4px; border-radius: 2px; font-family: 'Cascadia Code','Fira Code',monospace; font-size: 10px; color: var(--fg-brand); }
+    :global(.text-block blockquote) { border-left: 3px solid var(--border); padding-left: 8px; color: var(--fg-muted); margin: 4px 0 4px 0; }
+    :global(.text-block a)          { color: var(--fg-brand); }
+    :global(.text-block hr)         { border: none; border-top: 1px solid var(--border-sub); margin: 8px 0; }
 
     .code-block {
         background: var(--bg-app);
