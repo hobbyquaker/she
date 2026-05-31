@@ -206,6 +206,41 @@
         }
     }
 
+    // ---- Tree (folder grouping by slash-separated ID segments) ----
+    type DocTreeNode =
+        | { type: 'leaf'; name: string; id: string }
+        | { type: 'folder'; name: string; path: string; children: DocTreeNode[] };
+
+    let expandedDocDirs: Record<string, boolean> = $state({});
+    let expandedViewDirs: Record<string, boolean> = $state({});
+
+    function buildSubTree(ids: string[], prefix: string): DocTreeNode[] {
+        const nodes: DocTreeNode[] = [];
+        const folderMap = new Map<string, string[]>();
+        const leaves: string[] = [];
+        for (const id of ids) {
+            const rel = prefix ? id.slice(prefix.length + 1) : id;
+            const slash = rel.indexOf('/');
+            if (slash === -1) { leaves.push(id); }
+            else {
+                const seg = rel.slice(0, slash);
+                if (!folderMap.has(seg)) folderMap.set(seg, []);
+                folderMap.get(seg)!.push(id);
+            }
+        }
+        for (const [seg, children] of folderMap) {
+            const fpath = prefix ? `${prefix}/${seg}` : seg;
+            nodes.push({ type: 'folder', name: seg, path: fpath, children: buildSubTree(children, fpath) });
+        }
+        for (const id of leaves) {
+            nodes.push({ type: 'leaf', name: prefix ? id.slice(prefix.length + 1) : id, id });
+        }
+        return nodes;
+    }
+
+    let docTree = $derived(buildSubTree([...docIds].sort(), ''));
+    let viewTree = $derived(buildSubTree([...viewIds].sort(), ''));
+
     onMount(() => {
         loadDocs();
         loadViews();
@@ -243,6 +278,79 @@
     });
 </script>
 
+{#snippet docTreeNode(nodes: DocTreeNode[], depth: number)}
+    {#each nodes as node (node.type === 'leaf' ? node.id : node.path)}
+        {#if node.type === 'folder'}
+            <li class="tree-dir">
+                <div class="dir-row" style="--depth: {depth}">
+                    <button class="chevron" onclick={() => { expandedDocDirs[node.path] = !expandedDocDirs[node.path]; }}>
+                        {expandedDocDirs[node.path] ? '▾' : '▸'}
+                    </button>
+                    <span class="dir-name">{node.name}</span>
+                </div>
+                {#if expandedDocDirs[node.path]}
+                    <ul class="tree-children">
+                        {@render docTreeNode(node.children, depth + 1)}
+                    </ul>
+                {/if}
+            </li>
+        {:else}
+            <li class="tree-file" class:active-item={selectedDocId === node.id} style="--depth: {depth}">
+                <button onclick={() => selectDoc(node.id)}>
+                    <span class="fname">{node.name}</span>
+                </button>
+            </li>
+        {/if}
+    {/each}
+{/snippet}
+
+{#snippet viewTreeNode(nodes: DocTreeNode[], depth: number)}
+    {#each nodes as node (node.type === 'leaf' ? node.id : node.path)}
+        {#if node.type === 'folder'}
+            <li class="tree-dir">
+                <div class="dir-row" style="--depth: {depth}">
+                    <button class="chevron" onclick={() => { expandedViewDirs[node.path] = !expandedViewDirs[node.path]; }}>
+                        {expandedViewDirs[node.path] ? '▾' : '▸'}
+                    </button>
+                    <span class="dir-name">{node.name}</span>
+                </div>
+                {#if expandedViewDirs[node.path]}
+                    <ul class="tree-children">
+                        {@render viewTreeNode(node.children, depth + 1)}
+                    </ul>
+                {/if}
+            </li>
+        {:else}
+            <li class="tree-file" class:active-item={selectedViewId === node.id} style="--depth: {depth}">
+                <button onclick={() => selectView(node.id)}>
+                    <span class="fname">{node.name}</span>
+                </button>
+            </li>
+        {/if}
+    {/each}
+{/snippet}
+
+{#snippet dbWelcome()}
+    <div class="welcome">
+        <div class="welcome-inner">
+            <div class="welcome-logo">db</div>
+            <p class="welcome-sub">sheDB — embedded JSON document store with MapReduce views</p>
+            <div class="welcome-hint">
+                <strong>In scripts:</strong> use <code>she.db.get(id)</code>, <code>she.db.set(id, doc)</code>,
+                <code>she.db.extend(id, partial)</code>, <code>she.db.sub(pattern, cb)</code>.<br>
+                <strong>Views:</strong> <code>this</code> = current document &mdash; call <code>emit(value)</code> to add to result.
+            </div>
+            <div class="welcome-links">
+                <a href="https://github.com/hobbyquaker/she/blob/main/doc/db/README.md" target="_blank" rel="noopener">sheDB docs</a>
+                <span>·</span>
+                <a href="https://github.com/hobbyquaker/she/blob/main/doc/db/view-examples.md" target="_blank" rel="noopener">View examples</a>
+                <span>·</span>
+                <a href="https://github.com/hobbyquaker/she" target="_blank" rel="noopener">GitHub</a>
+            </div>
+        </div>
+    </div>
+{/snippet}
+
 <div class="db-root" role="presentation" onmousemove={onResizeMove} onmouseup={onResizeEnd} onmouseleave={onResizeEnd}>
     <!-- Panel tabs -->
     <div class="panel-tabs">
@@ -254,9 +362,8 @@
         <div class="panel">
             <!-- Left sidebar: doc list -->
             <aside class="sidebar" style:width="{sidebarWidth}px">
-                <div class="sidebar-header">
-                    <span>Documents ({docIds.length})</span>
-                    <button class="btn-icon" onclick={() => { showNewDocForm = !showNewDocForm; newDocError = null; }} title="New document">+</button>
+                <div class="toolbar">
+                    <button onclick={() => { showNewDocForm = !showNewDocForm; newDocError = null; }}>+ Doc</button>
                 </div>
                 {#if showNewDocForm}
                     <div class="new-item-form">
@@ -265,12 +372,8 @@
                     </div>
                     {#if newDocError}<div class="form-error">{newDocError}</div>{/if}
                 {/if}
-                <ul>
-                    {#each docIds as id (id)}
-                        <li class:selected={selectedDocId === id}>
-                            <button onclick={() => selectDoc(id)}>{id}</button>
-                        </li>
-                    {/each}
+                <ul class="tree">
+                    {@render docTreeNode(docTree, 0)}
                 </ul>
             </aside>
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -293,7 +396,7 @@
                         <textarea class="json-editor" bind:value={docEditor} spellcheck="false" rows="30"></textarea>
                     {/if}
                 {:else}
-                    <div class="empty-state">Select a document or create a new one.</div>
+                    {@render dbWelcome()}
                 {/if}
             </main>
         </div>
@@ -301,9 +404,8 @@
         <div class="panel">
             <!-- Left sidebar: view list -->
             <aside class="sidebar" style:width="{sidebarWidth}px">
-                <div class="sidebar-header">
-                    <span>Views ({viewIds.length})</span>
-                    <button class="btn-icon" onclick={() => { showNewViewForm = !showNewViewForm; newViewError = null; }} title="New view">+</button>
+                <div class="toolbar">
+                    <button onclick={() => { showNewViewForm = !showNewViewForm; newViewError = null; }}>+ View</button>
                 </div>
                 {#if showNewViewForm}
                     <div class="new-item-form">
@@ -312,12 +414,8 @@
                     </div>
                     {#if newViewError}<div class="form-error">{newViewError}</div>{/if}
                 {/if}
-                <ul>
-                    {#each viewIds as id (id)}
-                        <li class:selected={selectedViewId === id}>
-                            <button onclick={() => selectView(id)}>{id}</button>
-                        </li>
-                    {/each}
+                <ul class="tree">
+                    {@render viewTreeNode(viewTree, 0)}
                 </ul>
             </aside>
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -338,39 +436,42 @@
                     {#if viewLoading}
                         <div class="loading">Loading…</div>
                     {:else}
-                        <label class="field-label">
-                            Filter (MQTT wildcard, optional)
-                            <input class="filter-input" bind:value={viewFilter} placeholder="devices/#" />
-                        </label>
-                        <label class="field-label">
-                            Map function — use <code>emit(value)</code> or <code>this.prop</code>
-                            <textarea class="js-editor" bind:value={viewMap} spellcheck="false" rows="8"></textarea>
-                        </label>
-                        <label class="field-label">
-                            Reduce function — receives <code>result</code> array, return new array (optional)
-                            <textarea class="js-editor" bind:value={viewReduce} spellcheck="false" rows="5"></textarea>
-                        </label>
-
-                        {#if viewResult}
-                            <div class="view-result">
-                                <div class="result-header">
-                                    Result
+                        <div class="view-sections">
+                            <div class="view-section">
+                                <div class="section-title">Filter <span class="section-hint">— MQTT wildcard, optional</span></div>
+                                <div class="section-body">
+                                    <input class="filter-input" bind:value={viewFilter} placeholder="devices/#" />
+                                </div>
+                            </div>
+                            <div class="view-section">
+                                <div class="section-title">Map <span class="section-hint">— <code>this</code> = document &nbsp;·&nbsp; call <code>emit(value)</code> to include in result</span></div>
+                                <textarea class="code-editor" bind:value={viewMap} spellcheck="false" rows="8"></textarea>
+                            </div>
+                            <div class="view-section">
+                                <div class="section-title">Reduce <span class="section-hint">— receives <code>result</code> array, must <code>return</code> new value (optional)</span></div>
+                                <textarea class="code-editor" bind:value={viewReduce} spellcheck="false" rows="5"></textarea>
+                            </div>
+                            {#if viewResult}
+                                <div class="view-result">
+                                    <div class="result-header">
+                                        Result
+                                        {#if viewResult.error}
+                                            <span class="badge-error">error</span>
+                                        {:else}
+                                            <span class="badge-ok">{viewResult.length ?? 0} items · rev {viewResult._rev}</span>
+                                        {/if}
+                                    </div>
                                     {#if viewResult.error}
-                                        <span class="badge-error">error</span>
+                                        <pre class="result-error">{viewResult.error}</pre>
                                     {:else}
-                                        <span class="badge-ok">{viewResult.length ?? 0} items · rev {viewResult._rev}</span>
+                                        <pre class="result-json">{JSON.stringify(viewResult.result, null, 2)}</pre>
                                     {/if}
                                 </div>
-                                {#if viewResult.error}
-                                    <pre class="result-error">{viewResult.error}</pre>
-                                {:else}
-                                    <pre class="result-json">{JSON.stringify(viewResult.result, null, 2)}</pre>
-                                {/if}
-                            </div>
-                        {/if}
+                            {/if}
+                        </div>
                     {/if}
                 {:else}
-                    <div class="empty-state">Select a view or create a new one.</div>
+                    {@render dbWelcome()}
                 {/if}
             </main>
         </div>
@@ -416,7 +517,6 @@
         min-width: 140px;
         max-width: 500px;
         flex-shrink: 0;
-        border-right: none;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -429,13 +529,36 @@
         cursor: col-resize;
         background: var(--border-sub);
         transition: background 0.15s;
-        position: relative;
     }
     .resize-handle:hover,
     .resize-handle:active {
         background: var(--accent);
     }
 
+    /* ---- Sidebar toolbar ---- */
+    .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px;
+        border-bottom: 1px solid var(--border-sub);
+    }
+
+    .toolbar button {
+        flex: 1;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        padding: 4px 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1;
+    }
+
+    .toolbar button:hover { background: var(--accent-hov); }
+
+    /* ---- New-item form ---- */
     .new-item-form {
         display: flex;
         flex-wrap: wrap;
@@ -473,39 +596,84 @@
         border-bottom: 1px solid var(--border-sub);
     }
 
-    .sidebar ul {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        overflow-y: auto;
+    /* ---- Folder tree ---- */
+    .tree {
         flex: 1;
+        overflow-y: auto;
+        list-style: none;
+        padding: 4px 0;
+        margin: 0;
     }
 
-    .sidebar li button {
-        display: block;
+    .tree-dir,
+    .tree-file { list-style: none; }
+
+    .tree-children { list-style: none; padding: 0; margin: 0; }
+
+    .dir-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 12px 3px calc(8px + var(--depth, 0) * 12px);
+        cursor: default;
+    }
+
+    .chevron {
+        background: none;
+        border: none;
+        color: var(--fg-muted);
+        cursor: pointer;
+        padding: 0;
+        font-size: 9px;
+        line-height: 1;
+        width: 12px;
+        flex-shrink: 0;
+        text-align: center;
+    }
+
+    .dir-name {
+        color: var(--fg);
+        font-size: 12px;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .tree-file button {
+        display: flex;
+        align-items: center;
+        gap: 5px;
         width: 100%;
         text-align: left;
         background: none;
         border: none;
         color: var(--fg);
-        padding: 5px 10px;
+        padding: 3px 8px 3px calc(20px + var(--depth, 0) * 12px);
         cursor: pointer;
-        font-size: 0.82rem;
-        word-break: break-all;
+        font-size: 12px;
     }
 
-    .sidebar li.selected button,
-    .sidebar li button:hover {
+    .tree-file button:hover { background: var(--bg-hover); }
+
+    .tree-file.active-item button {
         background: var(--bg-active);
         color: var(--fg-text);
     }
 
+    .fname {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* ---- Editor area ---- */
     .editor-area {
         flex: 1;
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        padding: 0;
     }
 
     .editor-toolbar {
@@ -514,6 +682,7 @@
         gap: 6px;
         padding: 6px 10px;
         border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
     }
 
     .editor-title {
@@ -534,19 +703,17 @@
         font-size: 0.82rem;
     }
 
-    .btn-danger {
-        background: var(--accent-del) !important;
-    }
+    .btn-danger { background: var(--accent-del) !important; }
 
     .error-bar {
         background: var(--bg-err-subtle);
         color: var(--fg-err-subtle);
         padding: 4px 10px;
         font-size: 0.82rem;
+        flex-shrink: 0;
     }
 
-    .loading,
-    .empty-state {
+    .loading {
         flex: 1;
         display: flex;
         align-items: center;
@@ -555,8 +722,8 @@
         font-size: 0.9rem;
     }
 
-    .json-editor,
-    .js-editor {
+    /* ---- JSON document editor ---- */
+    .json-editor {
         flex: 1;
         width: 100%;
         background: var(--bg-app);
@@ -569,24 +736,64 @@
         box-sizing: border-box;
     }
 
-    .field-label {
-        display: flex;
-        flex-direction: column;
-        padding: 6px 8px 0;
-        font-size: 0.78rem;
+    /* ---- View section layout ---- */
+    .view-sections {
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    .view-section {
+        border-bottom: 1px solid var(--border-sub);
+    }
+
+    .section-title {
+        padding: 5px 10px 4px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
         color: var(--fg-muted);
-        gap: 3px;
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border-sub);
+        user-select: none;
+    }
+
+    .section-hint {
+        font-weight: normal;
+        text-transform: none;
+        letter-spacing: 0;
+        color: var(--fg-dim);
+    }
+
+    .section-body {
+        padding: 6px 8px;
     }
 
     .filter-input {
+        width: 100%;
+        box-sizing: border-box;
         background: var(--bg-app);
         border: 1px solid var(--border);
         color: var(--fg);
-        padding: 3px 8px;
+        padding: 4px 8px;
         border-radius: 3px;
         font-size: 0.82rem;
     }
 
+    .code-editor {
+        display: block;
+        width: 100%;
+        background: var(--bg-app);
+        color: var(--fg-text);
+        border: none;
+        font-family: 'Cascadia Code', 'Fira Mono', monospace;
+        font-size: 0.82rem;
+        padding: 8px;
+        resize: none;
+        box-sizing: border-box;
+    }
+
+    /* ---- View result ---- */
     .view-result {
         margin: 8px;
         border: 1px solid var(--border-sub);
@@ -634,8 +841,63 @@
         white-space: pre-wrap;
     }
 
-    .result-error {
-        color: var(--fg-err-subtle);
+    .result-error { color: var(--fg-err-subtle); }
+
+    /* ---- Welcome page ---- */
+    .welcome {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg-app);
     }
+
+    .welcome-inner {
+        max-width: 480px;
+        text-align: center;
+        padding: 32px 24px;
+    }
+
+    .welcome-logo {
+        font-size: 52px;
+        font-weight: 700;
+        letter-spacing: -2px;
+        color: var(--fg-brand);
+        line-height: 1;
+        margin-bottom: 8px;
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+    }
+
+    .welcome-sub {
+        color: var(--fg-muted);
+        font-size: 13px;
+        margin: 0 0 24px;
+    }
+
+    .welcome-hint {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-sub);
+        border-radius: 6px;
+        padding: 14px 18px;
+        font-size: 13px;
+        color: var(--fg);
+        line-height: 1.6;
+        text-align: left;
+        margin-bottom: 20px;
+    }
+
+    .welcome-hint code { color: var(--fg-brand); font-size: 12px; }
+
+    .welcome-links {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 12px;
+    }
+
+    .welcome-links a { color: var(--fg-brand); text-decoration: none; }
+    .welcome-links a:hover { text-decoration: underline; }
+    .welcome-links span { color: var(--fg-dim); }
 </style>
 

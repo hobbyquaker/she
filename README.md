@@ -38,6 +38,7 @@ The goal is simple: a smart home that remains understandable years later. No mig
 | [CLI reference](doc/cli.md) | All flags and environment variables |
 | [Sandbox API](doc/sandbox-api.md) | Everything available inside a script |
 | [HTTP API](doc/http-api.md) | REST endpoints and WebSocket |
+| [sheDB](doc/db/README.md) | Embedded document store — script API, views, examples |
 | [Examples](doc/examples.md) | Real-world script patterns |
 
 ## Quick look
