@@ -174,10 +174,14 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
     const isAnthropic = ai.provider === 'anthropic';
     const tools = isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS;
     let msgs = messages;
+    let toolsUsed = false;  // once the model has used tools, stop offering them
 
     for (let round = 0; round < 6; round++) {
-        // On the final safety round, don't send tools to avoid infinite loops
-        const roundTools = round < 5 ? tools : undefined;
+        // After the first round of tool calls, don't offer tools again.
+        // This forces a plain-text response rather than letting the model
+        // keep calling tools indefinitely (and some models return empty
+        // content when given tools but no reason to call them).
+        const roundTools = toolsUsed ? undefined : tools;
 
         let result;
         try {
@@ -197,10 +201,22 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
 
         // No tool calls → we have the final answer
         if (!result.toolCalls?.length) {
+            // If the model returned empty content after using tools, nudge it once
+            if (!result.message && toolsUsed) {
+                const nudgeMsgs = [
+                    ...msgs,
+                    { role: 'user', content: 'Based on the information retrieved above, please now provide your complete response.' },
+                ];
+                const nudged = isAnthropic
+                    ? await callAnthropic(ai, nudgeMsgs)
+                    : await callOpenAICompat(ai, nudgeMsgs);
+                return { message: nudged.message ?? '', usage: nudged.usage };
+            }
             return { message: result.message ?? '', usage: result.usage };
         }
 
         // Execute tool calls and append results to message history
+        toolsUsed = true;
         if (isAnthropic) {
             msgs = [...msgs, { role: 'assistant', content: result.assistantMsg }];
             const toolResultBlocks = [];
