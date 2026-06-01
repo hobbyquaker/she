@@ -280,7 +280,7 @@ declare const she: {
     function badgeContent(ext: string): string {
         switch (ext) {
             case 'SH': case 'BASH': return '$';
-            case 'MD': case 'MARKDOWN': return '\u2193';
+            case 'MD': case 'MARKDOWN': return '\u21d3';
             case 'JSON': case 'JSONC': return '{}';
             default: return ext;
         }
@@ -1028,16 +1028,20 @@ declare const she: {
     .tree-file.active-tab button { background: var(--bg-active); color: var(--fg-text); }
     .tree-file.active:not(.active-tab) button { background: var(--bg-hover); }
 
-    .badge { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 2px; background: #555; color: #fff; flex-shrink: 0; }
-    /* Language colours */
-    .badge-js, .badge-mjs, .badge-cjs { background: #f0c040; color: #1e1e1e; }
-    .badge-ts, .badge-tsx             { background: #3178c6; color: #fff; }
-    .badge-json, .badge-jsonc         { background: #e67e22; color: #fff; }
-    .badge-md, .badge-markdown        { background: #519aba; color: #fff; }
-    .badge-yaml, .badge-yml           { background: #8e44ad; color: #fff; }
-    .badge-css, .badge-html           { background: #2980b9; color: #fff; }
-    .badge-sh, .badge-bash            { background: #2ecc71; color: #1e1e1e; }
-    .badge.badge-shelib { background: var(--bg-widget); color: var(--fg-muted); }
+    .badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 22px; font-size: 9px; font-weight: 700; border-radius: 2px;
+        background: transparent; color: #888; flex-shrink: 0;
+    }
+    /* Language colours — foreground only, works on dark and light backgrounds */
+    .badge-js, .badge-mjs, .badge-cjs { color: #b89a00; font-size: 8px; letter-spacing: -0.5px; }
+    .badge-ts, .badge-tsx             { color: #2068c0; }
+    .badge-json, .badge-jsonc         { color: #c06010; }
+    .badge-md, .badge-markdown        { color: #1888b0; font-size: 12px; }
+    .badge-yaml, .badge-yml           { color: #7a28a8; }
+    .badge-css, .badge-html           { color: #1570a8; }
+    .badge-sh, .badge-bash            { color: #0a8840; }
+    .badge.badge-shelib { color: var(--fg-muted); }
     .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dirty-dot { color: #e5c07b; font-size: 8px; flex-shrink: 0; }
     .err-dot { color: var(--fg-err); font-size: 8px; flex-shrink: 0; }
