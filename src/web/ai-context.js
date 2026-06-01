@@ -76,58 +76,70 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
     }
 
     if (requestCtx.mqtt && store) {
-        // Collect all MQTT topics and their current values
-        const valMap = new Map();
+        // Collect all MQTT topics, skipping $SYS/ broker internals
+        const topicData = new Map(); // topic → { val, lc }
         for (const [topic, obj] of store.mqttEntries()) {
-            valMap.set(topic, obj.val);
+            if (topic.startsWith('$SYS/')) continue;
+            topicData.set(topic, { val: obj.val, lc: obj.lc ?? obj.ts ?? 0 });
         }
 
-        if (valMap.size > 0) {
+        if (topicData.size > 0) {
             // Build a trie so sibling leaf-topics can be collapsed onto one line.
-            // A "pure leaf" is a topic that has no sub-topics (nothing starts with it + '/').
-            // Multiple pure leaves sharing the same parent prefix are written as:
-            //   parent/FIRST: v1 # SECOND: v2 # THIRD: v3
-            // which saves significant context space for devices that publish many
-            // attributes under the same prefix (e.g. hm/status/device/STATE # WORKING # DIRECTION).
-            const root = { children: new Map(), isLeaf: false };
-            for (const topic of valMap.keys()) {
+            // Each node tracks maxLc (max lc of all descendants) so subtrees are
+            // visited most-recently-changed first.
+            const root = { children: new Map(), isLeaf: false, lc: 0, maxLc: 0 };
+            for (const [topic, { lc }] of topicData) {
                 const segs = topic.split('/');
                 let node = root;
                 for (const seg of segs) {
                     if (!node.children.has(seg)) {
-                        node.children.set(seg, { children: new Map(), isLeaf: false });
+                        node.children.set(seg, { children: new Map(), isLeaf: false, lc: 0, maxLc: 0 });
                     }
                     node = node.children.get(seg);
                 }
                 node.isLeaf = true;
+                node.lc = lc;
             }
 
+            // Post-order pass: propagate maxLc up so subtrees can be sorted by recency
+            const propagate = (node) => {
+                let max = node.isLeaf ? node.lc : 0;
+                for (const child of node.children.values()) {
+                    const m = propagate(child);
+                    if (m > max) max = m;
+                }
+                node.maxLc = max;
+                return max;
+            };
+            propagate(root);
+
+            // Walk the trie most-recently-changed first.
+            // Sibling pure-leaf nodes (no sub-topics) under the same parent are
+            // collapsed onto one line: parent/A: v1 # B: v2 # C: v3
             const lines = [];
             const walk = (node, prefix) => {
-                const sorted = [...node.children.entries()].sort(([a], [b]) => a.localeCompare(b));
-                const pureLeaves = sorted.filter(([, c]) => c.isLeaf && c.children.size === 0);
-                const branches   = sorted.filter(([, c]) => !(c.isLeaf && c.children.size === 0));
+                const byRecency = [...node.children.entries()].sort(([, a], [, b]) => b.maxLc - a.maxLc);
+                const pureLeaves = byRecency.filter(([, c]) => c.isLeaf && c.children.size === 0);
+                const branches   = byRecency.filter(([, c]) => !(c.isLeaf && c.children.size === 0));
 
                 if (pureLeaves.length > 1 && prefix) {
-                    // Collapse sibling leaves: "prefix/A: v1 # B: v2 # C: v3"
                     const [[first], ...rest] = pureLeaves;
-                    const v0 = JSON.stringify(valMap.get(`${prefix}/${first}`));
+                    const v0 = JSON.stringify(topicData.get(`${prefix}/${first}`).val);
                     const siblings = rest.map(([k]) =>
-                        `${k}: ${JSON.stringify(valMap.get(`${prefix}/${k}`))}`
+                        `${k}: ${JSON.stringify(topicData.get(`${prefix}/${k}`).val)}`
                     );
                     lines.push(`${prefix}/${first}: ${v0} # ${siblings.join(' # ')}`);
                 } else {
                     for (const [key] of pureLeaves) {
                         const t = prefix ? `${prefix}/${key}` : key;
-                        lines.push(`${t}: ${JSON.stringify(valMap.get(t))}`);
+                        lines.push(`${t}: ${JSON.stringify(topicData.get(t).val)}`);
                     }
                 }
 
                 for (const [key, child] of branches) {
                     const cp = prefix ? `${prefix}/${key}` : key;
                     if (child.isLeaf) {
-                        // Node is both a topic itself and has sub-topics
-                        lines.push(`${cp}: ${JSON.stringify(valMap.get(cp))}`);
+                        lines.push(`${cp}: ${JSON.stringify(topicData.get(cp).val)}`);
                     }
                     walk(child, cp);
                 }
@@ -136,7 +148,8 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
 
             parts.push(
                 '## Current MQTT state\n' +
-                '(Sibling leaf-topics with a shared parent prefix are grouped on one line as: prefix/A: v1 # B: v2 # C: v3)\n' +
+                '($SYS/ broker topics omitted; sorted most-recently-changed first;\n' +
+                'sibling leaf-topics sharing a prefix are grouped: prefix/A: v1 # B: v2 # C: v3)\n' +
                 lines.join('\n')
             );
         }
