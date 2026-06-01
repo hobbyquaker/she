@@ -251,10 +251,9 @@
     collapsed nodes cost zero DOM nodes.
 -->
 {#snippet treeNode(n: TreeNode)}
-    {@const depth   = n.path.split('/').length - 1}
     {@const isOpen  = expanded.has(n.path)}
     {@const hasKids = version >= 0 && n.children.size > 0}
-    <div class="tn" style="--d: {depth}">
+    <div class="tn">
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div class="tr" onclick={() => { streamFilter = n.path + '/#'; }}>
             {#if hasKids}
@@ -508,7 +507,7 @@
         align-items: center;
         gap: 4px;
         height: 22px;
-        padding-left: calc(16px + var(--d, 0) * 16px);
+        padding-left: 8px;
         cursor: pointer;
         user-select: none;
     }
@@ -557,7 +556,7 @@
     }
     .tc {
         display: block;
-        margin-left: calc(24px + var(--d, 0) * 16px);
+        margin-left: 12px;
         border-left: 1px solid var(--indent-line);
     }
 
