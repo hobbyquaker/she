@@ -277,6 +277,15 @@ declare const she: {
 
     function toggleDir(path: string) { expandedDirs[path] = !expandedDirs[path]; }
 
+    function badgeContent(ext: string): string {
+        switch (ext) {
+            case 'SH': case 'BASH': return '$';
+            case 'MD': case 'MARKDOWN': return '\u2193';
+            case 'JSON': case 'JSONC': return '{}';
+            default: return ext;
+        }
+    }
+
     async function toggleLib(dirPath: string, makeLib: boolean) {
         try {
             if (makeLib) await writeScript(`${dirPath}/.shelib`, '');
@@ -729,7 +738,7 @@ declare const she: {
 
         {#snippet treeEntry(entry: TreeEntry)}
             {#if entry.type === 'dir'}
-                <li class="tree-dir" style="--depth: {entry.path.split('/').length - 1}">
+                <li class="tree-dir">
                     <div
                         class="dir-row"
                         class:dir-selected={selectedDir === entry.path}
@@ -774,13 +783,12 @@ declare const she: {
                     class="tree-file"
                     class:active={tabs.some(t => t.path === entry.path)}
                     class:active-tab={entry.path === activeTab}
-                    style="--depth: {entry.path.split('/').length - 1}"
                     draggable="true"
                     ondragstart={(e) => onDragStart(e, entry.path)}
                     oncontextmenu={(e) => openCtxMenu(e, entry)}
                 >
                     <button class:lib={entry.lib} onclick={() => openTab(entry.path)}>
-                        <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{ext}</span>
+                        <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
                         <span class="fname">{entry.name}</span>
                         {#if tabs.find(t => t.path === entry.path)?.dirty}<span class="dirty-dot">●</span>{/if}
                         {#if hasErr}<span class="err-dot">●</span>{/if}
@@ -988,10 +996,10 @@ declare const she: {
 
     .tree { flex: 1; overflow-y: auto; list-style: none; padding: 4px 0; margin: 0; }
     .tree-dir, .tree-file { list-style: none; }
-    .tree-children { list-style: none; padding: 0; margin: 0 0 0 calc(14px + var(--depth, 0) * 12px); border-left: 1px solid var(--indent-line); }
+    .tree-children { list-style: none; padding: 0; margin: 0 0 0 10px; border-left: 1px solid var(--indent-line); }
     .dir-row {
         display: flex; align-items: center; gap: 4px;
-        padding: 3px 12px 3px calc(8px + var(--depth, 0) * 12px); cursor: default;
+        padding: 3px 8px 3px 6px; cursor: default;
     }
     .chevron {
         background: none; border: none; color: var(--fg-muted); cursor: pointer;
@@ -1012,7 +1020,7 @@ declare const she: {
     .tree-file button {
         display: flex; align-items: center; gap: 5px; width: 100%; text-align: left;
         background: none; border: none; color: var(--fg);
-        padding: 3px 8px 3px calc(20px + var(--depth, 0) * 12px);
+        padding: 3px 8px 3px 6px;
         cursor: pointer; font-size: 12px;
     }
     .tree-file button.lib .fname { color: var(--fg-muted); font-style: italic; }
@@ -1025,7 +1033,7 @@ declare const she: {
     .badge-js, .badge-mjs, .badge-cjs { background: #f0c040; color: #1e1e1e; }
     .badge-ts, .badge-tsx             { background: #3178c6; color: #fff; }
     .badge-json, .badge-jsonc         { background: #e67e22; color: #fff; }
-    .badge-md, .badge-markdown        { background: #27ae60; color: #fff; }
+    .badge-md, .badge-markdown        { background: #519aba; color: #fff; }
     .badge-yaml, .badge-yml           { background: #8e44ad; color: #fff; }
     .badge-css, .badge-html           { background: #2980b9; color: #fff; }
     .badge-sh, .badge-bash            { background: #2ecc71; color: #1e1e1e; }
