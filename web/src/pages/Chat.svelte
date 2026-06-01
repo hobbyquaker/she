@@ -492,19 +492,19 @@
     <!-- Context toggles -->
     <div class="context-row">
         <label title="Include she API reference in context">
-            <input type="checkbox" bind:checked={ctxApiref} /> API ref
+            <input type="checkbox" bind:checked={ctxApiref} /><span class="checkmark"></span> API ref
         </label>
         <label title="Include current MQTT state in context">
-            <input type="checkbox" bind:checked={ctxMqtt} /> MQTT
+            <input type="checkbox" bind:checked={ctxMqtt} /><span class="checkmark"></span> MQTT
         </label>
         <label title="Include sheDB document IDs in context">
-            <input type="checkbox" bind:checked={ctxShedb} /> DB
+            <input type="checkbox" bind:checked={ctxShedb} /><span class="checkmark"></span> DB
         </label>
         <label title="Include paired Matter devices in context">
-            <input type="checkbox" bind:checked={ctxMatter} /> Matter
+            <input type="checkbox" bind:checked={ctxMatter} /><span class="checkmark"></span> Matter
         </label>
         <label title="Allow the AI to search MQTT topics, read scripts, and fetch logs on demand. Disables real-time streaming.">
-            <input type="checkbox" bind:checked={ctxTools} /> 🔧 Tools
+            <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 🔧 Tools
         </label>
     </div>
 
@@ -848,10 +848,39 @@
     }
     .context-row label:hover { color: var(--fg); }
     .context-row input[type='checkbox'] {
-        accent-color: var(--fg-brand);
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+    .context-row .checkmark {
+        flex-shrink: 0;
         width: 11px;
         height: 11px;
+        border: 1.5px solid var(--border);
+        border-radius: 2px;
+        background: var(--bg-app);
+        position: relative;
+        transition: background 0.12s, border-color 0.12s;
     }
+    .context-row input:checked + .checkmark {
+        background: var(--accent);
+        border-color: var(--accent);
+    }
+    .context-row input:checked + .checkmark::after {
+        content: '';
+        position: absolute;
+        left: 2px;
+        top: -1px;
+        width: 3px;
+        height: 6px;
+        border: 1.5px solid #fff;
+        border-top: none;
+        border-left: none;
+        transform: rotate(45deg);
+    }
+    .context-row label:hover .checkmark { border-color: var(--accent); }
 
     .input-row {
         display: flex;
