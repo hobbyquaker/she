@@ -76,6 +76,7 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
     }
 
     if (requestCtx.mqtt && store) {
+        try {
         // Collect all MQTT topics, skipping $SYS/ broker internals
         const topicData = new Map(); // topic → { val, lc }
         for (const [topic, obj] of store.mqttEntries()) {
@@ -152,6 +153,9 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
                 'sibling leaf-topics sharing a prefix are grouped: prefix/A: v1 # B: v2 # C: v3)\n' +
                 lines.join('\n')
             );
+        }
+        } catch (e) {
+            parts.push(`## Current MQTT state\n(Error building MQTT context: ${e.message})`);
         }
     }
 

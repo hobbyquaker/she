@@ -407,8 +407,12 @@ router.get('/model-info', async (req, res) => {
 // POST /she/ai/prompt — return the current system prompt for preview
 router.post('/prompt', (req, res) => {
     const { context = {}, currentScript, currentView, currentDoc } = req.body || {};
-    const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
-    res.json({ prompt });
+    try {
+        const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
+        res.json({ prompt });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // POST /she/ai/chat — non-streaming
@@ -453,6 +457,14 @@ router.post('/chat/stream', async (req, res) => {
 
     const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
 
+    // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
+    let systemPrompt;
+    try {
+        systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
+    } catch (e) {
+        return res.status(500).json({ error: `Failed to build system prompt: ${e.message}` });
+    }
+
     res.set({
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -462,7 +474,6 @@ router.post('/chat/stream', async (req, res) => {
 
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     try {
