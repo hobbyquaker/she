@@ -202,6 +202,22 @@
     /* ── Context menu ─────────────────────────────────────────────────────── */
     let ctxMenu = $state<{ x: number; y: number; topic: string } | null>(null);
 
+    /* ── Clear retained modal ─────────────────────────────────────────────── */
+    let clearModal = $state<{ topic: string; hasChildren: boolean; recursive: boolean } | null>(null);
+
+    async function clearRetained(topic: string, recursive: boolean) {
+        const topics = [topic];
+        if (recursive) {
+            const prefix = topic + '/';
+            for (const t of topicMap.keys()) {
+                if (t.startsWith(prefix)) topics.push(t);
+            }
+        }
+        for (const t of topics) {
+            await publishMqtt(t, '', true, 0);
+        }
+    }
+
     /* ── Topic autocomplete list ──────────────────────────────────────────── */
     let topicList = $derived.by(() => { void version; return [...topicMap.keys()].sort(); });
 
@@ -428,7 +444,40 @@
         <div class="ctx-bd" onclick={() => (ctxMenu = null)} oncontextmenu={(e) => { e.preventDefault(); ctxMenu = null; }}></div>
         <div class="ctx-menu" style:left="{ctxMenu.x}px" style:top="{ctxMenu.y}px">
             <button onclick={() => { navigator.clipboard.writeText(ctxMenu!.topic); ctxMenu = null; }}>Copy topic</button>
-            <button onclick={() => { publishMqtt(ctxMenu!.topic, '', true, 0); ctxMenu = null; }}>Clear retained</button>
+            <button onclick={() => {
+                const topic = ctxMenu!.topic;
+                const prefix = topic + '/';
+                const hasChildren = [...topicMap.keys()].some(t => t.startsWith(prefix));
+                clearModal = { topic, hasChildren, recursive: false };
+                ctxMenu = null;
+            }}>Clear retained</button>
+        </div>
+    {/if}
+
+    <!-- Clear retained modal -->
+    {#if clearModal}
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="modal-bd" onclick={() => (clearModal = null)}></div>
+        <div class="modal">
+            <div class="modal-title">Clear retained</div>
+            <div class="modal-body">
+                <p>Clear retained value for <code>{clearModal.topic}</code>?</p>
+                {#if clearModal.hasChildren}
+                <label class="modal-check">
+                    <input type="checkbox" bind:checked={clearModal.recursive} />
+                    <span class="checkmark"></span>
+                    Recursive — also clear all child topics
+                </label>
+                {/if}
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick={() => (clearModal = null)}>Cancel</button>
+                <button class="btn-confirm" onclick={() => {
+                    const { topic, recursive } = clearModal!;
+                    clearModal = null;
+                    clearRetained(topic, recursive);
+                }}>Clear</button>
+            </div>
         </div>
     {/if}
 </div>
@@ -784,4 +833,102 @@
         border-radius: 0;
     }
     .ctx-menu button:hover { background: var(--bg-hover); }
+
+    /* ── Clear retained modal ── */
+    .modal-bd {
+        position: fixed;
+        inset: 0;
+        z-index: 110;
+        background: rgba(0, 0, 0, 0.4);
+    }
+    .modal {
+        position: fixed;
+        z-index: 111;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        min-width: 320px;
+        max-width: 480px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .modal-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+    }
+    .modal-body {
+        font-size: 12px;
+        color: var(--fg);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .modal-body p { margin: 0; }
+    .modal-body code { color: var(--accent); }
+    .modal-check {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--fg);
+        cursor: pointer;
+        user-select: none;
+    }
+    .modal-check input[type='checkbox'] {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+    .modal-check .checkmark {
+        flex-shrink: 0;
+        width: 13px;
+        height: 13px;
+        border: 1.5px solid var(--border);
+        border-radius: 2px;
+        background: var(--bg-app);
+        position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .modal-check input:checked + .checkmark {
+        background: var(--accent);
+        border-color: var(--accent);
+    }
+    .modal-check input:checked + .checkmark::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        top: 0px;
+        width: 4px;
+        height: 7px;
+        border: 1.5px solid #fff;
+        border-top: none;
+        border-left: none;
+        transform: rotate(45deg);
+    }
+    .modal-check:hover .checkmark { border-color: var(--accent); }
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+    .modal-footer button {
+        padding: 4px 14px;
+        font-size: 12px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        cursor: pointer;
+    }
+    .btn-cancel { background: var(--bg-app); color: var(--fg); }
+    .btn-cancel:hover { background: var(--bg-hover); }
+    .btn-confirm { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-confirm:hover { opacity: 0.85; }
 </style>
