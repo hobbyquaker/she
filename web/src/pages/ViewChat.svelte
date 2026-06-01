@@ -382,13 +382,13 @@
     <!-- Context toggles -->
     <div class="context-row">
         <label title="Include sheDB document IDs in context">
-            <input type="checkbox" bind:checked={ctxDocIds} /> Doc IDs
+            <input type="checkbox" bind:checked={ctxDocIds} /><span class="checkmark"></span> Doc IDs
         </label>
         <label title="Include sample document content in context (first 10 docs)">
-            <input type="checkbox" bind:checked={ctxSampleDocs} /> Sample docs
+            <input type="checkbox" bind:checked={ctxSampleDocs} /><span class="checkmark"></span> Sample docs
         </label>
         <label title="Include current MQTT state in context">
-            <input type="checkbox" bind:checked={ctxMqtt} /> MQTT
+            <input type="checkbox" bind:checked={ctxMqtt} /><span class="checkmark"></span> MQTT
         </label>
     </div>
 
@@ -627,9 +627,42 @@
         border-top: 1px solid var(--border-sub);
         flex-shrink: 0;
     }
-    .context-row label { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--fg-dim); cursor: pointer; }
+    .context-row label { display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--fg-dim); cursor: pointer; user-select: none; }
     .context-row label:hover { color: var(--fg); }
-    .context-row input[type='checkbox'] { accent-color: var(--accent); }
+    .context-row input[type='checkbox'] {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+    .context-row .checkmark {
+        flex-shrink: 0;
+        width: 11px;
+        height: 11px;
+        border: 1.5px solid var(--border);
+        border-radius: 2px;
+        background: var(--bg-app);
+        position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .context-row input:checked + .checkmark {
+        background: var(--accent);
+        border-color: var(--accent);
+    }
+    .context-row input:checked + .checkmark::after {
+        content: '';
+        position: absolute;
+        left: 2px;
+        top: -1px;
+        width: 3px;
+        height: 6px;
+        border: 1.5px solid #fff;
+        border-top: none;
+        border-left: none;
+        transform: rotate(45deg);
+    }
+    .context-row label:hover .checkmark { border-color: var(--accent); }
 
     /* ── Input area ──────────────────────────────────────────────────────── */
     .input-row {

@@ -443,12 +443,14 @@
                             <div class="view-section view-section--options">
                                 <label class="opt-check">
                                     <input type="checkbox" bind:checked={viewMqttPub} />
+                                    <span class="checkmark"></span>
                                     Publish to MQTT
                                     <span class="section-hint">— result published to <code>{selectedViewId}</code> topic under <code>/db/view/</code> on every update</span>
                                 </label>
                                 {#if viewMqttPub}
                                 <label class="opt-check">
                                     <input type="checkbox" bind:checked={viewRetain} />
+                                    <span class="checkmark"></span>
                                     Retain
                                     <span class="section-hint">— send as retained MQTT message</span>
                                 </label>
@@ -790,8 +792,40 @@
         cursor: pointer;
         user-select: none;
     }
-
-    .opt-check input[type="checkbox"] { cursor: pointer; }
+    .opt-check input[type='checkbox'] {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+    .opt-check .checkmark {
+        flex-shrink: 0;
+        width: 13px;
+        height: 13px;
+        border: 1.5px solid var(--border);
+        border-radius: 2px;
+        background: var(--bg-app);
+        position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .opt-check input:checked + .checkmark {
+        background: var(--accent);
+        border-color: var(--accent);
+    }
+    .opt-check input:checked + .checkmark::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        top: 0px;
+        width: 4px;
+        height: 7px;
+        border: 1.5px solid #fff;
+        border-top: none;
+        border-left: none;
+        transform: rotate(45deg);
+    }
+    .opt-check:hover .checkmark { border-color: var(--accent); }
 
     .section-body { padding: 6px 8px; }
 
