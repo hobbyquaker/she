@@ -427,6 +427,14 @@ export function chatWithAI(body: AiChatRequest): Promise<AiChatResponse> {
     return request('POST', '/she/ai/chat', body);
 }
 
+export function getAiPrompt(body: {
+    context?: Partial<AiContext>;
+    currentScript?: AiCurrentScript | null;
+    currentView?: AiCurrentView | null;
+}): Promise<{ prompt: string }> {
+    return request('POST', '/she/ai/prompt', body);
+}
+
 /**
  * Stream a chat response via SSE.
  * onToken is called for each text token; the returned promise resolves when done.

@@ -404,6 +404,13 @@ router.get('/model-info', async (req, res) => {
     });
 });
 
+// POST /she/ai/prompt — return the current system prompt for preview
+router.post('/prompt', (req, res) => {
+    const { context = {}, currentScript, currentView, currentDoc } = req.body || {};
+    const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
+    res.json({ prompt });
+});
+
 // POST /she/ai/chat — non-streaming
 router.post('/chat', async (req, res) => {
     const ai = readAiConfig(req.app.locals.configPath);

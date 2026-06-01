@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { type AiMessage, type AiContext, type AiCurrentScript, type AiToolEvent, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, type AiConfig } from '../lib/api.js';
+    import { type AiMessage, type AiContext, type AiCurrentScript, type AiToolEvent, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, type AiConfig } from '../lib/api.js';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
     import { marked } from 'marked';
@@ -40,6 +40,12 @@
     let ollamaInfo = $state<OllamaModelInfo | null>(null);
     let infoLoading = $state(false);
     let infoError = $state('');
+
+    // Context prompt preview popup
+    let showPromptPopup = $state(false);
+    let promptContent = $state('');
+    let promptLoading = $state(false);
+    let promptError = $state('');
 
     // Streaming cancellation + status shimmer
     let abortController: AbortController | null = null;
@@ -265,6 +271,23 @@
         if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
         if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
         return `${bytes} B`;
+    }
+
+    async function openPromptPopup() {
+        showPromptPopup = true;
+        promptContent = '';
+        promptError = '';
+        promptLoading = true;
+        try {
+            const res = await getAiPrompt({
+                context: { apiref: ctxApiref, mqtt: ctxMqtt, shedb: ctxShedb, matter: ctxMatter, tools: ctxTools },
+                currentScript: currentScript ?? null,
+            });
+            promptContent = res.prompt;
+        } catch (e: unknown) {
+            promptError = (e instanceof Error) ? e.message : String(e);
+        }
+        promptLoading = false;
     }
 
     async function openInfoPopup() {
@@ -540,6 +563,7 @@
             {:else}
                 <span class="model-name">{selectedModel || aiConfig.model}</span>
             {/if}
+            <button class="info-btn" onclick={openPromptPopup} title="View system prompt &amp; context">≡</button>
             {#if aiConfig.provider === 'ollama'}
                 <button class="info-btn" onclick={openInfoPopup} title="Model info">ℹ</button>
             {/if}
@@ -590,6 +614,29 @@
                             <dt>Loaded</dt><dd class="dim">Not in memory</dd>
                         {/if}
                     </dl>
+                {/if}
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Context prompt preview popup -->
+{#if showPromptPopup}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="info-overlay" onclick={() => showPromptPopup = false}>
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="prompt-popup" onclick={(e) => e.stopPropagation()}>
+            <div class="info-popup-header">
+                <span>System prompt &amp; context</span>
+                <button onclick={() => showPromptPopup = false} title="Close">✕</button>
+            </div>
+            <div class="prompt-popup-body">
+                {#if promptLoading}
+                    <p class="info-status">Loading…</p>
+                {:else if promptError}
+                    <p class="info-status info-err">{promptError}</p>
+                {:else}
+                    {@html marked(promptContent)}
                 {/if}
             </div>
         </div>
@@ -1160,4 +1207,59 @@
     .running-model { font-size: 10px; line-height: 1.6; }
     .info-status { font-size: 11px; color: var(--fg-muted); margin: 0; }
     .info-err { color: var(--fg-err) !important; }
+
+    /* ── Prompt preview popup ────────────────────────────────────────────── */
+    .prompt-popup {
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        width: min(90vw, 760px);
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+    }
+    .prompt-popup-body {
+        padding: 12px 16px;
+        overflow-y: auto;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--fg);
+    }
+    .prompt-popup-body :global(h1),
+    .prompt-popup-body :global(h2),
+    .prompt-popup-body :global(h3) {
+        color: var(--fg);
+        font-size: 12px;
+        font-weight: 600;
+        margin: 1em 0 0.25em;
+        border-bottom: 1px solid var(--border-sub);
+        padding-bottom: 2px;
+    }
+    .prompt-popup-body :global(h1):first-child,
+    .prompt-popup-body :global(h2):first-child {
+        margin-top: 0;
+    }
+    .prompt-popup-body :global(p) { margin: 0.3em 0; }
+    .prompt-popup-body :global(ul),
+    .prompt-popup-body :global(ol) { margin: 0.3em 0; padding-left: 1.5em; }
+    .prompt-popup-body :global(li) { margin: 0.1em 0; }
+    .prompt-popup-body :global(code) {
+        background: var(--bg-widget);
+        border-radius: 3px;
+        padding: 1px 4px;
+        font-family: monospace;
+        font-size: 11px;
+    }
+    .prompt-popup-body :global(pre) {
+        background: var(--bg-widget);
+        border-radius: 4px;
+        padding: 8px 10px;
+        overflow-x: auto;
+        margin: 0.4em 0;
+        font-size: 11px;
+    }
+    .prompt-popup-body :global(pre code) { background: none; padding: 0; }
+    .prompt-popup-body :global(hr) { border: none; border-top: 1px solid var(--border-sub); margin: 0.5em 0; }
 </style>
