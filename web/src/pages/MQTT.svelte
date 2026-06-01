@@ -287,67 +287,74 @@
     <!-- Toolbar -->
     <div class="toolbar">
         <h2>MQTT</h2>
-        <input class="filter-in" type="search" placeholder="Filter topics…" bind:value={filter} />
-        <span class="count">
-            {#if filter}{flatList.length} /{/if} {totalCount}
-        </span>
     </div>
 
-    <!-- Publish bar -->
-    <div class="pub-bar">
-        <input class="pt" type="text" placeholder="topic"   bind:value={pubTopic} />
-        <input class="pp" type="text" placeholder="payload" bind:value={pubPayload} />
-        <label class="rl"><input type="checkbox" bind:checked={pubRetain} /> retain</label>
-        <select bind:value={pubQos}>
-            <option value={0}>QoS 0</option>
-            <option value={1}>QoS 1</option>
-            <option value={2}>QoS 2</option>
-        </select>
-        <button onclick={publish} disabled={pubBusy || !pubTopic}>Publish</button>
-        {#if pubOk}<span class="pub-ok">✓</span>{/if}
-        {#if pubError}<span class="pub-err">{pubError}</span>{/if}
-    </div>
+    <!-- Grouped panel: publish + filter + tree -->
+    <div class="main-group">
+        <!-- Publish bar -->
+        <div class="pub-bar">
+            <input class="pt" type="text" placeholder="topic"   bind:value={pubTopic} />
+            <input class="pp" type="text" placeholder="payload" bind:value={pubPayload} />
+            <label class="rl"><input type="checkbox" bind:checked={pubRetain} /> retain</label>
+            <select bind:value={pubQos}>
+                <option value={0}>QoS 0</option>
+                <option value={1}>QoS 1</option>
+                <option value={2}>QoS 2</option>
+            </select>
+            <button onclick={publish} disabled={pubBusy || !pubTopic}>Publish</button>
+            {#if pubOk}<span class="pub-ok">✓</span>{/if}
+            {#if pubError}<span class="pub-err">{pubError}</span>{/if}
+        </div>
 
-    <!-- Content -->
-    {#if loading}
-        <div class="info">Loading…</div>
-    {:else if loadError}
-        <div class="info err">{loadError}</div>
-    {:else if filter}
-        <!-- Filter mode: virtual-scrolled flat list -->
-        {#if flatList.length === 0}
-            <div class="info">No topics match.</div>
-        {:else}
-            <div
-                class="vs"
-                bind:clientHeight={containerH}
-                onscroll={(e) => { scrollTop = (e.currentTarget as HTMLDivElement).scrollTop; }}
-            >
-                <div style="height: {vslice.totalH}px; position: relative;">
-                    <div class="vrows-abs" style="top: {vslice.top}px;">
-                        {#each flatList.slice(vslice.start, vslice.end) as row (row.topic)}
-                            <div class="vr">
-                                <span class="v-topic">{row.topic}</span>
-                                <span class="v-val" title={fmtVal(row.val)}>{fmtVal(row.val)}</span>
-                                <span class="v-ts">{fmtTime(row.ts)}</span>
-                            </div>
-                        {/each}
+        <!-- Topic filter above tree -->
+        <div class="tree-filter-bar">
+            <input class="filter-in" type="search" placeholder="Filter topics…" bind:value={filter} />
+            <span class="count">
+                {#if filter}{flatList.length} /{/if} {totalCount}
+            </span>
+        </div>
+
+        <!-- Content -->
+        {#if loading}
+            <div class="info">Loading…</div>
+        {:else if loadError}
+            <div class="info err">{loadError}</div>
+        {:else if filter}
+            <!-- Filter mode: virtual-scrolled flat list -->
+            {#if flatList.length === 0}
+                <div class="info">No topics match.</div>
+            {:else}
+                <div
+                    class="vs"
+                    bind:clientHeight={containerH}
+                    onscroll={(e) => { scrollTop = (e.currentTarget as HTMLDivElement).scrollTop; }}
+                >
+                    <div style="height: {vslice.totalH}px; position: relative;">
+                        <div class="vrows-abs" style="top: {vslice.top}px;">
+                            {#each flatList.slice(vslice.start, vslice.end) as row (row.topic)}
+                                <div class="vr">
+                                    <span class="v-topic">{row.topic}</span>
+                                    <span class="v-val" title={fmtVal(row.val)}>{fmtVal(row.val)}</span>
+                                    <span class="v-ts">{fmtTime(row.ts)}</span>
+                                </div>
+                            {/each}
+                        </div>
                     </div>
                 </div>
+            {/if}
+        {:else}
+            <!-- Tree mode: only expanded branches are in the DOM -->
+            <div class="tree-wrap">
+                {#if rootList.length === 0}
+                    <div class="info">No topics yet.</div>
+                {:else}
+                    {#each rootList as n (n.path)}
+                        {@render treeNode(n)}
+                    {/each}
+                {/if}
             </div>
         {/if}
-    {:else}
-        <!-- Tree mode: only expanded branches are in the DOM -->
-        <div class="tree-wrap">
-            {#if rootList.length === 0}
-                <div class="info">No topics yet.</div>
-            {:else}
-                {#each rootList as n (n.path)}
-                    {@render treeNode(n)}
-                {/each}
-            {/if}
-        </div>
-    {/if}
+    </div>
 
     <!-- Live stream pane -->
     <div class="stream-panel" style={streamOpen ? `height: ${streamHeight}px;` : ''}>
@@ -403,21 +410,13 @@
         font-weight: 600;
         color: var(--fg);
     }
-    .filter-in {
+
+    /* ── Grouped panel (publish + filter + tree) ── */
+    .main-group {
         flex: 1;
-        max-width: 360px;
-        background: var(--bg-app);
-        border: 1px solid var(--border);
-        border-radius: 3px;
-        color: var(--fg);
-        padding: 3px 8px;
-        font-size: 13px;
-    }
-    .count {
-        font-size: 12px;
-        color: var(--fg-dim);
-        margin-left: auto;
-        white-space: nowrap;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
     }
 
     /* ── Publish bar ── */
@@ -428,6 +427,31 @@
         padding: 6px 12px;
         border-bottom: 1px solid var(--border);
         flex-shrink: 0;
+    }
+
+    /* ── Tree filter bar ── */
+    .tree-filter-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 12px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+        background: var(--bg-panel);
+    }
+    .filter-in {
+        flex: 1;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        color: var(--fg);
+        padding: 3px 8px;
+        font-size: 13px;
+    }
+    .count {
+        font-size: 12px;
+        color: var(--fg-dim);
+        white-space: nowrap;
     }
     .pt { width: 240px; }
     .pp { flex: 1; }
@@ -484,7 +508,7 @@
         align-items: center;
         gap: 4px;
         height: 22px;
-        padding-left: calc(4px + var(--d, 0) * 16px);
+        padding-left: calc(16px + var(--d, 0) * 16px);
         cursor: pointer;
         user-select: none;
     }
@@ -533,7 +557,7 @@
     }
     .tc {
         display: block;
-        margin-left: calc(12px + var(--d, 0) * 16px);
+        margin-left: calc(24px + var(--d, 0) * 16px);
         border-left: 1px solid var(--indent-line);
     }
 
