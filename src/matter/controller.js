@@ -32,13 +32,37 @@ function _nodeIdStr(nodeId) {
     return nodeId.toString();
 }
 
-function _findClientNode(nodeIdStr) {
+function _findClientNode(nodeIdOrName) {
+    nodeIdOrName = String(nodeIdOrName);
     if (!_server) throw new Error('Matter controller not started');
+    // Try exact numeric nodeId match first
     for (const node of _server.peers) {
         const addr = node.peerAddress;
-        if (addr && _nodeIdStr(addr.nodeId) === nodeIdStr) return node;
+        if (addr && _nodeIdStr(addr.nodeId) === nodeIdOrName) return node;
     }
-    throw new Error(`Matter node not found: ${nodeIdStr}`);
+    // Fall back to name match (basicInformation.nodeLabel / productName)
+    for (const node of _server.peers) {
+        if (!node.peerAddress) continue;
+        if (_getDeviceName(node) === nodeIdOrName) return node;
+    }
+    throw new Error(`Matter node not found: ${nodeIdOrName}`);
+}
+
+/**
+ * Resolve an endpoint by numeric id or by name.
+ * @param {object} node ClientNode
+ * @param {number|string} endpointIdOrName
+ * @returns endpoint object
+ */
+function _resolveEndpoint(node, endpointIdOrName) {
+    const asNum = Number(endpointIdOrName);
+    if (Number.isFinite(asNum)) return node.endpoints.for(asNum);
+    // Name-based lookup
+    const name = String(endpointIdOrName);
+    for (const ep of node.endpoints) {
+        if (_getEndpointName(ep) === name) return ep;
+    }
+    throw new Error(`Endpoint not found: ${endpointIdOrName}`);
 }
 
 /** Resolve a cluster name (camelCase) from a cluster ID number or string. */
@@ -99,8 +123,66 @@ async function close() {
 // ── Device management ─────────────────────────────────────────────────────────
 
 /**
+ * Extract a human-readable name for a node from its root endpoint's basicInformation cluster.
+ * Returns null when the cluster is unavailable or the node is offline.
+ * @param {object} node ClientNode
+ * @returns {string|null}
+ */
+function _getDeviceName(node) {
+    try {
+        for (const ep of node.endpoints) {
+            if ((ep.number ?? 0) !== 0) continue;
+            const bi = ep.state?.basicInformation;
+            if (bi?.nodeLabel) return bi.nodeLabel;
+            if (bi?.productName) return bi.productName;
+        }
+    } catch { /* node may be offline */ }
+    return null;
+}
+
+/**
+ * Extract a human-readable name for a single endpoint.
+ * Prefers bridgedDeviceBasicInformation.nodeLabel for bridged devices,
+ * falls back to basicInformation for the root endpoint.
+ * @param {object} endpoint
+ * @returns {string|null}
+ */
+function _getEndpointName(endpoint) {
+    try {
+        const state = endpoint.state;
+        if (!state) return null;
+        const bridgedBi = state.bridgedDeviceBasicInformation;
+        if (bridgedBi?.nodeLabel) return bridgedBi.nodeLabel;
+        const bi = state.basicInformation;
+        if (bi?.nodeLabel) return bi.nodeLabel;
+        if (bi?.productName) return bi.productName;
+    } catch { /* best-effort */ }
+    return null;
+}
+
+/**
+ * Extract vendor + product subtitle for the root endpoint (endpoint 0).
+ * Returns null when unavailable.
+ * @param {object} node
+ * @returns {string|null}
+ */
+function _getDeviceSubtitle(node) {
+    try {
+        for (const ep of node.endpoints) {
+            if ((ep.number ?? 0) !== 0) continue;
+            const bi = ep.state?.basicInformation;
+            const parts = [];
+            if (bi?.vendorName) parts.push(bi.vendorName);
+            if (bi?.productName && bi.productName !== _getDeviceName(node)) parts.push(bi.productName);
+            return parts.length ? parts.join(' · ') : null;
+        }
+    } catch { /* offline */ }
+    return null;
+}
+
+/**
  * List all paired nodes.
- * @returns {{ nodeId: string, online: boolean }[]}
+ * @returns {{ nodeId: string, online: boolean, name: string|null }[]}
  */
 function listPaired() {
     if (!_server) return [];
@@ -111,6 +193,7 @@ function listPaired() {
         result.push({
             nodeId: _nodeIdStr(addr.nodeId),
             online: node.lifecycle?.isOnline ?? false,
+            name: _getDeviceName(node),
         });
     }
     return result;
@@ -184,14 +267,14 @@ async function unpair(nodeId) {
  * Each endpoint entry carries the list of available cluster names.
  *
  * @param {string} nodeId
- * @returns {{ endpointId: number, clusters: string[] }[]}
+ * @returns {{ endpointId: number, clusters: string[], name: string|null }[]}
  */
 function getEndpoints(nodeId) {
     const node = _findClientNode(nodeId);
     const result = [];
     for (const endpoint of node.endpoints) {
         const clusters = endpoint.state ? Object.keys(endpoint.state) : [];
-        result.push({ endpointId: endpoint.number ?? 0, clusters });
+        result.push({ endpointId: endpoint.number ?? 0, clusters, name: _getEndpointName(endpoint) });
     }
     return result;
 }
@@ -209,7 +292,7 @@ function getEndpoints(nodeId) {
  */
 async function getAttribute(nodeId, endpointId, clusterName, attrName) {
     const node = _findClientNode(nodeId);
-    const endpoint = node.endpoints.for(endpointId);
+    const endpoint = _resolveEndpoint(node, endpointId);
     const clusterState = endpoint.state?.[_clusterName(clusterName)];
     if (!clusterState) throw new Error(`Cluster "${clusterName}" not found on endpoint ${endpointId}`);
     return clusterState[attrName];
@@ -229,17 +312,22 @@ async function getAttribute(nodeId, endpointId, clusterName, attrName) {
  */
 async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
     const node = _findClientNode(nodeId);
-    return node.act(`she.matter.send(${nodeId}, ${endpointId}, ${clusterName}.${commandName})`, async (agent) => {
-        const rootParts = agent.parts;
-        // Navigate to the target endpoint
-        const ep = rootParts ? rootParts.get(endpointId) : null;
-        if (!ep) throw new Error(`Endpoint ${endpointId} not found on node ${nodeId}`);
-        const clusterAgent = ep[_clusterName(clusterName)];
-        if (!clusterAgent) throw new Error(`Cluster "${clusterName}" not found`);
-        const cmd = clusterAgent[commandName];
-        if (typeof cmd !== 'function') throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
-        return cmd.call(clusterAgent, args ?? {});
-    });
+    // Use the target endpoint's own act() instead of navigating via agent.parts,
+    // because Parts in @matter/node is a set-like iterable, not a Map (.get doesn't exist).
+    const endpoint = _resolveEndpoint(node, endpointId);
+    return endpoint.act(
+        `she.matter.send(${nodeId}, ${endpointId}, ${clusterName}.${commandName})`,
+        async (agent) => {
+            const clusterAgent = agent[_clusterName(clusterName)];
+            if (!clusterAgent) throw new Error(`Cluster "${clusterName}" not found on endpoint ${endpointId}`);
+            const cmd = clusterAgent[commandName];
+            if (typeof cmd !== 'function') throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
+            // Only pass args when the caller actually provided non-empty args.
+            // Void commands (e.g. onOff.off) fail TLV validation if passed an empty object.
+            const hasArgs = args !== undefined && args !== null && Object.keys(args).length > 0;
+            return hasArgs ? cmd.call(clusterAgent, args) : cmd.call(clusterAgent);
+        }
+    );
 }
 
 // ── Node lifecycle events (online / offline) ────────────────────────────────
@@ -276,7 +364,7 @@ function _subscribeNodeLifecycle(node, nodeId) {
  */
 function subscribeAttribute(scriptFile, nodeId, endpointId, clusterName, attrName, callback) {
     const node = _findClientNode(nodeId);
-    const endpoint = node.endpoints.for(endpointId);
+    const endpoint = _resolveEndpoint(node, endpointId);
     const events = endpoint.events?.[_clusterName(clusterName)];
     if (!events) throw new Error(`Cluster "${clusterName}" not found on endpoint ${endpointId}`);
     const changeEvent = events[`${attrName}$Changed`];
@@ -327,6 +415,20 @@ function cleanup(scriptFile) {
     _listeners.delete(scriptFile);
 }
 
+/**
+ * Get vendor · product subtitle for a node by nodeId string.
+ * @param {string} nodeId
+ * @returns {string|null}
+ */
+function getDeviceSubtitle(nodeId) {
+    try {
+        const node = _findClientNode(nodeId);
+        return _getDeviceSubtitle(node);
+    } catch {
+        return null;
+    }
+}
+
 module.exports = {
     init,
     close,
@@ -334,6 +436,7 @@ module.exports = {
     commission,
     unpair,
     getEndpoints,
+    getDeviceSubtitle,
     getAttribute,
     sendCommand,
     subscribeAttribute,

@@ -271,15 +271,19 @@ export function getViewResult(id: string): Promise<ViewResult> {
 export interface MatterDevice {
     nodeId: string;
     online: boolean;
+    name?: string | null;
 }
 
 export interface MatterEndpoint {
     endpointId: number;
     clusters: string[];
+    name?: string | null;
 }
 
 export interface MatterNodeDetail {
     nodeId: string;
+    name?: string | null;
+    subtitle?: string | null;
     endpoints: MatterEndpoint[];
 }
 

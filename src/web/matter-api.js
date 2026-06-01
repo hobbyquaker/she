@@ -63,8 +63,13 @@ router.post('/commission', async (req, res) => {
 router.get('/devices/:nodeId', (req, res) => {
     if (!isReady()) return notReady(res);
     try {
-        const endpoints = getController().getEndpoints(req.params.nodeId);
-        res.json({ nodeId: req.params.nodeId, endpoints });
+        const ctrl = getController();
+        const endpoints = ctrl.getEndpoints(req.params.nodeId);
+        // Derive device-level name and subtitle from the root endpoint (0)
+        const rootEp = endpoints.find(ep => ep.endpointId === 0);
+        const name = rootEp?.name ?? endpoints.find(ep => ep.name)?.name ?? null;
+        const subtitle = ctrl.getDeviceSubtitle(req.params.nodeId);
+        res.json({ nodeId: req.params.nodeId, endpoints, name, subtitle });
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });

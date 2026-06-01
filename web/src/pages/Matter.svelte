@@ -146,7 +146,14 @@
                         onclick={() => selectDevice(device.nodeId)}
                     >
                         <span class="status-dot" class:online={device.online}></span>
-                        <span class="node-id">{device.nodeId}</span>
+                        <span class="device-label">
+                            {#if device.name}
+                                <span class="device-name">{device.name}</span>
+                                <span class="device-nodeid">#{device.nodeId}</span>
+                            {:else}
+                                <span class="device-name">Node {device.nodeId}</span>
+                            {/if}
+                        </span>
                     </button>
                     <button
                         class="unpair-btn"
@@ -167,10 +174,19 @@
         {:else if error}
             <p class="err">{error}</p>
         {:else if selected}
-            <h2>Node {selected.nodeId}</h2>
+            <div class="detail-hdr">
+                <h2>{selected.name ?? `Node ${selected.nodeId}`}</h2>
+                {#if selected.subtitle}
+                    <p class="device-subtitle">{selected.subtitle}</p>
+                {/if}
+                <p class="detail-nodeid">Node ID: {selected.nodeId}</p>
+            </div>
             {#each selected.endpoints as ep (ep.endpointId)}
                 <details open>
-                    <summary>Endpoint {ep.endpointId}</summary>
+                    <summary>
+                        {ep.name ?? `Endpoint ${ep.endpointId}`}
+                        <span class="ep-id">ep{ep.endpointId}</span>
+                    </summary>
                     <ul class="cluster-list">
                         {#each ep.clusters as cluster}
                             <li>{cluster}</li>
@@ -347,13 +363,26 @@
     .status-dot.online {
         background: var(--fg-ok);
     }
-    .node-id {
+    .device-label {
         flex: 1;
-        font-family: monospace;
-        font-size: 11px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1px;
+    }
+    .device-name {
+        font-size: 12px;
+        color: var(--fg);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        max-width: 100%;
+    }
+    .device-nodeid {
+        font-family: monospace;
+        font-size: 10px;
+        color: var(--fg-dim);
     }
     .unpair-btn {
         background: none;
@@ -375,11 +404,25 @@
         padding: 16px 20px;
         overflow-y: auto;
     }
+    .detail-hdr {
+        margin-bottom: 14px;
+    }
     .detail h2 {
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 600;
-        margin: 0 0 12px;
+        margin: 0 0 2px;
         color: var(--fg-text);
+    }
+    .device-subtitle {
+        margin: 0 0 2px;
+        font-size: 11px;
+        color: var(--fg-muted);
+    }
+    .detail-nodeid {
+        margin: 0;
+        font-family: monospace;
+        font-size: 10px;
+        color: var(--fg-dim);
     }
     details {
         margin-bottom: 8px;
@@ -393,6 +436,15 @@
         font-weight: 500;
         color: var(--fg-value);
         font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .ep-id {
+        font-family: monospace;
+        font-size: 10px;
+        color: var(--fg-dim);
+        font-weight: normal;
     }
     .cluster-list {
         list-style: none;

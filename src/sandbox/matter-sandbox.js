@@ -15,6 +15,11 @@
  *   she.matter.send(nodeId, endpointId, clusterName, command, args?)
  *       → Promise<result>
  *
+ * nodeId   — decimal NodeId string (e.g. '4') OR device name (e.g. 'Matterbridge')
+ * endpointId — numeric endpoint id (e.g. 43) OR endpoint name (e.g. 'Licht Werkstatt')
+ * Name matching uses basicInformation.nodeLabel / productName for devices and
+ * bridgedDeviceBasicInformation.nodeLabel / basicInformation.nodeLabel for endpoints.
+ *
  * All subscriptions registered by a script are automatically cancelled on
  * hot-reload (cleanup() is called from unloadScript() in index.js).
  */
@@ -26,11 +31,11 @@ module.exports = function (she, { scriptDomain, scriptName }) {
         /**
          * Subscribe to an attribute change on a paired Matter device.
          *
-         * @param {string}   nodeId       Decimal NodeId string
-         * @param {number}   endpointId
-         * @param {string}   clusterName  camelCase cluster name, e.g. "onOff"
-         * @param {string}   attrName     camelCase attribute name, e.g. "onOff"
-         * @param {Function} callback     (value, oldValue) => void
+         * @param {string|number} nodeId       Decimal NodeId string/number OR device name
+         * @param {number|string} endpointId   Numeric endpoint id OR endpoint name
+         * @param {string}        clusterName  camelCase cluster name, e.g. "onOff"
+         * @param {string}        attrName     camelCase attribute name, e.g. "onOff"
+         * @param {Function}      callback     (value, oldValue) => void
          * @returns {number}  listenerId
          */
         sub(nodeId, endpointId, clusterName, attrName, callback) {
@@ -53,10 +58,10 @@ module.exports = function (she, { scriptDomain, scriptName }) {
         /**
          * Read a single attribute value from a paired Matter device.
          *
-         * @param {string} nodeId
-         * @param {number} endpointId
-         * @param {string} clusterName  camelCase cluster name
-         * @param {string} attrName     camelCase attribute name
+         * @param {string|number} nodeId       Decimal NodeId string/number OR device name
+         * @param {number|string} endpointId   Numeric endpoint id OR endpoint name
+         * @param {string}        clusterName  camelCase cluster name
+         * @param {string}        attrName     camelCase attribute name
          * @returns {Promise<unknown>}
          */
         get(nodeId, endpointId, clusterName, attrName) {
@@ -66,15 +71,15 @@ module.exports = function (she, { scriptDomain, scriptName }) {
         /**
          * Invoke a cluster command on a paired Matter device.
          *
-         * @param {string}  nodeId
-         * @param {number}  endpointId
-         * @param {string}  clusterName  camelCase cluster name
-         * @param {string}  command      camelCase command name
-         * @param {object}  [args={}]
+         * @param {string|number} nodeId       Decimal NodeId string/number OR device name
+         * @param {number|string} endpointId   Numeric endpoint id OR endpoint name
+         * @param {string}        clusterName  camelCase cluster name
+         * @param {string}        command      camelCase command name
+         * @param {object}        [args]       Command arguments (omit for void commands)
          * @returns {Promise<unknown>}
          */
         send(nodeId, endpointId, clusterName, command, args) {
-            return controller.sendCommand(nodeId, endpointId, clusterName, command, args ?? {});
+            return controller.sendCommand(nodeId, endpointId, clusterName, command, args);
         },
     };
 };
