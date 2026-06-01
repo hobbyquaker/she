@@ -171,7 +171,6 @@ router.use((req, res) => {
         }
         const absNew = safePath(root, newName);
         if (!absNew) return res.status(400).json({ error: 'Invalid newPath' });
-        if (!absNew.endsWith('.js')) return res.status(400).json({ error: 'Only .js files are allowed' });
         try {
             fs.mkdirSync(path.dirname(absNew), { recursive: true });
             fs.renameSync(abs, absNew);

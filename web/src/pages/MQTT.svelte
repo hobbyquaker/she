@@ -10,6 +10,7 @@
      * pending WS messages have been applied.
      * ─────────────────────────────────────────────────────────────────────── */
     const topicMap = new Map<string, { val: unknown; ts: number }>();
+    const liveTopics = new Set<string>(); // topics that received at least one live WS update
     const pending = new Set<string>();
     let rafId: number | null = null;
     let version = $state(0);
@@ -92,7 +93,7 @@
     const STREAM_ROW_H = 20;    // px — matches .sr { height: 20px }
     const STREAM_HDR_H = 36;    // px — resize handle + header row
     let _streamSeq = 0;
-    type StreamRow = { id: number; topic: string; val: unknown; ts: number };
+    type StreamRow = { id: number; topic: string; val: unknown; ts: number; retained?: boolean };
     let streamFeed   = $state<StreamRow[]>([]);  // raw rolling buffer (all messages)
     let filteredFeed = $state<StreamRow[]>([]);  // only rows matching current filter
     let streamOpen   = $state(true);
@@ -101,12 +102,29 @@
 
     // When the filter changes, rebuild filteredFeed from the raw buffer.
     // untrack(streamFeed) prevents this effect from re-running on every new message.
+    // When a specific filter is active, also inject retained-only topic snapshots.
     $effect(() => {
         const pat = streamFilter.trim();
         const feed = untrack(() => streamFeed);
-        filteredFeed = (!pat || pat === '#')
+        const live: StreamRow[] = (!pat || pat === '#')
             ? feed.slice(0, FILTER_MAX)
             : feed.filter(r => mqttMatch(pat, r.topic)).slice(0, FILTER_MAX);
+
+        if (pat && pat !== '#') {
+            // Inject retained-only snapshots for matching topics not already in the live feed
+            const liveSet = new Set(live.map(r => r.topic));
+            const snap: StreamRow[] = [];
+            for (const [topic, entry] of topicMap) {
+                if (liveSet.has(topic)) continue;
+                if (mqttMatch(pat, topic)) {
+                    snap.push({ id: -(snap.length + 1), topic, val: entry.val, ts: entry.ts, retained: true });
+                }
+            }
+            snap.sort((a, b) => a.topic.localeCompare(b.topic));
+            filteredFeed = [...live, ...snap];
+        } else {
+            filteredFeed = live;
+        }
     });
 
     function mqttMatch(pattern: string, topic: string): boolean {
@@ -167,17 +185,25 @@
     const unsubWs = subscribeWs('mqtt', (msg) => {
         const { topic, val, ts } = msg as { topic: string; val: unknown; ts: number };
         topicMap.set(topic, { val, ts });
+        liveTopics.add(topic);
         pending.add(topic);
         scheduleFlush();
         // Feed the live stream pane (newest first, capped at STREAM_MAX)
         const row: StreamRow = { id: _streamSeq++, topic, val, ts };
         streamFeed = [row, ...streamFeed.slice(0, STREAM_MAX - 1)];
-        // Also push to filteredFeed if the message matches the current filter
+        // Also push to filteredFeed if the message matches the current filter,
+        // removing any retained snapshot for the same topic
         const pat = streamFilter.trim();
         if (!pat || pat === '#' || mqttMatch(pat, topic)) {
-            filteredFeed = [row, ...filteredFeed.slice(0, FILTER_MAX - 1)];
+            filteredFeed = [row, ...filteredFeed.filter(r => !(r.retained && r.topic === topic)).slice(0, FILTER_MAX - 1)];
         }
     });
+
+    /* ── Context menu ─────────────────────────────────────────────────────── */
+    let ctxMenu = $state<{ x: number; y: number; topic: string } | null>(null);
+
+    /* ── Topic autocomplete list ──────────────────────────────────────────── */
+    let topicList = $derived.by(() => { void version; return [...topicMap.keys()].sort(); });
 
     /* ── Publish ──────────────────────────────────────────────────────────── */
     let pubTopic   = $state('');
@@ -253,9 +279,12 @@
 {#snippet treeNode(n: TreeNode)}
     {@const isOpen  = expanded.has(n.path)}
     {@const hasKids = version >= 0 && n.children.size > 0}
+    {@const isStale = version >= 0 && n.isLeaf && !liveTopics.has(n.path)}
     <div class="tn">
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div class="tr" onclick={() => { streamFilter = n.path + '/#'; }}>
+        <div class="tr" class:stale={isStale}
+            onclick={() => { streamFilter = n.path + '/#'; }}
+            oncontextmenu={(e) => { e.preventDefault(); ctxMenu = { x: e.clientX, y: e.clientY, topic: n.path }; }}>
             {#if hasKids}
                 <button
                     class="chev"
@@ -292,9 +321,16 @@
     <div class="main-group">
         <!-- Publish bar -->
         <div class="pub-bar">
-            <input class="pt" type="text" placeholder="topic"   bind:value={pubTopic} />
+            <input class="pt" type="text" placeholder="topic" bind:value={pubTopic} list="pub-topic-list" autocomplete="off" />
+            <datalist id="pub-topic-list">
+                {#each topicList as t (t)}<option value={t}></option>{/each}
+            </datalist>
             <input class="pp" type="text" placeholder="payload" bind:value={pubPayload} />
-            <label class="rl"><input type="checkbox" bind:checked={pubRetain} /> retain</label>
+            <label class="rl">
+                <input type="checkbox" bind:checked={pubRetain} />
+                <span class="checkmark"></span>
+                retain
+            </label>
             <select bind:value={pubQos}>
                 <option value={0}>QoS 0</option>
                 <option value={1}>QoS 1</option>
@@ -374,8 +410,9 @@
                     <span class="stream-empty">Waiting for messages…</span>
                 {:else}
                     {#each filteredStream as row (row.id)}
-                        <div class="sr">
+                        <div class="sr" class:retained={row.retained}>
                             <span class="s-ts">{fmtTimeStream(row.ts)}</span>
+                            {#if row.retained}<span class="s-ret" title="retained snapshot">&#x229B;</span>{/if}
                             <span class="s-topic">{row.topic}</span>
                             <span class="s-val" title={fmtVal(row.val)}>{fmtVal(row.val)}</span>
                         </div>
@@ -384,6 +421,16 @@
             </div>
         {/if}
     </div>
+
+    <!-- Context menu -->
+    {#if ctxMenu}
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="ctx-bd" onclick={() => (ctxMenu = null)} oncontextmenu={(e) => { e.preventDefault(); ctxMenu = null; }}></div>
+        <div class="ctx-menu" style:left="{ctxMenu.x}px" style:top="{ctxMenu.y}px">
+            <button onclick={() => { navigator.clipboard.writeText(ctxMenu!.topic); ctxMenu = null; }}>Copy topic</button>
+            <button onclick={() => { publishMqtt(ctxMenu!.topic, '', true, 0); ctxMenu = null; }}>Clear retained</button>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -467,9 +514,45 @@
         color: var(--fg-muted);
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 5px;
         white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
     }
+    .rl input[type='checkbox'] {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+    .checkmark {
+        flex-shrink: 0;
+        width: 13px;
+        height: 13px;
+        border: 1.5px solid var(--border);
+        border-radius: 2px;
+        background: var(--bg-app);
+        position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .rl input:checked + .checkmark {
+        background: var(--accent);
+        border-color: var(--accent);
+    }
+    .rl input:checked + .checkmark::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        top: 0px;
+        width: 4px;
+        height: 7px;
+        border: 1.5px solid #fff;
+        border-top: none;
+        border-left: none;
+        transform: rotate(45deg);
+    }
+    .rl:hover .checkmark { border-color: var(--accent); }
     select {
         background: var(--bg-widget);
         border: 1px solid var(--border);
@@ -512,6 +595,7 @@
         user-select: none;
     }
     .tr:hover { background: var(--bg-hover); }
+    .tr.stale .seg, .tr.stale .tv, .tr.stale .tt { opacity: 0.5; }
     .chev {
         background: none;
         border: none;
@@ -556,7 +640,7 @@
     }
     .tc {
         display: block;
-        margin-left: 12px;
+        margin-left: 15px;
         border-left: 1px solid var(--indent-line);
     }
 
@@ -660,6 +744,7 @@
     }
     .sr:hover { background: var(--bg-hover); }
     .s-ts { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; width: 64px; }
+    .s-ret { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; }
     .s-topic { color: var(--fg-value); flex-shrink: 0; min-width: 180px; }
     .s-val {
         color: var(--fg);
@@ -668,4 +753,35 @@
         white-space: nowrap;
         flex: 1;
     }
+    .sr.retained { opacity: 0.6; font-style: italic; }
+
+    /* ── Context menu ── */
+    .ctx-bd {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+    }
+    .ctx-menu {
+        position: fixed;
+        z-index: 101;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 3px 0;
+        min-width: 152px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .ctx-menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        color: var(--fg);
+        padding: 5px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        border-radius: 0;
+    }
+    .ctx-menu button:hover { background: var(--bg-hover); }
 </style>

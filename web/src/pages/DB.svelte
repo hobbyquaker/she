@@ -245,46 +245,23 @@
             await putView(id, { map: '// emit(this.someProperty)' });
             showNewViewForm = false;
             newViewId = '';
+            await loadViews();
             await selectView(id);
         } catch (e: unknown) {
             newViewError = e instanceof Error ? e.message : String(e);
         }
     }
 
-    // ---- Tree (folder grouping by slash-separated ID segments) ----
-    type DocTreeNode =
-        | { type: 'leaf'; name: string; id: string }
-        | { type: 'folder'; name: string; path: string; children: DocTreeNode[] };
+    // ---- Sidebar search ----
+    let docSearch = $state('');
+    let viewSearch = $state('');
 
-    let expandedDocDirs: Record<string, boolean> = $state({});
-    let expandedViewDirs: Record<string, boolean> = $state({});
-
-    function buildSubTree(ids: string[], prefix: string): DocTreeNode[] {
-        const nodes: DocTreeNode[] = [];
-        const folderMap = new Map<string, string[]>();
-        const leaves: string[] = [];
-        for (const id of ids) {
-            const rel = prefix ? id.slice(prefix.length + 1) : id;
-            const slash = rel.indexOf('/');
-            if (slash === -1) { leaves.push(id); }
-            else {
-                const seg = rel.slice(0, slash);
-                if (!folderMap.has(seg)) folderMap.set(seg, []);
-                folderMap.get(seg)!.push(id);
-            }
-        }
-        for (const [seg, children] of folderMap) {
-            const fpath = prefix ? `${prefix}/${seg}` : seg;
-            nodes.push({ type: 'folder', name: seg, path: fpath, children: buildSubTree(children, fpath) });
-        }
-        for (const id of leaves) {
-            nodes.push({ type: 'leaf', name: prefix ? id.slice(prefix.length + 1) : id, id });
-        }
-        return nodes;
-    }
-
-    let docTree = $derived(buildSubTree([...docIds].sort(), ''));
-    let viewTree = $derived(buildSubTree([...viewIds].sort(), ''));
+    let filteredDocIds = $derived(
+        [...docIds].filter(id => !docSearch || id.toLowerCase().includes(docSearch.toLowerCase())).sort()
+    );
+    let filteredViewIds = $derived(
+        [...viewIds].filter(id => !viewSearch || id.toLowerCase().includes(viewSearch.toLowerCase())).sort()
+    );
 
     onMount(() => {
         loadDocs();
@@ -322,58 +299,6 @@
         };
     });
 </script>
-
-{#snippet docTreeNode(nodes: DocTreeNode[], depth: number)}
-    {#each nodes as node (node.type === 'leaf' ? node.id : node.path)}
-        {#if node.type === 'folder'}
-            <li class="tree-dir">
-                <div class="dir-row" style="--depth: {depth}">
-                    <button class="chevron" onclick={() => { expandedDocDirs[node.path] = !expandedDocDirs[node.path]; }}>
-                        {expandedDocDirs[node.path] ? '▾' : '▸'}
-                    </button>
-                    <span class="dir-name">{node.name}</span>
-                </div>
-                {#if expandedDocDirs[node.path]}
-                    <ul class="tree-children">
-                        {@render docTreeNode(node.children, depth + 1)}
-                    </ul>
-                {/if}
-            </li>
-        {:else}
-            <li class="tree-file" class:active-item={selectedDocId === node.id} style="--depth: {depth}">
-                <button onclick={() => selectDoc(node.id)}>
-                    <span class="fname">{node.name}</span>
-                </button>
-            </li>
-        {/if}
-    {/each}
-{/snippet}
-
-{#snippet viewTreeNode(nodes: DocTreeNode[], depth: number)}
-    {#each nodes as node (node.type === 'leaf' ? node.id : node.path)}
-        {#if node.type === 'folder'}
-            <li class="tree-dir">
-                <div class="dir-row" style="--depth: {depth}">
-                    <button class="chevron" onclick={() => { expandedViewDirs[node.path] = !expandedViewDirs[node.path]; }}>
-                        {expandedViewDirs[node.path] ? '▾' : '▸'}
-                    </button>
-                    <span class="dir-name">{node.name}</span>
-                </div>
-                {#if expandedViewDirs[node.path]}
-                    <ul class="tree-children">
-                        {@render viewTreeNode(node.children, depth + 1)}
-                    </ul>
-                {/if}
-            </li>
-        {:else}
-            <li class="tree-file" class:active-item={selectedViewId === node.id} style="--depth: {depth}">
-                <button onclick={() => selectView(node.id)}>
-                    <span class="fname">{node.name}</span>
-                </button>
-            </li>
-        {/if}
-    {/each}
-{/snippet}
 
 {#snippet dbWelcome()}
     <div class="welcome">
@@ -417,8 +342,14 @@
                     </div>
                     {#if newDocError}<div class="form-error">{newDocError}</div>{/if}
                 {/if}
-                <ul class="tree">
-                    {@render docTreeNode(docTree, 0)}
+                <div class="sidebar-search">
+                    <input type="search" placeholder="Filter…" bind:value={docSearch} />
+                </div>
+                <ul class="flat-list">
+                    {#each filteredDocIds as id (id)}
+                        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+                        <li class="flat-item" class:active-item={selectedDocId === id} onclick={() => selectDoc(id)}>{id}</li>
+                    {/each}
                 </ul>
             </aside>
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -462,8 +393,14 @@
                     </div>
                     {#if newViewError}<div class="form-error">{newViewError}</div>{/if}
                 {/if}
-                <ul class="tree">
-                    {@render viewTreeNode(viewTree, 0)}
+                <div class="sidebar-search">
+                    <input type="search" placeholder="Filter…" bind:value={viewSearch} />
+                </div>
+                <ul class="flat-list">
+                    {#each filteredViewIds as id (id)}
+                        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+                        <li class="flat-item" class:active-item={selectedViewId === id} onclick={() => selectView(id)}>{id}</li>
+                    {/each}
                 </ul>
             </aside>
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -700,76 +637,45 @@
         border-bottom: 1px solid var(--border-sub);
     }
 
-    /* ---- Folder tree ---- */
-    .tree {
+    /* ---- Flat sidebar list ---- */
+    .sidebar-search {
+        padding: 4px 6px;
+        border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
+    }
+    .sidebar-search input {
+        width: 100%;
+        box-sizing: border-box;
+        background: var(--bg-app);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        color: var(--fg);
+        padding: 3px 6px;
+        font-size: 12px;
+    }
+
+    .flat-list {
         flex: 1;
         overflow-y: auto;
         list-style: none;
         padding: 4px 0;
         margin: 0;
     }
-
-    .tree-dir,
-    .tree-file { list-style: none; }
-
-    .tree-children { list-style: none; padding: 0; margin: 0; }
-
-    .dir-row {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 3px 12px 3px calc(8px + var(--depth, 0) * 12px);
-        cursor: default;
-    }
-
-    .chevron {
-        background: none;
-        border: none;
-        color: var(--fg-muted);
-        cursor: pointer;
-        padding: 0;
-        font-size: 9px;
-        line-height: 1;
-        width: 12px;
-        flex-shrink: 0;
-        text-align: center;
-    }
-
-    .dir-name {
-        color: var(--fg);
+    .flat-item {
+        padding: 3px 10px;
         font-size: 12px;
-        flex: 1;
+        font-family: monospace;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .tree-file button {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        width: 100%;
-        text-align: left;
-        background: none;
-        border: none;
         color: var(--fg);
-        padding: 3px 8px 3px calc(20px + var(--depth, 0) * 12px);
-        cursor: pointer;
-        font-size: 12px;
     }
-
-    .tree-file button:hover { background: var(--bg-hover); }
-
-    .tree-file.active-item button {
+    .flat-item:hover { background: var(--bg-hover); }
+    .flat-item.active-item {
         background: var(--bg-active);
         color: var(--fg-text);
-    }
-
-    .fname {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
     }
 
     /* ---- Editor area ---- */
