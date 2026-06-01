@@ -370,12 +370,18 @@ export interface AiCurrentView {
     reduce: string;
 }
 
+export interface AiExtraFile {
+    name: string;
+    content: string;
+}
+
 export interface AiChatRequest {
     messages: AiMessage[];
     currentScript?: AiCurrentScript | null;
     currentView?: AiCurrentView | null;
     context: AiContext;
     modelOverride?: string;
+    extraFiles?: AiExtraFile[];
 }
 
 export interface AiChatResponse {
@@ -431,6 +437,7 @@ export function getAiPrompt(body: {
     context?: Partial<AiContext>;
     currentScript?: AiCurrentScript | null;
     currentView?: AiCurrentView | null;
+    extraFiles?: AiExtraFile[];
 }): Promise<{ prompt: string }> {
     return request('POST', '/she/ai/prompt', body);
 }

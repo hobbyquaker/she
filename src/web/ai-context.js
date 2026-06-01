@@ -30,7 +30,7 @@ const DB_DOC_PROMPT       = fs.readFileSync(path.join(P, 'db-doc.md'),        'u
  * @param {import('../lib/state-store') | null} store
  * @returns {string}
  */
-function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, store) {
+function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, store, extraFiles) {
     const isViewMode = !!(currentView?.id);
     const isDocMode  = !!(currentDoc?.id);
 
@@ -215,6 +215,14 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
             }
         } catch {
             // matter not initialised — skip silently
+        }
+    }
+
+    if (extraFiles && extraFiles.length > 0) {
+        for (const f of extraFiles) {
+            const ext = (f.name.match(/\.([^.]+)$/) || [])[1] || '';
+            const lang = ext.toLowerCase();
+            parts.push(`## Attached file: ${f.name}\n\`\`\`${lang}\n${f.content}\n\`\`\``);
         }
     }
 

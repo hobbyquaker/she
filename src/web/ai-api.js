@@ -406,9 +406,9 @@ router.get('/model-info', async (req, res) => {
 
 // POST /she/ai/prompt — return the current system prompt for preview
 router.post('/prompt', (req, res) => {
-    const { context = {}, currentScript, currentView, currentDoc } = req.body || {};
+    const { context = {}, currentScript, currentView, currentDoc, extraFiles } = req.body || {};
     try {
-        const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
+        const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
         res.json({ prompt });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -422,11 +422,11 @@ router.post('/chat', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
+    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     try {
@@ -452,7 +452,7 @@ router.post('/chat/stream', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
@@ -460,7 +460,7 @@ router.post('/chat/stream', async (req, res) => {
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
     let systemPrompt;
     try {
-        systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
+        systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
     } catch (e) {
         return res.status(500).json({ error: `Failed to build system prompt: ${e.message}` });
     }

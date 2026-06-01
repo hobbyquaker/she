@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { type AiMessage, type AiContext, type AiCurrentScript, type AiToolEvent, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, type AiConfig } from '../lib/api.js';
+    import { type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, type AiConfig } from '../lib/api.js';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
     import { marked } from 'marked';
@@ -77,6 +77,12 @@
     let ctxMatter = $state(false);
     let ctxTools  = $state(false);
 
+    // File context chips
+    let includeCurrentScript = $state(true);
+    let uploadedFiles = $state<AiExtraFile[]>([]);
+    let isDragOver = $state(false);
+    let fileInputEl: HTMLInputElement;
+
     // Tool events emitted by the server during a tool-calling round
     let toolEvents = $state<AiToolEvent[]>([]);
 
@@ -94,11 +100,14 @@
 
     const configured = $derived(aiConfig?.configured ?? false);
     const requestBytes = $derived(promptBytes + new TextEncoder().encode(input).length);
+    const activeScript = $derived(includeCurrentScript ? currentScript : null);
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
     // Reset auto-apply when the active script changes
     $effect(() => {
         const path = currentScript?.path;
+        void path;
+        includeCurrentScript = true;
         if (autoApplyScript !== null && path !== autoApplyScript) autoApplyScript = null;
     });
 
@@ -167,9 +176,10 @@
     // Re-fetch system prompt size when context or current script changes
     $effect(() => {
         const ctx = context;
-        const script = currentScript;
+        const script = activeScript;
+        const files = uploadedFiles;
         if (!configured) return;
-        getAiPrompt({ context: ctx, currentScript: script ?? null })
+        getAiPrompt({ context: ctx, currentScript: script ?? null, extraFiles: files.length > 0 ? files : undefined })
             .then(res => { promptBytes = new TextEncoder().encode(res.prompt).length; })
             .catch(() => {});
     });
@@ -295,6 +305,61 @@
         infoLoading = false;
     }
 
+    // ── File context helpers ─────────────────────────────────────────────────
+
+    function fileExt(name: string): string {
+        const m = name.match(/\.([^.]+)$/);
+        return m ? m[1].toUpperCase() : '?';
+    }
+
+    function fileBadgeContent(ext: string): string {
+        switch (ext) {
+            case 'SH': case 'BASH': return '$';
+            case 'MD': case 'MARKDOWN': return '\u21d3';
+            case 'JSON': case 'JSONC': return '{}';
+            default: return ext;
+        }
+    }
+
+    function removeUpload(idx: number) {
+        uploadedFiles = uploadedFiles.filter((_, i) => i !== idx);
+    }
+
+    function openFilePicker() {
+        fileInputEl.click();
+    }
+
+    async function handleFiles(files: FileList | null) {
+        if (!files || files.length === 0) return;
+        for (const file of Array.from(files)) {
+            const content = await file.text();
+            uploadedFiles = [...uploadedFiles, { name: file.name, content }];
+        }
+    }
+
+    function handleFileInput(e: Event) {
+        const target = e.target as HTMLInputElement;
+        handleFiles(target.files);
+        target.value = '';
+    }
+
+    function handleDrop(e: DragEvent) {
+        e.preventDefault();
+        isDragOver = false;
+        handleFiles(e.dataTransfer?.files ?? null);
+    }
+
+    function handleDragOver(e: DragEvent) {
+        if (e.dataTransfer?.types.includes('Files')) {
+            e.preventDefault();
+            isDragOver = true;
+        }
+    }
+
+    function handleDragLeave() {
+        isDragOver = false;
+    }
+
     // ── Send ─────────────────────────────────────────────────────────────────
 
     async function send() {
@@ -312,7 +377,7 @@
 
         try {
             await streamChatWithAI(
-                { messages, currentScript, context, modelOverride: selectedModel || undefined },
+                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, extraFiles: uploadedFiles.length > 0 ? uploadedFiles : undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
                 (event) => { toolEvents = [...toolEvents, event]; },
@@ -524,8 +589,37 @@
         <span class="req-size">{formatBytes(requestBytes)}</span>
     </div>
 
+    <!-- File context chips -->
+    <div class="files-row">
+        {#if currentScript}
+            {@const ext = fileExt(currentScript.path.split('/').pop() ?? currentScript.path)}
+            <span class="file-chip" class:inactive={!includeCurrentScript}>
+                <span class="badge badge-{ext.toLowerCase()}">{fileBadgeContent(ext)}</span>
+                <span class="chip-name">{currentScript.path.split('/').pop()}</span>
+                <button class="chip-remove"
+                    onclick={() => (includeCurrentScript = !includeCurrentScript)}
+                    title={includeCurrentScript ? 'Remove from context' : 'Re-add to context'}>
+                    {includeCurrentScript ? '×' : '+'}
+                </button>
+            </span>
+        {/if}
+        {#each uploadedFiles as f, i}
+            {@const ext = fileExt(f.name)}
+            <span class="file-chip">
+                <span class="badge badge-{ext.toLowerCase()}">{fileBadgeContent(ext)}</span>
+                <span class="chip-name">{f.name}</span>
+                <button class="chip-remove" onclick={() => removeUpload(i)} title="Remove from context">×</button>
+            </span>
+        {/each}
+        <button class="add-file-btn" onclick={openFilePicker} title="Attach file to context">+</button>
+        <input bind:this={fileInputEl} type="file" multiple class="file-input-hidden" onchange={handleFileInput} />
+    </div>
+
     <!-- Input -->
-    <div class="input-row">
+    <div class="input-row" class:drag-over={isDragOver}
+        ondragover={handleDragOver}
+        ondragleave={handleDragLeave}
+        ondrop={handleDrop}>
         <div class="textarea-wrap" class:loading>
             <textarea
                 bind:this={inputEl}
@@ -905,6 +999,80 @@
         flex-shrink: 0;
     }
 
+    /* ── File context chips ───────────────────────────────────────────────── */
+    .files-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding: 3px 8px;
+        background: var(--bg-panel);
+        border-top: 1px solid var(--border-sub);
+        min-height: 28px;
+        flex-shrink: 0;
+    }
+    .file-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 4px;
+        padding: 1px 3px 1px 1px;
+        font-size: 11px;
+        color: var(--fg);
+        max-width: 220px;
+    }
+    .file-chip.inactive { opacity: 0.4; }
+    .chip-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 170px;
+        line-height: 1.4;
+    }
+    .chip-remove {
+        background: none;
+        border: none;
+        color: var(--fg-dim);
+        cursor: pointer;
+        padding: 0 2px;
+        font-size: 13px;
+        line-height: 1;
+        flex-shrink: 0;
+    }
+    .chip-remove:hover { color: var(--fg); }
+    .add-file-btn {
+        background: none;
+        border: 1px dashed var(--border-sub);
+        border-radius: 4px;
+        color: var(--fg-dim);
+        cursor: pointer;
+        width: 22px;
+        height: 22px;
+        font-size: 15px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        line-height: 1;
+        padding: 0;
+    }
+    .add-file-btn:hover { color: var(--fg); border-color: var(--fg-dim); }
+    .file-input-hidden { display: none; }
+    .badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 20px; font-size: 8px; font-weight: 700; border-radius: 2px;
+        background: transparent; color: #888; flex-shrink: 0;
+    }
+    .badge-js, .badge-mjs, .badge-cjs { color: #b89a00; font-size: 7px; letter-spacing: -0.5px; }
+    .badge-ts, .badge-tsx             { color: #2068c0; }
+    .badge-json, .badge-jsonc         { color: #c06010; }
+    .badge-md, .badge-markdown        { color: #1888b0; font-size: 11px; }
+    .badge-yaml, .badge-yml           { color: #7a28a8; }
+    .badge-css, .badge-html           { color: #1570a8; }
+    .badge-sh, .badge-bash            { color: #0a8840; }
+
     .input-row {
         display: flex;
         gap: 6px;
@@ -934,6 +1102,7 @@
         position: relative;
     }
     .textarea-wrap:focus-within { background: var(--fg-brand); }
+    .input-row.drag-over .textarea-wrap { background: var(--accent); }
     .textarea-wrap.loading,
     .textarea-wrap.loading:focus-within {
         padding: 1.5px;
