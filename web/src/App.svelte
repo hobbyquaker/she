@@ -20,6 +20,7 @@
     let page = $state<Page>(pageFromHash());
     let latestVersion = $state<string | null>(null);
     let stats = $state<DaemonStatus | null>(null);
+    let statsOpen = $state(false);
 
     // ── Auth ────────────────────────────────────────────────────────────────
     let authMode = $state<AuthMode>('none');
@@ -102,6 +103,8 @@
     });
 </script>
 
+<svelte:document onclick={() => { if (statsOpen) statsOpen = false; }} />
+
 <div class="shell">
     <nav>
         <span class="brand">she</span>
@@ -162,21 +165,49 @@
             Logs
         </button>
 
-        <!-- right side: stats · version · github · settings -->
+        <!-- right side: stats popup · version · github · settings -->
         <div class="nav-spacer"></div>
-        {#if stats}
-            <div class="nav-stats">
-                <span title="MQTT topics">{stats.topics} topics</span>
-                <span class="stat-sep">·</span>
-                <span title="Running scripts">{stats.scripts} scripts</span>
+
+        <!-- Stats popup trigger -->
+        <div class="stats-wrap">
+            <button class="nav-icon" onclick={(e) => { e.stopPropagation(); statsOpen = !statsOpen; }} title="Daemon status">
+                <!-- bar-chart icon -->
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10"/>
+                    <line x1="12" y1="20" x2="12" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+            </button>
+            {#if statsOpen}
+            <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+            <div class="stats-popup" onclick={(e) => e.stopPropagation()}>
+                {#if stats}
+                <dl>
+                    <dt>Scripts</dt><dd>{stats.scripts}</dd>
+                    <dt>MQTT topics</dt><dd>{stats.topics}</dd>
+                    <dt>MQTT msg/s</dt><dd>{stats.mqttMsgPerSec ?? '—'}</dd>
+                    {#if stats.matterEnabled}
+                    <dt>Matter nodes</dt><dd>{stats.matterNodes ?? 0}</dd>
+                    <dt>Matter endpoints</dt><dd>{stats.matterEndpoints ?? 0}</dd>
+                    {/if}
+                </dl>
+                {:else}
+                <span class="stats-empty">Loading…</span>
+                {/if}
+                <div class="stats-actions">
+                    <button onclick={() => { statsOpen = false; restart(); }}>
+                        <!-- power icon -->
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+                            <line x1="12" y1="2" x2="12" y2="12"/>
+                        </svg>
+                        Restart daemon
+                    </button>
+                </div>
             </div>
-        {/if}
-        <button class="nav-restart" onclick={restart} title="Restart she daemon">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M13.65 2.35A8 8 0 1 0 15 8"/>
-                <polyline points="15,2 15,8 9,8"/>
-            </svg>
-        </button>
+            {/if}
+        </div>
+
         <div class="nav-right">
             <span class="version">
                 v{__APP_VERSION__}
@@ -284,28 +315,57 @@
 
     .nav-spacer { flex: 1; }
 
-    .nav-stats {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 11px;
-        color: var(--fg-dim);
-        white-space: nowrap;
-        padding: 0 4px;
+    .stats-wrap {
+        position: relative;
     }
-    .stat-sep { opacity: 0.4; }
-
-    .nav-restart {
-        background: none;
-        border: none;
-        color: var(--fg-dim);
-        cursor: pointer;
-        padding: 4px 6px;
-        border-radius: 3px;
-        display: flex;
-        align-items: center;
+    .stats-popup {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 4px);
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 10px 14px 6px;
+        min-width: 190px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+        z-index: 200;
     }
-    .nav-restart:hover { background: var(--bg-hover); color: var(--fg); }
+    .stats-popup dl {
+        margin: 0 0 8px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 3px 12px;
+        font-size: 12px;
+    }
+    .stats-popup dt {
+        color: var(--fg-dim);
+        font-weight: normal;
+    }
+    .stats-popup dd {
+        margin: 0;
+        text-align: right;
+        color: var(--fg);
+        font-variant-numeric: tabular-nums;
+    }
+    .stats-empty {
+        font-size: 12px;
+        color: var(--fg-dim);
+        display: block;
+        margin-bottom: 8px;
+    }
+    .stats-actions {
+        border-top: 1px solid var(--border-sub);
+        padding-top: 6px;
+    }
+    .stats-actions button {
+        width: 100%;
+        justify-content: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--fg-dim);
+        padding: 4px 8px;
+    }
+    .stats-actions button:hover { color: var(--fg); }
 
     .nav-right {
         display: flex;

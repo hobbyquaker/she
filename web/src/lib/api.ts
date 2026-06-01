@@ -139,6 +139,10 @@ export function gitStatus(): Promise<GitStatus> {
 export interface DaemonStatus {
     scripts: number;
     topics: number;
+    mqttMsgPerSec?: number;
+    matterEnabled?: boolean;
+    matterNodes?: number;
+    matterEndpoints?: number;
 }
 
 export function getDaemonStatus(): Promise<DaemonStatus> {

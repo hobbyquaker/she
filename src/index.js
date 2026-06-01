@@ -209,12 +209,40 @@ let connected = false;
 require('./web/mqtt-api').init(store, () => mqtt);
 require('./web/ai-api').init(store);
 
+// MQTT message rate counter — reset on each stats poll
+let _mqttMsgCount = 0;
+let _mqttMsgTs = Date.now();
+
 // Register runtime stats provider for GET /she/status
 require('./web/server').setStatsProvider(() => {
     let topics = 0;
     // eslint-disable-next-line no-unused-vars
     for (const _ of store.mqttEntries()) topics++;
-    return { scripts: Object.keys(scripts).length, topics };
+    const now = Date.now();
+    const elapsed = (now - _mqttMsgTs) / 1000;
+    const mqttMsgPerSec = elapsed > 0 ? Math.round((_mqttMsgCount / elapsed) * 10) / 10 : 0;
+    _mqttMsgCount = 0;
+    _mqttMsgTs = now;
+    let matterNodes = 0;
+    let matterEndpoints = 0;
+    if (config.matterStorage) {
+        try {
+            const mc = require('./matter/controller');
+            const paired = mc.listPaired();
+            matterNodes = paired.length;
+            for (const { nodeId } of paired) {
+                try { matterEndpoints += mc.getEndpoints(nodeId).length; } catch { /* offline */ }
+            }
+        } catch { /* controller not ready */ }
+    }
+    return {
+        scripts: Object.keys(scripts).length,
+        topics,
+        mqttMsgPerSec,
+        matterEnabled: !!config.matterStorage,
+        matterNodes,
+        matterEndpoints,
+    };
 });
 
 if (!config.url) {
@@ -246,6 +274,7 @@ if (config.url) {
     });
 
     mqtt.on('message', (topic, payload, msg) => {
+        _mqttMsgCount++;
         if (shedb.handleMqttMessage(topic, payload)) return;
 
         const state = require('./lib/parse-payload')(payload);
