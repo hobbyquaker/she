@@ -24,7 +24,7 @@ echo "==> Installing on remote..."
     rm -f "/tmp/$TARBALL" /tmp/package-lock.json
     cd "$REMOTE_DIR"
     npm ci --omit=dev
-    #systemctl restart smart-home-engine
+    systemctl restart smart-home-engine
 EOF
 
 echo "==> Cleaning up local tarball..."

@@ -282,7 +282,9 @@ export function getMatterDevice(nodeId: string): Promise<MatterNodeDetail> {
     return request('GET', `/she/matter/devices/${nodeId}`);
 }
 
-export function commissionMatter(opts: { passcode: number; discriminator?: number } | { pairingCode: string }): Promise<{ nodeId: string }> {
+export function commissionMatter(
+    opts: ({ passcode: number; discriminator?: number } | { pairingCode: string }) & { discoveryAddress?: string },
+): Promise<{ nodeId: string }> {
     return request('POST', '/she/matter/commission', opts);
 }
 

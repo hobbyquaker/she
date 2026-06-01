@@ -278,7 +278,8 @@ if (config.url) {
 
 // sheDB — only init when --db-path is given
 if (config.dbPath) {
-    shedb.init({ dbPath: config.dbPath, dbPublish: config.dbPublish || false, dbRetain: config.dbRetain || false, dbPrefix: config.dbPrefix || 'she/db/', mqttName: config.name, mqtt, log, broadcast });
+    const dbPathResolved = config.dbPath.replace(/^~(?=[/\\]|$)/, require('os').homedir());
+    shedb.init({ dbPath: dbPathResolved, dbPublish: config.dbPublish || false, dbRetain: config.dbRetain || false, dbPrefix: config.dbPrefix || 'she/db/', mqttName: config.name, mqtt, log, broadcast });
 }
 
 // Redis write-through cache — only init when config.redis.url is given
@@ -302,10 +303,19 @@ if (config.elastic) {
 if (config.matterStorage) {
     const { ensureStorageDir } = require('./lib/storage');
     const matterController = require('./matter/controller');
-    const matterStoragePath = typeof config.matterStorage === 'string' ? config.matterStorage : ensureStorageDir('matter');
+    let matterStoragePath;
+    if (typeof config.matterStorage === 'string') {
+        matterStoragePath = config.matterStorage.replace(/^~(?=[/\\]|$)/, require('os').homedir());
+        fs.mkdirSync(matterStoragePath, { recursive: true });
+    } else {
+        matterStoragePath = ensureStorageDir('matter');
+    }
+    log.info('matter controller starting, storage:', matterStoragePath);
     matterController.init(matterStoragePath, log, broadcast).catch((err) => {
-        log.error('matter controller init failed:', err.message);
+        log.error('matter controller init failed:', err.message, err.stack);
     });
+} else {
+    log.warn('matter controller disabled — set matterStorage in config.json to enable');
 }
 
 // Start scripts immediately — MQTT retained state will populate the store asynchronously

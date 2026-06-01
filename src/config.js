@@ -19,6 +19,10 @@ const config = require('yargs')
         default: path.join(os.homedir(), '.she', 'db'),
         type: 'string',
     })
+    .option('matter-storage', {
+        describe: 'enable Matter controller; pass a directory path or true to use ~/.she/matter',
+        type: 'string',
+    })
     .option('port', {
         alias: 'p',
         describe: 'HTTP server port (0 = OS-assigned random port)',

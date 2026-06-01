@@ -23,6 +23,7 @@
     let wizardPairingCode = $state('');
     let wizardBusy = $state(false);
     let wizardError: string | null = $state(null);
+    let wizardDiscoveryAddress = $state('');
 
     async function loadDevices() {
         try {
@@ -60,18 +61,20 @@
         wizardBusy = true;
         wizardError = null;
         try {
-            let opts: { passcode: number; discriminator?: number } | { pairingCode: string };
+            let opts: ({ passcode: number; discriminator?: number } | { pairingCode: string }) & { discoveryAddress?: string };
             if (wizardMode === 'passcode') {
                 opts = { passcode: Number(wizardPasscode) };
                 if (wizardDiscriminator) opts = { ...opts, discriminator: Number(wizardDiscriminator) };
             } else {
                 opts = { pairingCode: wizardPairingCode.trim() };
             }
+            if (wizardDiscoveryAddress.trim()) opts = { ...opts, discoveryAddress: wizardDiscoveryAddress.trim() };
             await commissionMatter(opts);
             showWizard = false;
             wizardPasscode = '';
             wizardDiscriminator = '';
             wizardPairingCode = '';
+            wizardDiscoveryAddress = '';
             await loadDevices();
         } catch (e: unknown) {
             wizardError = e instanceof Error ? e.message : String(e);
@@ -122,6 +125,10 @@
                         <input type="text" placeholder="MT:..." bind:value={wizardPairingCode} />
                     </label>
                 {/if}
+                <label>
+                    IP Address (optional, bypasses mDNS)
+                    <input type="text" placeholder="192.168.1.100 or 192.168.1.100:5540" bind:value={wizardDiscoveryAddress} />
+                </label>
                 {#if wizardError}
                     <p class="err">{wizardError}</p>
                 {/if}

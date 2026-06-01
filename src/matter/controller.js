@@ -9,7 +9,7 @@
  * All nodeIds are exposed as decimal strings (BigInt serialization boundary).
  */
 
-const { Environment, ServerNode } = require('@matter/main');
+const { Environment, ServerNode, ControllerBehavior } = require('@matter/main');
 
 /** @type {import('@matter/main').ServerNode | null} */
 let _server = null;
@@ -69,7 +69,13 @@ async function init(storagePath, log, broadcastFn) {
 
     // Disable matter.js built-in CLI arg and env-var parsing so it doesn't
     // interfere with the daemon's own yargs config.
-    Environment.default.vars.set('environment.disableInteraction', true);
+    // Wrapped in try/catch because the internal variable layout changed in some
+    // @matter/main versions and throws when 'environment' is not a map segment.
+    try {
+        Environment.default.vars.set('environment.disableInteraction', true);
+    } catch {
+        // Non-fatal: the daemon has no interactive terminal anyway.
+    }
 
     _server = await ServerNode.create({
         id: 'she-matter-controller',
@@ -113,12 +119,41 @@ function listPaired() {
 /**
  * Commission a new device.
  *
- * @param {{ passcode: number, discriminator?: number } | { pairingCode: string }} options
+ * @param {{ passcode: number, discriminator?: number, discoveryAddress?: string } | { pairingCode: string, discoveryAddress?: string }} options
+ *   discoveryAddress: optional "ip" or "ip:port" to bypass mDNS discovery and connect directly.
  * @returns {Promise<string>}  nodeId of the newly commissioned device
  */
 async function commission(options) {
     if (!_server) throw new Error('Matter controller not started');
-    const clientNode = await _server.peers.commission(options);
+    const { discoveryAddress, ...commissionOpts } = options;
+    let clientNode;
+    if (discoveryAddress) {
+        const colonIdx = discoveryAddress.lastIndexOf(':');
+        let ip, port;
+        if (colonIdx > 0 && !discoveryAddress.startsWith('[') && colonIdx !== discoveryAddress.indexOf(':')) {
+            // IPv6 without brackets — treat whole string as IP, use default port
+            ip = discoveryAddress;
+            port = 5540;
+        } else if (colonIdx > 0) {
+            const maybePort = parseInt(discoveryAddress.slice(colonIdx + 1), 10);
+            if (Number.isFinite(maybePort)) {
+                ip = discoveryAddress.slice(0, colonIdx).replace(/^\[|\]$/g, '');
+                port = maybePort;
+            } else {
+                ip = discoveryAddress;
+                port = 5540;
+            }
+        } else {
+            ip = discoveryAddress;
+            port = 5540;
+        }
+        _log.info(`matter: using direct discovery address ${ip}:${port} (bypassing mDNS)`);
+        _server.behaviors.require(ControllerBehavior);
+        clientNode = await _server.peers.forDescriptor({ addresses: [{ type: 'udp', ip, port }] });
+        await clientNode.commission(commissionOpts);
+    } else {
+        clientNode = await _server.peers.commission(commissionOpts);
+    }
     const addr = clientNode.peerAddress;
     if (!addr) throw new Error('Commission succeeded but node has no peerAddress');
     const nodeId = _nodeIdStr(addr.nodeId);
