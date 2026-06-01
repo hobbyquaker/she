@@ -566,10 +566,10 @@
     <!-- Context toggles -->
     <div class="context-row">
         <label title="Include she API reference in context">
-            <input type="checkbox" bind:checked={ctxApiref} /><span class="checkmark"></span> API ref
+            <input type="checkbox" bind:checked={ctxApiref} /><span class="checkmark"></span> she API
         </label>
         <label title="Let the AI query MQTT state, sheDB documents and Matter devices on demand. Disables real-time streaming.">
-            <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 🔧 Tools
+            <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 😎 Agent
         </label>
         <span class="req-size">{formatBytes(requestBytes)}</span>
     </div>
