@@ -64,6 +64,10 @@ let dbViewIds: string[] = [];
 // nodeId → detail (with endpoints/clusters)
 const matterCache = new Map<string, MatterNodeDetail>();
 let matterNodeIds: string[] = [];
+/** nodeId → human-readable name */
+const matterNodeNames = new Map<string, string>();
+/** name → nodeId (reverse lookup) */
+const matterNameToId = new Map<string, string>();
 
 async function refreshMqtt() {
     try {
@@ -84,6 +88,14 @@ async function refreshMatter() {
     try {
         const devices = await listMatterDevices();
         matterNodeIds = devices.map(d => d.nodeId);
+        matterNodeNames.clear();
+        matterNameToId.clear();
+        for (const d of devices) {
+            if (d.name) {
+                matterNodeNames.set(d.nodeId, d.name);
+                matterNameToId.set(d.name, d.nodeId);
+            }
+        }
         // Preload details for all nodes
         await Promise.all(
             devices.map(async (d) => {
@@ -103,8 +115,8 @@ type CompletionCtx =
     | { type: 'db'; prefix: string; includeViews: boolean }
     | { type: 'matter-nodeId'; prefix: string }
     | { type: 'matter-endpointId'; nodeId: string }
-    | { type: 'matter-cluster'; nodeId: string; endpointId: number }
-    | { type: 'matter-attr'; nodeId: string; endpointId: number; cluster: string; isSend: boolean }
+    | { type: 'matter-cluster'; nodeId: string; endpointId: number | string }
+    | { type: 'matter-attr'; nodeId: string; endpointId: number | string; cluster: string; isSend: boolean }
     | null;
 
 /**
@@ -154,15 +166,15 @@ function detectContext(lineUpToCursor: string): CompletionCtx {
         if (argIdx === 2) {
             // Third arg: clusterName
             const nodeId = extractStringArg(argsText, 0);
-            const epStr = extractNumberArg(argsText, 1);
-            if (nodeId && epStr !== null) {
-                return { type: 'matter-cluster', nodeId, endpointId: epStr };
+            const epId = extractNumberArg(argsText, 1) ?? extractStringArg(argsText, 1);
+            if (nodeId && epId !== null) {
+                return { type: 'matter-cluster', nodeId, endpointId: epId };
             }
         }
         if (argIdx >= 3) {
             // Fourth arg: attr name (get/sub) or command name (send)
             const nodeId = extractStringArg(argsText, 0);
-            const epId = extractNumberArg(argsText, 1);
+            const epId = extractNumberArg(argsText, 1) ?? extractStringArg(argsText, 1);
             const cluster = extractStringArg(argsText, 2);
             const isSend = /she\.matter\.send\s*\(/.test(lineUpToCursor);
             if (nodeId && epId !== null && cluster) {
@@ -272,39 +284,59 @@ function dbItems(
 }
 
 function nodeIdItems(range: monaco.IRange, prefix: string): monaco.languages.CompletionItem[] {
-    return matterNodeIds
-        .filter(id => id.startsWith(prefix))
-        .map(id => ({
-            label: id,
+    return matterNodeIds.map(id => {
+        const name = matterNodeNames.get(id) ?? id;
+        if (prefix && !name.startsWith(prefix) && !id.startsWith(prefix)) return null;
+        return {
+            label: name,
             kind: CK.Value,
-            insertText: id,
+            insertText: name,
             range,
-            detail: 'Matter node',
-            sortText: '0' + id,
-        }));
+            detail: name !== id ? `Node ID: ${id}` : 'Matter node',
+            sortText: '0' + name,
+        };
+    }).filter(Boolean) as monaco.languages.CompletionItem[];
+}
+
+/** Resolve a nodeId string-or-name to the canonical nodeId key in matterCache. */
+function resolveNodeId(nodeIdOrName: string): string {
+    return matterNameToId.get(nodeIdOrName) ?? nodeIdOrName;
+}
+
+/** Find an endpoint by numeric id or by name. */
+function resolveEndpoint(detail: MatterNodeDetail, endpointId: number | string) {
+    if (typeof endpointId === 'number') return detail.endpoints.find(e => e.endpointId === endpointId);
+    const asNum = parseInt(endpointId, 10);
+    if (!isNaN(asNum)) return detail.endpoints.find(e => e.endpointId === asNum);
+    return detail.endpoints.find(e => e.name === endpointId);
 }
 
 function endpointIdItems(range: monaco.IRange, nodeId: string): monaco.languages.CompletionItem[] {
-    const detail = matterCache.get(nodeId);
+    const detail = matterCache.get(resolveNodeId(nodeId));
     if (!detail) return [];
-    return detail.endpoints.map(ep => ({
-        label: String(ep.endpointId),
-        kind: CK.Value,
-        insertText: String(ep.endpointId),
-        range,
-        detail: `Endpoint — clusters: ${ep.clusters.join(', ')}`,
-        sortText: '0' + String(ep.endpointId).padStart(4, '0'),
-    }));
+    return detail.endpoints.map(ep => {
+        const label = ep.name ?? String(ep.endpointId);
+        return {
+            label,
+            kind: CK.Value,
+            insertText: label,
+            range,
+            detail: ep.name
+                ? `Endpoint ${ep.endpointId} — ${ep.clusters.join(', ')}`
+                : `Clusters: ${ep.clusters.join(', ')}`,
+            sortText: '0' + String(ep.endpointId).padStart(4, '0'),
+        };
+    });
 }
 
 function clusterItems(
     range: monaco.IRange,
     nodeId: string,
-    endpointId: number,
+    endpointId: number | string,
 ): monaco.languages.CompletionItem[] {
-    const detail = matterCache.get(nodeId);
+    const detail = matterCache.get(resolveNodeId(nodeId));
     if (!detail) return [];
-    const ep = detail.endpoints.find(e => e.endpointId === endpointId);
+    const ep = resolveEndpoint(detail, endpointId);
     if (!ep) return [];
     return ep.clusters.map(c => ({
         label: c,
