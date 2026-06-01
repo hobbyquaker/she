@@ -124,8 +124,20 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
             if (typeof controller.listPaired === 'function') {
                 const nodes = controller.listPaired();
                 if (nodes.length > 0) {
-                    const list = nodes.map((n) => `  nodeId ${n.nodeId}: ${n.label || 'unnamed'}`).join('\n');
-                    parts.push(`## Paired Matter devices\n${list}`);
+                    const lines = ['## Paired Matter devices'];
+                    for (const n of nodes) {
+                        const deviceName = n.name || `node-${n.nodeId}`;
+                        lines.push(`\n### ${deviceName} (nodeId: "${n.nodeId}", ${n.online ? 'online' : 'offline'})`);
+                        try {
+                            const endpoints = controller.getEndpoints(n.nodeId);
+                            for (const ep of endpoints) {
+                                if (ep.endpointId === 0) continue; // skip root endpoint
+                                const epName = ep.name || String(ep.endpointId);
+                                lines.push(`- endpoint "${epName}" (id: ${ep.endpointId}): ${ep.clusters.join(', ')}`);
+                            }
+                        } catch { /* node may be offline */ }
+                    }
+                    parts.push(lines.join('\n'));
                 }
             }
         } catch {
