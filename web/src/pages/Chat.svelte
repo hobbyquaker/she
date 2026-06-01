@@ -72,10 +72,7 @@
     ];
 
     let ctxApiref = $state(true);
-    let ctxMqtt   = $state(false);
-    let ctxShedb  = $state(false);
-    let ctxMatter = $state(false);
-    let ctxTools  = $state(false);
+    let ctxTools  = $state(true);
 
     // File context chips
     let includeCurrentScript = $state(true);
@@ -92,9 +89,6 @@
     // ── Derived ──────────────────────────────────────────────────────────────
     const context = $derived<AiContext>({
         apiref: ctxApiref,
-        mqtt:   ctxMqtt,
-        shedb:  ctxShedb,
-        matter: ctxMatter,
         tools:  ctxTools,
     });
 
@@ -574,16 +568,7 @@
         <label title="Include she API reference in context">
             <input type="checkbox" bind:checked={ctxApiref} /><span class="checkmark"></span> API ref
         </label>
-        <label title="Include current MQTT state in context">
-            <input type="checkbox" bind:checked={ctxMqtt} /><span class="checkmark"></span> MQTT
-        </label>
-        <label title="Include sheDB document IDs in context">
-            <input type="checkbox" bind:checked={ctxShedb} /><span class="checkmark"></span> DB
-        </label>
-        <label title="Include paired Matter devices in context">
-            <input type="checkbox" bind:checked={ctxMatter} /><span class="checkmark"></span> Matter
-        </label>
-        <label title="Allow the AI to search MQTT topics, read scripts, and fetch logs on demand. Disables real-time streaming.">
+        <label title="Let the AI query MQTT state, sheDB documents and Matter devices on demand. Disables real-time streaming.">
             <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 🔧 Tools
         </label>
         <span class="req-size">{formatBytes(requestBytes)}</span>

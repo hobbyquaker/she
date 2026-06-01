@@ -102,6 +102,77 @@ const TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'get_mqtt_topic',
+            description:
+                'Get the current value and timestamps of a specific MQTT topic from the she state store. ' +
+                'Use this when you need the exact current state of a known topic.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    topic: {
+                        type: 'string',
+                        description: 'The exact MQTT topic path, e.g. "home/livingroom/light/state".',
+                    },
+                },
+                required: ['topic'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_shedb_docs',
+            description:
+                'List document IDs in the sheDB document store. ' +
+                'Use this to discover what documents exist before fetching their content.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    filter: {
+                        type: 'string',
+                        description: 'Optional case-insensitive substring to filter IDs. Pass empty string to list all (capped at 200).',
+                    },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_shedb_doc',
+            description:
+                'Retrieve a specific document from the sheDB document store by its ID. ' +
+                'Use list_shedb_docs first to discover valid IDs.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    id: {
+                        type: 'string',
+                        description: 'The exact document ID to retrieve.',
+                    },
+                },
+                required: ['id'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_matter_devices',
+            description:
+                'List all paired Matter devices with their online status, endpoints and available clusters. ' +
+                'Use this whenever the user asks about a Matter device or smart home hardware.',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: [],
+            },
+        },
+    },
 ];
 
 /** Same definitions in Anthropic tool format. */
@@ -125,11 +196,15 @@ const TOOL_DEFINITIONS_ANTHROPIC = TOOL_DEFINITIONS.map((t) => ({
 async function executeTool(name, args, ctx) {
     try {
         switch (name) {
-            case 'search_mqtt_topics': return toolSearchMqttTopics(args, ctx.store);
-            case 'read_script':        return toolReadScript(args, ctx.scriptDir);
-            case 'get_script_logs':    return toolGetScriptLogs(args);
-            case 'she_fetch':          return await toolSheFetch(args);
-            default:                   return `Unknown tool: ${name}`;
+            case 'search_mqtt_topics':  return toolSearchMqttTopics(args, ctx.store);
+            case 'get_mqtt_topic':      return toolGetMqttTopic(args, ctx.store);
+            case 'read_script':         return toolReadScript(args, ctx.scriptDir);
+            case 'get_script_logs':     return toolGetScriptLogs(args);
+            case 'she_fetch':           return await toolSheFetch(args);
+            case 'list_shedb_docs':     return toolListShedbDocs(args);
+            case 'get_shedb_doc':       return toolGetShedbDoc(args);
+            case 'list_matter_devices': return toolListMatterDevices();
+            default:                    return `Unknown tool: ${name}`;
         }
     } catch (e) {
         return `Tool error (${name}): ${e.message}`;
@@ -205,6 +280,69 @@ async function toolSheFetch({ url }) {
     const plain = ct.includes('html') ? text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : text;
     const truncated = plain.length > MAX_FETCH_CHARS ? plain.slice(0, MAX_FETCH_CHARS) + `\n… (truncated, ${plain.length} chars total)` : plain;
     return `Content of ${url}:\n\n${truncated}`;
+}
+
+function toolGetMqttTopic({ topic }, store) {
+    if (!store) return 'MQTT state store not available.';
+    if (!topic || typeof topic !== 'string') return 'topic argument is required.';
+    const obj = store.getObject('mqtt::' + topic);
+    if (!obj) return `Topic "${topic}" not found in state store. Use search_mqtt_topics to discover topics.`;
+    const ts = new Date(obj.ts).toISOString();
+    const lc = new Date(obj.lc ?? obj.ts).toISOString();
+    return `${topic}: ${JSON.stringify(obj.val)}\n  last updated: ${ts}\n  last changed: ${lc}`;
+}
+
+function toolListShedbDocs({ filter = '' }) {
+    try {
+        const core = require('./shedb').getCore();
+        if (!core) return 'sheDB not initialised.';
+        const ids = Object.keys(core.docs).sort();
+        const q = String(filter).toLowerCase();
+        const filtered = q ? ids.filter((id) => id.toLowerCase().includes(q)) : ids;
+        if (filtered.length === 0) return q ? `No documents found matching "${filter}".` : 'No documents in sheDB.';
+        const shown = filtered.slice(0, 200);
+        const suffix = filtered.length > 200 ? ` (capped at 200 of ${filtered.length} total)` : '';
+        return `${shown.length} document(s)${suffix}:\n${shown.join('\n')}`;
+    } catch (e) {
+        return `sheDB not available: ${e.message}`;
+    }
+}
+
+function toolGetShedbDoc({ id }) {
+    if (!id || typeof id !== 'string') return 'id argument is required.';
+    try {
+        const core = require('./shedb').getCore();
+        if (!core) return 'sheDB not initialised.';
+        const doc = core.docs[id];
+        if (doc === undefined) return `Document "${id}" not found. Use list_shedb_docs to see available IDs.`;
+        return `## ${id}\n${JSON.stringify(doc, null, 2)}`;
+    } catch (e) {
+        return `sheDB not available: ${e.message}`;
+    }
+}
+
+function toolListMatterDevices() {
+    try {
+        const controller = require('../matter/controller');
+        if (typeof controller.listPaired !== 'function') return 'Matter controller not available.';
+        const nodes = controller.listPaired();
+        if (nodes.length === 0) return 'No Matter devices paired.';
+        const lines = [`${nodes.length} paired Matter device(s):`];
+        for (const n of nodes) {
+            lines.push(`\n### ${n.name || 'Unnamed'} (nodeId: "${n.nodeId}", ${n.online ? 'online' : 'offline'})`);
+            try {
+                const endpoints = controller.getEndpoints(n.nodeId);
+                for (const ep of endpoints) {
+                    if (ep.endpointId === 0) continue; // skip root endpoint
+                    const name = ep.name || String(ep.endpointId);
+                    lines.push(`- endpoint "${name}" (id: ${ep.endpointId}): ${ep.clusters.join(', ')}`);
+                }
+            } catch { /* node may be offline */ }
+        }
+        return lines.join('\n');
+    } catch (e) {
+        return `Matter controller not available: ${e.message}`;
+    }
 }
 
 module.exports = { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool };

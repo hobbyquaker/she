@@ -59,7 +59,6 @@
     // Context checkboxes
     let ctxDocIds     = $state(true);
     let ctxSampleDocs = $state(true);
-    let ctxMqtt       = $state(false);
 
     let inputEl: HTMLTextAreaElement;
     let messagesEl: HTMLDivElement;
@@ -67,9 +66,7 @@
     // ── Derived ───────────────────────────────────────────────────────────────
     const context = $derived<AiContext>({
         apiref:     false,
-        mqtt:       ctxMqtt,
         shedb:      ctxDocIds,
-        matter:     false,
         sampleDocs: ctxSampleDocs,
     });
 
@@ -386,9 +383,6 @@
         </label>
         <label title="Include sample document content in context (first 10 docs)">
             <input type="checkbox" bind:checked={ctxSampleDocs} /><span class="checkmark"></span> Sample docs
-        </label>
-        <label title="Include current MQTT state in context">
-            <input type="checkbox" bind:checked={ctxMqtt} /><span class="checkmark"></span> MQTT
         </label>
     </div>
 

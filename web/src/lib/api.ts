@@ -351,9 +351,9 @@ export interface AiToolEvent {
 
 export interface AiContext {
     apiref: boolean;
-    mqtt: boolean;
-    shedb: boolean;
-    matter: boolean;
+    mqtt?: boolean;
+    shedb?: boolean;
+    matter?: boolean;
     sampleDocs?: boolean;
     tools?: boolean;
 }

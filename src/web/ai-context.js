@@ -75,93 +75,6 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
         parts.push(`## Current document: ${currentDoc.id}\n\`\`\`json\n${content}\n\`\`\``);
     }
 
-    if (requestCtx.mqtt && store) {
-        try {
-        // Collect all MQTT topics, skipping $SYS/ broker internals
-        const topicData = new Map(); // topic → { val, lc }
-        for (const [topic, obj] of store.mqttEntries()) {
-            if (topic.startsWith('$SYS/')) continue;
-            topicData.set(topic, { val: obj.val, lc: obj.lc ?? obj.ts ?? 0 });
-        }
-
-        if (topicData.size > 0) {
-            // Build a trie so sibling leaf-topics can be collapsed onto one line.
-            // Each node tracks: maxLc (for recency sort) and topic (original string,
-            // stored only on leaf nodes so lookups never need path reconstruction).
-            const mkNode = () => ({ children: new Map(), isLeaf: false, lc: 0, maxLc: 0, topic: null });
-            const root = mkNode();
-            for (const [topic, { lc }] of topicData) {
-                const segs = topic.split('/');
-                let node = root;
-                for (const seg of segs) {
-                    if (!node.children.has(seg)) node.children.set(seg, mkNode());
-                    node = node.children.get(seg);
-                }
-                node.isLeaf = true;
-                node.lc = lc;
-                node.topic = topic; // exact original key — used for topicData lookups
-            }
-
-            // Post-order pass: propagate maxLc up so subtrees can be sorted by recency
-            const propagate = (node) => {
-                let max = node.isLeaf ? node.lc : 0;
-                for (const child of node.children.values()) {
-                    const m = propagate(child);
-                    if (m > max) max = m;
-                }
-                node.maxLc = max;
-                return max;
-            };
-            propagate(root);
-
-            // Walk the trie most-recently-changed first.
-            // Sibling pure-leaf nodes (no sub-topics) under the same parent are
-            // collapsed onto one line: parent/A: v1 # B: v2 # C: v3
-            // We use node.topic for all topicData lookups — no path reconstruction.
-            const lines = [];
-            const walk = (node, atRoot) => {
-                const byRecency = [...node.children.entries()].sort(([, a], [, b]) => b.maxLc - a.maxLc);
-                const pureLeaves = byRecency.filter(([, c]) => c.isLeaf && c.children.size === 0);
-                const branches   = byRecency.filter(([, c]) => !(c.isLeaf && c.children.size === 0));
-
-                if (pureLeaves.length > 1 && !atRoot) {
-                    // Collapse siblings: "parentTopic/FIRST: v1 # SIBLING: v2 # ..."
-                    // Derive the shared prefix from the first node's stored topic.
-                    const [[, firstNode], ...rest] = pureLeaves;
-                    const sharedPrefix = firstNode.topic.slice(0, firstNode.topic.lastIndexOf('/'));
-                    const v0 = JSON.stringify(topicData.get(firstNode.topic).val);
-                    const siblings = rest.map(([, n]) => {
-                        const name = n.topic.slice(sharedPrefix.length + 1);
-                        return `${name}: ${JSON.stringify(topicData.get(n.topic).val)}`;
-                    });
-                    lines.push(`${firstNode.topic}: ${v0} # ${siblings.join(' # ')}`);
-                } else {
-                    for (const [, leafNode] of pureLeaves) {
-                        lines.push(`${leafNode.topic}: ${JSON.stringify(topicData.get(leafNode.topic).val)}`);
-                    }
-                }
-
-                for (const [, child] of branches) {
-                    if (child.isLeaf) {
-                        lines.push(`${child.topic}: ${JSON.stringify(topicData.get(child.topic).val)}`);
-                    }
-                    walk(child, false);
-                }
-            };
-            walk(root, true);
-
-            parts.push(
-                '## Current MQTT state\n' +
-                '($SYS/ broker topics omitted; sorted most-recently-changed first;\n' +
-                'sibling leaf-topics sharing a prefix are grouped: prefix/A: v1 # B: v2 # C: v3)\n' +
-                lines.join('\n')
-            );
-        }
-        } catch (e) {
-            parts.push(`## Current MQTT state\n(Error building MQTT context: ${e.message})`);
-        }
-    }
-
     if (requestCtx.shedb) {
         try {
             const core = require('./shedb').getCore();
@@ -188,33 +101,6 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
             }
         } catch {
             // shedb not initialised — skip silently
-        }
-    }
-
-    if (requestCtx.matter) {
-        try {
-            const controller = require('../matter/controller');
-            if (typeof controller.listPaired === 'function') {
-                const nodes = controller.listPaired();
-                if (nodes.length > 0) {
-                    const lines = ['## Paired Matter devices'];
-                    for (const n of nodes) {
-                        const deviceName = n.name || `node-${n.nodeId}`;
-                        lines.push(`\n### ${deviceName} (nodeId: "${n.nodeId}", ${n.online ? 'online' : 'offline'})`);
-                        try {
-                            const endpoints = controller.getEndpoints(n.nodeId);
-                            for (const ep of endpoints) {
-                                if (ep.endpointId === 0) continue; // skip root endpoint
-                                const epName = ep.name || String(ep.endpointId);
-                                lines.push(`- endpoint "${epName}" (id: ${ep.endpointId}): ${ep.clusters.join(', ')}`);
-                            }
-                        } catch { /* node may be offline */ }
-                    }
-                    parts.push(lines.join('\n'));
-                }
-            }
-        } catch {
-            // matter not initialised — skip silently
         }
     }
 
