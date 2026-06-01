@@ -5,6 +5,10 @@ const { WebSocketServer } = require('ws');
 let _wss = null;
 const _clients = new Set();
 
+// Ring buffer of recent log entries for the AI tool get_script_logs
+const _logBuffer = [];
+const LOG_BUFFER_MAX = 500;
+
 /**
  * Attach a WebSocketServer to an existing http.Server.
  * Clients connect to /she/ws. Once connected they receive:
@@ -54,10 +58,21 @@ function broadcast(msg) {
 
 /**
  * Broadcast a structured log entry to all connected WebSocket clients.
+ * Also stores the entry in the in-memory ring buffer.
  * @param {{ level: string, msg: string, ts: number }} entry
  */
 function broadcastLog(entry) {
+    _logBuffer.push(entry);
+    if (_logBuffer.length > LOG_BUFFER_MAX) _logBuffer.shift();
     broadcast({ type: 'log', ...entry });
+}
+
+/**
+ * Return a snapshot of recent log entries (newest last).
+ * @returns {{ level: string, msg: string, ts: number }[]}
+ */
+function getLogBuffer() {
+    return _logBuffer.slice();
 }
 
 /**
@@ -75,4 +90,4 @@ function closeWss() {
     });
 }
 
-module.exports = { attachWss, broadcast, broadcastLog, closeWss };
+module.exports = { attachWss, broadcast, broadcastLog, closeWss, getLogBuffer };

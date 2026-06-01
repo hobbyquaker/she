@@ -19,6 +19,9 @@
 const express = require('express');
 const fs = require('fs');
 
+const { buildSystemPrompt } = require('./ai-context');
+const { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool } = require('./ai-tools');
+
 const router = express.Router();
 let _store = null;
 
@@ -28,71 +31,6 @@ let _store = null;
 function init(store) {
     _store = store;
 }
-
-// ---------------------------------------------------------------------------
-// she API reference — injected into the system prompt when requested
-// ---------------------------------------------------------------------------
-const SHE_API_REF = `## she sandbox API
-
-Scripts run in a sandboxed VM. The \`she\` object is injected automatically.
-
-### Script conventions
-- First lines: /* global she */ then 'use strict';
-- No require() — the module system is not available
-- All subscriptions and schedules persist across reconnects
-
-### MQTT
-she.mqtt.sub(topic, [opts], cb)        Subscribe; wildcards: + (1 level) # (multi)
-                                         +//sensor  →  +/status/sensor shorthand
-                                         opts.change: true = only fire when value changes
-she.mqtt.pub(topic, payload, [opts])   Publish; opts: { qos, retain }
-she.mqtt.get(topic)                    Current retained value (sync)
-she.mqtt.set(topic, val)               Publish as retained
-she.mqtt.link(src, target, [fn])       Forward src changes to target; optional transform
-she.mqtt.age(topic)                    Seconds since topic last received a message
-she.mqtt.on('connect'|'disconnect', cb) MQTT lifecycle events
-
-### Scheduling
-she.schedule(pattern, [opts], cb)
-  pattern: cron string | Date | suncalc event name
-  suncalc events: 'sunrise' 'sunset' 'dawn' 'dusk'
-                  'nauticalDawn' 'nauticalDusk' 'solarNoon' 'night'
-  opts.shift:  seconds offset (e.g. -1800 = 30 min before event)
-  opts.random: max random delay in seconds added to the trigger time
-
-### Universal key-value API
-she.on(key, cb)        Subscribe. Key prefixes: mqtt::  var::  matter::
-she.set(key, val)      Set value (mqtt:: or var:: namespaces)
-she.get(key)           Current value
-she.getObject(key)     Current { val, ts, lc } state object
-
-### Variable system (var:: namespace)
-Topics prefixed with "var" (default) are persisted as retained MQTT messages
-and available across scripts via she.get('var::name') / she.set('var::name', v).
-
-### sheDB
-she.db.get(id)                      Get document (undefined if not found)
-she.db.set(id, doc)                 Create or overwrite document
-she.db.extend(id, partial)          Deep-merge partial into existing document
-she.db.delete(id)                   Delete document
-she.db.sub(pattern, cb)             Subscribe to document changes (MQTT wildcard)
-she.db.query(filter, mapFn, [reduceFn])  Synchronous ad-hoc query → Array
-
-### Matter
-she.matter.sub(nodeId, endpointId, cluster, attr, cb)    Subscribe to attribute
-she.matter.unsub(listenerId)
-she.matter.get(nodeId, endpointId, cluster, attr)         → Promise<value>
-she.matter.send(nodeId, endpointId, cluster, cmd, [args]) → Promise<result>
-
-### Helpers
-she.timer(src, target, ms)           Pulse target=1 for ms after src goes truthy
-she.combineBool(srcs[], target)      Publish OR of source values to target
-she.combineMax(srcs[], target)       Publish maximum of source values to target
-she.link(src, target, [fn])          Alias for she.mqtt.link
-she.age(topic)                       Alias for she.mqtt.age
-she.now()                            Current timestamp in ms
-she.debug / .info / .warn / .error   Structured logging (prefixed with script name)
-she.global                           Shared mutable object across all scripts`;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -114,142 +52,6 @@ function readAiConfig(configPath) {
     }
 }
 
-/**
- * Build the full system prompt, including optional context sections.
- *
- * @param {object} requestCtx   { apiref, mqtt, shedb, matter, sampleDocs }
- * @param {{ path?: string, content?: string }|null} currentScript
- * @param {{ id?: string, filter?: string, map?: string, reduce?: string }|null} currentView
- * @param {import('../lib/state-store')|null} store
- * @returns {string}
- */
-function buildSystemPrompt(requestCtx, currentScript, currentView, store) {
-    const isViewMode = !!(currentView?.id);
-
-    const basePrompt = isViewMode
-        ? `You are SHE Assistant, helping write sheDB MapReduce view definitions for she (smart-home-engine).
-
-A view has three optional parts:
-1. **Filter** — an MQTT-style topic wildcard (e.g. \`devices/#\`) that selects which document IDs enter the view. Plain string, no code.
-2. **Map** — a JavaScript function body. \`this\` is the current document. Call \`emit(value)\` to include a value in the result array. No \`return\`.
-3. **Reduce** — a JavaScript function body that receives \`result\` (the array from map) and must \`return\` a transformed value.
-
-When proposing view parts, use these exact formats (include only the parts that change):
-
-\`\`\`filter
-devices/#
-\`\`\`
-
-\`\`\`javascript
-// @view-map
-if (this.temperature !== undefined) emit(this.temperature);
-\`\`\`
-
-\`\`\`javascript
-// @view-reduce
-return result.reduce((a, b) => a + b, 0) / result.length;
-\`\`\`
-
-Keep the \`// @view-map\` / \`// @view-reduce\` comment as the very first line of each block — the UI uses it to detect which field to fill in.`
-        : `You are SHE Assistant, an expert AI pair programmer for she (smart-home-engine).
-she is a Node.js daemon that runs user JavaScript scripts in a sandboxed VM for home automation.
-When proposing changes to a script, always output the COMPLETE new file content in a single fenced \`\`\`javascript code block. Never output partial diffs or fragments — the user applies the full file at once.
-Keep any existing header comments and the 'use strict'; directive.
-When the user asks you to CREATE a new script (not modify the current one), place a special hint as the very first line INSIDE the code block (right after the opening \`\`\`javascript fence line), like this:
-\`\`\`javascript
-// @new-file: descriptive-name.js
-/* global she */
-'use strict';
-// ... rest of script
-\`\`\`
-Use a short kebab-case filename. Do NOT put the hint outside or before the code block. The UI will detect it and offer to save the file.`;
-
-    const parts = [basePrompt];
-
-    if (requestCtx.apiref) {
-        parts.push(SHE_API_REF);
-    }
-
-    if (currentScript?.path && typeof currentScript.content === 'string') {
-        parts.push(`## Current script: ${currentScript.path}\n\`\`\`javascript\n${currentScript.content}\n\`\`\``);
-    }
-
-    if (currentView?.id) {
-        const filterStr = (currentView.filter || '').trim();
-        const mapBody   = (currentView.map    || '').trim();
-        const reduceBody = (currentView.reduce || '').trim();
-        const viewLines = [`## Current view: ${currentView.id}`];
-        viewLines.push(`Filter: ${filterStr || '(none)'}`);
-        viewLines.push(`Map:\n\`\`\`javascript\n${mapBody || '// (empty)'}\n\`\`\``);
-        if (reduceBody) {
-            viewLines.push(`Reduce:\n\`\`\`javascript\n${reduceBody}\n\`\`\``);
-        } else {
-            viewLines.push('Reduce: (none)');
-        }
-        parts.push(viewLines.join('\n'));
-    }
-
-    if (requestCtx.mqtt && store) {
-        const topics = [];
-        for (const [topic, obj] of store.mqttEntries()) {
-            topics.push(`${topic}: ${JSON.stringify(obj.val)}`);
-            if (topics.length >= 100) {
-                topics.push('… (truncated)');
-                break;
-            }
-        }
-        if (topics.length > 0) {
-            parts.push(`## Current MQTT state\n${topics.join('\n')}`);
-        }
-    }
-
-    if (requestCtx.shedb) {
-        try {
-            const core = require('./shedb').getCore();
-            if (core) {
-                const ids = Object.keys(core.docs).sort();
-                if (ids.length > 0) {
-                    parts.push(`## sheDB document IDs (${ids.length} total)\n${ids.slice(0, 200).join('\n')}`);
-                }
-            }
-        } catch {
-            // shedb not initialised — skip silently
-        }
-    }
-
-    if (requestCtx.sampleDocs) {
-        try {
-            const core = require('./shedb').getCore();
-            if (core) {
-                const ids = Object.keys(core.docs).sort().slice(0, 10);
-                if (ids.length > 0) {
-                    const sample = ids.map((id) => `### ${id}\n${JSON.stringify(core.docs[id], null, 2)}`).join('\n\n');
-                    parts.push(`## Sample sheDB documents (${ids.length} shown)\n${sample}`);
-                }
-            }
-        } catch {
-            // shedb not initialised — skip silently
-        }
-    }
-
-    if (requestCtx.matter) {
-        try {
-            const controller = require('../matter/controller');
-            if (typeof controller.listPaired === 'function') {
-                const nodes = controller.listPaired();
-                if (nodes.length > 0) {
-                    const list = nodes.map((n) => `  nodeId ${n.nodeId}: ${n.label || 'unnamed'}`).join('\n');
-                    parts.push(`## Paired Matter devices\n${list}`);
-                }
-            }
-        } catch {
-            // matter not initialised — skip silently
-        }
-    }
-
-    return parts.join('\n\n');
-}
-
 // ---------------------------------------------------------------------------
 // Provider adapters — non-streaming
 // ---------------------------------------------------------------------------
@@ -257,17 +59,22 @@ Use a short kebab-case filename. Do NOT put the hint outside or before the code 
 /**
  * @param {{ baseUrl?: string, model: string, apiKey?: string }} config
  * @param {Array<{role:string,content:string}>} messages
+ * @param {Array|undefined} [tools]  — OpenAI tool definitions; omit to disable tool calling
+ * @returns {{ message?: string, usage?: object, toolCalls?: Array, assistantMsg?: object }}
  */
-async function callOpenAICompat(config, messages) {
+async function callOpenAICompat(config, messages, tools) {
     const base = (config.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
     const url = `${base}/v1/chat/completions`;
     const headers = { 'Content-Type': 'application/json' };
     if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
 
+    const body = { model: config.model, messages, stream: false };
+    if (tools?.length) body.tools = tools;
+
     const res = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ model: config.model, messages, stream: false }),
+        body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -277,21 +84,29 @@ async function callOpenAICompat(config, messages) {
 
     const json = await res.json();
     const choice = json.choices?.[0];
-    const message = choice?.message?.content ?? choice?.text ?? '';
     const usage = json.usage
         ? {
               prompt_tokens: json.usage.prompt_tokens,
               completion_tokens: json.usage.completion_tokens,
           }
         : undefined;
+
+    // Detect tool call response
+    if (choice?.finish_reason === 'tool_calls' && choice.message?.tool_calls?.length) {
+        return { toolCalls: choice.message.tool_calls, assistantMsg: choice.message, usage };
+    }
+
+    const message = choice?.message?.content ?? choice?.text ?? '';
     return { message, usage };
 }
 
 /**
  * @param {{ model: string, apiKey?: string }} config
  * @param {Array<{role:string,content:string}>} messages  — first may be role:'system'
+ * @param {Array|undefined} [tools]  — Anthropic tool definitions; omit to disable tool calling
+ * @returns {{ message?: string, usage?: object, toolCalls?: Array, assistantMsg?: Array }}
  */
-async function callAnthropic(config, messages) {
+async function callAnthropic(config, messages, tools) {
     const systemMsg = messages.find((m) => m.role === 'system');
     const userMessages = messages.filter((m) => m.role !== 'system');
 
@@ -301,15 +116,18 @@ async function callAnthropic(config, messages) {
         'anthropic-version': '2023-06-01',
     };
 
+    const body = {
+        model: config.model,
+        system: systemMsg?.content || '',
+        messages: userMessages,
+        max_tokens: 4096,
+    };
+    if (tools?.length) body.tools = tools;
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-            model: config.model,
-            system: systemMsg?.content || '',
-            messages: userMessages,
-            max_tokens: 4096,
-        }),
+        body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -318,14 +136,101 @@ async function callAnthropic(config, messages) {
     }
 
     const json = await res.json();
-    const message = json.content?.[0]?.text ?? '';
     const usage = json.usage
         ? {
               prompt_tokens: json.usage.input_tokens,
               completion_tokens: json.usage.output_tokens,
           }
         : undefined;
+
+    // Detect tool use response
+    if (json.stop_reason === 'tool_use') {
+        const toolCalls = (json.content || []).filter((b) => b.type === 'tool_use');
+        return { toolCalls, assistantMsg: json.content, usage };
+    }
+
+    const message = json.content?.[0]?.text ?? '';
     return { message, usage };
+}
+
+// ---------------------------------------------------------------------------
+// Tool-calling resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the tool-calling loop: call the LLM, execute any tool calls, repeat
+ * until the model produces a plain text answer (no more tool calls).
+ *
+ * Emits { type:'tool_call', name, args } and { type:'tool_result', name, content }
+ * events via onEvent (used for SSE feedback to the client).
+ *
+ * @param {{ provider: string, baseUrl?: string, model: string, apiKey?: string }} ai
+ * @param {Array} messages  — initial message list (system prompt already included)
+ * @param {{ store: any, scriptDir: string|null }} toolContext
+ * @param {((event: object) => void)|undefined} onEvent
+ * @returns {Promise<{ message: string, usage?: object }>}
+ */
+async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
+    const isAnthropic = ai.provider === 'anthropic';
+    const tools = isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS;
+    let msgs = messages;
+
+    for (let round = 0; round < 6; round++) {
+        // On the final safety round, don't send tools to avoid infinite loops
+        const roundTools = round < 5 ? tools : undefined;
+
+        let result;
+        try {
+            result = isAnthropic
+                ? await callAnthropic(ai, msgs, roundTools)
+                : await callOpenAICompat(ai, msgs, roundTools);
+        } catch (e) {
+            if (round === 0 && roundTools) {
+                // Model may not support tool calling — retry without tools
+                result = isAnthropic
+                    ? await callAnthropic(ai, msgs)
+                    : await callOpenAICompat(ai, msgs);
+            } else {
+                throw e;
+            }
+        }
+
+        // No tool calls → we have the final answer
+        if (!result.toolCalls?.length) {
+            return { message: result.message ?? '', usage: result.usage };
+        }
+
+        // Execute tool calls and append results to message history
+        if (isAnthropic) {
+            msgs = [...msgs, { role: 'assistant', content: result.assistantMsg }];
+            const toolResultBlocks = [];
+            for (const tc of result.toolCalls) {
+                const args = tc.input || {};
+                onEvent?.({ type: 'tool_call', name: tc.name, args });
+                const content = await executeTool(tc.name, args, toolContext);
+                onEvent?.({ type: 'tool_result', name: tc.name, content });
+                toolResultBlocks.push({ type: 'tool_result', tool_use_id: tc.id, content });
+            }
+            msgs = [...msgs, { role: 'user', content: toolResultBlocks }];
+        } else {
+            msgs = [...msgs, { ...result.assistantMsg, role: 'assistant' }];
+            for (const tc of result.toolCalls) {
+                const name = tc.function.name;
+                let args;
+                try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
+                onEvent?.({ type: 'tool_call', name, args });
+                const content = await executeTool(name, args, toolContext);
+                onEvent?.({ type: 'tool_result', name, content });
+                msgs = [...msgs, { role: 'tool', tool_call_id: tc.id, content }];
+            }
+        }
+    }
+
+    // Fallback (should not normally be reached)
+    const fallback = isAnthropic
+        ? await callAnthropic(ai, msgs)
+        : await callOpenAICompat(ai, msgs);
+    return { message: fallback.message ?? '', usage: fallback.usage };
 }
 
 // ---------------------------------------------------------------------------
@@ -506,16 +411,19 @@ router.post('/chat', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, currentView, context = {}, modelOverride } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, _store);
+    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     try {
         let result;
-        if (ai.provider === 'anthropic') {
+        if (context.tools) {
+            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
+            result = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, undefined);
+        } else if (ai.provider === 'anthropic') {
             result = await callAnthropic(aiWithModel, fullMessages);
         } else {
             result = await callOpenAICompat(aiWithModel, fullMessages);
@@ -533,7 +441,7 @@ router.post('/chat/stream', async (req, res) => {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, currentView, context = {}, modelOverride } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
@@ -547,16 +455,23 @@ router.post('/chat/stream', async (req, res) => {
 
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, _store);
+    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
     try {
-        const onToken = (t) => send({ token: t });
-
-        if (ai.provider === 'anthropic') {
-            await streamAnthropic(aiWithModel, fullMessages, onToken);
+        if (context.tools) {
+            // Tool-calling mode: resolve tools non-streaming (emitting events), then
+            // send the final answer as a single token so the client sees it immediately.
+            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
+            const { message } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
+            send({ token: message });
         } else {
-            await streamOpenAICompat(aiWithModel, fullMessages, onToken);
+            const onToken = (t) => send({ token: t });
+            if (ai.provider === 'anthropic') {
+                await streamAnthropic(aiWithModel, fullMessages, onToken);
+            } else {
+                await streamOpenAICompat(aiWithModel, fullMessages, onToken);
+            }
         }
 
         res.write('data: [DONE]\n\n');

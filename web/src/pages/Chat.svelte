@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { type AiMessage, type AiContext, type AiCurrentScript, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, type AiConfig } from '../lib/api.js';
+    import { type AiMessage, type AiContext, type AiCurrentScript, type AiToolEvent, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, type AiConfig } from '../lib/api.js';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
     import { marked } from 'marked';
@@ -72,6 +72,10 @@
     let ctxMqtt   = $state(false);
     let ctxShedb  = $state(false);
     let ctxMatter = $state(false);
+    let ctxTools  = $state(false);
+
+    // Tool events emitted by the server during a tool-calling round
+    let toolEvents = $state<AiToolEvent[]>([]);
 
     let inputEl: HTMLTextAreaElement;
     let messagesEl: HTMLDivElement;
@@ -82,6 +86,7 @@
         mqtt:   ctxMqtt,
         shedb:  ctxShedb,
         matter: ctxMatter,
+        tools:  ctxTools,
     });
 
     const configured = $derived(aiConfig?.configured ?? false);
@@ -288,12 +293,14 @@
         messages = [...messages, userMsg];
 
         abortController = new AbortController();
+        toolEvents = [];
 
         try {
             await streamChatWithAI(
                 { messages, currentScript, context, modelOverride: selectedModel || undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
+                (event) => { toolEvents = [...toolEvents, event]; },
             );
             messages = [...messages, { role: 'assistant', content: streamingContent ?? '' }];
         } catch (e: any) {
@@ -346,7 +353,7 @@
         <span class="chat-title">AI Assistant</span>
         {#if aiConfig}
             <span class="chat-model" title="Provider: {aiConfig.provider}">
-                {#if configured}{aiConfig.provider} · {aiConfig.model}{:else}Not configured{/if}
+                {#if configured}{aiConfig.provider} · {selectedModel || aiConfig.model}{:else}Not configured{/if}
             </span>
         {/if}
         {#if messages.length > 0}
@@ -425,6 +432,28 @@
             </div>
         {/each}
 
+        <!-- Tool call events (shown while loading or retained after response) -->
+        {#if toolEvents.length > 0}
+            <div class="tool-events">
+                {#each toolEvents as ev}
+                    {#if ev.type === 'tool_call'}
+                        <div class="tool-event tool-call">
+                            <span class="tool-icon">🔧</span>
+                            <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
+                            {#if ev.args && Object.keys(ev.args).length > 0}
+                                <span class="tool-args">{Object.entries(ev.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')}</span>
+                            {/if}
+                        </div>
+                    {:else}
+                        <div class="tool-event tool-result">
+                            <span class="tool-icon">✓</span>
+                            <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
+                        </div>
+                    {/if}
+                {/each}
+            </div>
+        {/if}
+
         <!-- Status shimmer while waiting for first token -->
         {#if loading && streamingContent === null}
             <div class="message assistant">
@@ -473,6 +502,9 @@
         </label>
         <label title="Include paired Matter devices in context">
             <input type="checkbox" bind:checked={ctxMatter} /> Matter
+        </label>
+        <label title="Allow the AI to search MQTT topics, read scripts, and fetch logs on demand. Disables real-time streaming.">
+            <input type="checkbox" bind:checked={ctxTools} /> 🔧 Tools
         </label>
     </div>
 
@@ -957,6 +989,33 @@
         -webkit-text-fill-color: transparent;
         background-clip: text;
         animation: shimmer 12s linear infinite;
+    }
+
+    /* ── Tool events ─────────────────────────────────────────────────────── */
+    .tool-events {
+        padding: 4px 12px 2px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .tool-event {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        font-family: monospace;
+        color: var(--fg-dim);
+        opacity: 0.8;
+    }
+    .tool-event.tool-call { color: var(--fg-brand); opacity: 1; }
+    .tool-event.tool-result { color: var(--fg-muted); }
+    .tool-icon { font-style: normal; }
+    .tool-args {
+        color: var(--fg-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 300px;
     }
 
     /* ── Model bar ───────────────────────────────────────────────────────── */

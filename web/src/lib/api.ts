@@ -325,12 +325,20 @@ export interface AiMessage {
     content: string;
 }
 
+export interface AiToolEvent {
+    type: 'tool_call' | 'tool_result';
+    name: string;
+    args?: Record<string, unknown>;
+    content?: string;
+}
+
 export interface AiContext {
     apiref: boolean;
     mqtt: boolean;
     shedb: boolean;
     matter: boolean;
     sampleDocs?: boolean;
+    tools?: boolean;
 }
 
 export interface AiCurrentScript {
@@ -407,7 +415,12 @@ export function chatWithAI(body: AiChatRequest): Promise<AiChatResponse> {
  * onToken is called for each text token; the returned promise resolves when done.
  * Pass an AbortSignal to support cancellation.
  */
-export async function streamChatWithAI(body: AiChatRequest, onToken: (token: string) => void, signal?: AbortSignal): Promise<void> {
+export async function streamChatWithAI(
+    body: AiChatRequest,
+    onToken: (token: string) => void,
+    signal?: AbortSignal,
+    onEvent?: (event: AiToolEvent) => void,
+): Promise<void> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
 
     const res = await fetch('/she/ai/chat/stream', {
@@ -439,8 +452,12 @@ export async function streamChatWithAI(body: AiChatRequest, onToken: (token: str
                 const data = line.slice(6).trim();
                 if (data === '[DONE]') return;
                 try {
-                    const json = JSON.parse(data) as { token?: string; error?: string };
+                    const json = JSON.parse(data) as { token?: string; error?: string; type?: string; name?: string; args?: Record<string, unknown>; content?: string };
                     if (json.error) throw new Error(json.error);
+                    if (json.type === 'tool_call' || json.type === 'tool_result') {
+                        onEvent?.({ type: json.type, name: json.name ?? '', args: json.args, content: json.content });
+                        continue;
+                    }
                     if (json.token) onToken(json.token);
                 } catch (e) {
                     // re-throw real errors; skip malformed JSON

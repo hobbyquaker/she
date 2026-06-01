@@ -129,4 +129,21 @@ module.exports = function (she) {
         /** Register a callback for MQTT connection lifecycle events ('connect' or 'disconnect'). */
         on: (event, cb) => she._registerMqttEvent(event, cb),
     };
+
+    /**
+     * Fetch a URL and return a Promise that resolves to the response body.
+     * Resolves to parsed JSON when the Content-Type is application/json, plain text otherwise.
+     * Rejects on non-2xx responses.
+     * @method fetch
+     * @param {string} url
+     * @param {RequestInit} [options]
+     * @returns {Promise<string|object>}
+     */
+    she.fetch = function Sandbox_fetch(url, options) {
+        return fetch(url, options).then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+            const ct = r.headers.get('content-type') || '';
+            return ct.includes('json') ? r.json() : r.text();
+        });
+    };
 };
