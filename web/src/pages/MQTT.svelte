@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, untrack } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
     import { fetchMqttState, publishMqtt } from '../lib/api.js';
 
@@ -87,9 +87,59 @@
     });
 
     /* ── Live stream pane ─────────────────────────────────────────────────── */
-    const STREAM_MAX = 20;
-    let streamFeed = $state<Array<{ topic: string; val: unknown; ts: number }>>([]);
-    let streamOpen = $state(true);
+    const STREAM_MAX   = 1000;  // raw buffer — large enough to rebuild any filter
+    const FILTER_MAX   = 200;   // per-filter rolling buffer cap
+    const STREAM_ROW_H = 20;    // px — matches .sr { height: 20px }
+    const STREAM_HDR_H = 36;    // px — resize handle + header row
+    let _streamSeq = 0;
+    type StreamRow = { id: number; topic: string; val: unknown; ts: number };
+    let streamFeed   = $state<StreamRow[]>([]);  // raw rolling buffer (all messages)
+    let filteredFeed = $state<StreamRow[]>([]);  // only rows matching current filter
+    let streamOpen   = $state(true);
+    let streamFilter = $state('#');
+    let streamHeight = $state(200);
+
+    // When the filter changes, rebuild filteredFeed from the raw buffer.
+    // untrack(streamFeed) prevents this effect from re-running on every new message.
+    $effect(() => {
+        const pat = streamFilter.trim();
+        const feed = untrack(() => streamFeed);
+        filteredFeed = (!pat || pat === '#')
+            ? feed.slice(0, FILTER_MAX)
+            : feed.filter(r => mqttMatch(pat, r.topic)).slice(0, FILTER_MAX);
+    });
+
+    function mqttMatch(pattern: string, topic: string): boolean {
+        if (pattern === '#') return true;
+        const pp = pattern.split('/');
+        const tp = topic.split('/');
+        for (let i = 0; i < pp.length; i++) {
+            if (pp[i] === '#') return true;
+            if (i >= tp.length) return false;
+            if (pp[i] !== '+' && pp[i] !== tp[i]) return false;
+        }
+        return pp.length === tp.length;
+    }
+
+    function startResize(e: MouseEvent) {
+        e.preventDefault();
+        const startY = e.clientY;
+        const startH = streamHeight;
+        function onMove(ev: MouseEvent) {
+            streamHeight = Math.max(60, Math.min(800, startH + startY - ev.clientY));
+        }
+        function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    }
+
+    let filteredStream = $derived.by(() => {
+        const max = Math.max(1, Math.floor((streamHeight - STREAM_HDR_H) / STREAM_ROW_H) + 1);
+        return filteredFeed.slice(0, max);
+    });
 
     /* ── Initial load ─────────────────────────────────────────────────────── */
     let loading   = $state(true);
@@ -120,7 +170,13 @@
         pending.add(topic);
         scheduleFlush();
         // Feed the live stream pane (newest first, capped at STREAM_MAX)
-        streamFeed = [{ topic, val, ts }, ...streamFeed.slice(0, STREAM_MAX - 1)];
+        const row: StreamRow = { id: _streamSeq++, topic, val, ts };
+        streamFeed = [row, ...streamFeed.slice(0, STREAM_MAX - 1)];
+        // Also push to filteredFeed if the message matches the current filter
+        const pat = streamFilter.trim();
+        if (!pat || pat === '#' || mqttMatch(pat, topic)) {
+            filteredFeed = [row, ...filteredFeed.slice(0, FILTER_MAX - 1)];
+        }
     });
 
     /* ── Publish ──────────────────────────────────────────────────────────── */
@@ -155,8 +211,25 @@
 
     function fmtTime(ts: number): string {
         return new Date(ts).toLocaleTimeString(undefined, {
-            hour: '2-digit', minute: '2-digit', hour12: false,
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
         });
+    }
+
+    function fmtTimeStream(ts: number): string {
+        return new Date(ts).toLocaleTimeString(undefined, {
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        });
+    }
+
+    /**
+     * Read a topic entry with `version` as a reactive dependency so that text-node
+     * expressions calling this function re-run on every rAF flush.
+     * ({@const} captures values once at block render; calling this directly inside
+     * `{expr}` creates per-expression effects that properly track `version`.)
+     */
+    function liveEntry(path: string) {
+        void version;
+        return topicMap.get(path);
     }
 
     /* ── Derived ──────────────────────────────────────────────────────────── */
@@ -181,24 +254,23 @@
     {@const depth   = n.path.split('/').length - 1}
     {@const isOpen  = expanded.has(n.path)}
     {@const hasKids = version >= 0 && n.children.size > 0}
-    <div class="tn">
-        <div class="tr" style="--d: {depth}">
+    <div class="tn" style="--d: {depth}">
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="tr" onclick={() => { streamFilter = n.path + '/#'; }}>
             {#if hasKids}
                 <button
                     class="chev"
+                    class:open={isOpen}
                     onclick={() => toggleNode(n.path)}
                     aria-label={isOpen ? 'Collapse' : 'Expand'}
-                >{isOpen ? '▾' : '▸'}</button>
+                >›</button>
             {:else}
                 <span class="chev-ph"></span>
             {/if}
             <span class="seg">{n.seg}</span>
-            {#if n.isLeaf && version >= 0}
-                {@const e = topicMap.get(n.path)}
-                {#if e !== undefined}
-                    <span class="tv" title={fmtVal(e.val)}>{fmtVal(e.val)}</span>
-                    <span class="tt">{fmtTime(e.ts)}</span>
-                {/if}
+            {#if n.isLeaf && topicMap.has(n.path)}
+                <span class="tv" title={fmtVal(liveEntry(n.path)?.val)}>{fmtVal(liveEntry(n.path)?.val)}</span>
+                <span class="tt">{liveEntry(n.path)?.ts != null ? fmtTime(liveEntry(n.path)!.ts) : ''}</span>
             {/if}
         </div>
         {#if hasKids && isOpen}
@@ -278,22 +350,26 @@
     {/if}
 
     <!-- Live stream pane -->
-    <div class="stream-panel">
-        <button class="stream-hdr" onclick={() => { streamOpen = !streamOpen; }}>
-            <span class="stream-chev">{streamOpen ? '▾' : '▸'}</span>
-            Live stream
-            {#if !streamOpen && streamFeed.length > 0}
-                <span class="stream-badge">{streamFeed.length}</span>
+    <div class="stream-panel" style={streamOpen ? `height: ${streamHeight}px;` : ''}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="stream-resize" onmousedown={startResize}></div>
+        <div class="stream-hdr-row">
+            <input class="filter-in stream-filter-in" type="search" placeholder="Live stream filter (MQTT wildcard, default: #)" bind:value={streamFilter} />
+            {#if !streamOpen && filteredFeed.length > 0}
+                <span class="stream-badge">{filteredFeed.length}</span>
             {/if}
-        </button>
+            <button class="stream-toggle" onclick={() => { streamOpen = !streamOpen; }} title="Toggle live stream">
+                {streamOpen ? '▾' : '▸'}
+            </button>
+        </div>
         {#if streamOpen}
             <div class="stream-body">
-                {#if streamFeed.length === 0}
+                {#if filteredStream.length === 0}
                     <span class="stream-empty">Waiting for messages…</span>
                 {:else}
-                    {#each streamFeed as row (`${row.ts}-${row.topic}`)}
+                    {#each filteredStream as row (row.id)}
                         <div class="sr">
-                            <span class="s-ts">{fmtTime(row.ts)}</span>
+                            <span class="s-ts">{fmtTimeStream(row.ts)}</span>
                             <span class="s-topic">{row.topic}</span>
                             <span class="s-val" title={fmtVal(row.val)}>{fmtVal(row.val)}</span>
                         </div>
@@ -409,7 +485,7 @@
         gap: 4px;
         height: 22px;
         padding-left: calc(4px + var(--d, 0) * 16px);
-        cursor: default;
+        cursor: pointer;
         user-select: none;
     }
     .tr:hover { background: var(--bg-hover); }
@@ -419,11 +495,17 @@
         color: var(--fg-muted);
         padding: 0;
         width: 16px;
-        font-size: 10px;
+        font-size: 14px;
+        font-weight: 300;
         cursor: pointer;
         flex-shrink: 0;
         line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.12s ease;
     }
+    .chev.open { transform: rotate(90deg); }
     .chev:hover { color: var(--fg); }
     .chev-ph { width: 16px; flex-shrink: 0; display: inline-block; }
     .seg {
@@ -449,7 +531,11 @@
         margin-left: 8px;
         padding-right: 12px;
     }
-    .tc { display: block; }
+    .tc {
+        display: block;
+        margin-left: calc(12px + var(--d, 0) * 16px);
+        border-left: 1px solid var(--indent-line);
+    }
 
     /* ── Virtual scroll (filter mode) ── */
     .vs {
@@ -499,37 +585,44 @@
         flex-shrink: 0;
         border-top: 1px solid var(--border);
         background: var(--bg-panel);
-        max-height: 160px;
         display: flex;
         flex-direction: column;
+        min-height: 28px;
     }
-    .stream-hdr {
+    .stream-resize {
+        height: 5px;
+        margin-top: -3px;
+        cursor: ns-resize;
+        flex-shrink: 0;
+        background: transparent;
+        transition: background 0.15s;
+    }
+    .stream-resize:hover { background: var(--accent); opacity: 0.4; }
+    .stream-hdr-row {
         display: flex;
         align-items: center;
+        flex-shrink: 0;
+        padding: 4px 8px 4px 12px;
         gap: 6px;
-        padding: 3px 10px;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--fg-muted);
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .stream-filter-in {
+        flex: 1;
+        max-width: unset;
+    }
+    .stream-toggle {
         background: none;
         border: none;
+        color: var(--fg-dim);
         cursor: pointer;
-        text-align: left;
-        width: 100%;
-        user-select: none;
+        padding: 2px 6px;
+        font-size: 11px;
+        border-radius: 3px;
+        flex-shrink: 0;
     }
-    .stream-hdr:hover { color: var(--fg); }
-    .stream-chev { font-size: 10px; color: var(--fg-dim); }
-    .stream-badge {
-        font-size: 10px;
-        background: var(--accent);
-        color: #fff;
-        border-radius: 8px;
-        padding: 0 5px;
-        line-height: 1.4;
-    }
+    .stream-toggle:hover { background: var(--bg-hover); color: var(--fg); }
     .stream-body {
-        overflow-y: auto;
+        overflow: hidden;
         flex: 1;
         font-size: 12px;
         font-family: monospace;
@@ -543,7 +636,7 @@
         padding: 0 12px;
     }
     .sr:hover { background: var(--bg-hover); }
-    .s-ts { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; width: 50px; }
+    .s-ts { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; width: 64px; }
     .s-topic { color: var(--fg-value); flex-shrink: 0; min-width: 180px; }
     .s-val {
         color: var(--fg);

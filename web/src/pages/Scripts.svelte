@@ -729,12 +729,11 @@ declare const she: {
 
         {#snippet treeEntry(entry: TreeEntry)}
             {#if entry.type === 'dir'}
-                <li class="tree-dir">
+                <li class="tree-dir" style="--depth: {entry.path.split('/').length - 1}">
                     <div
                         class="dir-row"
                         class:dir-selected={selectedDir === entry.path}
                         class:drag-target={dragOver === entry.path}
-                        style="--depth: {entry.path.split('/').length - 1}"
                         role="treeitem"
                         aria-selected={selectedDir === entry.path}
                         tabindex="-1"
@@ -743,8 +742,8 @@ declare const she: {
                         ondrop={(e) => onDrop(e, entry.path)}
                         oncontextmenu={(e) => openCtxMenu(e, entry)}
                     >
-                        <button class="chevron" onclick={() => toggleDir(entry.path)}>
-                            {expandedDirs[entry.path] ? '▾' : '▸'}
+                        <button class="chevron" class:open={expandedDirs[entry.path]} onclick={() => toggleDir(entry.path)}>
+                            ›
                         </button>
                         <span
                             class="dir-name"
@@ -989,15 +988,18 @@ declare const she: {
 
     .tree { flex: 1; overflow-y: auto; list-style: none; padding: 4px 0; margin: 0; }
     .tree-dir, .tree-file { list-style: none; }
-    .tree-children { list-style: none; padding: 0; margin: 0; }
+    .tree-children { list-style: none; padding: 0; margin: 0 0 0 calc(14px + var(--depth, 0) * 12px); border-left: 1px solid var(--indent-line); }
     .dir-row {
         display: flex; align-items: center; gap: 4px;
         padding: 3px 12px 3px calc(8px + var(--depth, 0) * 12px); cursor: default;
     }
     .chevron {
         background: none; border: none; color: var(--fg-muted); cursor: pointer;
-        padding: 0; font-size: 9px; line-height: 1; width: 12px; flex-shrink: 0; text-align: center;
+        padding: 0; font-size: 14px; font-weight: 300; line-height: 1; width: 12px; flex-shrink: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        transition: transform 0.12s ease;
     }
+    .chevron.open { transform: rotate(90deg); }
     .dir-name { color: var(--fg); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dir-name.lib { color: var(--fg-muted); font-style: italic; }
     .lib-label {
