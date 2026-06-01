@@ -294,7 +294,7 @@ declare const she: {
             const { content } = await readScript(path);
             const uri = monaco.Uri.parse(`file:///she-scripts/${encodeURIComponent(path)}`);
             monaco.editor.getModel(uri)?.dispose();
-            const model = monaco.editor.createModel(content, 'javascript', uri);
+            const model = monaco.editor.createModel(content, langFromPath(path), uri);
             tabs = [...tabs, { path, dirty: false, savedContent: content, model, logEntries: [] }];
             if (andSwitch) await switchTab(path);
         } catch (e: any) { error = (e as Error).message; }
@@ -373,15 +373,15 @@ declare const she: {
     async function newFile() {
         const prefix = selectedDir ? `${selectedDir}/` : '';
         const name = await inputDialog.show('New script name:', {
-            placeholder: prefix ? `${prefix}myscript.js` : 'myscript.js or folder/myscript.js',
+            placeholder: prefix ? `${prefix}myscript.js` : 'myscript.js',
             initial: prefix,
             confirm: 'Create',
         });
         if (!name) return;
-        const p = name.endsWith('.js') ? name : `${name}.js`;
-        await writeScript(p, `/* global she */\n'use strict';\n\n`);
+        const defaultContent = name.endsWith('.js') ? `/* global she */\n'use strict';\n\n` : '';
+        await writeScript(name, defaultContent);
         await loadTree();
-        await openTabInternal(p, true);
+        await openTabInternal(name, true);
     }
 
     async function newFolder() {
@@ -425,7 +425,7 @@ declare const she: {
             { initial: entry.path, placeholder: entry.path, confirm: 'Rename' },
         );
         if (!newName || newName === entry.path) return;
-        const target = (entry.type === 'file' && !newName.endsWith('.js')) ? `${newName}.js` : newName;
+        const target = newName;
         try {
             await renameScript(entry.path, target);
             // update any open tab
@@ -469,7 +469,6 @@ declare const she: {
         // OS file drop: create new scripts from dropped files
         if (e.dataTransfer?.files?.length) {
             for (const file of Array.from(e.dataTransfer.files)) {
-                if (!file.name.endsWith('.js')) continue;
                 const text = await file.text();
                 const target = `${dirPath}/${file.name}`;
                 await writeScript(target, text);
@@ -503,10 +502,9 @@ declare const she: {
             confirm: 'Save',
         });
         if (!name) return;
-        const p = name.endsWith('.js') ? name : `${name}.js`;
-        await writeScript(p, editor.getValue());
+        await writeScript(name, editor.getValue());
         await loadTree();
-        await openTabInternal(p, true);
+        await openTabInternal(name, true);
     }
 
     async function del() {
@@ -527,6 +525,22 @@ declare const she: {
 
     function fmt(ts: number) {
         return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    }
+
+    /** Map a file path to its Monaco language identifier. */
+    function langFromPath(path: string): string {
+        const ext = path.split('.').pop()?.toLowerCase() ?? '';
+        const map: Record<string, string> = {
+            js: 'javascript', mjs: 'javascript', cjs: 'javascript',
+            ts: 'typescript', tsx: 'typescript',
+            json: 'json', jsonc: 'json',
+            md: 'markdown', markdown: 'markdown',
+            yaml: 'yaml', yml: 'yaml',
+            sh: 'shell', bash: 'shell',
+            css: 'css', html: 'html', xml: 'xml',
+            ini: 'ini', toml: 'ini',
+        };
+        return map[ext] ?? 'plaintext';
     }
 
     // ── Syntax checking ──────────────────────────────────────────────────
@@ -588,11 +602,10 @@ declare const she: {
             confirm: 'Create',
         });
         if (!name) return;
-        const p = name.endsWith('.js') ? name : `${name}.js`;
         try {
-            await writeScript(p, code);
+            await writeScript(name, code);
             await loadTree();
-            await openTabInternal(p, true);
+            await openTabInternal(name, true);
         } catch (e: any) { error = (e as Error).message; }
     }
 
@@ -741,9 +754,9 @@ declare const she: {
                             onclick={() => { selectedDir = entry.path; expandedDirs[entry.path] = true; }}
                             onkeydown={(e) => e.key === 'Enter' && (selectedDir = entry.path)}
                         >{entry.name}</span>
-                        <label class="lib-label" title="Library directory — .js files won't be loaded as scripts automatically">
+                        <label class="lib-label">
                             <input type="checkbox" checked={entry.lib} onchange={() => toggleLib(entry.path, !entry.lib)} />
-                            lib
+                            lib<span class="lib-info" title="Library directory — files here are not auto-loaded as scripts">ⓘ</span>
                         </label>
                     </div>
                     {#if expandedDirs[entry.path] && entry.children}
@@ -757,6 +770,7 @@ declare const she: {
             {:else}
                 {@const basename = entry.name}
                 {@const hasErr = scriptErrors.has(basename)}
+                {@const ext = (entry.name.split('.').pop() ?? 'txt').toUpperCase()}
                 <li
                     class="tree-file"
                     class:active={tabs.some(t => t.path === entry.path)}
@@ -767,7 +781,7 @@ declare const she: {
                     oncontextmenu={(e) => openCtxMenu(e, entry)}
                 >
                     <button class:lib={entry.lib} onclick={() => openTab(entry.path)}>
-                        <span class="badge" class:badge-shelib={entry.lib}>JS</span>
+                        <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{ext}</span>
                         <span class="fname">{entry.name}</span>
                         {#if tabs.find(t => t.path === entry.path)?.dirty}<span class="dirty-dot">●</span>{/if}
                         {#if hasErr}<span class="err-dot">●</span>{/if}
@@ -838,7 +852,6 @@ declare const she: {
                 {/if}
             </div>
             {#if activeTab}
-                <button onclick={saveAs}>Save As</button>
                 <button onclick={del} class="danger">Delete</button>
             {/if}
             <button
@@ -992,6 +1005,7 @@ declare const she: {
         font-size: 10px; cursor: pointer; flex-shrink: 0; user-select: none;
     }
     .lib-label input[type='checkbox'] { accent-color: var(--fg-brand); width: 10px; height: 10px; cursor: pointer; }
+    .lib-info { font-size: 9px; color: var(--fg-dim); cursor: default; }
 
     .tree-file button {
         display: flex; align-items: center; gap: 5px; width: 100%; text-align: left;
@@ -1004,7 +1018,15 @@ declare const she: {
     .tree-file.active-tab button { background: var(--bg-active); color: var(--fg-text); }
     .tree-file.active:not(.active-tab) button { background: var(--bg-hover); }
 
-    .badge { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 2px; background: #f0c040; color: #1e1e1e; flex-shrink: 0; }
+    .badge { font-size: 9px; font-weight: 700; padding: 0 3px; border-radius: 2px; background: #555; color: #fff; flex-shrink: 0; }
+    /* Language colours */
+    .badge-js, .badge-mjs, .badge-cjs { background: #f0c040; color: #1e1e1e; }
+    .badge-ts, .badge-tsx             { background: #3178c6; color: #fff; }
+    .badge-json, .badge-jsonc         { background: #e67e22; color: #fff; }
+    .badge-md, .badge-markdown        { background: #27ae60; color: #fff; }
+    .badge-yaml, .badge-yml           { background: #8e44ad; color: #fff; }
+    .badge-css, .badge-html           { background: #2980b9; color: #fff; }
+    .badge-sh, .badge-bash            { background: #2ecc71; color: #1e1e1e; }
     .badge.badge-shelib { background: var(--bg-widget); color: var(--fg-muted); }
     .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dirty-dot { color: #e5c07b; font-size: 8px; flex-shrink: 0; }

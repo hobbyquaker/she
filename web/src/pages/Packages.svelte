@@ -6,12 +6,12 @@
         installDep,
         removeDep,
         updateDep,
-        restartDaemon,
         type DepEntry,
         type NpmSearchResult,
     } from '../lib/api.js';
 
     let installed = $state<DepEntry[]>([]);
+    let installedFilter = $state('');
     let searchQuery = $state('');
     let searchResults = $state<NpmSearchResult[]>([]);
     let pendingRestart = $state(false);
@@ -19,7 +19,12 @@
     let error = $state('');
     let output = $state('');
     let busy = $state<Record<string, boolean>>({});
-    let restarting = $state(false);
+
+    const filteredInstalled = $derived(
+        installedFilter.trim()
+            ? installed.filter(d => d.name.toLowerCase().includes(installedFilter.toLowerCase()))
+            : installed
+    );
 
     onMount(async () => {
         await loadInstalled();
@@ -95,36 +100,13 @@
             busy[name] = false;
         }
     }
-
-    async function restart() {
-        restarting = true;
-        try {
-            await restartDaemon();
-        } catch {
-            // Connection will drop — expected
-        }
-        // Show message; daemon may take a moment to come back
-        restarting = false;
-        pendingRestart = false;
-        output = 'Restart signal sent. The daemon is restarting — refresh the page in a moment.';
-    }
 </script>
 
-<div class="pkg-page">
-    <header>
-        <h2>Packages</h2>
-        <p class="subtitle">
-            Install npm packages into <code>~/.she/</code>. Scripts can then
-            <code>require('package-name')</code> directly. Restart the daemon after changes.
-        </p>
-    </header>
+<div class="pkg-shell">
 
     {#if pendingRestart}
         <div class="restart-banner">
-            <span>⚠ Package changes require a daemon restart to take effect.</span>
-            <button class="restart-btn" onclick={restart} disabled={restarting}>
-                {restarting ? 'Restarting…' : 'Restart Daemon'}
-            </button>
+            ⚠ Package changes require a daemon restart to take effect. Use the ↺ button in the topbar.
         </div>
     {/if}
 
@@ -132,208 +114,274 @@
         <div class="err">{error}</div>
     {/if}
 
-    <!-- Installed packages -->
-    <section>
-        <h3>Installed</h3>
-        {#if installed.length === 0}
-            <p class="empty">No packages installed yet.</p>
-        {:else}
-            <table class="pkg-table">
-                <thead>
-                    <tr><th>Package</th><th>Version</th><th></th></tr>
-                </thead>
-                <tbody>
-                    {#each installed as dep (dep.name)}
-                        <tr>
-                            <td class="pkg-name">{dep.name}</td>
-                            <td class="pkg-ver">{dep.version}</td>
-                            <td class="pkg-actions">
+    <div class="pkg-body">
+        <!-- Left pane: installed list + filter -->
+        <div class="pkg-left">
+            <div class="pane-hdr">
+                <span class="pane-title">Installed</span>
+                <span class="pane-count">{installed.length}</span>
+            </div>
+            <div class="filter-row">
+                <input
+                    class="filter-in"
+                    type="search"
+                    placeholder="Filter…"
+                    bind:value={installedFilter}
+                />
+            </div>
+            <div class="installed-list">
+                {#if installed.length === 0}
+                    <p class="empty">No packages installed.</p>
+                {:else if filteredInstalled.length === 0}
+                    <p class="empty">No match.</p>
+                {:else}
+                    {#each filteredInstalled as dep (dep.name)}
+                        <div class="dep-row" class:dep-busy={!!busy[dep.name]}>
+                            <div class="dep-info">
+                                <span class="dep-name">{dep.name}</span>
+                                <span class="dep-ver">{dep.version}</span>
+                            </div>
+                            <div class="dep-btns">
                                 <button
+                                    class="icon-btn"
                                     onclick={() => update(dep.name)}
                                     disabled={!!busy[dep.name]}
                                     title="Update to latest"
                                 >
-                                    {busy[dep.name] ? '…' : 'Update'}
+                                    {#if busy[dep.name]}
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6" stroke-dasharray="18" stroke-dashoffset="4" /></svg>
+                                    {:else}
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.65 2.35A8 8 0 1 0 15 8"/><polyline points="15,2 15,8 9,8"/></svg>
+                                    {/if}
                                 </button>
                                 <button
-                                    class="danger"
+                                    class="icon-btn icon-btn--danger"
                                     onclick={() => remove(dep.name)}
                                     disabled={!!busy[dep.name]}
                                     title="Uninstall"
                                 >
-                                    Remove
+                                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="2" y1="2" x2="14" y2="14"/><line x1="14" y1="2" x2="2" y2="14"/></svg>
                                 </button>
-                            </td>
-                        </tr>
+                            </div>
+                        </div>
                     {/each}
-                </tbody>
-            </table>
-        {/if}
-    </section>
-
-    <!-- Search -->
-    <section>
-        <h3>Search npm</h3>
-        <div class="search-row">
-            <input
-                type="text"
-                placeholder="e.g. axios, lodash, mqtt…"
-                bind:value={searchQuery}
-                onkeydown={(e) => e.key === 'Enter' && search()}
-            />
-            <button onclick={search} disabled={searching}>
-                {searching ? 'Searching…' : 'Search'}
-            </button>
+                {/if}
+            </div>
         </div>
-        {#if searchResults.length > 0}
-            <table class="pkg-table">
-                <thead>
-                    <tr><th>Package</th><th>Version</th><th>Description</th><th></th></tr>
-                </thead>
-                <tbody>
-                    {#each searchResults as r (r.name)}
-                        <tr>
-                            <td class="pkg-name">{r.name}</td>
-                            <td class="pkg-ver">{r.version}</td>
-                            <td class="pkg-desc">{r.description}</td>
-                            <td class="pkg-actions">
-                                <button
-                                    onclick={() => install(r.name)}
-                                    disabled={!!busy[r.name]}
-                                >
-                                    {busy[r.name] ? 'Installing…' : 'Install'}
-                                </button>
-                            </td>
-                        </tr>
-                    {/each}
-                </tbody>
-            </table>
-        {/if}
-    </section>
 
-    <!-- npm output -->
-    {#if output}
-        <section>
-            <h3>Output</h3>
-            <pre class="npm-output">{output}</pre>
-        </section>
-    {/if}
+        <!-- Right pane: search + results + output -->
+        <div class="pkg-right">
+            <div class="pane-hdr">
+                <span class="pane-title">Search npm</span>
+            </div>
+            <div class="search-row">
+                <input
+                    class="search-in"
+                    type="text"
+                    placeholder="Package name, e.g. axios, lodash…"
+                    bind:value={searchQuery}
+                    onkeydown={(e) => e.key === 'Enter' && search()}
+                />
+                <button class="search-btn" onclick={search} disabled={searching}>
+                    {searching ? 'Searching…' : 'Search'}
+                </button>
+            </div>
+
+            {#if searchResults.length > 0}
+                <div class="results-list">
+                    {#each searchResults as r (r.name)}
+                        <div class="result-row">
+                            <div class="result-info">
+                                <span class="result-name">{r.name}</span>
+                                <span class="result-ver">{r.version}</span>
+                                {#if r.description}
+                                    <span class="result-desc">{r.description}</span>
+                                {/if}
+                            </div>
+                            <button
+                                class="install-btn"
+                                onclick={() => install(r.name)}
+                                disabled={!!busy[r.name]}
+                            >
+                                {busy[r.name] ? 'Installing…' : 'Install'}
+                            </button>
+                        </div>
+                    {/each}
+                </div>
+            {/if}
+
+            {#if output}
+                <pre class="npm-output">{output}</pre>
+            {/if}
+
+            {#if !searchResults.length && !output}
+                <p class="hint">Install npm packages into <code>~/.she/</code>. Scripts can then <code>require('package-name')</code> directly.</p>
+            {/if}
+        </div>
+    </div>
 </div>
 
 <style>
-    .pkg-page {
-        padding: 24px 32px;
-        color: var(--fg);
-        font-size: 13px;
-        overflow-y: auto;
-        height: 100%;
-        box-sizing: border-box;
-    }
-    h2 {
-        margin: 0 0 4px;
-        font-size: 18px;
-        color: var(--fg-text);
-    }
-    h3 {
-        margin: 20px 0 8px;
-        font-size: 13px;
-        color: var(--fg-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .subtitle {
-        margin: 0 0 20px;
-        color: var(--fg-muted);
-        font-size: 12px;
-        line-height: 1.5;
-    }
-    code {
-        background: var(--bg-active);
-        padding: 1px 5px;
-        border-radius: 3px;
-        font-family: monospace;
-        font-size: 11px;
-    }
-    /* Restart banner */
-    .restart-banner {
+    .pkg-shell {
         display: flex;
-        align-items: center;
-        gap: 16px;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+        font-size: 13px;
+        color: var(--fg);
+    }
+
+    /* Banners */
+    .restart-banner {
+        flex-shrink: 0;
         background: var(--bg-warn-subtle);
-        border: 1px solid var(--border-warn);
-        border-radius: 4px;
-        padding: 10px 16px;
-        margin-bottom: 16px;
+        border-bottom: 1px solid var(--border-warn);
+        padding: 8px 16px;
         font-size: 12px;
         color: var(--fg-warn-subtle);
     }
-    .restart-btn {
-        background: var(--fg-warn-subtle);
-        color: var(--bg-app);
-        border: none;
-        padding: 5px 12px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 600;
-        flex-shrink: 0;
-    }
-    .restart-btn:hover:not(:disabled) { opacity: 0.85; }
-    .restart-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    /* Error */
     .err {
+        flex-shrink: 0;
         color: var(--fg-err);
         background: var(--bg-err-subtle);
-        border: 1px solid var(--border-err);
-        border-radius: 4px;
-        padding: 8px 12px;
-        margin-bottom: 12px;
+        border-bottom: 1px solid var(--border-err);
+        padding: 8px 16px;
         font-size: 12px;
     }
-    .empty { color: var(--fg-muted); font-size: 12px; margin: 4px 0; }
-    /* Tables */
-    .pkg-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12px;
+
+    /* Two-pane body */
+    .pkg-body {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
     }
-    .pkg-table th {
-        text-align: left;
-        color: var(--fg-muted);
-        font-weight: normal;
-        padding: 4px 10px 4px 0;
+
+    /* Left pane */
+    .pkg-left {
+        width: 240px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--border-sub);
+        overflow: hidden;
+    }
+
+    .pane-hdr {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px 6px;
         border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
     }
-    .pkg-table td {
-        padding: 5px 10px 5px 0;
-        border-bottom: 1px solid var(--border-sub);
-        vertical-align: middle;
-    }
-    .pkg-name { font-family: monospace; color: var(--fg-value); }
-    .pkg-ver  { font-family: monospace; color: var(--fg-muted); white-space: nowrap; }
-    .pkg-desc { color: var(--fg-muted); max-width: 380px; }
-    .pkg-actions { white-space: nowrap; }
-    .pkg-actions button {
-        background: var(--bg-active);
-        color: var(--fg);
-        border: none;
-        padding: 3px 10px;
-        border-radius: 3px;
-        cursor: pointer;
+    .pane-title {
         font-size: 11px;
-        margin-left: 6px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--fg-muted);
     }
-    .pkg-actions button:hover:not(:disabled) { background: var(--bg-hover); }
-    .pkg-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
-    .pkg-actions button.danger { color: var(--fg-err); }
-    .pkg-actions button.danger:hover:not(:disabled) { background: var(--bg-err-subtle); }
-    /* Search row */
+    .pane-count {
+        font-size: 10px;
+        background: var(--bg-active);
+        color: var(--fg-muted);
+        padding: 1px 5px;
+        border-radius: 8px;
+    }
+
+    .filter-row {
+        padding: 6px 8px;
+        flex-shrink: 0;
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .filter-in {
+        width: 100%;
+        box-sizing: border-box;
+        background: var(--bg-input);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 4px 8px;
+        font-size: 12px;
+        outline: none;
+    }
+    .filter-in:focus { border-color: var(--fg-brand); }
+
+    .installed-list {
+        flex: 1;
+        overflow-y: auto;
+    }
+    .dep-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 8px 5px 12px;
+        border-bottom: 1px solid var(--border-sub);
+        transition: background 0.1s;
+    }
+    .dep-row:hover { background: var(--bg-hover); }
+    .dep-row.dep-busy { opacity: 0.5; }
+    .dep-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+    }
+    .dep-name {
+        font-family: monospace;
+        font-size: 12px;
+        color: var(--fg-value);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .dep-ver {
+        font-family: monospace;
+        font-size: 10px;
+        color: var(--fg-muted);
+    }
+    .dep-btns {
+        display: flex;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+    .icon-btn {
+        background: none;
+        border: none;
+        color: var(--fg-muted);
+        cursor: pointer;
+        padding: 3px;
+        border-radius: 3px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .icon-btn:hover:not(:disabled) { background: var(--bg-active); color: var(--fg); }
+    .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .icon-btn--danger:hover:not(:disabled) { color: var(--fg-err); background: var(--bg-err-subtle); }
+
+    /* Right pane */
+    .pkg-right {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 0;
+    }
+    .pkg-right .pane-hdr {
+        border-left: none;
+    }
+
     .search-row {
         display: flex;
-        gap: 8px;
-        margin-bottom: 12px;
+        gap: 6px;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
     }
-    .search-row input {
+    .search-in {
         flex: 1;
         background: var(--bg-input);
         color: var(--fg);
@@ -343,8 +391,8 @@
         font-size: 12px;
         outline: none;
     }
-    .search-row input:focus { border-color: var(--fg-brand); }
-    .search-row button {
+    .search-in:focus { border-color: var(--fg-brand); }
+    .search-btn {
         background: var(--accent);
         color: #fff;
         border: none;
@@ -352,11 +400,50 @@
         border-radius: 3px;
         cursor: pointer;
         font-size: 12px;
+        white-space: nowrap;
     }
-    .search-row button:hover:not(:disabled) { background: var(--accent-hov); }
-    .search-row button:disabled { opacity: 0.5; cursor: not-allowed; }
-    /* npm output */
+    .search-btn:hover:not(:disabled) { background: var(--accent-hov); }
+    .search-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .results-list {
+        flex: 1;
+        overflow-y: auto;
+    }
+    .result-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 7px 12px;
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .result-row:hover { background: var(--bg-hover); }
+    .result-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .result-name { font-family: monospace; font-size: 12px; color: var(--fg-value); white-space: nowrap; }
+    .result-ver  { font-family: monospace; font-size: 11px; color: var(--fg-muted); white-space: nowrap; }
+    .result-desc { font-size: 11px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .install-btn {
+        background: var(--bg-active);
+        color: var(--fg);
+        border: none;
+        padding: 4px 12px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 11px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .install-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
+    .install-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
     .npm-output {
+        margin: 12px;
         background: var(--bg-app);
         border: 1px solid var(--border-sub);
         border-radius: 4px;
@@ -366,7 +453,23 @@
         color: var(--fg-muted);
         white-space: pre-wrap;
         word-break: break-all;
-        max-height: 200px;
+        max-height: 180px;
         overflow-y: auto;
+        flex-shrink: 0;
     }
+
+    .hint {
+        padding: 16px;
+        font-size: 12px;
+        color: var(--fg-muted);
+        line-height: 1.6;
+    }
+    code {
+        background: var(--bg-active);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-family: monospace;
+        font-size: 11px;
+    }
+    .empty { color: var(--fg-muted); font-size: 12px; padding: 8px 12px; }
 </style>

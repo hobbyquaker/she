@@ -15,6 +15,7 @@
         type ViewResult,
     } from '../lib/api.js';
     import ViewChat from './ViewChat.svelte';
+    import MonacoEditor from '../lib/MonacoEditor.svelte';
 
     // ---- Document state ----
     let docIds: string[] = $state([]);
@@ -26,7 +27,7 @@
     // ---- View state ----
     let viewIds: string[] = $state([]);
     let selectedViewId: string | null = $state(null);
-    let viewFilter = $state('');
+    let viewFilter = $state('#');
     let viewMap = $state('// emit(this.someProperty)');
     let viewReduce = $state('');
     let viewMqttPub = $state(false);
@@ -437,7 +438,9 @@
                     {#if docLoading}
                         <div class="loading">Loading…</div>
                     {:else}
-                        <textarea class="json-editor" bind:value={docEditor} spellcheck="false" rows="30"></textarea>
+                        <div class="monaco-doc-wrap">
+                            <MonacoEditor bind:value={docEditor} language="json" />
+                        </div>
                     {/if}
                 {:else}
                     {@render dbWelcome()}
@@ -490,11 +493,15 @@
                             </div>
                             <div class="view-section">
                                 <div class="section-title">Map <span class="section-hint">— <code>this</code> = document &nbsp;·&nbsp; call <code>emit(value)</code> to include in result</span></div>
-                                <textarea class="code-editor" bind:value={viewMap} spellcheck="false" rows="8"></textarea>
+                                <div class="monaco-view-wrap monaco-view-wrap--map">
+                                    <MonacoEditor bind:value={viewMap} language="javascript" />
+                                </div>
                             </div>
                             <div class="view-section">
                                 <div class="section-title">Reduce <span class="section-hint">— receives <code>result</code> array, must <code>return</code> new value (optional)</span></div>
-                                <textarea class="code-editor" bind:value={viewReduce} spellcheck="false" rows="5"></textarea>
+                                <div class="monaco-view-wrap monaco-view-wrap--reduce">
+                                    <MonacoEditor bind:value={viewReduce} language="javascript" />
+                                </div>
                             </div>
                             <div class="view-section view-section--options">
                                 <label class="opt-check">
@@ -819,19 +826,18 @@
         font-size: 0.9rem;
     }
 
-    /* ---- JSON document editor ---- */
-    .json-editor {
+    /* ---- Monaco wrappers ---- */
+    .monaco-doc-wrap {
         flex: 1;
-        width: 100%;
-        background: var(--bg-app);
-        color: var(--fg-text);
-        border: none;
-        font-family: 'Cascadia Code', 'Fira Mono', monospace;
-        font-size: 0.82rem;
-        padding: 8px;
-        resize: none;
-        box-sizing: border-box;
+        overflow: hidden;
+        min-height: 0;
     }
+
+    .monaco-view-wrap {
+        overflow: hidden;
+    }
+    .monaco-view-wrap--map    { height: 240px; }
+    .monaco-view-wrap--reduce { height: 160px; }
 
     /* ---- View section layout ---- */
     .view-sections {
@@ -881,9 +887,7 @@
 
     .opt-check input[type="checkbox"] { cursor: pointer; }
 
-    .section-body {
-        padding: 6px 8px;
-    }
+    .section-body { padding: 6px 8px; }
 
     .filter-input {
         width: 100%;
@@ -894,19 +898,6 @@
         padding: 4px 8px;
         border-radius: 3px;
         font-size: 0.82rem;
-    }
-
-    .code-editor {
-        display: block;
-        width: 100%;
-        background: var(--bg-app);
-        color: var(--fg-text);
-        border: none;
-        font-family: 'Cascadia Code', 'Fira Mono', monospace;
-        font-size: 0.82rem;
-        padding: 8px;
-        resize: none;
-        box-sizing: border-box;
     }
 
     /* ---- View result ---- */

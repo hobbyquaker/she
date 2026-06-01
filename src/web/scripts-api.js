@@ -28,7 +28,7 @@ function hasShelibMarker(absDir) {
     return fs.existsSync(path.join(absDir, '.shelib'));
 }
 
-/** Flat list of all .js files with metadata and lib flag. */
+/** Flat list of all files with metadata and lib flag. */
 function walk(dir, base, parentIsLib) {
     let entries;
     try {
@@ -43,7 +43,7 @@ function walk(dir, base, parentIsLib) {
         const rel = base ? `${base}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
             results.push(...walk(path.join(dir, entry.name), rel, lib));
-        } else if (entry.name.endsWith('.js')) {
+        } else {
             const stat = fs.statSync(path.join(dir, entry.name));
             results.push({ path: rel, size: stat.size, mtime: stat.mtimeMs, lib });
         }
@@ -52,7 +52,7 @@ function walk(dir, base, parentIsLib) {
 }
 
 /**
- * Nested tree of all .js files and subdirectories.
+ * Nested tree of all files and subdirectories.
  * Each node: { type:'file'|'dir', name, path, lib, size?, mtime?, children? }
  */
 function buildTree(dir, base, parentIsLib) {
@@ -73,7 +73,7 @@ function buildTree(dir, base, parentIsLib) {
             const childIsLib = lib || hasShelibMarker(abs);
             const children = buildTree(abs, rel, childIsLib);
             result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, children });
-        } else if (entry.name.endsWith('.js')) {
+        } else {
             const stat = fs.statSync(abs);
             result.push({ type: 'file', name: entry.name, path: rel, lib, size: stat.size, mtime: stat.mtimeMs });
         }
@@ -120,10 +120,6 @@ router.use((req, res) => {
     if (method === 'PUT') {
         const abs = safePath(root, filePath);
         if (!abs) return res.status(400).json({ error: 'Invalid path' });
-        const basename = path.basename(abs);
-        if (!basename.endsWith('.js') && basename !== '.shelib') {
-            return res.status(400).json({ error: 'Only .js and .shelib files are allowed' });
-        }
         const content = typeof req.body?.content === 'string' ? req.body.content : null;
         if (content === null) return res.status(400).json({ error: 'Missing body.content string' });
         try {

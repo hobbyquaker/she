@@ -58,6 +58,13 @@ app.post('/she/restart', (req, res) => {
     setTimeout(() => process.exit(0), 200);
 });
 
+// Runtime stats — script count + MQTT topic count
+let _getStats = null;
+function setStatsProvider(fn) { _getStats = fn; }
+app.get('/she/status', (req, res) => {
+    res.json(_getStats ? _getStats() : { scripts: 0, topics: 0 });
+});
+
 // Serve the built Svelte SPA from dist/web/
 // Hashed assets (JS/CSS) are immutable; index.html must never be cached so
 // browsers always pick up a freshly deployed version.
@@ -136,4 +143,4 @@ function stopServer() {
     });
 }
 
-module.exports = { app, registerRoute, startServer, stopServer };
+module.exports = { app, registerRoute, setStatsProvider, startServer, stopServer };

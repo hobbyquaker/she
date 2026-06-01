@@ -394,6 +394,35 @@ she.log('counter:', she.global.sharedCounter);
 
 ---
 
+## she.fetch(url, [options])
+
+Makes an HTTP/HTTPS request using the native `fetch` API and returns a Promise. Automatically parses the response body: if the server returns a `Content-Type` containing `json`, the response is parsed as JSON; otherwise it is returned as plain text.
+
+Throws an `Error` if the response status is not OK (4xx / 5xx).
+
+| Param | Type | Description |
+|---|---|---|
+| `url` | `string` | The URL to fetch. Must start with `http://` or `https://`. |
+| `[options]` | `object` | Standard [Fetch API options](https://developer.mozilla.org/en-US/docs/Web/API/fetch#options) (`method`, `headers`, `body`, etc.). |
+
+```js
+// GET — auto-parsed JSON
+const data = await she.fetch('https://api.example.com/status');
+she.log('status:', data.status);
+
+// POST with JSON body
+const result = await she.fetch('https://api.example.com/command', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'toggle' }),
+});
+
+// Publish the result to MQTT
+she.mqtt.set('home/device/response', result.ok);
+```
+
+---
+
 ## she.db -- sheDB document store
 
 Available when `--db-path` is configured. All methods are no-ops (or return `undefined`/`[]`) when sheDB is not initialised, so scripts do not need to guard against it.

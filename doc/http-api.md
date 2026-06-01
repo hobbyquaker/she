@@ -86,7 +86,7 @@ HTTP 401
 
 ### GET /she/scripts
 
-List all `.js` files in the script directory, recursively.
+List all files in the script directory, recursively. Includes `.js` scripts and any other stored files (markdown, yaml, json, etc.).
 
 **Response (HTTP 200):**
 
@@ -109,7 +109,7 @@ Read a script file.
 
 ### PUT /she/scripts/:path
 
-Create or overwrite a script file. Only `.js` files are accepted.
+Create or overwrite a file. Any file extension is accepted. The daemon only auto-loads `.js` files; other file types are stored for manual use.
 
 **Request body:**
 
@@ -370,6 +370,37 @@ Writes a new config file. All CLI option keys are accepted (camelCase).
 ```
 
 A daemon restart is required for the new config to take effect.
+
+---
+
+## Daemon — `/she/status`, `/she/restart`
+
+### GET /she/status
+
+Returns a snapshot of runtime counters.
+
+**Response (HTTP 200):**
+
+```json
+{ "scripts": 3, "topics": 142 }
+```
+
+| Field | Description |
+|-------|-------------|
+| `scripts` | Number of user scripts currently loaded |
+| `topics` | Number of MQTT topics tracked in the state store |
+
+### POST /she/restart
+
+Sends a graceful shutdown signal. The process exits with code 0 so the process manager (systemd, Docker restart policy, etc.) restarts it automatically.
+
+**Response (HTTP 200):**
+
+```json
+{ "ok": true }
+```
+
+The connection will drop immediately after the response. The daemon is typically back within a second or two.
 
 ---
 

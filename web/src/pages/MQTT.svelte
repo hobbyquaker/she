@@ -70,10 +70,11 @@
     let flatList = $derived.by(() => {
         void version; // re-evaluate whenever data changes
         if (!filter) return [] as Array<{ topic: string; val: unknown; ts: number }>;
-        const q = filter.toLowerCase();
+        const tokens = filter.toLowerCase().split(/\s+/).filter(Boolean);
         const out: Array<{ topic: string; val: unknown; ts: number }> = [];
         for (const [topic, e] of topicMap) {
-            if (topic.toLowerCase().includes(q)) out.push({ topic, ...e });
+            const lc = topic.toLowerCase();
+            if (tokens.every((t) => lc.includes(t))) out.push({ topic, ...e });
         }
         return out.sort((a, b) => a.topic.localeCompare(b.topic));
     });
@@ -84,6 +85,11 @@
         const end   = Math.min(n, Math.ceil((scrollTop + containerH) / ROW_H) + OVERSCAN);
         return { start, end, totalH: n * ROW_H, top: start * ROW_H };
     });
+
+    /* ── Live stream pane ─────────────────────────────────────────────────── */
+    const STREAM_MAX = 20;
+    let streamFeed = $state<Array<{ topic: string; val: unknown; ts: number }>>([]);
+    let streamOpen = $state(true);
 
     /* ── Initial load ─────────────────────────────────────────────────────── */
     let loading   = $state(true);
@@ -113,6 +119,8 @@
         topicMap.set(topic, { val, ts });
         pending.add(topic);
         scheduleFlush();
+        // Feed the live stream pane (newest first, capped at STREAM_MAX)
+        streamFeed = [{ topic, val, ts }, ...streamFeed.slice(0, STREAM_MAX - 1)];
     });
 
     /* ── Publish ──────────────────────────────────────────────────────────── */
@@ -268,6 +276,32 @@
             {/if}
         </div>
     {/if}
+
+    <!-- Live stream pane -->
+    <div class="stream-panel">
+        <button class="stream-hdr" onclick={() => { streamOpen = !streamOpen; }}>
+            <span class="stream-chev">{streamOpen ? '▾' : '▸'}</span>
+            Live stream
+            {#if !streamOpen && streamFeed.length > 0}
+                <span class="stream-badge">{streamFeed.length}</span>
+            {/if}
+        </button>
+        {#if streamOpen}
+            <div class="stream-body">
+                {#if streamFeed.length === 0}
+                    <span class="stream-empty">Waiting for messages…</span>
+                {:else}
+                    {#each streamFeed as row (`${row.ts}-${row.topic}`)}
+                        <div class="sr">
+                            <span class="s-ts">{fmtTime(row.ts)}</span>
+                            <span class="s-topic">{row.topic}</span>
+                            <span class="s-val" title={fmtVal(row.val)}>{fmtVal(row.val)}</span>
+                        </div>
+                    {/each}
+                {/if}
+            </div>
+        {/if}
+    </div>
 </div>
 
 <style>
@@ -458,5 +492,64 @@
         font-size: 11px;
         flex-shrink: 0;
         white-space: nowrap;
+    }
+
+    /* ── Live stream pane ── */
+    .stream-panel {
+        flex-shrink: 0;
+        border-top: 1px solid var(--border);
+        background: var(--bg-panel);
+        max-height: 160px;
+        display: flex;
+        flex-direction: column;
+    }
+    .stream-hdr {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg-muted);
+        background: none;
+        border: none;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+        user-select: none;
+    }
+    .stream-hdr:hover { color: var(--fg); }
+    .stream-chev { font-size: 10px; color: var(--fg-dim); }
+    .stream-badge {
+        font-size: 10px;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 8px;
+        padding: 0 5px;
+        line-height: 1.4;
+    }
+    .stream-body {
+        overflow-y: auto;
+        flex: 1;
+        font-size: 12px;
+        font-family: monospace;
+    }
+    .stream-empty { padding: 4px 12px; color: var(--fg-dim); font-style: italic; }
+    .sr {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 20px;
+        padding: 0 12px;
+    }
+    .sr:hover { background: var(--bg-hover); }
+    .s-ts { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; width: 50px; }
+    .s-topic { color: var(--fg-value); flex-shrink: 0; min-width: 180px; }
+    .s-val {
+        color: var(--fg);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
     }
 </style>

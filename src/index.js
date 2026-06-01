@@ -209,6 +209,14 @@ let connected = false;
 require('./web/mqtt-api').init(store, () => mqtt);
 require('./web/ai-api').init(store);
 
+// Register runtime stats provider for GET /she/status
+require('./web/server').setStatsProvider(() => {
+    let topics = 0;
+    // eslint-disable-next-line no-unused-vars
+    for (const _ of store.mqttEntries()) topics++;
+    return { scripts: Object.keys(scripts).length, topics };
+});
+
 if (!config.url) {
     log.warn('no MQTT broker URL configured — set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
 }

@@ -7,7 +7,7 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
-    import { getAuthMode, login, logout, onUnauthorized, type AuthMode } from './lib/api.js';
+    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, type AuthMode, type DaemonStatus } from './lib/api.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -19,6 +19,7 @@
 
     let page = $state<Page>(pageFromHash());
     let latestVersion = $state<string | null>(null);
+    let stats = $state<DaemonStatus | null>(null);
 
     // ── Auth ────────────────────────────────────────────────────────────────
     let authMode = $state<AuthMode>('none');
@@ -46,6 +47,14 @@
     async function handleLogout() {
         await logout();
         showLogin = true;
+    }
+
+    async function restart() {
+        if (!confirm('Restart the she daemon? The page will reload after a moment.')) return;
+        try {
+            await restartDaemon();
+            setTimeout(() => location.reload(), 2500);
+        } catch { /* ignore — daemon is restarting */ }
     }
 
     function navigate(p: Page) {
@@ -79,7 +88,17 @@
             .then((d: { version?: string }) => { if (d.version && d.version !== __APP_VERSION__) latestVersion = d.version; })
             .catch(() => {});
 
-        return () => window.removeEventListener('hashchange', onHashChange);
+        // Poll daemon status every 5s
+        async function pollStatus() {
+            try { stats = await getDaemonStatus(); } catch { /* daemon may be restarting */ }
+        }
+        pollStatus();
+        const statusInterval = setInterval(pollStatus, 5000);
+
+        return () => {
+            window.removeEventListener('hashchange', onHashChange);
+            clearInterval(statusInterval);
+        };
     });
 </script>
 
@@ -143,8 +162,21 @@
             Logs
         </button>
 
-        <!-- right side: version · github · settings -->
+        <!-- right side: stats · version · github · settings -->
         <div class="nav-spacer"></div>
+        {#if stats}
+            <div class="nav-stats">
+                <span title="MQTT topics">{stats.topics} topics</span>
+                <span class="stat-sep">·</span>
+                <span title="Running scripts">{stats.scripts} scripts</span>
+            </div>
+        {/if}
+        <button class="nav-restart" onclick={restart} title="Restart she daemon">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13.65 2.35A8 8 0 1 0 15 8"/>
+                <polyline points="15,2 15,8 9,8"/>
+            </svg>
+        </button>
         <div class="nav-right">
             <span class="version">
                 v{__APP_VERSION__}
@@ -251,6 +283,29 @@
     button.active { background: var(--bg-active); color: var(--fg-text); }
 
     .nav-spacer { flex: 1; }
+
+    .nav-stats {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: var(--fg-dim);
+        white-space: nowrap;
+        padding: 0 4px;
+    }
+    .stat-sep { opacity: 0.4; }
+
+    .nav-restart {
+        background: none;
+        border: none;
+        color: var(--fg-dim);
+        cursor: pointer;
+        padding: 4px 6px;
+        border-radius: 3px;
+        display: flex;
+        align-items: center;
+    }
+    .nav-restart:hover { background: var(--bg-hover); color: var(--fg); }
 
     .nav-right {
         display: flex;

@@ -77,6 +77,7 @@ Scripts run in a VM sandbox and receive a `she` object:
 - `she.age(topic)` → seconds since topic last changed
 - `she.debug/info/warn/error(...args)` — structured logging (prefixed with script name)
 - `she.global` — shared mutable object across all scripts
+- `she.fetch(url, [opts])` → Promise — HTTP/HTTPS fetch; auto-parses JSON by Content-Type; throws on non-OK status
 
 ### Variable system
 Topics prefixed with `config.variablePrefix` (default `var`) are tracked in the `var::` store namespace and published retained.
@@ -115,6 +116,8 @@ Tabs (in nav order): **Scripts** → **MQTT** → **Matter** → **DB** → **Lo
 | POST | `/she/matter/devices/:nodeId/command` | Invoke command `{endpointId, clusterName, command, args?}` |
 | GET | `/she/config` | Read `config.json` |
 | PUT | `/she/config` | Write `config.json` |
+| GET | `/she/status` | Runtime counters `{ scripts, topics }` |
+| POST | `/she/restart` | Graceful restart (exits 0) |
 
 ### WebSocket `ws://host/she/ws`
 Optional auth via `?token=<apiKey>` query param.
@@ -141,7 +144,8 @@ Server → client message types:
 - **Prettier**: v3, config in `prettier.config.js`
 - Format before committing: `npm run format`
 - Lint: `npm run lint`
-- Only `.js` scripts are loaded — CoffeeScript support has been removed
+- Only `.js` scripts are **executed** by the daemon — CoffeeScript support has been removed
+- The web UI / HTTP API supports editing **any** file type (markdown, yaml, json, shell, etc.)
 
 ## Important Constraints
 

@@ -7,6 +7,8 @@
     let logEl: HTMLDivElement;
     let autoscroll = $state(true);
     let filterLevel = $state<'all' | 'debug' | 'info' | 'warn' | 'error'>('all');
+    let filterText  = $state('');
+    let filterRegex = $state(false);
 
     const levels = ['all', 'debug', 'info', 'warn', 'error'] as const;
     const levelOrder = { debug: 0, info: 1, warn: 2, error: 3 };
@@ -29,9 +31,13 @@
 
     function clear() { entries = []; }
 
-    function visible(e: LogEntry) {
-        if (filterLevel === 'all') return true;
-        return levelOrder[e.level] >= levelOrder[filterLevel];
+    function visible(e: LogEntry): boolean {
+        if (filterLevel !== 'all' && levelOrder[e.level] < levelOrder[filterLevel]) return false;
+        if (!filterText) return true;
+        if (filterRegex) {
+            try { return new RegExp(filterText, 'i').test(e.msg); } catch { /* invalid regex — fall through */ }
+        }
+        return e.msg.toLowerCase().includes(filterText.toLowerCase());
     }
 
     function fmt(ts: number) {
@@ -45,6 +51,10 @@
         <select bind:value={filterLevel}>
             {#each levels as l}<option value={l}>{l}</option>{/each}
         </select>
+        <input class="filter-in" type="search" placeholder="Filter messages…" bind:value={filterText} />
+        <label class="cb" title="Interpret filter as a regular expression">
+            <input type="checkbox" bind:checked={filterRegex} /> Regex
+        </label>
         <label class="cb"><input type="checkbox" bind:checked={autoscroll} /> Auto-scroll</label>
         <button onclick={clear}>Clear</button>
     </div>
@@ -68,6 +78,11 @@
     }
     h2 { font-size: 13px; font-weight: 600; flex: 1; }
     select {
+        background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
+        padding: 2px 6px; border-radius: 3px; font-size: 12px;
+    }
+    .filter-in {
+        flex: 1; max-width: 320px;
         background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
         padding: 2px 6px; border-radius: 3px; font-size: 12px;
     }

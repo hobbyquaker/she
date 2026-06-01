@@ -134,6 +134,21 @@ export function gitStatus(): Promise<GitStatus> {
     return request('GET', '/she/git/status');
 }
 
+// ---- Daemon status + restart ----
+
+export interface DaemonStatus {
+    scripts: number;
+    topics: number;
+}
+
+export function getDaemonStatus(): Promise<DaemonStatus> {
+    return request('GET', '/she/status');
+}
+
+export function restartDaemon(): Promise<{ ok: boolean }> {
+    return request('POST', '/she/restart');
+}
+
 export function gitRemotes(): Promise<GitRemote[]> {
     return request('GET', '/she/git/remotes');
 }
@@ -245,12 +260,6 @@ export function removeDep(name: string): Promise<{ ok: boolean; stdout: string; 
 
 export function updateDep(name: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
     return request('POST', '/she/deps/update', { name });
-}
-
-// ---- Daemon restart ----
-
-export function restartDaemon(): Promise<{ ok: boolean }> {
-    return request('POST', '/she/restart');
 }
 
 export function getViewResult(id: string): Promise<ViewResult> {
