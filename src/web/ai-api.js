@@ -91,8 +91,8 @@ async function callOpenAICompat(config, messages, tools) {
           }
         : undefined;
 
-    // Detect tool call response
-    if (choice?.finish_reason === 'tool_calls' && choice.message?.tool_calls?.length) {
+    // Detect tool call response — some models return finish_reason 'stop' even with tool calls
+    if (choice?.message?.tool_calls?.length) {
         return { toolCalls: choice.message.tool_calls, assistantMsg: choice.message, usage };
     }
 
@@ -218,7 +218,11 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
         // Execute tool calls and append results to message history
         toolsUsed = true;
         if (isAnthropic) {
-            msgs = [...msgs, { role: 'assistant', content: result.assistantMsg }];
+            // Strip text blocks when tool_use blocks are present (same draft-reproduction issue)
+            const anthropicAssistantContent = result.assistantMsg.some((b) => b.type === 'tool_use')
+                ? result.assistantMsg.filter((b) => b.type !== 'text')
+                : result.assistantMsg;
+            msgs = [...msgs, { role: 'assistant', content: anthropicAssistantContent }];
             const toolResultBlocks = [];
             for (const tc of result.toolCalls) {
                 const args = tc.input || {};
@@ -229,7 +233,11 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
             }
             msgs = [...msgs, { role: 'user', content: toolResultBlocks }];
         } else {
-            msgs = [...msgs, { ...result.assistantMsg, role: 'assistant' }];
+            // Strip any draft content alongside tool_calls — if kept, the model reproduces
+            // the (hallucinated) draft in round 1 instead of using the tool results.
+            const assistantEntry = { ...result.assistantMsg, role: 'assistant' };
+            if (assistantEntry.content && assistantEntry.tool_calls?.length) assistantEntry.content = null;
+            msgs = [...msgs, assistantEntry];
             for (const tc of result.toolCalls) {
                 const name = tc.function.name;
                 let args;
