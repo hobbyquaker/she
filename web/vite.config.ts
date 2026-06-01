@@ -11,7 +11,14 @@ export default defineConfig({
         __APP_VERSION__: JSON.stringify(version),
     },
     plugins: [
-        svelte(),
+        svelte({
+            onwarn(warning, handler) {
+                // a11y warnings are suppressed per-element with svelte-ignore;
+                // vite-plugin-svelte echoes them anyway — silence them globally.
+                if (warning.code.startsWith('a11y')) return;
+                handler(warning);
+            },
+        }),
         monacoEditorPlugin.default({
             // Only include editor base worker + JavaScript/TypeScript worker
             languageWorkers: ['editorWorkerService', 'typescript'],

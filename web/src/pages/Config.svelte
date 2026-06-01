@@ -461,7 +461,7 @@
                     {#if authErr}<div class="field-error">{authErr}</div>{/if}
                     {#if authMsg}<div class="field-ok">{authMsg}</div>{/if}
                     <div class="field">
-                        <label></label>
+                        <span></span>
                         <button
                             class="save-auth-btn"
                             onclick={saveAuth}
@@ -536,7 +536,7 @@
                         <input type="number" bind:value={longitude} step="0.0001" placeholder="9.1778" />
                     </div>
                     <div class="field geo-actions">
-                        <label></label>
+                        <span></span>
                         <div class="geo-btns">
                             <button class="geo-btn" onclick={geolocate} disabled={geoLoading}>
                                 {#if geoLoading}…{:else}📍 Use my location{/if}
@@ -548,7 +548,7 @@
                     </div>
                     {#if showMap}
                     <div class="field">
-                        <label class="map-label">Map <span class="map-note">(click or drag marker to set location — requires internet for tiles)</span></label>
+                        <div class="map-label">Map <span class="map-note">(click or drag marker to set location — requires internet for tiles)</span></div>
                         <div class="map-container" bind:this={mapEl}></div>
                     </div>
                     {/if}
