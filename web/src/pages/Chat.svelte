@@ -376,13 +376,14 @@
                 abortController.signal,
                 (event) => { toolEvents = [...toolEvents, event]; },
             );
-            messages = [...messages, { role: 'assistant', content: streamingContent ?? '' }];
+            messages = [...messages, { role: 'assistant', content: streamingContent ?? '', toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined }];
+            toolEvents = [];
         } catch (e: any) {
             if ((e as Error).name === 'AbortError') {
                 // Save partial response if anything was streamed
                 const partial = streamingContent;
                 if (partial && partial.trim()) {
-                    messages = [...messages, { role: 'assistant', content: partial + '\n\n*[stopped]*' }];
+                    messages = [...messages, { role: 'assistant', content: partial + '\n\n*[stopped]*', toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined }];
                 }
             } else {
                 error = (e as Error).message;
@@ -390,6 +391,7 @@
         } finally {
             abortController = null;
             streamingContent = null;
+            toolEvents = [];
             loading = false;
         }
     }
@@ -463,6 +465,26 @@
                     <div class="msg-content user-text">{msg.content}</div>
                 {:else}
                     {@const blocks = parseBlocks(msg.content)}
+                    {#if msg.toolEvents?.length}
+                        <div class="tool-events">
+                            {#each msg.toolEvents as ev}
+                                {#if ev.type === 'tool_call'}
+                                    <div class="tool-event tool-call">
+                                        <span class="tool-icon">🔧</span>
+                                        <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
+                                        {#if ev.args && Object.keys(ev.args).length > 0}
+                                            <span class="tool-args">{Object.entries(ev.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')}</span>
+                                        {/if}
+                                    </div>
+                                {:else}
+                                    <div class="tool-event tool-result">
+                                        <span class="tool-icon">✓</span>
+                                        <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
+                                    </div>
+                                {/if}
+                            {/each}
+                        </div>
+                    {/if}
                     <div class="msg-content">
                         {#each blocks as block, blockIdx}
                             {#if block.type === 'text'}
@@ -506,7 +528,7 @@
             </div>
         {/each}
 
-        <!-- Tool call events (shown while loading or retained after response) -->
+        <!-- Tool call events (shown live during request, then attached to the message) -->
         {#if toolEvents.length > 0}
             <div class="tool-events">
                 {#each toolEvents as ev}
@@ -529,7 +551,7 @@
         {/if}
 
         <!-- Status shimmer while waiting for first token -->
-        {#if loading && streamingContent === null}
+        {#if loading && streamingContent === null && toolEvents.length === 0}
             <div class="message assistant">
                 <div class="msg-content">
                     <span class="status-shimmer">{STATUS_MESSAGES[statusIdx]}</span>

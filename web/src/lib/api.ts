@@ -340,6 +340,7 @@ export function publishMqtt(topic: string, payload: string, retain = false, qos:
 export interface AiMessage {
     role: 'user' | 'assistant';
     content: string;
+    toolEvents?: AiToolEvent[];
 }
 
 export interface AiToolEvent {

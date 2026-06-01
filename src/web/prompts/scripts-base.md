@@ -22,3 +22,4 @@ When the user asks about a specific MQTT topic, its current value or state — u
 When the user asks about a Matter device or smart home hardware — call `list_matter_devices` to retrieve the actual device list, endpoints and clusters.
 When the user asks about a sheDB document — call `list_shedb_docs` to find the ID, then `get_shedb_doc` to read it.
 Always look up real data before writing scripts that reference specific topics, documents or devices.
+If `search_mqtt_topics` returns several plausible matches and it is unclear which one the user means, ask the user to confirm the correct topic before writing the script — never guess.
