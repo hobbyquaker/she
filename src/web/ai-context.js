@@ -86,20 +86,20 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
 
         if (topicData.size > 0) {
             // Build a trie so sibling leaf-topics can be collapsed onto one line.
-            // Each node tracks maxLc (max lc of all descendants) so subtrees are
-            // visited most-recently-changed first.
-            const root = { children: new Map(), isLeaf: false, lc: 0, maxLc: 0 };
+            // Each node tracks: maxLc (for recency sort) and topic (original string,
+            // stored only on leaf nodes so lookups never need path reconstruction).
+            const mkNode = () => ({ children: new Map(), isLeaf: false, lc: 0, maxLc: 0, topic: null });
+            const root = mkNode();
             for (const [topic, { lc }] of topicData) {
                 const segs = topic.split('/');
                 let node = root;
                 for (const seg of segs) {
-                    if (!node.children.has(seg)) {
-                        node.children.set(seg, { children: new Map(), isLeaf: false, lc: 0, maxLc: 0 });
-                    }
+                    if (!node.children.has(seg)) node.children.set(seg, mkNode());
                     node = node.children.get(seg);
                 }
                 node.isLeaf = true;
                 node.lc = lc;
+                node.topic = topic; // exact original key — used for topicData lookups
             }
 
             // Post-order pass: propagate maxLc up so subtrees can be sorted by recency
@@ -117,35 +117,38 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
             // Walk the trie most-recently-changed first.
             // Sibling pure-leaf nodes (no sub-topics) under the same parent are
             // collapsed onto one line: parent/A: v1 # B: v2 # C: v3
+            // We use node.topic for all topicData lookups — no path reconstruction.
             const lines = [];
-            const walk = (node, prefix) => {
+            const walk = (node, atRoot) => {
                 const byRecency = [...node.children.entries()].sort(([, a], [, b]) => b.maxLc - a.maxLc);
                 const pureLeaves = byRecency.filter(([, c]) => c.isLeaf && c.children.size === 0);
                 const branches   = byRecency.filter(([, c]) => !(c.isLeaf && c.children.size === 0));
 
-                if (pureLeaves.length > 1 && prefix) {
-                    const [[first], ...rest] = pureLeaves;
-                    const v0 = JSON.stringify(topicData.get(`${prefix}/${first}`).val);
-                    const siblings = rest.map(([k]) =>
-                        `${k}: ${JSON.stringify(topicData.get(`${prefix}/${k}`).val)}`
-                    );
-                    lines.push(`${prefix}/${first}: ${v0} # ${siblings.join(' # ')}`);
+                if (pureLeaves.length > 1 && !atRoot) {
+                    // Collapse siblings: "parentTopic/FIRST: v1 # SIBLING: v2 # ..."
+                    // Derive the shared prefix from the first node's stored topic.
+                    const [[, firstNode], ...rest] = pureLeaves;
+                    const sharedPrefix = firstNode.topic.slice(0, firstNode.topic.lastIndexOf('/'));
+                    const v0 = JSON.stringify(topicData.get(firstNode.topic).val);
+                    const siblings = rest.map(([, n]) => {
+                        const name = n.topic.slice(sharedPrefix.length + 1);
+                        return `${name}: ${JSON.stringify(topicData.get(n.topic).val)}`;
+                    });
+                    lines.push(`${firstNode.topic}: ${v0} # ${siblings.join(' # ')}`);
                 } else {
-                    for (const [key] of pureLeaves) {
-                        const t = prefix ? `${prefix}/${key}` : key;
-                        lines.push(`${t}: ${JSON.stringify(topicData.get(t).val)}`);
+                    for (const [, leafNode] of pureLeaves) {
+                        lines.push(`${leafNode.topic}: ${JSON.stringify(topicData.get(leafNode.topic).val)}`);
                     }
                 }
 
-                for (const [key, child] of branches) {
-                    const cp = prefix ? `${prefix}/${key}` : key;
+                for (const [, child] of branches) {
                     if (child.isLeaf) {
-                        lines.push(`${cp}: ${JSON.stringify(topicData.get(cp).val)}`);
+                        lines.push(`${child.topic}: ${JSON.stringify(topicData.get(child.topic).val)}`);
                     }
-                    walk(child, cp);
+                    walk(child, false);
                 }
             };
-            walk(root, '');
+            walk(root, true);
 
             parts.push(
                 '## Current MQTT state\n' +
