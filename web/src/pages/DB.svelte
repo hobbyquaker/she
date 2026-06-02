@@ -26,8 +26,9 @@
     let docError: string | null = $state(null);
 
     // ---- View state ----
+    const SELECTED_VIEW_KEY = 'she-db-selected-view';
     let viewIds: string[] = $state([]);
-    let selectedViewId: string | null = $state(null);
+    let selectedViewId: string | null = $state(localStorage.getItem(SELECTED_VIEW_KEY));
     let viewFilter = $state('#');
     let viewMap = $state('// emit(this.someProperty)');
     let viewReduce = $state('');
@@ -41,7 +42,8 @@
     let dbViewPrefix = $state('she/db/view/');
 
     // ---- Tabs inside DB panel ----
-    let panel: 'docs' | 'views' = $state('docs');
+    const PANEL_KEY = 'she-db-panel';
+    let panel: 'docs' | 'views' = $state((localStorage.getItem(PANEL_KEY) as 'docs' | 'views') ?? 'docs');
 
     // ---- New document dialog ----
     let newDocId = $state('');
@@ -82,6 +84,11 @@
     }
 
     $effect(() => { localStorage.setItem(CHAT_OPEN_KEY, String(chatOpen)); });
+    $effect(() => { localStorage.setItem(PANEL_KEY, panel); });
+    $effect(() => {
+        if (selectedViewId) localStorage.setItem(SELECTED_VIEW_KEY, selectedViewId);
+        else localStorage.removeItem(SELECTED_VIEW_KEY);
+    });
 
     function onResizeStart(e: MouseEvent) {
         resizing = true;
@@ -270,6 +277,7 @@
     onMount(() => {
         loadDocs();
         loadViews();
+        if (selectedViewId) selectView(selectedViewId);
         getConfig().then((cfg) => {
             const raw = (cfg.dbPrefix as string | undefined) || 'she/db/';
             const prefix = raw.endsWith('/') ? raw : raw + '/';

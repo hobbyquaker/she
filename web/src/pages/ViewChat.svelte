@@ -23,7 +23,8 @@
     let { currentView = null, onApplyView }: Props = $props();
 
     // ── State ─────────────────────────────────────────────────────────────────
-    let messages     = $state<AiMessage[]>([]);
+    const MESSAGES_KEY = 'she:viewchat:messages';
+    let messages     = $state<AiMessage[]>(JSON.parse(localStorage.getItem(MESSAGES_KEY) ?? '[]'));
     let streamingContent = $state<string | null>(null);
     let input        = $state('');
     let loading      = $state(false);
@@ -32,6 +33,8 @@
 
     let availableModels = $state<string[]>([]);
     let selectedModel   = $state<string>(localStorage.getItem('she:selectedModel') ?? '');
+
+    $effect(() => { localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages)); });
 
     let expandedBlocks = $state(new Set<string>());
 
