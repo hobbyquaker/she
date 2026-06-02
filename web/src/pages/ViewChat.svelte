@@ -1,7 +1,7 @@
 <script lang="ts">
     import {
-        type AiMessage, type AiContext, type AiCurrentView, type OllamaModelInfo,
-        streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, type AiConfig,
+        type AiMessage, type AiContext, type AiCurrentView, type AiExtraFile, type AiToolEvent, type OllamaModelInfo,
+        streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, type AiConfig,
     } from '../lib/api.js';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
@@ -62,6 +62,19 @@
     // Context checkboxes
     let ctxDocIds     = $state(true);
     let ctxSampleDocs = $state(true);
+    let ctxTools      = $state(true);
+
+    // File context
+    let extraFiles         = $state<AiExtraFile[]>([]);
+    let includeCurrentView = $state(true);
+    let isDragOver         = $state(false);
+    let fileInputEl: HTMLInputElement;
+
+    // Tool events during agentic round
+    let toolEvents = $state<AiToolEvent[]>([]);
+
+    // Live request size
+    let promptBytes = $state(0);
 
     let inputEl: HTMLTextAreaElement;
     let messagesEl: HTMLDivElement;
@@ -71,9 +84,12 @@
         apiref:     false,
         shedb:      ctxDocIds,
         sampleDocs: ctxSampleDocs,
+        tools:      ctxTools,
     });
 
-    const configured = $derived(aiConfig?.configured ?? false);
+    const configured   = $derived(aiConfig?.configured ?? false);
+    const requestBytes = $derived(promptBytes + new TextEncoder().encode(input).length);
+    const activeView   = $derived(includeCurrentView ? currentView : null);
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     $effect(() => {
@@ -96,6 +112,16 @@
     $effect(() => {
         const _m = selectedModel; void _m;
         ollamaInfo = null; infoError = '';
+    });
+
+    $effect(() => {
+        const ctx = context;
+        const view = activeView;
+        const files = extraFiles;
+        if (!configured) return;
+        getAiPrompt({ context: ctx, currentView: view ?? null, extraFiles: files.length > 0 ? files : undefined })
+            .then(res => { promptBytes = new TextEncoder().encode(res.prompt).length; })
+            .catch(() => {});
     });
 
     $effect(() => {
@@ -218,6 +244,54 @@
         return `${bytes} B`;
     }
 
+    // ── File context helpers ─────────────────────────────────────────────────
+
+    function fileExt(name: string): string {
+        const m = name.match(/\.([^.]+)$/);
+        return m ? m[1].toUpperCase() : '?';
+    }
+
+    function fileBadgeContent(ext: string): string {
+        switch (ext) {
+            case 'SH': case 'BASH': return '$';
+            case 'MD': case 'MARKDOWN': return '↓';
+            case 'JSON': case 'JSONC': return '{}';
+            default: return ext;
+        }
+    }
+
+    function removeUpload(idx: number) {
+        extraFiles = extraFiles.filter((_, i) => i !== idx);
+    }
+
+    function openFilePicker() { fileInputEl.click(); }
+
+    async function handleFiles(files: FileList | null) {
+        if (!files || files.length === 0) return;
+        for (const file of Array.from(files)) {
+            const content = await file.text();
+            extraFiles = [...extraFiles, { name: file.name, content }];
+        }
+    }
+
+    function handleFileInput(e: Event) {
+        const target = e.target as HTMLInputElement;
+        handleFiles(target.files);
+        target.value = '';
+    }
+
+    function handleDrop(e: DragEvent) {
+        e.preventDefault();
+        isDragOver = false;
+        handleFiles(e.dataTransfer?.files ?? null);
+    }
+
+    function handleDragOver(e: DragEvent) {
+        if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); isDragOver = true; }
+    }
+
+    function handleDragLeave() { isDragOver = false; }
+
     // ── Send ──────────────────────────────────────────────────────────────────
     async function send() {
         const text = input.trim();
@@ -226,23 +300,26 @@
 
         messages = [...messages, { role: 'user', content: text }];
         abortController = new AbortController();
+        toolEvents = [];
 
         try {
             await streamChatWithAI(
-                { messages, currentView, context, modelOverride: selectedModel || undefined },
+                { messages, currentView: activeView, context, modelOverride: selectedModel || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
+                (event) => { toolEvents = [...toolEvents, event]; },
             );
-            messages = [...messages, { role: 'assistant', content: streamingContent ?? '' }];
+            messages = [...messages, { role: 'assistant', content: streamingContent ?? '', toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined }];
+            toolEvents = [];
         } catch (e: any) {
             if ((e as Error).name === 'AbortError') {
                 const partial = streamingContent;
-                if (partial?.trim()) messages = [...messages, { role: 'assistant', content: partial + '\n\n*[stopped]*' }];
+                if (partial?.trim()) messages = [...messages, { role: 'assistant', content: partial + '\n\n*[stopped]*', toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined }];
             } else {
                 error = (e as Error).message;
             }
         } finally {
-            abortController = null; streamingContent = null; loading = false;
+            abortController = null; streamingContent = null; toolEvents = []; loading = false;
         }
     }
 
@@ -271,7 +348,7 @@
         <span class="chat-title">AI — View assistant</span>
         {#if aiConfig}
             <span class="chat-model" title="Provider: {aiConfig.provider}">
-                {#if configured}{aiConfig.provider} · {aiConfig.model}{:else}Not configured{/if}
+                {#if configured}{aiConfig.provider} · {selectedModel || aiConfig.model}{:else}Not configured{/if}
             </span>
         {/if}
         {#if messages.length > 0}
@@ -307,6 +384,17 @@
                 {:else}
                     {@const blocks = parseBlocks(msg.content)}
                     {@const viewParts = parseViewParts(blocks)}
+                    {#if msg.toolEvents?.length}
+                        <div class="tool-events">
+                            {#each msg.toolEvents as ev}
+                                {#if ev.type === 'tool_call'}
+                                    <div class="tool-event tool-call"><span class="tool-icon">🔧</span><span class="tool-name">{ev.name.replace(/_/g, ' ')}</span></div>
+                                {:else}
+                                    <div class="tool-event tool-result"><span class="tool-icon">✓</span><span class="tool-name">{ev.name.replace(/_/g, ' ')}</span></div>
+                                {/if}
+                            {/each}
+                        </div>
+                    {/if}
                     <div class="msg-content">
                         {#each blocks as block, blockIdx}
                             {#if block.type === 'text'}
@@ -347,8 +435,21 @@
             </div>
         {/each}
 
+        <!-- Live tool events -->
+        {#if toolEvents.length > 0}
+            <div class="tool-events">
+                {#each toolEvents as ev}
+                    {#if ev.type === 'tool_call'}
+                        <div class="tool-event tool-call"><span class="tool-icon">🔧</span><span class="tool-name">{ev.name.replace(/_/g, ' ')}</span></div>
+                    {:else}
+                        <div class="tool-event tool-result"><span class="tool-icon">✓</span><span class="tool-name">{ev.name.replace(/_/g, ' ')}</span></div>
+                    {/if}
+                {/each}
+            </div>
+        {/if}
+
         <!-- Status shimmer while waiting for first token -->
-        {#if loading && streamingContent === null}
+        {#if loading && streamingContent === null && toolEvents.length === 0}
             <div class="message assistant">
                 <div class="msg-content">
                     <span class="status-shimmer">{STATUS_MESSAGES[statusIdx]}</span>
@@ -387,16 +488,48 @@
         <label title="Include sample document content in context (first 10 docs)">
             <input type="checkbox" bind:checked={ctxSampleDocs} /><span class="checkmark"></span> Sample docs
         </label>
+        <label title="Let the AI query sheDB documents on demand. Disables real-time streaming.">
+            <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 😎 Agent
+        </label>
+        <span class="req-size">{formatBytes(requestBytes)}</span>
+    </div>
+
+    <!-- File context chips -->
+    <div class="files-row">
+        {#if currentView}
+            <span class="file-chip" class:inactive={!includeCurrentView}>
+                <span class="badge badge-db">db</span>
+                <span class="chip-name">{currentView.id}</span>
+                <button class="chip-remove"
+                    onclick={() => (includeCurrentView = !includeCurrentView)}
+                    title={includeCurrentView ? 'Remove from context' : 'Re-add to context'}>
+                    {includeCurrentView ? '×' : '+'}
+                </button>
+            </span>
+        {/if}
+        {#each extraFiles as f, i}
+            {@const ext = fileExt(f.name)}
+            <span class="file-chip">
+                <span class="badge badge-{ext.toLowerCase()}">{fileBadgeContent(ext)}</span>
+                <span class="chip-name">{f.name}</span>
+                <button class="chip-remove" onclick={() => removeUpload(i)} title="Remove from context">×</button>
+            </span>
+        {/each}
+        <button class="add-file-btn" onclick={openFilePicker} title="Attach file to context">+</button>
+        <input bind:this={fileInputEl} type="file" multiple class="file-input-hidden" onchange={handleFileInput} />
     </div>
 
     <!-- Input -->
-    <div class="input-row">
+    <div class="input-row" class:drag-over={isDragOver}
+        ondragover={handleDragOver}
+        ondragleave={handleDragLeave}
+        ondrop={handleDrop}>
         <div class="textarea-wrap" class:loading>
             <textarea
                 bind:this={inputEl}
                 bind:value={input}
                 onkeydown={handleKeydown}
-                placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline)' : 'AI not configured'}
+                placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline, drag & drop files to add context)' : 'AI not configured'}
                 rows="3"
                 disabled={loading || !configured}
             ></textarea>
@@ -661,7 +794,61 @@
     }
     .context-row label:hover .checkmark { border-color: var(--accent); }
 
+    /* ── File chips ──────────────────────────────────────────────────────── */
+    .files-row {
+        display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+        padding: 3px 8px; background: var(--bg-panel);
+        border-top: 1px solid var(--border-sub); min-height: 28px; flex-shrink: 0;
+    }
+    .file-chip {
+        display: inline-flex; align-items: center; gap: 2px;
+        background: var(--bg-app); border: 1px solid var(--border-sub);
+        border-radius: 4px; padding: 1px 3px 1px 1px;
+        font-size: 0.75rem; color: var(--fg); max-width: 200px;
+    }
+    .file-chip.inactive { opacity: 0.4; }
+    .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; line-height: 1.4; }
+    .chip-remove {
+        background: none; border: none; color: var(--fg-dim);
+        cursor: pointer; padding: 0 2px; font-size: 13px; line-height: 1; flex-shrink: 0;
+    }
+    .chip-remove:hover { color: var(--fg); }
+    .add-file-btn {
+        background: none; border: 1px dashed var(--border-sub); border-radius: 4px;
+        color: var(--fg-dim); cursor: pointer;
+        width: 22px; height: 22px; font-size: 15px;
+        display: inline-flex; align-items: center; justify-content: center;
+        flex-shrink: 0; line-height: 1; padding: 0;
+    }
+    .add-file-btn:hover { color: var(--fg); border-color: var(--fg-dim); }
+    .file-input-hidden { display: none; }
+    .badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 20px; font-size: 8px; font-weight: 700; border-radius: 2px;
+        background: transparent; color: #888; flex-shrink: 0;
+    }
+    .badge-js, .badge-mjs, .badge-cjs { color: #b89a00; font-size: 7px; }
+    .badge-ts, .badge-tsx             { color: #2068c0; }
+    .badge-json, .badge-jsonc         { color: #c06010; }
+    .badge-md, .badge-markdown        { color: #1888b0; font-size: 11px; }
+    .badge-yaml, .badge-yml           { color: #7a28a8; }
+    .badge-sh, .badge-bash            { color: #0a8840; }
+    .badge-db                         { color: var(--accent); font-size: 7px; }
+
+    /* ── Tool events ─────────────────────────────────────────────────────── */
+    .tool-events { padding: 4px 8px 2px; display: flex; flex-direction: column; gap: 2px; }
+    .tool-event {
+        display: flex; align-items: center; gap: 5px;
+        font-size: 0.75rem; font-family: monospace; color: var(--fg-dim); opacity: 0.8;
+    }
+    .tool-event.tool-call  { color: var(--accent); opacity: 1; }
+    .tool-event.tool-result { color: var(--fg-dim); }
+    .tool-icon { font-style: normal; }
+    .tool-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
     /* ── Input area ──────────────────────────────────────────────────────── */
+    .req-size { margin-left: auto; font-size: 0.7rem; color: var(--fg-dim); white-space: nowrap; flex-shrink: 0; }
+
     .input-row {
         display: flex;
         align-items: flex-end;
@@ -669,36 +856,72 @@
         padding: 6px;
         border-top: 1px solid var(--border-sub);
         flex-shrink: 0;
-        position: relative;
     }
-    .textarea-wrap { flex: 1; position: relative; }
+    .input-row.drag-over .textarea-wrap { background: var(--accent); }
+
+    @property --border-angle {
+        syntax: '<angle>';
+        initial-value: 0deg;
+        inherits: false;
+    }
+    @keyframes border-spin { to { --border-angle: 360deg; } }
+
+    .textarea-wrap {
+        flex: 1;
+        position: relative;
+        border-radius: 5px;
+        padding: 1px;
+        background: var(--border);
+        transition: background 0.2s;
+        display: flex;
+    }
+    .textarea-wrap:focus-within { background: var(--accent); }
+    .textarea-wrap.loading,
+    .textarea-wrap.loading:focus-within {
+        padding: 1.5px;
+        background: transparent;
+        transition: none;
+    }
+    .textarea-wrap.loading::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        padding: 1.5px;
+        background: conic-gradient(
+            from var(--border-angle),
+            transparent 0%,
+            transparent 45%,
+            #3baee0 60%,
+            #90d4ff 68%,
+            #ffffff 73%,
+            #90d4ff 78%,
+            #3baee0 88%,
+            transparent 95%,
+            transparent 100%
+        );
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        animation: border-spin 2s linear infinite;
+        pointer-events: none;
+    }
     .textarea-wrap textarea {
-        width: 100%;
+        flex: 1;
+        min-width: 0;
         background: var(--bg-app);
         color: var(--fg);
-        border: 1px solid var(--border);
-        border-radius: 6px;
+        border: none;
+        border-radius: 4px;
         padding: 6px 8px;
         font-size: 0.82rem;
         resize: none;
         font-family: inherit;
-        box-sizing: border-box;
+        line-height: 1.4;
     }
-    .textarea-wrap textarea:focus { outline: none; border-color: var(--accent); }
-    .textarea-wrap.loading::before {
-        content: '';
-        position: absolute;
-        inset: -2px;
-        border-radius: 8px;
-        padding: 2px;
-        background: conic-gradient(from var(--border-angle), #e060a0, #6060e0, #60c0e0, #60e060, #e0c060, #e060a0);
-        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-        mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-        mask-composite: exclude;
-        animation: spin 2s linear infinite;
-        @property --border-angle { syntax: '<angle>'; inherits: false; initial-value: 0turn; }
-    }
-    @keyframes spin { to { --border-angle: 1turn; } }
+    .textarea-wrap textarea:focus { outline: none; }
+    .textarea-wrap textarea::placeholder { color: var(--fg-dim); }
+    .textarea-wrap textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .send-btn, .stop-btn {
         flex-shrink: 0;
