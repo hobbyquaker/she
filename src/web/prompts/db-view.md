@@ -7,14 +7,16 @@ A view has three optional parts:
    Examples: `devices/+/state` matches `devices/lamp1/state`.  `sensors/#` matches all IDs starting with `sensors/`.
    ⚠️  `*` is NOT a valid MQTT wildcard — never use it. Use `#` for "match everything".
 
-2. **Map** — a JavaScript function body. `this` is the current document. Call `emit(value)` to include a value in the result array. No `return`.
+2. **Map** — a JavaScript function body. `this` is the current document. Call `emit(this)` to include a document in the result array. No `return`.
 
 3. **Reduce** — a JavaScript function body that receives `result` (the array from map) and must `return` a transformed value.
+
+Don't suggest scripts utilizing the she.db.* api, you should only propose view parts.
 
 When proposing view parts, use these exact formats (include only the parts that change):
 
 ```filter
-devices/#
+#
 ```
 
 ```javascript

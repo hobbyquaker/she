@@ -1,7 +1,5 @@
 ﻿# she - smart home engine
 
-[![License][mit-badge]][mit-url]
-
 > [!WARNING]
 > **This project is under heavy development.** The API is changing frequently and there are no stability guarantees yet.
 
@@ -19,19 +17,14 @@ Your home, your rules - written in plain JavaScript.
 - Supports **InfluxDB**, **Elasticsearch** and **Redis** — convenience methods for time series, full text indexing, shared states across multiple she instances
 - **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer
 
-## Motivation
+## Quick start
 
-She is built around a simple idea: home automation should stay understandable, even as it grows. Instead of collecting adapters, bindings, integrations, and configuration layers, you work directly with devices, events, and logic. The result is a system that scales with your home without turning into a project of its own.
+```bash
+npm install -g smart-home-engine
+she
+```
 
-At some point every smart home platform starts promising simplicity and ends up teaching you its own ecosystem. She takes a different approach. It's built around devices, messages, and automation logic - not around ever-growing collections of adapters, bindings, and abstractions.
-
-Spend your time automating your home, not maintaining your automation software. Less clicking through configuration screens, fewer plugins talking to plugins, and no need for YAML archaeology when something stops working. Just a straightforward path from devices to automations, built on open standards and designed for people who prefer understanding their system over managing it.
-
-The ideas behind **she** are the result of more than a decade of building smart home software. I started publishing home automation projects on GitHub in 2012 with ccu.io and later initiated the ioBroker project before leaving it in 2014. Around the same time, I created [mqtt-scripts](https://github.com/hobbyquaker/mqtt-scripts), which has been running my own home automation ever since. Over the years I have continued working professionally in the smart home industry.
-
-Recently, while experimenting with GitHub Copilot, I started modernizing parts of my existing software stack. What began as a small refactoring exercise quickly evolved into a bigger idea: replacing my twelve-year-old automation engine with a modern successor. The result is **she** - a combination of the proven concepts from mqtt-scripts, the  architecture of mqttDB, a built-in Matter controller and AI assistance. A system that embraces open standards, integrates the growing Matter ecosystem, and remains true to the principles that made mqtt-scripts reliable enough to run a home for more than a decade.
-
-The goal is simple: a smart home that remains understandable years later. No migration-guide marathons, no plugin jungles, no configuration archaeology. Just automation infrastructure that grows with your home instead of growing into a hobby of its own.
+Then open **http://localhost:8080** and start creating scripts
 
 ## Docs
 
@@ -47,34 +40,25 @@ The goal is simple: a smart home that remains understandable years later. No mig
 
 ## Quick look
 
-```js
-// lights.js
+![AI assistant proposing changes to an existing script with inline diff](screenshots/she-ai-2.png)
 
-// Follow a motion sensor
-she.mqtt.sub('home/hall/motion', { change: true }, (topic, val) => {
-    she.mqtt.set('home/hall/light', val);
-});
+## Motivation
 
-// Solar schedule — no hardcoded times
-she.schedule('sunset',  () => she.mqtt.set('home/lights/outdoor', 1));
-she.schedule('sunrise', () => she.mqtt.set('home/lights/outdoor', 0));
+She is built around a simple idea: home automation should stay understandable, even as it grows. Instead of collecting adapters, bindings, integrations, and configuration layers, you work directly with devices, events, and logic. The result is a system that scales with your home without turning into a project of its own.
 
-// Keep device metadata in sheDB
-she.db.set('hall/motion', { name: 'Hall PIR', location: 'hall' });
-```
+At some point every smart home platform starts promising simplicity and ends up teaching you its own ecosystem. She takes a different approach. It's built around devices, messages, and automation logic - not around ever-growing collections of adapters, bindings, and abstractions.
 
-## Quick start
+Spend your time automating your home, not maintaining your automation software. Less clicking through configuration screens, fewer plugins talking to plugins, and no need for YAML archaeology when something stops working. Just a straightforward path from devices to automations, built on open standards and designed for people who prefer understanding their system over managing it.
 
-```bash
-npm install -g smart-home-engine
-she
-```
+The ideas behind **she** are the result of more than a decade of building smart home software. I started publishing home automation projects on GitHub in 2012 with ccu.io and later initiated the ioBroker project before leaving it in 2014. Shortly after I worked on [mqtt-smarthome](https://github.com/mqtt-smarthome/mqtt-smarthome) and created [mqtt-scripts](https://github.com/hobbyquaker/mqtt-scripts), which has been running my own home automation ever since. Over the years I have continued working professionally in the smart home industry.
 
-Then open **http://localhost:8080** and start creating scripts
+Recently, while experimenting with GitHub Copilot, I started modernizing parts of my existing software stack. What began as a small refactoring exercise quickly evolved into a bigger idea: replacing my twelve-year-old automation engine with a modern successor. The result is **she** - a combination of the proven concepts from mqtt-scripts, the  architecture of mqttDB, a built-in Matter controller and AI assistance. A system that embraces open standards, integrates the growing Matter ecosystem, and remains true to the principles that made mqtt-scripts reliable enough to run a home for more than a decade.
 
-## Matter Protocol Support
+The goal is simple: a smart home that remains understandable years later. No migration-guide marathons, no plugin jungles, no configuration archaeology. Just automation infrastructure that grows with your home instead of growing into a hobby of its own.
 
-This project implements/supports the Matter protocol. Matter™ is a trademark of the Connectivity Standards Alliance. This project is not certified by, endorsed by, or affiliated with the Connectivity Standards Alliance.
+## Trademark and Certification Notices
+
+This project implements/supports the Matter protocol. Matter™ is a trademark of the Connectivity Standards Alliance. This project is not certified by, endorsed by, supported by, or affiliated with the Connectivity Standards Alliance.
 
 ## License
 
