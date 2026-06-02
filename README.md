@@ -38,6 +38,10 @@ Then open **http://localhost:8080** and start creating scripts
 | [Examples](doc/examples.md) | Real-world script patterns |
 | [Screenshots](doc/screenshots.md) | Web UI screenshots |
 
+## Trademark and Certification Notices
+
+This project implements/supports the Matter protocol. Matter™ is a trademark of the Connectivity Standards Alliance. This project is **not** certified by, endorsed by, supported by, or affiliated with the Connectivity Standards Alliance.
+
 ## Quick look
 
 ![AI assistant proposing changes to an existing script with inline diff](doc/screenshots/she-ai-2.png)
@@ -55,10 +59,6 @@ The ideas behind **she** are the result of more than a decade of building smart 
 Recently, while experimenting with GitHub Copilot, I started modernizing parts of my existing software stack. What began as a small refactoring exercise quickly evolved into a bigger idea: replacing my twelve-year-old automation engine with a modern successor. The result is **she** - a combination of the proven concepts from mqtt-scripts, the  architecture of mqttDB, a built-in Matter controller and AI assistance. A system that embraces open standards, integrates the growing Matter ecosystem, and remains true to the principles that made mqtt-scripts reliable enough to run a home for more than a decade.
 
 The goal is simple: a smart home that remains understandable years later. No migration-guide marathons, no plugin jungles, no configuration archaeology. Just automation infrastructure that grows with your home instead of growing into a hobby of its own.
-
-## Trademark and Certification Notices
-
-This project implements/supports the Matter protocol. Matter™ is a trademark of the Connectivity Standards Alliance. This project is not certified by, endorsed by, supported by, or affiliated with the Connectivity Standards Alliance.
 
 ## License
 
