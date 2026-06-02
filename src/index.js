@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /* eslint-disable func-names */
 /* eslint-disable func-name-matching */
 /* eslint-disable camelcase */
@@ -21,7 +21,7 @@ const _pino = require('pino')(
         sync: true,
     }),
 );
-// Lazy import — log-ws exports a no-op broadcastLog when the HTTP server is not started.
+// Lazy import â€” log-ws exports a no-op broadcastLog when the HTTP server is not started.
 const { broadcastLog, broadcast } = require('./web/log-ws');
 const shedb = require('./web/shedb');
 const log = {
@@ -55,7 +55,7 @@ log.debug('loaded config: ', config);
 if (typeof config.port !== 'undefined') {
     // Validate: password mode requires a password hash
     if (config.auth === 'password' && !config.password) {
-        log.error('auth is set to "password" but no password is configured. Set a password via the web UI Config → Authentication section first.');
+        log.error('auth is set to "password" but no password is configured. Set a password via the web UI Config â†’ Authentication section first.');
         process.exit(1);
     }
     require('./web/server')
@@ -103,14 +103,14 @@ const StateStore = require('./lib/state-store');
 const sandboxModules = [];
 const store = new StateStore();
 const scripts = {};
-const scriptOrigins = new Map(); // file → 'builtin' | 'user'
+const scriptOrigins = new Map(); // file â†’ 'builtin' | 'user'
 const subscriptions = [];
 const mqttEventCallbacks = [];
 const varSubscriptions = []; // store-based var:: subscriptions { key, handler, _script }
 
 // Per-script resource tracking for hot-reload
-const scriptJobs = new Map(); // scriptFile → node-schedule Job[]
-const scriptTimers = new Map(); // scriptFile → Set<timer id>
+const scriptJobs = new Map(); // scriptFile â†’ node-schedule Job[]
+const scriptTimers = new Map(); // scriptFile â†’ Set<timer id>
 
 const _global = {};
 
@@ -200,7 +200,7 @@ function sunScheduleEvent(obj, shift) {
     }
 }
 
-// MQTT — only connect when a broker URL is configured
+// MQTT â€” only connect when a broker URL is configured
 let mqtt = null;
 let connected = false;
 
@@ -209,7 +209,7 @@ let connected = false;
 require('./web/mqtt-api').init(store, () => mqtt);
 require('./web/ai-api').init(store);
 
-// MQTT message rate counter — reset on each stats poll
+// MQTT message rate counter â€” reset on each stats poll
 let _mqttMsgCount = 0;
 let _mqttMsgTs = Date.now();
 let _prevCpuUsage = process.cpuUsage();
@@ -261,7 +261,7 @@ require('./web/server').setStatsProvider(() => {
 });
 
 if (!config.url) {
-    log.warn('no MQTT broker URL configured — set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
+    log.warn('no MQTT broker URL configured â€” set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
 }
 
 if (config.url) {
@@ -328,30 +328,30 @@ if (config.url) {
     });
 }
 
-// sheDB — only init when --db-path is given
+// sheDB â€” only init when --db-path is given
 if (config.dbPath) {
     const dbPathResolved = config.dbPath.replace(/^~(?=[/\\]|$)/, require('os').homedir());
     shedb.init({ dbPath: dbPathResolved, dbPublish: config.dbPublish || false, dbRetain: config.dbRetain || false, dbPrefix: config.dbPrefix || 'she/db/', mqttName: config.name, mqtt, log, broadcast });
 }
 
-// Redis write-through cache — only init when config.redis.url is given
+// Redis write-through cache â€” only init when config.redis.url is given
 if (config.redis && config.redis.url) {
     require('./lib/redis')
         .init({ url: config.redis.url, store, log })
         .catch((err) => log.error('redis init failed:', err.message));
 }
 
-// InfluxDB — only init when --influx is set
+// InfluxDB â€” only init when --influx is set
 if (config.influx) {
     require('./influx').init(config.influx);
 }
 
-// Elasticsearch — only init when --elastic is set
+// Elasticsearch â€” only init when --elastic is set
 if (config.elastic) {
     require('./elastic').init(config.elastic);
 }
 
-// Matter controller — only init when --matter-storage is set
+// Matter controller â€” only init when --matter-storage is set
 if (config.matterStorage) {
     const { ensureStorageDir } = require('./lib/storage');
     const matterController = require('./matter/controller');
@@ -367,10 +367,10 @@ if (config.matterStorage) {
         log.error('matter controller init failed:', err.message, err.stack);
     });
 } else {
-    log.warn('matter controller disabled — set matterStorage in config.json to enable');
+    log.warn('matter controller disabled â€” set matterStorage in config.json to enable');
 }
 
-// Start scripts immediately — MQTT retained state will populate the store asynchronously
+// Start scripts immediately â€” MQTT retained state will populate the store asynchronously
 start();
 
 function stateChange(topic, state, oldState, msg) {
@@ -443,7 +443,7 @@ function setVariable(name, val) {
     }
 
     const changed = newState.val !== oldState.val;
-    store.setObject(storeKey, newState); // primary: fires 'change' → she.on() callbacks
+    store.setObject(storeKey, newState); // primary: fires 'change' â†’ she.on() callbacks
     store.setObject('mqtt::' + mqttTopic, newState); // compat: so mqttsub('var//name') still works
     stateChange(mqttTopic, newState, oldState, {}); // fires mqttsub callbacks
 
@@ -604,7 +604,7 @@ function runScript(script, name, origin) {
          * @param {string|Date|Object|Array} pattern - Cron string, suncalc event name, Date, node-schedule literal, or an array of any mix.
          * @param {Object} [options]
          * @param {number} [options.random] - random delay in seconds
-         * @param {number} [options.shift]  - offset in seconds for solar events (-86400…86400)
+         * @param {number} [options.shift]  - offset in seconds for solar events (-86400â€¦86400)
          * @param {function} callback - is called with no arguments
          */
         schedule: function Sandbox_schedule(pattern, /* optional */ options, callback) {
@@ -710,7 +710,7 @@ function runScript(script, name, origin) {
 
             const tmp = topic.split('/');
             if (tmp[0] === config.variablePrefix && !config.disableVariables) {
-                // Variable — delegate to setVariable (handles var:: store + MQTT publish)
+                // Variable â€” delegate to setVariable (handles var:: store + MQTT publish)
                 const varName = tmp.slice(2).join('/');
                 setVariable(varName, val);
             } else if (tmp[0] === config.variablePrefix && config.disableVariables) {
@@ -850,7 +850,7 @@ function runScript(script, name, origin) {
         /** @internal Register a callback for MQTT connection lifecycle events. */
         _registerMqttEvent: function Sandbox_she_registerMqttEvent(event, callback) {
             if (event !== 'connect' && event !== 'disconnect') {
-                throw new TypeError('she.mqtt.on: unknown event "' + event + '" — use "connect" or "disconnect"');
+                throw new TypeError('she.mqtt.on: unknown event "' + event + '" â€” use "connect" or "disconnect"');
             }
             mqttEventCallbacks.push({ event, callback: scriptDomain.bind(callback), _script: name });
         },
@@ -888,12 +888,12 @@ function runScript(script, name, origin) {
             try {
                 let result;
                 if (md.match(/^\.\//) || md.match(/^\.\.\//)) {
-                    // Relative import — resolve from the script's own directory
+                    // Relative import â€” resolve from the script's own directory
                     const tmp = './' + path.relative(__dirname, path.join(scriptDir, md));
                     she.debug('require', tmp);
                     result = require(tmp);
                 } else {
-                    // Absolute import — try ~/.she/node_modules/ first (user-installed),
+                    // Absolute import â€” try ~/.she/node_modules/ first (user-installed),
                     // then fall back to engine's own require (builtins + engine deps).
                     try {
                         result = _userRequire(md);
@@ -1162,17 +1162,17 @@ function loadDir(dir) {
             filePath = filePath.replace(/\\/g, '/');
             const basename = path.basename(filePath);
 
-            // .shelib marker changes — warn only, manual restart required
+            // .shelib marker changes â€” warn only, manual restart required
             if (basename === '.shelib') {
                 if (event === 'add') {
-                    log.warn(filePath, 'library marker added — .js files in this directory will no longer load as scripts after daemon restart');
+                    log.warn(filePath, 'library marker added â€” .js files in this directory will no longer load as scripts after daemon restart');
                 } else if (event === 'unlink') {
-                    log.warn(filePath, 'library marker removed — .js files in this directory will load as scripts after daemon restart');
+                    log.warn(filePath, 'library marker removed â€” .js files in this directory will load as scripts after daemon restart');
                 }
                 return;
             }
 
-            // Directory events — handle gracefully (no process.exit)
+            // Directory events â€” handle gracefully (no process.exit)
             if (event === 'addDir') return;
 
             if (event === 'unlinkDir') {
@@ -1189,7 +1189,7 @@ function loadDir(dir) {
 
             if (event === 'change' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
-                    log.warn(filePath, 'is a library file — scripts that require() it will see the old version until they or the daemon are restarted');
+                    log.warn(filePath, 'is a library file â€” scripts that require() it will see the old version until they or the daemon are restarted');
                     return;
                 }
                 log.info(filePath, 'change detected. hot-reloading.');
@@ -1197,7 +1197,7 @@ function loadDir(dir) {
                 loadScript(filePath);
             } else if (event === 'add' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
-                    log.debug(filePath, 'is a library file — not loading as script');
+                    log.debug(filePath, 'is a library file â€” not loading as script');
                     return;
                 }
                 log.info(filePath, 'added. loading.');
