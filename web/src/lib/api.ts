@@ -77,6 +77,7 @@ export interface TreeEntry {
     name: string;
     path: string;
     lib: boolean;
+    disabled?: boolean;
     size?: number;
     mtime?: number;
     children?: TreeEntry[];

@@ -1144,8 +1144,34 @@ function isLibFile(absFile, scriptRoot) {
 }
 
 /**
+ * Returns true if a .shedisable-<name> sibling marker exists for the given path.
+ * Works for both files and directories.
+ */
+function isDisabledPath(absPath) {
+    const dir = path.dirname(path.resolve(absPath));
+    const name = path.basename(absPath);
+    return fs.existsSync(path.join(dir, `.shedisable-${name}`));
+}
+
+/**
+ * Returns true if any ancestor directory of absFile (between it and scriptRoot)
+ * has a .shedisable-<dirname> sibling in its parent.
+ */
+function isInDisabledDir(absFile, scriptRoot) {
+    const root = path.resolve(scriptRoot);
+    let dir = path.dirname(path.resolve(absFile));
+    while (dir.length > root.length && dir.startsWith(root)) {
+        if (isDisabledPath(dir)) return true;
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+    }
+    return false;
+}
+
+/**
  * Recursively load all user .js scripts from a directory tree.
- * Files inside directories that contain a .shelib marker are skipped.
+ * Files/dirs with a .shedisable-<name> sibling, and files inside .shelib dirs, are skipped.
  */
 function loadDirRecursive(dir, scriptRoot) {
     let entries;
@@ -1158,10 +1184,11 @@ function loadDirRecursive(dir, scriptRoot) {
     entries
         .sort((a, b) => a.name.localeCompare(b.name))
         .forEach((entry) => {
+            if (entry.name.startsWith('.shedisable-')) return; // skip marker files
             const abs = path.join(dir, entry.name);
             if (entry.isDirectory()) {
-                loadDirRecursive(abs, scriptRoot);
-            } else if (entry.name.endsWith('.js') && !isLibFile(abs, scriptRoot)) {
+                if (!isDisabledPath(abs)) loadDirRecursive(abs, scriptRoot);
+            } else if (entry.name.endsWith('.js') && !isLibFile(abs, scriptRoot) && !isDisabledPath(abs)) {
                 loadScript(abs.replace(/\\/g, '/'));
             }
         });
@@ -1175,6 +1202,7 @@ function loadDir(dir) {
         const dirWatcher = chokidar.watch(dir, {
             ignored: (p, stats) => {
                 const name = path.basename(p);
+                if (name.startsWith('.shedisable-')) return false; // always watch disable markers
                 return stats?.isFile() && !name.endsWith('.js') && name !== '.shelib';
             },
             persistent: true,
@@ -1186,17 +1214,49 @@ function loadDir(dir) {
             filePath = filePath.replace(/\\/g, '/');
             const basename = path.basename(filePath);
 
-            // .shelib marker changes â€” warn only, manual restart required
-            if (basename === '.shelib') {
+            // .shedisable-<name> marker changes - hot-unload or hot-reload the target
+            if (basename.startsWith('.shedisable-')) {
+                const targetName = basename.slice('.shedisable-'.length);
+                const targetPath = path.join(path.dirname(filePath), targetName).replace(/\\/g, '/');
                 if (event === 'add') {
-                    log.warn(filePath, 'library marker added â€” .js files in this directory will no longer load as scripts after daemon restart');
+                    if (targetName.endsWith('.js')) {
+                        if (scripts[targetPath]) {
+                            log.info(targetPath, 'disabled. unloading.');
+                            unloadScript(targetPath);
+                        }
+                    } else {
+                        const absTarget = path.resolve(targetPath);
+                        Object.keys(scripts).forEach((scriptFile) => {
+                            if (path.resolve(scriptFile).startsWith(absTarget + path.sep)) {
+                                log.info(scriptFile, 'directory disabled. unloading.');
+                                unloadScript(scriptFile);
+                            }
+                        });
+                    }
                 } else if (event === 'unlink') {
-                    log.warn(filePath, 'library marker removed â€” .js files in this directory will load as scripts after daemon restart');
+                    if (targetName.endsWith('.js')) {
+                        if (fs.existsSync(targetPath) && !isLibFile(targetPath, dir) && !scripts[targetPath]) {
+                            log.info(targetPath, 're-enabled. loading.');
+                            loadScript(targetPath);
+                        }
+                    } else {
+                        if (fs.existsSync(targetPath)) loadDirRecursive(targetPath, path.resolve(dir));
+                    }
                 }
                 return;
             }
 
-            // Directory events â€” handle gracefully (no process.exit)
+            // .shelib marker changes - warn only, manual restart required
+            if (basename === '.shelib') {
+                if (event === 'add') {
+                    log.warn(filePath, 'library marker added - .js files in this directory will no longer load as scripts after daemon restart');
+                } else if (event === 'unlink') {
+                    log.warn(filePath, 'library marker removed - .js files in this directory will load as scripts after daemon restart');
+                }
+                return;
+            }
+
+            // Directory events - handle gracefully (no process.exit)
             if (event === 'addDir') return;
 
             if (event === 'unlinkDir') {
@@ -1213,7 +1273,11 @@ function loadDir(dir) {
 
             if (event === 'change' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
-                    log.warn(filePath, 'is a library file â€” scripts that require() it will see the old version until they or the daemon are restarted');
+                    log.warn(filePath, 'is a library file - scripts that require() it will see the old version until they or the daemon are restarted');
+                    return;
+                }
+                if (isDisabledPath(filePath) || isInDisabledDir(filePath, dir)) {
+                    log.debug(filePath, 'is disabled - ignoring change');
                     return;
                 }
                 log.info(filePath, 'change detected. hot-reloading.');
@@ -1221,7 +1285,11 @@ function loadDir(dir) {
                 loadScript(filePath);
             } else if (event === 'add' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
-                    log.debug(filePath, 'is a library file â€” not loading as script');
+                    log.debug(filePath, 'is a library file - not loading as script');
+                    return;
+                }
+                if (isDisabledPath(filePath) || isInDisabledDir(filePath, dir)) {
+                    log.debug(filePath, 'is disabled - not loading as script');
                     return;
                 }
                 log.info(filePath, 'added. loading.');
@@ -1235,7 +1303,6 @@ function loadDir(dir) {
         });
     }
 }
-
 function start() {
     if (config.file) {
         if (typeof config.file === 'string') {

@@ -28,6 +28,11 @@ function hasShelibMarker(absDir) {
     return fs.existsSync(path.join(absDir, '.shelib'));
 }
 
+/** True if a .shedisable-<name> sibling exists for the given file or directory. */
+function hasShedisableMarker(abs) {
+    return fs.existsSync(path.join(path.dirname(abs), `.shedisable-${path.basename(abs)}`));
+}
+
 /** Flat list of all files with metadata and lib flag. */
 function walk(dir, base, parentIsLib) {
     let entries;
@@ -40,11 +45,13 @@ function walk(dir, base, parentIsLib) {
     const results = [];
     for (const entry of entries) {
         if (entry.name === '.shelib') continue;
+        if (entry.name.startsWith('.shedisable-')) continue;
         const rel = base ? `${base}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
             results.push(...walk(path.join(dir, entry.name), rel, lib));
         } else {
-            const stat = fs.statSync(path.join(dir, entry.name));
+            const abs = path.join(dir, entry.name);
+            const stat = fs.statSync(abs);
             results.push({ path: rel, size: stat.size, mtime: stat.mtimeMs, lib });
         }
     }
@@ -67,15 +74,19 @@ function buildTree(dir, base, parentIsLib) {
     const result = [];
     for (const entry of entries) {
         if (entry.name === '.shelib') continue;
+        if (entry.name.startsWith('.shedisable-')) continue;
         const rel = base ? `${base}/${entry.name}` : entry.name;
         const abs = path.join(dir, entry.name);
         if (entry.isDirectory()) {
             const childIsLib = lib || hasShelibMarker(abs);
+            const disabled = hasShedisableMarker(abs);
             const children = buildTree(abs, rel, childIsLib);
-            result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, children });
+            result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, disabled, children });
         } else {
             const stat = fs.statSync(abs);
-            result.push({ type: 'file', name: entry.name, path: rel, lib, size: stat.size, mtime: stat.mtimeMs });
+            const isJs = entry.name.endsWith('.js');
+            const disabled = isJs ? hasShedisableMarker(abs) : false;
+            result.push({ type: 'file', name: entry.name, path: rel, lib, size: stat.size, mtime: stat.mtimeMs, ...(isJs ? { disabled } : {}) });
         }
     }
     result.sort((a, b) => {

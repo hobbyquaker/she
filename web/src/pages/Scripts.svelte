@@ -302,6 +302,17 @@ declare const she: {
         } catch (e: any) { error = e.message; }
     }
 
+    async function toggleDisabled(entryPath: string, makeDisabled: boolean) {
+        const name = entryPath.split('/').pop()!;
+        const dir  = entryPath.includes('/') ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '';
+        const marker = dir ? `${dir}/.shedisable-${name}` : `.shedisable-${name}`;
+        try {
+            if (makeDisabled) await writeScript(marker, '');
+            else await deleteScript(marker);
+            await loadTree();
+        } catch (e: any) { error = e.message; }
+    }
+
     async function openTabInternal(path: string, andSwitch = true) {
         if (tabs.some(t => t.path === path)) {
             if (andSwitch) await switchTab(path);
@@ -516,12 +527,12 @@ declare const she: {
         e.preventDefault();
         dragOver = null;
 
-        // OS file drop: create new scripts from dropped files
-        if (e.dataTransfer?.files?.length) {
-            for (const file of Array.from(e.dataTransfer.files)) {
-                const text = await file.text();
-                const target = `${dirPath}/${file.name}`;
-                await writeScript(target, text);
+        // OS file/folder drop (kind==='file' distinguishes from internal text/plain drags)
+        const fileItems = Array.from(e.dataTransfer?.items ?? []).filter(i => i.kind === 'file');
+        if (fileItems.length > 0 && !dragSrc) {
+            for (const item of fileItems) {
+                const entry = item.webkitGetAsEntry?.();
+                if (entry) await uploadEntry(entry, dirPath, true);
             }
             await loadTree();
             return;
@@ -549,6 +560,38 @@ declare const she: {
             }
             await loadTree();
         } catch (e: any) { error = e.message; }
+    }
+
+    /** Recursively upload a FileSystemEntry (file or directory) into targetDir. */
+    async function uploadEntry(entry: FileSystemEntry, targetDir: string, topLevel: boolean) {
+        if (entry.isFile) {
+            const file = await new Promise<File>((resolve, reject) =>
+                (entry as FileSystemFileEntry).file(resolve, reject));
+            const text = await file.text();
+            const dest = targetDir ? `${targetDir}/${entry.name}` : entry.name;
+            await writeScript(dest, text);
+            // Auto-disable top-level .js uploads for safety
+            if (topLevel && entry.name.endsWith('.js')) {
+                await toggleDisabled(dest, true);
+            }
+        } else if (entry.isDirectory) {
+            const reader = (entry as FileSystemDirectoryEntry).createReader();
+            let all: FileSystemEntry[] = [];
+            let batch: FileSystemEntry[];
+            do {
+                batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+                    reader.readEntries(resolve, reject));
+                all = [...all, ...batch];
+            } while (batch.length > 0);
+            for (const child of all) {
+                await uploadEntry(child, targetDir ? `${targetDir}/${entry.name}` : entry.name, false);
+            }
+            // Auto-disable top-level dropped folders for safety
+            if (topLevel) {
+                const dest = targetDir ? `${targetDir}/${entry.name}` : entry.name;
+                await toggleDisabled(dest, true);
+            }
+        }
     }
 
     async function saveAs() {
@@ -824,6 +867,11 @@ declare const she: {
                             <span class="lib-checkmark"></span>
                             <span class="lib-tip" onmouseenter={showLibTip} onmouseleave={hideLibTip}>lib</span>
                         </label>
+                        <label class="dis-label" title="Disable — scripts in this folder will not be executed">
+                            <input type="checkbox" checked={entry.disabled} onchange={() => toggleDisabled(entry.path, !entry.disabled)} />
+                            <span class="dis-checkmark"></span>
+                            <span>dis</span>
+                        </label>
                     </div>
                     {#if expandedDirs[entry.path] && entry.children}
                         <ul class="tree-children">
@@ -837,6 +885,7 @@ declare const she: {
                 {@const basename = entry.name}
                 {@const hasErr = scriptErrors.has(basename)}
                 {@const ext = (entry.name.split('.').pop() ?? 'txt').toUpperCase()}
+                {@const isJs = entry.name.endsWith('.js')}
                 <li
                     class="tree-file"
                     class:active={tabs.some(t => t.path === entry.path)}
@@ -845,12 +894,23 @@ declare const she: {
                     ondragstart={(e) => onDragStart(e, entry.path)}
                     oncontextmenu={(e) => openCtxMenu(e, entry)}
                 >
-                    <button class:lib={entry.lib} onclick={() => openTab(entry.path)}>
-                        <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
-                        <span class="fname">{entry.name}</span>
-                        {#if tabs.find(t => t.path === entry.path)?.dirty}<span class="dirty-dot">●</span>{/if}
-                        {#if hasErr}<span class="err-dot">●</span>{/if}
-                    </button>
+                    <div class="file-row">
+                        <button class:lib={entry.lib} class:dis={entry.disabled} onclick={() => openTab(entry.path)}>
+                            <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
+                            <span class="fname">{entry.name}</span>
+                            {#if tabs.find(t => t.path === entry.path)?.dirty}<span class="dirty-dot">●</span>{/if}
+                            {#if hasErr}<span class="err-dot">●</span>{/if}
+                        </button>
+                        {#if isJs}
+                            <label class="dis-label" title="Disable — this script will not be executed">
+                                <input type="checkbox" checked={entry.disabled} onchange={() => toggleDisabled(entry.path, !entry.disabled)} />
+                                <span class="dis-checkmark"></span>
+                                <span>dis</span>
+                            </label>
+                        {:else}
+                            <span class="dis-spacer"></span>
+                        {/if}
+                    </div>
                 </li>
             {/if}
         {/snippet}
@@ -1107,6 +1167,27 @@ declare const she: {
         width: 200px; line-height: 1.4; z-index: 200; white-space: normal; pointer-events: none;
     }
 
+    .dis-label {
+        display: flex; align-items: center; gap: 3px; color: var(--fg-muted);
+        font-size: 10px; cursor: pointer; flex-shrink: 0; user-select: none; padding-right: 4px;
+    }
+    .dis-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .dis-checkmark {
+        flex-shrink: 0; width: 10px; height: 10px;
+        border: 1.5px solid var(--border); border-radius: 2px;
+        background: var(--bg-input); position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .dis-label input:checked + .dis-checkmark { background: var(--fg-warn); border-color: var(--fg-warn); }
+    .dis-label input:checked + .dis-checkmark::after {
+        content: ''; position: absolute;
+        left: 2px; top: 0; width: 3px; height: 6px;
+        border: 1.5px solid #fff; border-top: none; border-left: none;
+        transform: rotate(45deg);
+    }
+    .dis-label:hover .dis-checkmark { border-color: var(--fg-warn); }
+    .dis-spacer { width: 34px; flex-shrink: 0; }
+
     .tree-file button {
         display: flex; align-items: center; gap: 5px; width: 100%; text-align: left;
         background: none; border: none; color: var(--fg);
@@ -1114,9 +1195,11 @@ declare const she: {
         cursor: pointer; font-size: 12px;
     }
     .tree-file button.lib .fname { color: var(--fg-muted); font-style: italic; }
+    .tree-file button.dis .fname { color: var(--fg-dim); }
     .tree-file button:hover { background: var(--bg-hover); }
     .tree-file.active-tab button { background: var(--bg-active); color: var(--fg-text); }
     .tree-file.active:not(.active-tab) button { background: var(--bg-hover); }
+    .file-row { display: flex; align-items: center; }
 
     .badge {
         display: inline-flex; align-items: center; justify-content: center;
