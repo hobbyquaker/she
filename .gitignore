@@ -6,3 +6,5 @@ coverage
 .cache
 dist/web
 web/node_modules
+!test/testscripts/node_modules/
+!test/testscripts/node_modules/**
