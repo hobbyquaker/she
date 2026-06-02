@@ -319,6 +319,8 @@
     let wizardError: string | null = $state(null);
     let wizardDiscoveryAddress = $state('');
 
+    const LS_MATTER_NODE = 'she:matter:selectedNodeId';
+
     async function loadDevices() {
         try {
             devices = await listMatterDevices();
@@ -327,6 +329,12 @@
                 getMatterDevice(d.nodeId)
                     .then((detail) => { nodeDetails.set(d.nodeId, detail); })
                     .catch(() => { /* offline or controller not running — skip */ });
+            }
+            // Restore persisted selection, or default to first device.
+            if (devices.length > 0 && !selected) {
+                const saved = localStorage.getItem(LS_MATTER_NODE);
+                const target = (saved && devices.find((d) => d.nodeId === saved)) ? saved : devices[0].nodeId;
+                selectDevice(target);
             }
         } catch {
             /* matter controller may not be running */
@@ -340,6 +348,7 @@
         try {
             selected = await getMatterDevice(nodeId);
             nodeDetails.set(nodeId, selected); // keep cache up-to-date
+            localStorage.setItem(LS_MATTER_NODE, nodeId);
         } catch (e: unknown) {
             error = e instanceof Error ? e.message : String(e);
         } finally {
