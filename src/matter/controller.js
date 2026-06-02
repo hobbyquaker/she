@@ -162,7 +162,9 @@ function _getDeviceName(node) {
             if (bi?.nodeLabel) return bi.nodeLabel;
             if (bi?.productName) return bi.productName;
         }
-    } catch { /* node may be offline */ }
+    } catch {
+        /* node may be offline */
+    }
     return null;
 }
 
@@ -182,7 +184,9 @@ function _getEndpointName(endpoint) {
         const bi = state.basicInformation;
         if (bi?.nodeLabel) return bi.nodeLabel;
         if (bi?.productName) return bi.productName;
-    } catch { /* best-effort */ }
+    } catch {
+        /* best-effort */
+    }
     return null;
 }
 
@@ -202,7 +206,9 @@ function _getDeviceSubtitle(node) {
             if (bi?.productName && bi.productName !== _getDeviceName(node)) parts.push(bi.productName);
             return parts.length ? parts.join(' · ') : null;
         }
-    } catch { /* offline */ }
+    } catch {
+        /* offline */
+    }
     return null;
 }
 
@@ -352,19 +358,16 @@ async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
     // Use the target endpoint's own act() instead of navigating via agent.parts,
     // because Parts in @matter/node is a set-like iterable, not a Map (.get doesn't exist).
     const endpoint = _resolveEndpoint(node, endpointId);
-    return endpoint.act(
-        `she.matter.send(${nodeId}, ${endpointId}, ${clusterName}.${commandName})`,
-        async (agent) => {
-            const clusterAgent = agent[_clusterName(clusterName)];
-            if (!clusterAgent) throw new Error(`Cluster "${clusterName}" not found on endpoint ${endpointId}`);
-            const cmd = clusterAgent[commandName];
-            if (typeof cmd !== 'function') throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
-            // Only pass args when the caller actually provided non-empty args.
-            // Void commands (e.g. onOff.off) fail TLV validation if passed an empty object.
-            const hasArgs = args !== undefined && args !== null && Object.keys(args).length > 0;
-            return hasArgs ? cmd.call(clusterAgent, args) : cmd.call(clusterAgent);
-        }
-    );
+    return endpoint.act(`she.matter.send(${nodeId}, ${endpointId}, ${clusterName}.${commandName})`, async (agent) => {
+        const clusterAgent = agent[_clusterName(clusterName)];
+        if (!clusterAgent) throw new Error(`Cluster "${clusterName}" not found on endpoint ${endpointId}`);
+        const cmd = clusterAgent[commandName];
+        if (typeof cmd !== 'function') throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
+        // Only pass args when the caller actually provided non-empty args.
+        // Void commands (e.g. onOff.off) fail TLV validation if passed an empty object.
+        const hasArgs = args !== undefined && args !== null && Object.keys(args).length > 0;
+        return hasArgs ? cmd.call(clusterAgent, args) : cmd.call(clusterAgent);
+    });
 }
 
 // ── Node lifecycle events (online / offline) ────────────────────────────────

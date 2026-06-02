@@ -60,7 +60,9 @@ app.post('/she/restart', (req, res) => {
 
 // Runtime stats — script count + MQTT topic count
 let _getStats = null;
-function setStatsProvider(fn) { _getStats = fn; }
+function setStatsProvider(fn) {
+    _getStats = fn;
+}
 app.get('/she/status', (req, res) => {
     res.json(_getStats ? _getStats() : { scripts: 0, topics: 0 });
 });

@@ -312,9 +312,7 @@ export function getMatterDevice(nodeId: string): Promise<MatterNodeDetail> {
     return request('GET', `/she/matter/devices/${nodeId}`);
 }
 
-export function commissionMatter(
-    opts: ({ passcode: number; discriminator?: number } | { pairingCode: string }) & { discoveryAddress?: string },
-): Promise<{ nodeId: string }> {
+export function commissionMatter(opts: ({ passcode: number; discriminator?: number } | { pairingCode: string }) & { discoveryAddress?: string }): Promise<{ nodeId: string }> {
     return request('POST', '/she/matter/commission', opts);
 }
 
@@ -461,12 +459,7 @@ export function getAiPrompt(body: {
  * onToken is called for each text token; the returned promise resolves when done.
  * Pass an AbortSignal to support cancellation.
  */
-export async function streamChatWithAI(
-    body: AiChatRequest,
-    onToken: (token: string) => void,
-    signal?: AbortSignal,
-    onEvent?: (event: AiToolEvent) => void,
-): Promise<void> {
+export async function streamChatWithAI(body: AiChatRequest, onToken: (token: string) => void, signal?: AbortSignal, onEvent?: (event: AiToolEvent) => void): Promise<void> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
 
     const res = await fetch('/she/ai/chat/stream', {

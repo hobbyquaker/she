@@ -66,8 +66,8 @@ router.get('/devices/:nodeId', (req, res) => {
         const ctrl = getController();
         const endpoints = ctrl.getEndpoints(req.params.nodeId);
         // Derive device-level name and subtitle from the root endpoint (0)
-        const rootEp = endpoints.find(ep => ep.endpointId === 0);
-        const name = rootEp?.name ?? endpoints.find(ep => ep.name)?.name ?? null;
+        const rootEp = endpoints.find((ep) => ep.endpointId === 0);
+        const name = rootEp?.name ?? endpoints.find((ep) => ep.name)?.name ?? null;
         const subtitle = ctrl.getDeviceSubtitle(req.params.nodeId);
         res.json({ nodeId: req.params.nodeId, endpoints, name, subtitle });
     } catch (err) {

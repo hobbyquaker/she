@@ -40,7 +40,7 @@ function init({ dbPath, dbPublish, dbRetain, dbPrefix, mqttName, mqtt, log, broa
     _mqttName = mqttName;
     _dbPublish = dbPublish;
     _dbRetain = dbRetain;
-    _dbPrefix = (dbPrefix && dbPrefix.endsWith('/')) ? dbPrefix : (dbPrefix || 'she/db/') + '/';
+    _dbPrefix = dbPrefix && dbPrefix.endsWith('/') ? dbPrefix : (dbPrefix || 'she/db/') + '/';
     _broadcast = broadcast;
 
     _core = new SheDBCore({ dbPath, log });
@@ -78,11 +78,7 @@ function init({ dbPath, dbPublish, dbRetain, dbPrefix, mqttName, mqtt, log, broa
         // Per-view MQTT publish (independent of global dbPublish setting)
         const query = _core.queries[id];
         if (query && query.mqttpub && _mqtt && view && !view.error) {
-            _mqtt.publish(
-                _dbPrefix + 'view/' + id,
-                JSON.stringify(view.result ?? []),
-                { retain: query.retain === true }
-            );
+            _mqtt.publish(_dbPrefix + 'view/' + id, JSON.stringify(view.result ?? []), { retain: query.retain === true });
         }
     });
 

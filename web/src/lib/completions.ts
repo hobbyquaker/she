@@ -11,51 +11,88 @@
  */
 
 import * as monaco from 'monaco-editor';
-import {
-    fetchMqttState,
-    listDocs,
-    listViews,
-    listMatterDevices,
-    getMatterDevice,
-    type MatterNodeDetail,
-    type MatterCluster,
-} from './api.js';
+import { fetchMqttState, listDocs, listViews, listMatterDevices, getMatterDevice, type MatterNodeDetail, type MatterCluster } from './api.js';
 
 // ── Matter cluster schema ─────────────────────────────────────────────────────
 // Attributes and commands for the most common Matter clusters (standard-defined).
 const CLUSTER_ATTRS: Record<string, string[]> = {
-    OnOff:                      ['onOff', 'globalSceneControl', 'onTime', 'offWaitTime'],
-    LevelControl:               ['currentLevel', 'remainingTime', 'minLevel', 'maxLevel', 'currentFrequency', 'onOffTransitionTime', 'onLevel'],
-    ColorControl:               ['currentHue', 'currentSaturation', 'remainingTime', 'currentX', 'currentY', 'colorTemperatureMireds', 'colorMode', 'colorTempPhysicalMinMireds', 'colorTempPhysicalMaxMireds'],
-    BasicInformation:           ['vendorName', 'vendorId', 'productName', 'productId', 'nodeLabel', 'location', 'softwareVersion', 'softwareVersionString', 'serialNumber'],
-    Identify:                   ['identifyTime', 'identifyType'],
-    Groups:                     ['nameSupport'],
-    OccupancySensing:           ['occupancy', 'occupancySensorType'],
-    IlluminanceMeasurement:     ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue', 'tolerance', 'lightSensorType'],
-    TemperatureMeasurement:     ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue', 'tolerance'],
-    RelativeHumidityMeasurement:['measuredValue', 'minMeasuredValue', 'maxMeasuredValue', 'tolerance'],
-    PressureMeasurement:        ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue'],
-    Thermostat:                 ['localTemperature', 'outdoorTemperature', 'occupiedCoolingSetpoint', 'occupiedHeatingSetpoint', 'unoccupiedCoolingSetpoint', 'unoccupiedHeatingSetpoint', 'minHeatSetpointLimit', 'maxHeatSetpointLimit', 'systemMode', 'thermostatRunningMode', 'occupancy'],
-    DoorLock:                   ['lockState', 'lockType', 'actuatorEnabled', 'doorState'],
-    WindowCovering:             ['type', 'currentPositionLiftPercent100ths', 'currentPositionTiltPercent100ths', 'operationalStatus', 'targetPositionLiftPercent100ths', 'targetPositionTiltPercent100ths', 'endProductType', 'mode'],
-    FanControl:                 ['fanMode', 'fanModeSequence', 'percentSetting', 'percentCurrent', 'speedMax', 'speedSetting', 'speedCurrent'],
-    Descriptor:                 ['deviceTypeList', 'serverList', 'clientList', 'partsList'],
-    PowerSource:                ['status', 'order', 'description', 'wiredCurrentType', 'wiredMaximumCurrent', 'batteryVoltage', 'batteryPercentRemaining', 'batChargeLevel'],
-    Switch:                     ['numberOfPositions', 'currentPosition', 'multiPressMax'],
-    BooleanState:               ['stateValue'],
-    FlowMeasurement:            ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue'],
+    OnOff: ['onOff', 'globalSceneControl', 'onTime', 'offWaitTime'],
+    LevelControl: ['currentLevel', 'remainingTime', 'minLevel', 'maxLevel', 'currentFrequency', 'onOffTransitionTime', 'onLevel'],
+    ColorControl: [
+        'currentHue',
+        'currentSaturation',
+        'remainingTime',
+        'currentX',
+        'currentY',
+        'colorTemperatureMireds',
+        'colorMode',
+        'colorTempPhysicalMinMireds',
+        'colorTempPhysicalMaxMireds',
+    ],
+    BasicInformation: ['vendorName', 'vendorId', 'productName', 'productId', 'nodeLabel', 'location', 'softwareVersion', 'softwareVersionString', 'serialNumber'],
+    Identify: ['identifyTime', 'identifyType'],
+    Groups: ['nameSupport'],
+    OccupancySensing: ['occupancy', 'occupancySensorType'],
+    IlluminanceMeasurement: ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue', 'tolerance', 'lightSensorType'],
+    TemperatureMeasurement: ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue', 'tolerance'],
+    RelativeHumidityMeasurement: ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue', 'tolerance'],
+    PressureMeasurement: ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue'],
+    Thermostat: [
+        'localTemperature',
+        'outdoorTemperature',
+        'occupiedCoolingSetpoint',
+        'occupiedHeatingSetpoint',
+        'unoccupiedCoolingSetpoint',
+        'unoccupiedHeatingSetpoint',
+        'minHeatSetpointLimit',
+        'maxHeatSetpointLimit',
+        'systemMode',
+        'thermostatRunningMode',
+        'occupancy',
+    ],
+    DoorLock: ['lockState', 'lockType', 'actuatorEnabled', 'doorState'],
+    WindowCovering: [
+        'type',
+        'currentPositionLiftPercent100ths',
+        'currentPositionTiltPercent100ths',
+        'operationalStatus',
+        'targetPositionLiftPercent100ths',
+        'targetPositionTiltPercent100ths',
+        'endProductType',
+        'mode',
+    ],
+    FanControl: ['fanMode', 'fanModeSequence', 'percentSetting', 'percentCurrent', 'speedMax', 'speedSetting', 'speedCurrent'],
+    Descriptor: ['deviceTypeList', 'serverList', 'clientList', 'partsList'],
+    PowerSource: ['status', 'order', 'description', 'wiredCurrentType', 'wiredMaximumCurrent', 'batteryVoltage', 'batteryPercentRemaining', 'batChargeLevel'],
+    Switch: ['numberOfPositions', 'currentPosition', 'multiPressMax'],
+    BooleanState: ['stateValue'],
+    FlowMeasurement: ['measuredValue', 'minMeasuredValue', 'maxMeasuredValue'],
 };
 
 const CLUSTER_CMDS: Record<string, string[]> = {
-    OnOff:          ['on', 'off', 'toggle'],
-    LevelControl:   ['moveToLevel', 'move', 'step', 'stop', 'moveToLevelWithOnOff', 'moveWithOnOff', 'stepWithOnOff', 'stopWithOnOff'],
-    ColorControl:   ['moveToHue', 'moveHue', 'stepHue', 'moveToSaturation', 'moveSaturation', 'stepSaturation', 'moveToHueAndSaturation', 'moveToColor', 'moveColor', 'stepColor', 'moveToColorTemperature', 'moveColorTemperature', 'stepColorTemperature'],
-    Identify:       ['identify', 'triggerEffect'],
-    Groups:         ['addGroup', 'viewGroup', 'getGroupMembership', 'removeGroup', 'removeAllGroups', 'addGroupIfIdentifying'],
-    Thermostat:     ['setpointRaiseLower', 'setWeeklySchedule', 'getWeeklySchedule', 'clearWeeklySchedule'],
-    DoorLock:       ['lockDoor', 'unlockDoor', 'unlockWithTimeout'],
+    OnOff: ['on', 'off', 'toggle'],
+    LevelControl: ['moveToLevel', 'move', 'step', 'stop', 'moveToLevelWithOnOff', 'moveWithOnOff', 'stepWithOnOff', 'stopWithOnOff'],
+    ColorControl: [
+        'moveToHue',
+        'moveHue',
+        'stepHue',
+        'moveToSaturation',
+        'moveSaturation',
+        'stepSaturation',
+        'moveToHueAndSaturation',
+        'moveToColor',
+        'moveColor',
+        'stepColor',
+        'moveToColorTemperature',
+        'moveColorTemperature',
+        'stepColorTemperature',
+    ],
+    Identify: ['identify', 'triggerEffect'],
+    Groups: ['addGroup', 'viewGroup', 'getGroupMembership', 'removeGroup', 'removeAllGroups', 'addGroupIfIdentifying'],
+    Thermostat: ['setpointRaiseLower', 'setWeeklySchedule', 'getWeeklySchedule', 'clearWeeklySchedule'],
+    DoorLock: ['lockDoor', 'unlockDoor', 'unlockWithTimeout'],
     WindowCovering: ['upOrOpen', 'downOrClose', 'stopMotion', 'goToLiftValue', 'goToLiftPercentage', 'goToTiltValue', 'goToTiltPercentage'],
-    FanControl:     [],
+    FanControl: [],
 };
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
@@ -73,8 +110,10 @@ const matterNameToId = new Map<string, string>();
 async function refreshMqtt() {
     try {
         const data = await fetchMqttState();
-        mqttTopics = data.map(e => e.topic);
-    } catch { /* ignore */ }
+        mqttTopics = data.map((e) => e.topic);
+    } catch {
+        /* ignore */
+    }
 }
 
 async function refreshDb() {
@@ -82,13 +121,15 @@ async function refreshDb() {
         const [docs, views] = await Promise.all([listDocs(), listViews()]);
         dbDocIds = docs;
         dbViewIds = views;
-    } catch { /* ignore */ }
+    } catch {
+        /* ignore */
+    }
 }
 
 async function refreshMatter() {
     try {
         const devices = await listMatterDevices();
-        matterNodeIds = devices.map(d => d.nodeId);
+        matterNodeIds = devices.map((d) => d.nodeId);
         matterNodeNames.clear();
         matterNameToId.clear();
         for (const d of devices) {
@@ -103,11 +144,15 @@ async function refreshMatter() {
                 if (!matterCache.has(d.nodeId)) {
                     try {
                         matterCache.set(d.nodeId, await getMatterDevice(d.nodeId));
-                    } catch { /* ignore */ }
+                    } catch {
+                        /* ignore */
+                    }
                 }
             }),
         );
-    } catch { /* ignore */ }
+    } catch {
+        /* ignore */
+    }
 }
 
 // ── Context detection ─────────────────────────────────────────────────────────
@@ -128,8 +173,7 @@ function detectContext(lineUpToCursor: string): CompletionCtx {
     // ── MQTT ──────────────────────────────────────────────────────────────────
     // she.mqtt.(sub|pub|get|set|link|age|getProp|set)( '...'
     // Also top-level helpers: she.link, she.age, she.getValue, she.setValue
-    const mqttRe =
-        /(?:she\.mqtt\.(?:sub|pub|get|set|link|age|getProp)|she\.(?:link|age|getValue|setValue|getProp|combineBool|combineMax|timer))\s*\([^)]*?['"]([^'"]*)\s*$/;
+    const mqttRe = /(?:she\.mqtt\.(?:sub|pub|get|set|link|age|getProp)|she\.(?:link|age|getValue|setValue|getProp|combineBool|combineMax|timer))\s*\([^)]*?['"]([^'"]*)\s*$/;
     const mqttM = lineUpToCursor.match(mqttRe);
     if (mqttM) return { type: 'mqtt', prefix: mqttM[1] };
 
@@ -194,10 +238,23 @@ function countArgs(argsText: string): number {
     let inStr = false;
     let strChar = '';
     for (const ch of argsText) {
-        if (inStr) { if (ch === strChar) inStr = false; continue; }
-        if (ch === '"' || ch === "'") { inStr = true; strChar = ch; continue; }
-        if (ch === '(' || ch === '[' || ch === '{') { depth++; continue; }
-        if (ch === ')' || ch === ']' || ch === '}') { depth--; continue; }
+        if (inStr) {
+            if (ch === strChar) inStr = false;
+            continue;
+        }
+        if (ch === '"' || ch === "'") {
+            inStr = true;
+            strChar = ch;
+            continue;
+        }
+        if (ch === '(' || ch === '[' || ch === '{') {
+            depth++;
+            continue;
+        }
+        if (ch === ')' || ch === ']' || ch === '}') {
+            depth--;
+            continue;
+        }
         if (ch === ',' && depth === 0) commas++;
     }
     return commas;
@@ -236,11 +293,32 @@ function splitArgs(argsText: string): string[] {
     let inStr = false;
     let strChar = '';
     for (const ch of argsText) {
-        if (inStr) { if (ch === strChar) inStr = false; current += ch; continue; }
-        if (ch === '"' || ch === "'") { inStr = true; strChar = ch; current += ch; continue; }
-        if (ch === '(' || ch === '[' || ch === '{') { depth++; current += ch; continue; }
-        if (ch === ')' || ch === ']' || ch === '}') { depth--; current += ch; continue; }
-        if (ch === ',' && depth === 0) { result.push(current); current = ''; continue; }
+        if (inStr) {
+            if (ch === strChar) inStr = false;
+            current += ch;
+            continue;
+        }
+        if (ch === '"' || ch === "'") {
+            inStr = true;
+            strChar = ch;
+            current += ch;
+            continue;
+        }
+        if (ch === '(' || ch === '[' || ch === '{') {
+            depth++;
+            current += ch;
+            continue;
+        }
+        if (ch === ')' || ch === ']' || ch === '}') {
+            depth--;
+            current += ch;
+            continue;
+        }
+        if (ch === ',' && depth === 0) {
+            result.push(current);
+            current = '';
+            continue;
+        }
         current += ch;
     }
     result.push(current);
@@ -250,13 +328,8 @@ function splitArgs(argsText: string): string[] {
 // ── Completion item builders ──────────────────────────────────────────────────
 const CK = monaco.languages.CompletionItemKind;
 
-function topicItems(
-    range: monaco.IRange,
-    prefix: string,
-): monaco.languages.CompletionItem[] {
-    const filtered = prefix
-        ? mqttTopics.filter(t => t.startsWith(prefix))
-        : mqttTopics;
+function topicItems(range: monaco.IRange, prefix: string): monaco.languages.CompletionItem[] {
+    const filtered = prefix ? mqttTopics.filter((t) => t.startsWith(prefix)) : mqttTopics;
     return filtered.map((t) => ({
         label: t,
         kind: CK.Value,
@@ -267,13 +340,9 @@ function topicItems(
     }));
 }
 
-function dbItems(
-    range: monaco.IRange,
-    prefix: string,
-    includeViews: boolean,
-): monaco.languages.CompletionItem[] {
+function dbItems(range: monaco.IRange, prefix: string, includeViews: boolean): monaco.languages.CompletionItem[] {
     const ids = includeViews ? [...dbDocIds, ...dbViewIds] : dbDocIds;
-    const filtered = prefix ? ids.filter(id => id.startsWith(prefix)) : ids;
+    const filtered = prefix ? ids.filter((id) => id.startsWith(prefix)) : ids;
     return filtered.map((id) => ({
         label: id,
         kind: CK.Value,
@@ -285,18 +354,20 @@ function dbItems(
 }
 
 function nodeIdItems(range: monaco.IRange, prefix: string): monaco.languages.CompletionItem[] {
-    return matterNodeIds.map(id => {
-        const name = matterNodeNames.get(id) ?? id;
-        if (prefix && !name.startsWith(prefix) && !id.startsWith(prefix)) return null;
-        return {
-            label: name,
-            kind: CK.Value,
-            insertText: name,
-            range,
-            detail: name !== id ? `Node ID: ${id}` : 'Matter node',
-            sortText: '0' + name,
-        };
-    }).filter(Boolean) as monaco.languages.CompletionItem[];
+    return matterNodeIds
+        .map((id) => {
+            const name = matterNodeNames.get(id) ?? id;
+            if (prefix && !name.startsWith(prefix) && !id.startsWith(prefix)) return null;
+            return {
+                label: name,
+                kind: CK.Value,
+                insertText: name,
+                range,
+                detail: name !== id ? `Node ID: ${id}` : 'Matter node',
+                sortText: '0' + name,
+            };
+        })
+        .filter(Boolean) as monaco.languages.CompletionItem[];
 }
 
 /** Resolve a nodeId string-or-name to the canonical nodeId key in matterCache. */
@@ -306,16 +377,16 @@ function resolveNodeId(nodeIdOrName: string): string {
 
 /** Find an endpoint by numeric id or by name. */
 function resolveEndpoint(detail: MatterNodeDetail, endpointId: number | string) {
-    if (typeof endpointId === 'number') return detail.endpoints.find(e => e.endpointId === endpointId);
+    if (typeof endpointId === 'number') return detail.endpoints.find((e) => e.endpointId === endpointId);
     const asNum = parseInt(endpointId, 10);
-    if (!isNaN(asNum)) return detail.endpoints.find(e => e.endpointId === asNum);
-    return detail.endpoints.find(e => e.name === endpointId);
+    if (!isNaN(asNum)) return detail.endpoints.find((e) => e.endpointId === asNum);
+    return detail.endpoints.find((e) => e.name === endpointId);
 }
 
 function endpointIdItems(range: monaco.IRange, nodeId: string): monaco.languages.CompletionItem[] {
     const detail = matterCache.get(resolveNodeId(nodeId));
     if (!detail) return [];
-    return detail.endpoints.map(ep => {
+    return detail.endpoints.map((ep) => {
         const label = ep.name ?? String(ep.endpointId);
         const clusterNames = ep.clusters.map((c: MatterCluster) => c.name).join(', ');
         return {
@@ -323,19 +394,13 @@ function endpointIdItems(range: monaco.IRange, nodeId: string): monaco.languages
             kind: CK.Value,
             insertText: label,
             range,
-            detail: ep.name
-                ? `Endpoint ${ep.endpointId} — ${clusterNames}`
-                : `Clusters: ${clusterNames}`,
+            detail: ep.name ? `Endpoint ${ep.endpointId} — ${clusterNames}` : `Clusters: ${clusterNames}`,
             sortText: '0' + String(ep.endpointId).padStart(4, '0'),
         };
     });
 }
 
-function clusterItems(
-    range: monaco.IRange,
-    nodeId: string,
-    endpointId: number | string,
-): monaco.languages.CompletionItem[] {
+function clusterItems(range: monaco.IRange, nodeId: string, endpointId: number | string): monaco.languages.CompletionItem[] {
     const detail = matterCache.get(resolveNodeId(nodeId));
     if (!detail) return [];
     const ep = resolveEndpoint(detail, endpointId);
@@ -350,13 +415,9 @@ function clusterItems(
     }));
 }
 
-function attrItems(
-    range: monaco.IRange,
-    cluster: string,
-    isSend: boolean,
-): monaco.languages.CompletionItem[] {
+function attrItems(range: monaco.IRange, cluster: string, isSend: boolean): monaco.languages.CompletionItem[] {
     const names = isSend ? (CLUSTER_CMDS[cluster] ?? []) : (CLUSTER_ATTRS[cluster] ?? []);
-    return names.map(n => ({
+    return names.map((n) => ({
         label: n,
         kind: isSend ? CK.Function : CK.Property,
         insertText: n,
@@ -384,10 +445,7 @@ export function registerCompletionProviders(): void {
     monaco.languages.registerCompletionItemProvider('javascript', {
         triggerCharacters: ["'", '"', '(', ',', ' '],
 
-        provideCompletionItems(
-            model: monaco.editor.ITextModel,
-            position: monaco.Position,
-        ): monaco.languages.CompletionList | null {
+        provideCompletionItems(model: monaco.editor.ITextModel, position: monaco.Position): monaco.languages.CompletionList | null {
             const lineUpToCursor = model.getValueInRange({
                 startLineNumber: position.lineNumber,
                 startColumn: 1,

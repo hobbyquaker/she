@@ -121,7 +121,7 @@ router.use('/views', (req, res) => {
             map,
             reduce: reduce || undefined,
             ...(mqttpub ? { mqttpub: true } : {}),
-            ...(retain   ? { retain:   true } : {}),
+            ...(retain ? { retain: true } : {}),
         };
         core.query(id, payload);
         return res.json({ ok: true });

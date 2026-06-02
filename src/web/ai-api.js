@@ -174,7 +174,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
     const isAnthropic = ai.provider === 'anthropic';
     const tools = isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS;
     let msgs = messages;
-    let toolsUsed = false;  // once the model has used tools, stop offering them
+    let toolsUsed = false; // once the model has used tools, stop offering them
 
     for (let round = 0; round < 6; round++) {
         // After the first round of tool calls, don't offer tools again.
@@ -185,15 +185,11 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
 
         let result;
         try {
-            result = isAnthropic
-                ? await callAnthropic(ai, msgs, roundTools)
-                : await callOpenAICompat(ai, msgs, roundTools);
+            result = isAnthropic ? await callAnthropic(ai, msgs, roundTools) : await callOpenAICompat(ai, msgs, roundTools);
         } catch (e) {
             if (round === 0 && roundTools) {
                 // Model may not support tool calling — retry without tools
-                result = isAnthropic
-                    ? await callAnthropic(ai, msgs)
-                    : await callOpenAICompat(ai, msgs);
+                result = isAnthropic ? await callAnthropic(ai, msgs) : await callOpenAICompat(ai, msgs);
             } else {
                 throw e;
             }
@@ -203,13 +199,8 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
         if (!result.toolCalls?.length) {
             // If the model returned empty content after using tools, nudge it once
             if (!result.message && toolsUsed) {
-                const nudgeMsgs = [
-                    ...msgs,
-                    { role: 'user', content: 'Based on the information retrieved above, please now provide your complete response.' },
-                ];
-                const nudged = isAnthropic
-                    ? await callAnthropic(ai, nudgeMsgs)
-                    : await callOpenAICompat(ai, nudgeMsgs);
+                const nudgeMsgs = [...msgs, { role: 'user', content: 'Based on the information retrieved above, please now provide your complete response.' }];
+                const nudged = isAnthropic ? await callAnthropic(ai, nudgeMsgs) : await callOpenAICompat(ai, nudgeMsgs);
                 return { message: nudged.message ?? '', usage: nudged.usage };
             }
             return { message: result.message ?? '', usage: result.usage };
@@ -219,9 +210,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
         toolsUsed = true;
         if (isAnthropic) {
             // Strip text blocks when tool_use blocks are present (same draft-reproduction issue)
-            const anthropicAssistantContent = result.assistantMsg.some((b) => b.type === 'tool_use')
-                ? result.assistantMsg.filter((b) => b.type !== 'text')
-                : result.assistantMsg;
+            const anthropicAssistantContent = result.assistantMsg.some((b) => b.type === 'tool_use') ? result.assistantMsg.filter((b) => b.type !== 'text') : result.assistantMsg;
             msgs = [...msgs, { role: 'assistant', content: anthropicAssistantContent }];
             const toolResultBlocks = [];
             for (const tc of result.toolCalls) {
@@ -241,7 +230,11 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
             for (const tc of result.toolCalls) {
                 const name = tc.function.name;
                 let args;
-                try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
+                try {
+                    args = JSON.parse(tc.function.arguments || '{}');
+                } catch {
+                    args = {};
+                }
                 onEvent?.({ type: 'tool_call', name, args });
                 const content = await executeTool(name, args, toolContext);
                 onEvent?.({ type: 'tool_result', name, content });
@@ -251,9 +244,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
     }
 
     // Fallback (should not normally be reached)
-    const fallback = isAnthropic
-        ? await callAnthropic(ai, msgs)
-        : await callOpenAICompat(ai, msgs);
+    const fallback = isAnthropic ? await callAnthropic(ai, msgs) : await callOpenAICompat(ai, msgs);
     return { message: fallback.message ?? '', usage: fallback.usage };
 }
 
@@ -382,7 +373,10 @@ router.get('/models', async (req, res) => {
             const r = await fetch(`${base}/api/tags`);
             if (!r.ok) throw new Error(`Ollama /api/tags returned ${r.status}`);
             const json = await r.json();
-            const models = (json.models || []).map((m) => m.name || m.model).filter(Boolean).sort();
+            const models = (json.models || [])
+                .map((m) => m.name || m.model)
+                .filter(Boolean)
+                .sort();
             return res.json({ models });
         } else if (ai.provider === 'anthropic') {
             return res.json({ models: [] }); // no public list endpoint
@@ -393,7 +387,10 @@ router.get('/models', async (req, res) => {
             const r = await fetch(`${base}/v1/models`, { headers: h });
             if (!r.ok) throw new Error(`/v1/models returned ${r.status}`);
             const json = await r.json();
-            const models = (json.data || []).map((m) => m.id).filter(Boolean).sort();
+            const models = (json.data || [])
+                .map((m) => m.id)
+                .filter(Boolean)
+                .sort();
             return res.json({ models });
         }
     } catch (e) {
@@ -409,7 +406,7 @@ router.get('/model-info', async (req, res) => {
     if (ai.provider !== 'ollama') return res.status(400).json({ error: 'Model info is only available for Ollama' });
 
     const base = (ai.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
-    const model = (typeof req.query.model === 'string' && req.query.model) ? req.query.model : ai.model;
+    const model = typeof req.query.model === 'string' && req.query.model ? req.query.model : ai.model;
 
     const [versionRes, showRes, psRes] = await Promise.allSettled([
         fetch(`${base}/api/version`).then((r) => r.json()),
@@ -424,7 +421,7 @@ router.get('/model-info', async (req, res) => {
     res.json({
         version: versionRes.status === 'fulfilled' ? versionRes.value.version : null,
         details: showRes.status === 'fulfilled' ? showRes.value.details : null,
-        running: psRes.status === 'fulfilled' ? (psRes.value.models || []) : null,
+        running: psRes.status === 'fulfilled' ? psRes.value.models || [] : null,
     });
 });
 
@@ -449,7 +446,7 @@ router.post('/chat', async (req, res) => {
     const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
-    const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
+    const aiWithModel = modelOverride && typeof modelOverride === 'string' ? { ...ai, model: modelOverride } : ai;
     const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
@@ -479,7 +476,7 @@ router.post('/chat/stream', async (req, res) => {
     const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
-    const aiWithModel = (modelOverride && typeof modelOverride === 'string') ? { ...ai, model: modelOverride } : ai;
+    const aiWithModel = modelOverride && typeof modelOverride === 'string' ? { ...ai, model: modelOverride } : ai;
 
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
     let systemPrompt;

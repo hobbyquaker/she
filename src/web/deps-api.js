@@ -66,7 +66,10 @@ router.get('/', (req, res) => {
                 } else {
                     let repo = typeof meta.repository === 'object' ? meta.repository.url : meta.repository;
                     if (typeof repo === 'string' && repo) {
-                        repo = repo.replace(/^git\+/, '').replace(/\.git$/, '').replace(/^git:\/\//, 'https://');
+                        repo = repo
+                            .replace(/^git\+/, '')
+                            .replace(/\.git$/, '')
+                            .replace(/^git:\/\//, 'https://');
                         if (/^https?:\/\//.test(repo)) url = repo;
                         else {
                             const m = repo.match(/^(?:github:|github\.com[:/])?([\w.-]+\/[\w.-]+)$/);
@@ -74,7 +77,9 @@ router.get('/', (req, res) => {
                         }
                     }
                 }
-            } catch { /* not installed or no metadata */ }
+            } catch {
+                /* not installed or no metadata */
+            }
             return { name, version, url };
         }),
     );
@@ -98,7 +103,11 @@ router.get('/search', (req, res) => {
                     name: obj.package.name,
                     version: obj.package.version,
                     description: obj.package.description ?? '',
-                    url: obj.package.links?.repository || obj.package.links?.homepage || obj.package.links?.npm || `https://www.npmjs.com/package/${encodeURIComponent(obj.package.name)}`,
+                    url:
+                        obj.package.links?.repository ||
+                        obj.package.links?.homepage ||
+                        obj.package.links?.npm ||
+                        `https://www.npmjs.com/package/${encodeURIComponent(obj.package.name)}`,
                 }));
                 res.json(results);
             } catch {
