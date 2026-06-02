@@ -79,7 +79,7 @@ const modules = {
     'fs': require('fs'),
     'path': require('path'),
     'vm': require('vm'),
-    /* eslint-disable no-restricted-modules */
+    /* eslint-disable no-restricted-modules, n/no-deprecated-api */
     'domain': require('domain'),
     'mqtt': require('mqtt'),
     'node-schedule': require('node-schedule'),
@@ -92,12 +92,8 @@ const Module = require('module');
 const { STORAGE_ROOT } = require('./lib/storage');
 const _userRequire = Module.createRequire(modules.path.join(STORAGE_ROOT, '_anchor.js'));
 
-const domain = modules.domain;
-const vm = modules.vm;
-const fs = modules.fs;
-const path = modules.path;
+const { domain, vm, fs, path, suncalc } = modules;
 const scheduler = modules['node-schedule'];
-const suncalc = modules.suncalc;
 
 const StateStore = require('./lib/state-store');
 const sandboxModules = [];
@@ -240,9 +236,15 @@ require('./web/server').setStatsProvider(() => {
             const paired = mc.listPaired();
             matterNodes = paired.length;
             for (const { nodeId } of paired) {
-                try { matterEndpoints += mc.getEndpoints(nodeId).length; } catch { /* offline */ }
+                try {
+                    matterEndpoints += mc.getEndpoints(nodeId).length;
+                } catch {
+                    /* offline */
+                }
             }
-        } catch { /* controller not ready */ }
+        } catch {
+            /* controller not ready */
+        }
     }
     return {
         scripts: Object.keys(scripts).length,
@@ -331,7 +333,16 @@ if (config.url) {
 // sheDB â€” only init when --db-path is given
 if (config.dbPath) {
     const dbPathResolved = config.dbPath.replace(/^~(?=[/\\]|$)/, require('os').homedir());
-    shedb.init({ dbPath: dbPathResolved, dbPublish: config.dbPublish || false, dbRetain: config.dbRetain || false, dbPrefix: config.dbPrefix || 'she/db/', mqttName: config.name, mqtt, log, broadcast });
+    shedb.init({
+        dbPath: dbPathResolved,
+        dbPublish: config.dbPublish || false,
+        dbRetain: config.dbRetain || false,
+        dbPrefix: config.dbPrefix || 'she/db/',
+        mqttName: config.name,
+        mqtt,
+        log,
+        broadcast,
+    });
 }
 
 // Redis write-through cache â€” only init when config.redis.url is given
@@ -486,40 +497,32 @@ function runScript(script, name, origin) {
          * @method debug
          * @param {...*}
          */
-        debug() {
-            const args = Array.prototype.slice.call(arguments);
-            args.unshift(logLabel);
-            log.debug.apply(log, args);
+        debug(...args) {
+            log.debug(logLabel, ...args);
         },
         /**
          * Log an info message
          * @method info
          * @param {...*}
          */
-        info() {
-            const args = Array.prototype.slice.call(arguments);
-            args.unshift(logLabel);
-            log.info.apply(log, args);
+        info(...args) {
+            log.info(logLabel, ...args);
         },
         /**
          * Log a warning message
          * @method warn
          * @param {...*}
          */
-        warn() {
-            const args = Array.prototype.slice.call(arguments);
-            args.unshift(logLabel);
-            log.warn.apply(log, args);
+        warn(...args) {
+            log.warn(logLabel, ...args);
         },
         /**
          * Log an error message
          * @method error
          * @param {...*}
          */
-        error() {
-            const args = Array.prototype.slice.call(arguments);
-            args.unshift(logLabel);
-            log.error.apply(log, args);
+        error(...args) {
+            log.error(logLabel, ...args);
         },
 
         /**
@@ -534,30 +537,29 @@ function runScript(script, name, origin) {
          * @param {(string|function)} [options.condition] - conditional function or condition string
          * @param {subscribeCallback} callback
          */
-        mqttsub: function Sandbox_mqttsub(topic, /* optional */ options, callback) {
+        mqttsub: function Sandbox_mqttsub(topic, ...rest) {
             if (typeof topic === 'undefined') {
                 throw new TypeError('argument topic missing');
             }
 
-            if (arguments.length === 2) {
-                if (typeof arguments[1] !== 'function') {
+            let options, callback;
+            if (rest.length === 1) {
+                if (typeof rest[0] !== 'function') {
                     throw new TypeError('callback is not a function');
                 }
-
-                callback = arguments[1];
+                [callback] = rest;
                 options = {};
-            } else if (arguments.length === 3) {
-                if (typeof arguments[2] !== 'function') {
+            } else if (rest.length === 2) {
+                if (typeof rest[1] !== 'function') {
                     throw new TypeError('callback is not a function');
                 }
-                options = arguments[1] || {};
+                [options, callback] = rest;
+                options = options || {};
 
                 if (typeof options === 'string' || typeof options === 'function') {
                     options = { condition: options };
                 }
-
-                callback = arguments[2];
-            } else if (arguments.length > 3) {
+            } else if (rest.length > 2) {
                 throw new Error('wrong number of arguments');
             }
 
@@ -607,19 +609,20 @@ function runScript(script, name, origin) {
          * @param {number} [options.shift]  - offset in seconds for solar events (-86400â€¦86400)
          * @param {function} callback - is called with no arguments
          */
-        schedule: function Sandbox_schedule(pattern, /* optional */ options, callback) {
-            if (arguments.length === 2) {
-                if (typeof arguments[1] !== 'function') {
+        schedule: function Sandbox_schedule(pattern, ...rest) {
+            let options, callback;
+            if (rest.length === 1) {
+                if (typeof rest[0] !== 'function') {
                     throw new TypeError('callback is not a function');
                 }
-                callback = arguments[1];
+                [callback] = rest;
                 options = {};
-            } else if (arguments.length === 3) {
-                if (typeof arguments[2] !== 'function') {
+            } else if (rest.length === 2) {
+                if (typeof rest[1] !== 'function') {
                     throw new TypeError('callback is not a function');
                 }
-                options = arguments[1] || {};
-                callback = arguments[2];
+                [options, callback] = rest;
+                options = options || {};
             } else {
                 throw new Error('wrong number of arguments');
             }
@@ -746,18 +749,18 @@ function runScript(script, name, origin) {
          * @example // returns the timestamp of a given topic
          * she.getProp('hm//Bewegungsmelder Keller/MOTION', 'ts');
          */
-        getProp: function Sandbox_getProp(topic /* , optional property, optional nested property, ... */) {
+        getProp: function Sandbox_getProp(topic, ...props) {
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
-            if (arguments.length > 1) {
+            if (props.length > 0) {
                 let tmp = store.getObject('mqtt::' + topic);
                 if (typeof tmp === 'undefined') {
                     return;
                 }
-                for (let i = 1; i < arguments.length; i++) {
-                    if (typeof tmp[arguments[i]] === 'undefined') {
+                for (const prop of props) {
+                    if (typeof tmp[prop] === 'undefined') {
                         return;
                     }
-                    tmp = tmp[arguments[i]];
+                    tmp = tmp[prop];
                 }
                 return tmp;
             }
