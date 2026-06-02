@@ -52,10 +52,14 @@
             {#each levels as l}<option value={l}>{l}</option>{/each}
         </select>
         <input class="filter-in" type="search" placeholder="Filter messages…" bind:value={filterText} />
-        <label class="cb" title="Interpret filter as a regular expression">
-            <input type="checkbox" bind:checked={filterRegex} /> Regex
+        <label class="check-label" title="Interpret filter as a regular expression">
+            <input type="checkbox" bind:checked={filterRegex} />
+            <span class="checkmark"></span> Regex
         </label>
-        <label class="cb"><input type="checkbox" bind:checked={autoscroll} /> Auto-scroll</label>
+        <label class="check-label">
+            <input type="checkbox" bind:checked={autoscroll} />
+            <span class="checkmark"></span> Auto-scroll
+        </label>
         <button onclick={clear}>Clear</button>
     </div>
     <div class="log" bind:this={logEl}>
@@ -86,7 +90,24 @@
         background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
         padding: 2px 6px; border-radius: 3px; font-size: 12px;
     }
-    .cb { font-size: 12px; color: var(--fg-muted); display: flex; align-items: center; gap: 4px; }
+    .check-label {
+        display: flex; align-items: center; gap: 6px;
+        cursor: pointer; font-size: 12px; color: var(--fg-muted);
+        user-select: none; white-space: nowrap;
+    }
+    .check-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .checkmark {
+        flex-shrink: 0; width: 13px; height: 13px;
+        border: 1.5px solid var(--border); border-radius: 3px;
+        background: var(--bg-input); position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .check-label input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .check-label input:checked + .checkmark::after {
+        content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 7px;
+        border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg);
+    }
+    .check-label:hover .checkmark { border-color: var(--accent); }
     button {
         background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
         padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 12px;
