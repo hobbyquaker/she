@@ -608,12 +608,14 @@
                                                         </table>
                                                     {:else if isPlainObj(v)}
                                                         <table class="attr-obj-table">
+                                                            <tbody>
                                                             {#each Object.entries(v) as [ok, ov]}
                                                                 <tr>
                                                                     <td class="attr-obj-key">{ok}</td>
                                                                     <td class="attr-obj-val">{fmtScalar(ov)}</td>
                                                                 </tr>
                                                             {/each}
+                                                            </tbody>
                                                         </table>
                                                     {:else if (k === 'productUrl' || k === 'productURL') && typeof v === 'string'}
                                                         <a class="attr-link" href={v} target="_blank" rel="noopener noreferrer">{v}</a>
@@ -659,7 +661,7 @@
                     {#each feedSlice as row (row.id)}
                         {@const dname = nodeDetails.get(row.nodeId)?.name ?? devices.find((d) => d.nodeId === row.nodeId)?.name ?? null}
                         {@const epname = row.endpointId !== undefined ? (nodeDetails.get(row.nodeId)?.endpoints.find((e) => e.endpointId === row.endpointId)?.name ?? null) : null}
-                        {@const attrLabel = row.clusterName && row.attrName && row.clusterName !== row.attrName ? `${row.clusterName}.${row.attrName}` : (row.attrName ?? row.clusterName)}
+                        {@const attrLabel = row.attrName ?? row.clusterName}
                         <div class="er">
                             <span class="e-ts">{fmtTime(row.ts)}</span>
                             {#if row.kind === 'status'}
@@ -670,6 +672,7 @@
                                 <span class="e-badge e-badge-attr">attr</span>
                                 <span class="e-node">{dname ?? `#${row.nodeId}`}{#if dname}&nbsp;<span class="e-sub">(#{row.nodeId})</span>{/if}</span>
                                 <span class="e-ep">{epname ?? `ep${row.endpointId}`}{#if epname}&nbsp;<span class="e-sub">(ep {row.endpointId})</span>{/if}</span>
+                                <span class="e-cluster">{row.clusterName}</span>
                                 <span class="e-attr">{attrLabel}</span>
                                 <span class="e-val">{fmtVal(row.value)}</span>
                             {/if}
