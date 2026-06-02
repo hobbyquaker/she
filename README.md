@@ -72,6 +72,10 @@ she
 
 Then open **http://localhost:8080** and start creating scripts
 
+## Matter Protocol Support
+
+This project implements/supports the Matter protocol. Matter™ is a trademark of the Connectivity Standards Alliance. This project is not certified by, endorsed by, or affiliated with the Connectivity Standards Alliance.
+
 ## License
 
 MIT © [Sebastian Raff](https://github.com/hobbyquaker)
