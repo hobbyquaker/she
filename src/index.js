@@ -189,8 +189,8 @@ function sunScheduleEvent(obj, shift) {
                 // call the callback immediately!
                 obj.domain.bind(obj.callback)();
             } else {
-                // Schedule the event!
-                scheduler.scheduleJob(event, obj.domain.bind(obj.callback));
+                // Schedule the event and track the job so it can be cancelled on script unload
+                obj._job = scheduler.scheduleJob(event, obj.domain.bind(obj.callback));
             }
         }
     }
@@ -1017,9 +1017,12 @@ function unloadScript(file) {
         scriptJobs.delete(file);
     }
 
-    // Remove sun events belonging to this script
+    // Remove sun events belonging to this script and cancel any pending scheduled job
     for (let i = sunEvents.length - 1; i >= 0; i--) {
-        if (sunEvents[i]._script === file) sunEvents.splice(i, 1);
+        if (sunEvents[i]._script === file) {
+            if (sunEvents[i]._job) sunEvents[i]._job.cancel();
+            sunEvents.splice(i, 1);
+        }
     }
 
     // Clear all tracked timers for this script
