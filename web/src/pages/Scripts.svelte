@@ -532,7 +532,7 @@ declare const she: {
         dragSrc = null;
         if (!src || src === dirPath || dirPath.startsWith(src + '/')) return;
         const filename = src.split('/').pop()!;
-        const target = `${dirPath}/${filename}`;
+        const target = dirPath ? `${dirPath}/${filename}` : filename;
         if (target === src) return;
         try {
             await renameScript(src, target);
@@ -856,6 +856,15 @@ declare const she: {
         {/snippet}
 
         <ul class="tree">
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <li
+                class="tree-root-drop"
+                class:drag-target={dragOver === ''}
+                role="presentation"
+                ondragover={(e) => onDragOver(e, '')}
+                ondragleave={onDragLeave}
+                ondrop={(e) => onDrop(e, '')}
+            ></li>
             {#each tree as entry (entry.path)}
                 {@render treeEntry(entry)}
             {/each}
@@ -1053,6 +1062,8 @@ declare const she: {
     .toolbar button:hover { background: var(--accent-hov); }
 
     .tree { flex: 1; overflow-y: auto; list-style: none; padding: 4px 0; margin: 0; }
+    .tree-root-drop { height: 8px; list-style: none; }
+    .tree-root-drop.drag-target { background: var(--bg-active); outline: 1px dashed var(--fg-brand); outline-offset: -1px; }
     .tree-dir, .tree-file { list-style: none; }
     .tree-children { list-style: none; padding: 0; margin: 0 0 0 10px; border-left: 1px solid var(--indent-line); }
     .dir-row {
