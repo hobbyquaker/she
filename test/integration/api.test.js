@@ -9,7 +9,7 @@ const readline = require('readline');
 const Aedes = require('aedes');
 const Mqtt = require('mqtt');
 
-const msCmd = path.join(__dirname, '../../mockdate.js');
+const msCmd = path.join(__dirname, '../mockdate.js');
 const testScriptsDir = path.join(__dirname, '../testscripts/api');
 
 let ms;

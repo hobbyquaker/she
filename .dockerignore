@@ -5,7 +5,7 @@
 /test.js
 /Gulpfile.js
 /coverage
-/mockdate.js
+/test/mockdate.js
 /.npmignore
 
 

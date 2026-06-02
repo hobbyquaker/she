@@ -13,7 +13,7 @@ const Aedes = require('aedes');
 const Mqtt = require('mqtt');
 const { WebSocket } = require('ws');
 
-const msCmd = path.join(__dirname, '../../mockdate.js');
+const msCmd = path.join(__dirname, '../mockdate.js');
 
 let ms;
 let broker;
@@ -96,8 +96,9 @@ beforeAll((done) => {
 
         mqtt = Mqtt.connect(`mqtt://127.0.0.1:${brokerPort}`);
         mqtt.on('connect', () => {
-            fs.writeFileSync(path.join(scriptsDir, 'config.json'), JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0, dbPath }));
-            const msArgs = ['-d', scriptsDir];
+            const configPath = path.join(tmpDir, 'config.json');
+            fs.writeFileSync(configPath, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0, dbPath }));
+            const msArgs = ['-d', scriptsDir, '--config', configPath];
             ms = cp.spawn(process.execPath, [msCmd, ...msArgs]);
             const rlOut = readline.createInterface({ input: ms.stdout, crlfDelay: Infinity });
             const rlErr = readline.createInterface({ input: ms.stderr, crlfDelay: Infinity });
@@ -231,7 +232,7 @@ describe('sheDB MQTT interface', () => {
             }
         });
         ws.on('open', () => {
-            mqtt.publish('logic/db/set/mqtt/doc', JSON.stringify({ value: 42 }));
+            mqtt.publish('she/db/set/mqtt/doc', JSON.stringify({ value: 42 }));
         });
     }, 10000);
 });
