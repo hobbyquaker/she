@@ -38,9 +38,12 @@ Then open **http://localhost:8080** and start creating scripts
 | [Examples](doc/examples.md) | Real-world script patterns |
 | [Screenshots](doc/screenshots.md) | Web UI screenshots |
 
-## Trademark and Certification Notices
+##  Trademark and Certification Notices
 
-This project implements/supports the Matter protocol. Matter™ is a trademark of the Connectivity Standards Alliance. This project is **not** certified by, endorsed by, supported by, or affiliated with the Connectivity Standards Alliance.
+> [!IMPORTANT]
+> This project implements/supports the Matter protocol. Matter™ is a trademark of the Connectivity Standards Alliance.
+>
+> This project is **not** certified by, endorsed by, supported by, or affiliated with the Connectivity Standards Alliance.
 
 ## Quick look
 
