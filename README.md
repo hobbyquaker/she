@@ -36,7 +36,6 @@ Then open **http://localhost:8080** and start creating scripts
 | [HTTP API](doc/http-api.md) | REST endpoints and WebSocket |
 | [sheDB](doc/db/README.md) | Embedded document store — script API, views, examples |
 | [Examples](doc/examples.md) | Real-world script patterns |
-| [Screenshots](doc/screenshots.md) | Web UI screenshots |
 
 ##  Trademark and Certification Notices
 
@@ -47,7 +46,7 @@ Then open **http://localhost:8080** and start creating scripts
 
 ## Quick look
 
-![AI assistant proposing changes to an existing script with inline diff](doc/screenshots/she-ai-2.png)
+![AI assistant proposing changes to an existing script with inline diff](doc/screenshots/she-ai-2.png) [... more screenshots](doc/screenshots.md) 
 
 ## Motivation
 
