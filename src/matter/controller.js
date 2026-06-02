@@ -22,6 +22,11 @@ let _broadcast = null;
 const _listeners = new Map();
 let _nextListenerId = 1;
 
+// ── WS attribute broadcast ───────────────────────────────────────────────────
+// Tracks nodeIds that already have global attribute broadcast listeners set up
+// so we never attach them more than once per node object.
+const _attrBroadcastNodes = new Set();
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function _bigintNodeId(nodeId) {
@@ -63,6 +68,18 @@ function _resolveEndpoint(node, endpointIdOrName) {
         if (_getEndpointName(ep) === name) return ep;
     }
     throw new Error(`Endpoint not found: ${endpointIdOrName}`);
+}
+
+/** Recursively convert BigInt values to numbers/strings so the result is JSON-serialisable. */
+function _jsonSafe(v) {
+    if (typeof v === 'bigint') return v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : v.toString();
+    if (Array.isArray(v)) return v.map(_jsonSafe);
+    if (v !== null && typeof v === 'object') {
+        const out = {};
+        for (const [k, val] of Object.entries(v)) out[k] = _jsonSafe(val);
+        return out;
+    }
+    return v;
 }
 
 /** Resolve a cluster name (camelCase) from a cluster ID number or string. */
@@ -107,6 +124,15 @@ async function init(storagePath, log, broadcastFn) {
 
     await _server.start();
     _log.info('matter controller started, storage:', storagePath);
+
+    // Subscribe lifecycle events for already-paired nodes (persisted from previous session).
+    for (const node of _server.peers) {
+        const addr = node.peerAddress;
+        if (!addr) continue;
+        const nodeId = _nodeIdStr(addr.nodeId);
+        _subscribeNodeLifecycle(node, nodeId);
+        if (node.lifecycle?.isOnline) _broadcastNodeAttributes(node, nodeId);
+    }
 }
 
 async function close() {
@@ -273,7 +299,18 @@ function getEndpoints(nodeId) {
     const node = _findClientNode(nodeId);
     const result = [];
     for (const endpoint of node.endpoints) {
-        const clusters = endpoint.state ? Object.keys(endpoint.state) : [];
+        const clusters = [];
+        if (endpoint.state) {
+            for (const [clusterName, clusterState] of Object.entries(endpoint.state)) {
+                const attrs = {};
+                if (clusterState && typeof clusterState === 'object') {
+                    for (const [k, v] of Object.entries(clusterState)) {
+                        attrs[k] = _jsonSafe(v);
+                    }
+                }
+                clusters.push({ name: clusterName, attrs });
+            }
+        }
         result.push({ endpointId: endpoint.number ?? 0, clusters, name: _getEndpointName(endpoint) });
     }
     return result;
@@ -333,6 +370,55 @@ async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
 // ── Node lifecycle events (online / offline) ────────────────────────────────
 
 /**
+ * Subscribe to all attribute $Changed events on every endpoint/cluster of a node
+ * and forward each change to the WS broadcast so the web UI can display a live
+ * event feed.  A per-node guard prevents double-registration on reconnects.
+ *
+ * @param {object} node   ClientNode
+ * @param {string} nodeId decimal string
+ */
+function _broadcastNodeAttributes(node, nodeId) {
+    if (!_broadcast) return;
+    if (_attrBroadcastNodes.has(nodeId)) return;
+    _attrBroadcastNodes.add(nodeId);
+    let count = 0;
+    try {
+        for (const endpoint of node.endpoints) {
+            const endpointId = endpoint.number ?? 0;
+            if (!endpoint.state) continue;
+            // Iterate cluster names from state (enumerable), then access events via
+            // bracket notation — endpoint.events may be a Proxy that doesn't enumerate.
+            for (const clusterName of Object.keys(endpoint.state)) {
+                const clusterState = endpoint.state[clusterName];
+                if (!clusterState || typeof clusterState !== 'object') continue;
+                const clusterEvents = endpoint.events?.[clusterName];
+                if (!clusterEvents) continue;
+                for (const attrName of Object.keys(clusterState)) {
+                    const changeEvent = clusterEvents[`${attrName}$Changed`];
+                    if (!changeEvent || typeof changeEvent.on !== 'function') continue;
+                    changeEvent.on((value) => {
+                        _broadcast?.({
+                            type: 'matter:attr',
+                            nodeId,
+                            endpointId,
+                            clusterName,
+                            attrName,
+                            value: _jsonSafe(value),
+                            ts: Date.now(),
+                        });
+                    });
+                    count++;
+                }
+            }
+        }
+        _log?.info(`matter: watching ${count} attribute(s) on node ${nodeId}`);
+    } catch (err) {
+        _attrBroadcastNodes.delete(nodeId); // allow retry
+        _log?.warn(`matter: attribute broadcast setup failed for ${nodeId}: ${err.message}`);
+    }
+}
+
+/**
  * Subscribe to online/offline lifecycle changes for a node and broadcast them.
  * @param {object} node ClientNode
  * @param {string} nodeId decimal string
@@ -342,6 +428,7 @@ function _subscribeNodeLifecycle(node, nodeId) {
     if (!lc) return;
     lc.online?.on?.(() => {
         _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: true });
+        _broadcastNodeAttributes(node, nodeId);
     });
     lc.offline?.on?.(() => {
         _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: false });

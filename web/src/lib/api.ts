@@ -143,6 +143,12 @@ export interface DaemonStatus {
     matterEnabled?: boolean;
     matterNodes?: number;
     matterEndpoints?: number;
+    dbEnabled?: boolean;
+    dbDocs?: number | null;
+    dbViews?: number | null;
+    handlers?: number;
+    memMb?: number;
+    cpuPercent?: number;
 }
 
 export function getDaemonStatus(): Promise<DaemonStatus> {
@@ -238,12 +244,14 @@ export function deleteView(id: string): Promise<{ ok: boolean }> {
 export interface DepEntry {
     name: string;
     version: string;
+    url?: string;
 }
 
 export interface NpmSearchResult {
     name: string;
     version: string;
     description: string;
+    url?: string;
 }
 
 export function listDeps(): Promise<DepEntry[]> {
@@ -278,9 +286,14 @@ export interface MatterDevice {
     name?: string | null;
 }
 
+export interface MatterCluster {
+    name: string;
+    attrs: Record<string, unknown>;
+}
+
 export interface MatterEndpoint {
     endpointId: number;
-    clusters: string[];
+    clusters: MatterCluster[];
     name?: string | null;
 }
 

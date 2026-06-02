@@ -190,6 +190,13 @@
                     <dt>Matter nodes</dt><dd>{stats.matterNodes ?? 0}</dd>
                     <dt>Matter endpoints</dt><dd>{stats.matterEndpoints ?? 0}</dd>
                     {/if}
+                    {#if stats.dbEnabled}
+                    <dt>DB docs</dt><dd>{stats.dbDocs ?? '—'}</dd>
+                    <dt>DB views</dt><dd>{stats.dbViews ?? '—'}</dd>
+                    {/if}
+                    <dt>Handlers</dt><dd>{stats.handlers ?? '—'}</dd>
+                    <dt>Memory</dt><dd>{stats.memMb != null ? stats.memMb + ' MB' : '—'}</dd>
+                    <dt>CPU</dt><dd>{stats.cpuPercent != null ? stats.cpuPercent + ' %' : '—'}</dd>
                 </dl>
                 {:else}
                 <span class="stats-empty">Loading…</span>

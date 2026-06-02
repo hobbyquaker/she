@@ -225,15 +225,15 @@ These methods work across all namespaces (`mqtt::`, `var::`, `matter::`), provid
 
 ### she.on(key, callback)
 
-Subscribe to value changes for a namespaced key. Fires immediately with the current value (retain semantics).
+Subscribe to value changes for a namespaced key. `mqtt::` and `var::` subscriptions fire immediately with the current value if one exists (retain semantics). `matter::` subscriptions do not fire immediately.
 
 | Namespace | Example key | Description |
 |---|---|---|
 | `mqtt::` | `mqtt::home/sensor/temp` | Subscribes to an MQTT topic |
 | `var::` | `var::myCounter` | Subscribes to a variable |
-| `matter::` | `matter::1/1/onOff/onOff` | Subscribes to a Matter attribute |
+| `matter::` | `matter::1/1/onOff/onOff` | Subscribes to a Matter attribute (numeric IDs only) |
 
-Callback receives `(val, obj, prevObj)`.
+Callback receives `(val, obj, prevObj)` for `mqtt::` and `var::` keys. For `matter::` keys the callback receives `(value, oldValue)` — raw attribute values with no state object wrapper. The `matter::` key format is `matter::nodeId/endpointId/clusterName/attrName`; only numeric node ID and endpoint ID are accepted (unlike `she.matter.sub` which also accepts names).
 
 ```js
 she.on('mqtt::home/sensor/temp', (val) => she.log('temp:', val));
@@ -402,7 +402,7 @@ Throws an `Error` if the response status is not OK (4xx / 5xx).
 
 | Param | Type | Description |
 |---|---|---|
-| `url` | `string` | The URL to fetch. Must start with `http://` or `https://`. |
+| `url` | `string` | The URL to fetch. |
 | `[options]` | `object` | Standard [Fetch API options](https://developer.mozilla.org/en-US/docs/Web/API/fetch#options) (`method`, `headers`, `body`, etc.). |
 
 ```js
@@ -419,6 +419,43 @@ const result = await she.fetch('https://api.example.com/command', {
 
 // Publish the result to MQTT
 she.mqtt.set('home/device/response', result.ok);
+```
+
+---
+
+## she.api -- Script HTTP routes
+
+Register HTTP endpoints served under `/api/<scriptName>/`. Routes are registered at script load and removed on hot-reload. Registering the same method + path twice throws.
+
+| Method | Description |
+|---|---|
+| `she.api.get(path, handler)` | Register a `GET` route |
+| `she.api.post(path, handler)` | Register a `POST` route |
+| `she.api.put(path, handler)` | Register a `PUT` route |
+| `she.api.delete(path, handler)` | Register a `DELETE` route |
+
+`path` is appended to `/api/<scriptName>`, e.g. a script `devices.js` with `she.api.get('/list', ...)` handles `GET /api/devices/list`. Express path parameters (`:id`) are supported.
+
+The handler receives:
+- First arg: `req` — `{ params, query, headers }`
+- Second arg (POST / PUT only): `body` — parsed request body
+
+The return value (or resolved Promise value) is JSON-serialised and sent. Thrown errors and rejected Promises respond with HTTP 500.
+
+```js
+// GET /api/myscript/temperature
+she.api.get('/temperature', () => ({
+    value: she.mqtt.get('home/sensor/temp'),
+}));
+
+// POST /api/myscript/scene
+she.api.post('/scene', (req, body) => {
+    she.mqtt.pub('home/scene/activate', body.scene);
+    return { ok: true };
+});
+
+// GET /api/myscript/devices/:id
+she.api.get('/devices/:id', (req) => she.db.get('devices/' + req.params.id));
 ```
 
 ---
@@ -530,8 +567,8 @@ Subscribe to attribute changes on a paired Matter device. Returns a `listenerId`
 
 | Param | Type | Description |
 |---|---|---|
-| `nodeId` | `string` | Decimal node ID string |
-| `endpointId` | `number` | Endpoint number |
+| `nodeId` | `string \| number` | Decimal node ID string or device name |
+| `endpointId` | `number \| string` | Endpoint number or endpoint name |
 | `clusterName` | `string` | camelCase cluster name, e.g. `'onOff'` |
 | `attrName` | `string` | camelCase attribute name, e.g. `'onOff'` |
 | `callback` | `function` | Called as `callback(value, oldValue)` |

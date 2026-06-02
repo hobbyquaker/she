@@ -1,16 +1,310 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
     import {
         listMatterDevices,
         getMatterDevice,
         commissionMatter,
         unpairMatter,
+        sendMatterCommand,
         type MatterDevice,
         type MatterNodeDetail,
     } from '../lib/api.js';
 
+    interface AttrAction { label: string; command: string; args?: Record<string, unknown>; }
+    const ATTR_ACTIONS: Record<string, Record<string, AttrAction[]>> = {
+        onOff: {
+            onOff: [
+                { label: 'On',     command: 'on' },
+                { label: 'Off',    command: 'off' },
+                { label: 'Toggle', command: 'toggle' },
+            ],
+        },
+        levelControl: {
+            currentLevel: [
+                { label: 'Step ▲', command: 'stepWithOnOff',  args: { stepMode: 0, stepSize: 25, transitionTime: 5 } },
+                { label: 'Step ▼', command: 'stepWithOnOff',  args: { stepMode: 1, stepSize: 25, transitionTime: 5 } },
+            ],
+        },
+        windowCovering: {
+            currentPositionLiftPercent100ths: [
+                { label: 'Open',  command: 'upOrOpen' },
+                { label: 'Close', command: 'downOrClose' },
+                { label: 'Stop',  command: 'stopMotion' },
+            ],
+            currentPositionTiltPercent100ths: [
+                { label: 'Open',  command: 'upOrOpen' },
+                { label: 'Close', command: 'downOrClose' },
+                { label: 'Stop',  command: 'stopMotion' },
+            ],
+        },
+    };
+
+    async function sendCmd(
+        nodeId: string,
+        endpointId: number,
+        clusterName: string,
+        command: string,
+        args?: Record<string, unknown>,
+    ) {
+        try {
+            await sendMatterCommand(nodeId, endpointId, clusterName, command, args);
+        } catch (e) {
+            console.error('matter command failed', e);
+        }
+    }
+
+    // Map cluster name → command id → command name (Matter spec)
+    const CLUSTER_COMMANDS: Record<string, Record<number, string>> = {
+        identify:     { 0: 'identify', 1: 'triggerEffect' },
+        groups:       { 0: 'addGroup', 1: 'viewGroup', 2: 'getGroupMembership', 3: 'removeGroup', 4: 'removeAllGroups', 5: 'addGroupIfIdentifying' },
+        scenes:       { 0: 'addScene', 1: 'viewScene', 2: 'removeScene', 3: 'removeAllScenes', 4: 'storeScene', 5: 'recallScene', 6: 'getSceneMembership', 64: 'enhancedAddScene', 65: 'enhancedViewScene', 66: 'copyScene' },
+        onOff:        { 0: 'off', 1: 'on', 2: 'toggle', 64: 'offWithEffect', 65: 'onWithRecallGlobalScene', 66: 'onWithTimedOff' },
+        levelControl: { 0: 'moveToLevel', 1: 'move', 2: 'step', 3: 'stop', 4: 'moveToLevelWithOnOff', 5: 'moveWithOnOff', 6: 'stepWithOnOff', 7: 'stopWithOnOff', 8: 'moveToClosestFrequency' },
+        colorControl: { 0: 'moveToHue', 1: 'moveHue', 2: 'stepHue', 3: 'moveToSaturation', 4: 'moveSaturation', 5: 'stepSaturation', 6: 'moveToHueAndSaturation', 7: 'moveToColor', 8: 'moveColor', 9: 'stepColor', 10: 'moveToColorTemperature', 64: 'enhancedMoveToHue', 65: 'enhancedMoveHue', 66: 'enhancedStepHue', 67: 'enhancedMoveToHueAndSaturation', 68: 'colorLoopSet', 71: 'stopMoveStep', 75: 'moveColorTemperature', 76: 'stepColorTemperature' },
+        thermostat:   { 0: 'setpointRaiseLower', 1: 'setWeeklySchedule', 2: 'getWeeklySchedule', 3: 'clearWeeklySchedule' },
+        doorLock:     { 0: 'lockDoor', 1: 'unlockDoor', 3: 'unlockWithTimeout', 11: 'setWeekDaySchedule', 12: 'getWeekDaySchedule', 13: 'clearWeekDaySchedule', 14: 'setYearDaySchedule', 15: 'getYearDaySchedule', 16: 'clearYearDaySchedule', 17: 'setHolidaySchedule', 18: 'getHolidaySchedule', 19: 'clearHolidaySchedule', 26: 'setUser', 27: 'getUser', 28: 'clearUser', 34: 'setCredential', 36: 'getCredential', 38: 'clearCredential' },
+        windowCovering: { 0: 'upOrOpen', 1: 'downOrClose', 2: 'stopMotion', 4: 'goToLiftValue', 5: 'goToLiftPercentage', 7: 'goToTiltValue', 8: 'goToTiltPercentage' },
+        fanControl:   { 0: 'step' },
+    };
+
+    function fmtCmdList(clusterName: string, ids: unknown[]): Array<{ name: string | null; id: number }> {
+        const map = CLUSTER_COMMANDS[clusterName];
+        return ids.map((raw) => {
+            const id = typeof raw === 'number' ? raw : Number(raw);
+            return { id, name: map?.[id] ?? null };
+        });
+    }
+
+    // Matter device type ID → friendly name (Matter 1.x Device Library spec)
+    const DEVICE_TYPES: Record<number, string> = {
+        0x000A: 'Door Lock', 0x000B: 'Door Lock Controller',
+        0x000E: 'Aggregator', 0x000F: 'Generic Switch',
+        0x0011: 'On/Off Plug-In Unit', 0x0012: 'Dimmable Plug-In Unit',
+        0x0013: 'Pump', 0x0014: 'On/Off Light Switch',
+        0x0015: 'Dimmer Switch', 0x0016: 'Color Dimmer Switch',
+        0x0017: 'Control Bridge', 0x0018: 'Pump Controller',
+        0x0100: 'On/Off Light', 0x0101: 'Dimmable Light',
+        0x010C: 'Extended Color Light', 0x010D: 'Color Temperature Light',
+        0x0106: 'Light Sensor', 0x0107: 'Occupancy Sensor',
+        0x0202: 'Window Covering', 0x0203: 'Window Covering Controller',
+        0x0300: 'Heating/Cooling Unit', 0x0301: 'Thermostat',
+        0x0302: 'Temperature Sensor', 0x0303: 'Pressure Sensor',
+        0x0304: 'Flow Sensor', 0x0305: 'Humidity Sensor', 0x0306: 'On/Off Sensor',
+        0x0840: 'Air Quality Sensor',
+    };
+
+    // Global attributes present on every cluster
+    const GLOBAL_ATTRS: Record<string, number> = {
+        generatedCommandList: 0xFFF8, acceptedCommandList: 0xFFF9,
+        eventList: 0xFFFA, attributeList: 0xFFFB,
+        featureMap: 0xFFFC, clusterRevision: 0xFFFD,
+    };
+
+    // Cluster-specific attribute IDs (Matter 1.x Core/Cluster spec)
+    const CLUSTER_ATTRS: Record<string, Record<string, number>> = {
+        descriptor: {
+            deviceTypeList: 0x0000, serverList: 0x0001, clientList: 0x0002, partsList: 0x0003, tagList: 0x0004,
+        },
+        basicInformation: {
+            dataModelRevision: 0x0000, vendorName: 0x0001, vendorID: 0x0002, vendorId: 0x0002,
+            productName: 0x0003, productID: 0x0004, productId: 0x0004,
+            nodeLabel: 0x0005, location: 0x0006, hardwareVersion: 0x0007, hardwareVersionString: 0x0008,
+            softwareVersion: 0x0009, softwareVersionString: 0x000A, manufacturingDate: 0x000B, partNumber: 0x000C,
+            productURL: 0x000D, productUrl: 0x000D, productLabel: 0x000E, serialNumber: 0x000F,
+            localConfigDisabled: 0x0010, reachable: 0x0011, uniqueID: 0x0012, uniqueId: 0x0012,
+            capabilityMinima: 0x0013, productAppearance: 0x0014,
+            specificationVersion: 0x0015, maxPathsPerInvoke: 0x0016,
+        },
+        bridgedDeviceBasicInformation: {
+            vendorName: 0x0001, vendorID: 0x0002, vendorId: 0x0002, productName: 0x0003, productId: 0x0004, nodeLabel: 0x0005,
+            hardwareVersion: 0x0007, hardwareVersionString: 0x0008, softwareVersion: 0x0009,
+            softwareVersionString: 0x000A, manufacturingDate: 0x000B, partNumber: 0x000C,
+            productURL: 0x000D, productUrl: 0x000D, productLabel: 0x000E, serialNumber: 0x000F,
+            reachable: 0x0011, uniqueID: 0x0012, uniqueId: 0x0012, productAppearance: 0x0014,
+        },
+        identify: { identifyTime: 0x0000, identifyType: 0x0001 },
+        groups:   { nameSupport: 0x0000 },
+        onOff: {
+            onOff: 0x0000, globalSceneControl: 0x4000, onTime: 0x4001,
+            offWaitTime: 0x4002, startUpOnOff: 0x4003,
+        },
+        levelControl: {
+            currentLevel: 0x0000, remainingTime: 0x0001, minLevel: 0x0002, maxLevel: 0x0003,
+            currentFrequency: 0x0004, minFrequency: 0x0005, maxFrequency: 0x0006, options: 0x000F,
+            onOffTransitionTime: 0x0010, onLevel: 0x0011, onTransitionTime: 0x0012,
+            offTransitionTime: 0x0013, defaultMoveRate: 0x0014, startUpCurrentLevel: 0x4000,
+        },
+        colorControl: {
+            currentHue: 0x0000, currentSaturation: 0x0001, remainingTime: 0x0002,
+            currentX: 0x0003, currentY: 0x0004, colorTemperatureMireds: 0x0007, colorMode: 0x0008, options: 0x000F,
+            enhancedCurrentHue: 0x4000, enhancedColorMode: 0x4001, colorLoopActive: 0x4002,
+            colorLoopDirection: 0x4003, colorLoopTime: 0x4004, colorCapabilities: 0x400A,
+            colorTempPhysicalMinMireds: 0x400B, colorTempPhysicalMaxMireds: 0x400C,
+            coupleColorTempToLevelMinMireds: 0x400D, startUpColorTemperatureMireds: 0x4010,
+        },
+        thermostat: {
+            localTemperature: 0x0000, outdoorTemperature: 0x0001, occupancy: 0x0002,
+            absMinHeatSetpointLimit: 0x0003, absMaxHeatSetpointLimit: 0x0004,
+            absMinCoolSetpointLimit: 0x0005, absMaxCoolSetpointLimit: 0x0006,
+            piCoolingDemand: 0x0007, piHeatingDemand: 0x0008,
+            localTemperatureCalibration: 0x0010, occupiedCoolingSetpoint: 0x0011, occupiedHeatingSetpoint: 0x0012,
+            unoccupiedCoolingSetpoint: 0x0013, unoccupiedHeatingSetpoint: 0x0014,
+            minHeatSetpointLimit: 0x0015, maxHeatSetpointLimit: 0x0016,
+            minCoolSetpointLimit: 0x0017, maxCoolSetpointLimit: 0x0018,
+            minSetpointDeadBand: 0x0019, remoteSensing: 0x001A,
+            controlSequenceOfOperation: 0x001B, systemMode: 0x001C, thermostatRunningMode: 0x001E,
+            startOfWeek: 0x0020, numberOfWeeklyTransitions: 0x0021, numberOfDailyTransitions: 0x0022,
+            temperatureSetpointHold: 0x0023, temperatureSetpointHoldDuration: 0x0024,
+            thermostatProgrammingOperationMode: 0x0025, thermostatRunningState: 0x0029,
+            setpointChangeSource: 0x0030, setpointChangeAmount: 0x0031, setpointChangeSourceTimestamp: 0x0032,
+            occupiedSetback: 0x0034, unoccupiedSetback: 0x0037, emergencyHeatDelta: 0x003A,
+        },
+        windowCovering: {
+            type: 0x0000, physicalClosedLimitLift: 0x0001, physicalClosedLimitTilt: 0x0002,
+            currentPositionLift: 0x0003, currentPositionTilt: 0x0004,
+            numberOfActuationsLift: 0x0005, numberOfActuationsTilt: 0x0006,
+            configStatus: 0x0007, currentPositionLiftPercentage: 0x0008, currentPositionTiltPercentage: 0x0009,
+            operationalStatus: 0x000A, targetPositionLiftPercent100ths: 0x000B, targetPositionTiltPercent100ths: 0x000C,
+            endProductType: 0x000D, currentPositionLiftPercent100ths: 0x000E, currentPositionTiltPercent100ths: 0x000F,
+            installedOpenLimitLift: 0x0010, installedClosedLimitLift: 0x0011,
+            installedOpenLimitTilt: 0x0012, installedClosedLimitTilt: 0x0013,
+            mode: 0x0017, safetyStatus: 0x001A,
+        },
+        doorLock: {
+            lockState: 0x0000, lockType: 0x0001, actuatorEnabled: 0x0002, doorState: 0x0003,
+            numberOfTotalUsersSupported: 0x0011, numberOfPINUsersSupported: 0x0012,
+            maxPINCodeLength: 0x0017, minPINCodeLength: 0x0018,
+            language: 0x0021, autoRelockTime: 0x0023, soundVolume: 0x0024,
+            operatingMode: 0x0025, supportedOperatingModes: 0x0026, wrongCodeEntryLimit: 0x0030,
+        },
+        fanControl: {
+            fanMode: 0x0000, fanModeSequence: 0x0001, percentSetting: 0x0002, percentCurrent: 0x0003,
+            speedMax: 0x0004, speedSetting: 0x0005, speedCurrent: 0x0006,
+            rockSupport: 0x0007, rockSetting: 0x0008, windSupport: 0x0009, windSetting: 0x000A,
+            airflowDirectionSupport: 0x000B, airflowDirection: 0x000C,
+        },
+        occupancySensing: {
+            occupancy: 0x0000, occupancySensorType: 0x0001, occupancySensorTypeBitmap: 0x0002,
+            holdTime: 0x0003, pirOccupiedToUnoccupiedDelay: 0x0010, pirUnoccupiedToOccupiedDelay: 0x0011,
+        },
+        illuminanceMeasurement: {
+            measuredValue: 0x0000, minMeasuredValue: 0x0001, maxMeasuredValue: 0x0002,
+            tolerance: 0x0003, lightSensorType: 0x0004,
+        },
+        temperatureMeasurement: {
+            measuredValue: 0x0000, minMeasuredValue: 0x0001, maxMeasuredValue: 0x0002, tolerance: 0x0003,
+        },
+        pressureMeasurement: {
+            measuredValue: 0x0000, minMeasuredValue: 0x0001, maxMeasuredValue: 0x0002, tolerance: 0x0003,
+            scaledValue: 0x0010, minScaledValue: 0x0011, maxScaledValue: 0x0012, scale: 0x0014,
+        },
+        flowMeasurement: {
+            measuredValue: 0x0000, minMeasuredValue: 0x0001, maxMeasuredValue: 0x0002, tolerance: 0x0003,
+        },
+        relativeHumidityMeasurement: {
+            measuredValue: 0x0000, minMeasuredValue: 0x0001, maxMeasuredValue: 0x0002, tolerance: 0x0003,
+        },
+        powerSource: {
+            status: 0x0000, order: 0x0001, description: 0x0002,
+            batVoltage: 0x000B, batPercentRemaining: 0x000C, batTimeRemaining: 0x000D,
+            batChargeLevel: 0x000E, batReplacementNeeded: 0x000F, batReplaceability: 0x0010,
+            batPresent: 0x0011, activeBatFaults: 0x0012, batChargeState: 0x001A,
+        },
+    };
+
+    function fmtHex(id: number): string {
+        return '0x' + id.toString(16).toUpperCase().padStart(4, '0');
+    }
+
     let devices: MatterDevice[] = $state([]);
+    // Cache of node details keyed by nodeId — used for friendly name resolution in the event feed.
+    let nodeDetails = $state(new Map<string, MatterNodeDetail>());
+
+    function deviceName(nodeId: string): string {
+        const n = nodeDetails.get(nodeId)?.name ?? devices.find((d) => d.nodeId === nodeId)?.name;
+        return n ? `${n}` : `#${nodeId}`;
+    }
+
+    function endpointName(nodeId: string, endpointId: number): string {
+        const ep = nodeDetails.get(nodeId)?.endpoints.find((e) => e.endpointId === endpointId);
+        return ep?.name ?? `ep${endpointId}`;
+    }
+
+    function fmtVal(v: unknown): string {
+        if (v === null || v === undefined) return '—';
+        if (typeof v === 'boolean') return String(v);
+        if (typeof v === 'number') return String(v);
+        if (typeof v === 'string') return v.length > 50 ? v.slice(0, 47) + '…' : v;
+        const s = JSON.stringify(v);
+        return s.length > 60 ? s.slice(0, 57) + '…' : s;
+    }
+
+    function fmtScalar(v: unknown): string {
+        if (v === null || v === undefined) return '—';
+        if (typeof v === 'boolean') return String(v);
+        if (typeof v === 'number') return String(v);
+        if (typeof v === 'string') return v;
+        return JSON.stringify(v);
+    }
+
+    function isPlainObj(v: unknown): v is Record<string, unknown> {
+        return v !== null && typeof v === 'object' && !Array.isArray(v);
+    }
+
+    function isArrOfObj(v: unknown): v is Record<string, unknown>[] {
+        return Array.isArray(v) && v.length > 0 && v.every(isPlainObj);
+    }
+
+    function isHidden(v: unknown, k?: string): boolean {
+        if (k === 'attributeList') return true;
+        if (Array.isArray(v) && v.length === 0) return true;
+        if (isPlainObj(v) && Object.keys(v).length === 0) return true;
+        return false;
+    }
+
+    function fmtTime(ts: number): string {
+        return new Date(ts).toLocaleTimeString(undefined, {
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+        });
+    }
+
+    // ── Event feed ──────────────────────────────────────────────────────────
+    const FEED_MAX   = 500;
+    const FEED_ROW_H = 20;
+    const FEED_HDR_H = 32;
+
+    interface EventRow {
+        id: number;
+        kind: 'attr' | 'status';
+        nodeId: string;
+        endpointId?: number;
+        clusterName?: string;
+        attrName?: string;
+        value?: unknown;
+        online?: boolean;
+        ts: number;
+    }
+
+    let _evtSeq = 0;
+    let feed = $state<EventRow[]>([]);
+    let feedOpen = $state(true);
+    let feedHeight = $state(180);
+
+    let feedSlice = $derived.by(() => {
+        const max = Math.max(1, Math.floor((feedHeight - FEED_HDR_H) / FEED_ROW_H) + 1);
+        return feed.slice(0, max);
+    });
+
+    function startResize(e: MouseEvent) {
+        e.preventDefault();
+        const startY = e.clientY;
+        const startH = feedHeight;
+        function onMove(ev: MouseEvent) { feedHeight = Math.max(60, Math.min(600, startH + startY - ev.clientY)); }
+        function onUp() { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    }
     let selected: MatterNodeDetail | null = $state(null);
     let loading = $state(false);
     let error: string | null = $state(null);
@@ -28,6 +322,12 @@
     async function loadDevices() {
         try {
             devices = await listMatterDevices();
+            // Pre-fetch details for all paired nodes so the event feed can show friendly names.
+            for (const d of devices) {
+                getMatterDevice(d.nodeId)
+                    .then((detail) => { nodeDetails.set(d.nodeId, detail); })
+                    .catch(() => { /* offline or controller not running — skip */ });
+            }
         } catch {
             /* matter controller may not be running */
             devices = [];
@@ -39,6 +339,7 @@
         error = null;
         try {
             selected = await getMatterDevice(nodeId);
+            nodeDetails.set(nodeId, selected); // keep cache up-to-date
         } catch (e: unknown) {
             error = e instanceof Error ? e.message : String(e);
         } finally {
@@ -85,19 +386,69 @@
 
     onMount(() => {
         loadDevices();
-        // Subscribe to WebSocket events that update device list or status
-        const unsub = subscribeWs((msg: { type: string; devices?: MatterDevice[]; nodeId?: string; online?: boolean }) => {
-            if (msg.type === 'matter:deviceList' && Array.isArray(msg.devices)) {
-                devices = msg.devices;
-            } else if (msg.type === 'matter:deviceStatus' && msg.nodeId !== undefined) {
-                devices = devices.map((d) => (d.nodeId === msg.nodeId ? { ...d, online: msg.online ?? false } : d));
-            }
-        });
-        return unsub;
     });
+
+    // Subscribe to WS events — split by type so each handler only fires for its message.
+    // The previous single-callback form passed a function as the `type` arg (a bug) and
+    // never received any messages; these per-type subscriptions fix that.
+    const unsubList   = subscribeWs('matter:deviceList', (msg) => {
+        if (!Array.isArray(msg.devices)) return;
+        const updated = msg.devices as MatterDevice[];
+        // Fetch details for any newly appeared nodes
+        for (const d of updated) {
+            if (!nodeDetails.has(d.nodeId)) {
+                getMatterDevice(d.nodeId)
+                    .then((detail) => { nodeDetails.set(d.nodeId, detail); })
+                    .catch(() => {});
+            }
+        }
+        devices = updated;
+    });
+    const unsubStatus = subscribeWs('matter:deviceStatus', (msg) => {
+        if (msg.nodeId === undefined) return;
+        const nodeId = String(msg.nodeId);
+        const online = Boolean(msg.online);
+        devices = devices.map((d) => (d.nodeId === nodeId ? { ...d, online } : d));
+        feed = [{ id: _evtSeq++, kind: 'status', nodeId, online, ts: Date.now() }, ...feed.slice(0, FEED_MAX - 1)];
+    });
+    const unsubAttr   = subscribeWs('matter:attr', (msg) => {
+        const nodeId     = String(msg.nodeId);
+        const endpointId = msg.endpointId as number;
+        const clusterName = String(msg.clusterName);
+        const attrName   = String(msg.attrName);
+        const value      = msg.value;
+
+        // Update the live table for the currently selected node.
+        if (selected && selected.nodeId === nodeId) {
+            const ep = selected.endpoints.find((e) => e.endpointId === endpointId);
+            const cl = ep?.clusters.find((c) => c.name === clusterName);
+            if (cl) cl.attrs[attrName] = value;
+        }
+        // Also keep the nodeDetails cache in sync (used for the event feed name lookups).
+        const cached = nodeDetails.get(nodeId);
+        if (cached) {
+            const ep = cached.endpoints.find((e) => e.endpointId === endpointId);
+            const cl = ep?.clusters.find((c) => c.name === clusterName);
+            if (cl) cl.attrs[attrName] = value;
+        }
+
+        feed = [{
+            id: _evtSeq++,
+            kind: 'attr',
+            nodeId,
+            endpointId,
+            clusterName,
+            attrName,
+            value,
+            ts: (msg.ts as number) ?? Date.now(),
+        }, ...feed.slice(0, FEED_MAX - 1)];
+    });
+
+    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); });
 </script>
 
 <div class="matter-page">
+    <div class="matter-main">
     <div class="sidebar">
         <div class="sidebar-header">
             <span class="sidebar-title">Matter Devices</span>
@@ -182,20 +533,150 @@
                 <p class="detail-nodeid">Node ID: {selected.nodeId}</p>
             </div>
             {#each selected.endpoints as ep (ep.endpointId)}
-                <details open>
+                <details>
                     <summary>
                         {ep.name ?? `Endpoint ${ep.endpointId}`}
                         <span class="ep-id">ep{ep.endpointId}</span>
+                        <span class="ep-chips">
+                            {#each ep.clusters as cluster}
+                                <span class="ep-chip">{cluster.name}</span>
+                            {/each}
+                        </span>
                     </summary>
-                    <ul class="cluster-list">
-                        {#each ep.clusters as cluster}
-                            <li>{cluster}</li>
-                        {/each}
-                    </ul>
+                    {#if ep.clusters.length > 0}
+                        <table class="cluster-table">
+                            <colgroup>
+                                <col class="col-attr-name">
+                                <col class="col-attr-actions">
+                                <col class="col-attr-val">
+                            </colgroup>
+                            <tbody>
+                                {#each ep.clusters as cluster}
+                                    <tr class="cluster-hdr-row">
+                                        <td colspan="3" class="cluster-hdr-cell">{cluster.name}</td>
+                                    </tr>
+                                    {#each Object.entries(cluster.attrs) as [k, v]}
+                                        {#if !isHidden(v, k)}
+                                            {@const actions = ATTR_ACTIONS[cluster.name]?.[k]}
+                                            {@const isCmdList = (k === 'acceptedCommandList' || k === 'generatedCommandList') && Array.isArray(v)}
+                                            {@const attrId = CLUSTER_ATTRS[cluster.name]?.[k] ?? GLOBAL_ATTRS[k]}
+                                            <tr>
+                                                <td class="attr-name-cell" title={k}>
+                                                    <span class="attr-key">{k}</span>{#if attrId !== undefined}<span class="attr-id"> ({fmtHex(attrId)})</span>{/if}
+                                                </td>
+                                                <td class="attr-actions-cell">
+                                                    {#if actions}
+                                                        <div class="attr-actions">
+                                                            {#each actions as act}
+                                                                <button class="attr-action-btn" onclick={() => sendCmd(selected!.nodeId, ep.endpointId, cluster.name, act.command, act.args)}>{act.label}</button>
+                                                            {/each}
+                                                        </div>
+                                                    {/if}
+                                                </td>
+                                                <td class="attr-val-cell">
+                                                    {#if isCmdList}
+                                                        <span class="cmd-list">
+                                                            {#each fmtCmdList(cluster.name, v as unknown[]) as cmd, i}
+                                                                {#if i > 0}<span class="cmd-sep">, </span>{/if}
+                                                                {#if cmd.name}<span class="cmd-name">{cmd.name}</span><span class="cmd-id"> ({cmd.id})</span>{:else}<span class="cmd-id">{cmd.id}</span>{/if}
+                                                            {/each}
+                                                        </span>
+                                                    {:else if k === 'deviceTypeList' && Array.isArray(v)}
+                                                        <table class="attr-arr-table">
+                                                            <thead><tr><th>deviceType</th><th>revision</th></tr></thead>
+                                                            <tbody>
+                                                                {#each v as dtRow}
+                                                                    {@const dtItem = dtRow as Record<string, unknown>}
+                                                                    {@const dtId = dtItem.deviceType as number}
+                                                                    {@const dtName = DEVICE_TYPES[dtId]}
+                                                                    <tr>
+                                                                        <td>{#if dtName}{dtName} <span class="cmd-id">({fmtHex(dtId)})</span>{:else}{fmtHex(dtId)}{/if}</td>
+                                                                        <td>{fmtScalar(dtItem.revision)}</td>
+                                                                    </tr>
+                                                                {/each}
+                                                            </tbody>
+                                                        </table>
+                                                    {:else if isArrOfObj(v)}
+                                                        {@const cols = [...new Set((v as Record<string, unknown>[]).flatMap((item) => Object.keys(item)))]}
+                                                        <table class="attr-arr-table">
+                                                            <thead><tr>{#each cols as col}<th>{col}</th>{/each}</tr></thead>
+                                                            <tbody>
+                                                                {#each v as item}
+                                                                    <tr>{#each cols as col}<td>{fmtScalar((item as Record<string, unknown>)[col])}</td>{/each}</tr>
+                                                                {/each}
+                                                            </tbody>
+                                                        </table>
+                                                    {:else if isPlainObj(v)}
+                                                        <table class="attr-obj-table">
+                                                            {#each Object.entries(v) as [ok, ov]}
+                                                                <tr>
+                                                                    <td class="attr-obj-key">{ok}</td>
+                                                                    <td class="attr-obj-val">{fmtScalar(ov)}</td>
+                                                                </tr>
+                                                            {/each}
+                                                        </table>
+                                                    {:else if (k === 'productUrl' || k === 'productURL') && typeof v === 'string'}
+                                                        <a class="attr-link" href={v} target="_blank" rel="noopener noreferrer">{v}</a>
+                                                    {:else}
+                                                        <span class="attr-val">{fmtScalar(v)}</span>
+                                                    {/if}
+                                                </td>
+                                            </tr>
+                                        {/if}
+                                    {/each}
+                                {/each}
+                            </tbody>
+                        </table>
+                    {:else}
+                        <p class="no-clusters">No clusters</p>
+                    {/if}
                 </details>
             {/each}
         {:else}
             <p class="info">Select a device to view its endpoints.</p>
+        {/if}
+    </div>
+    </div><!-- /.matter-main -->
+
+    <!-- Matter Events feed -->
+    <div class="stream-panel" style={feedOpen ? `height: ${feedHeight}px;` : ''}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="stream-resize" onmousedown={startResize}></div>
+        <div class="stream-hdr-row">
+            <span class="stream-title">Matter Events</span>
+            {#if !feedOpen && feed.length > 0}
+                <span class="stream-badge">{feed.length}</span>
+            {/if}
+            <button class="stream-toggle" onclick={() => { feedOpen = !feedOpen; }} title="Toggle event feed">
+                {feedOpen ? '▾' : '▸'}
+            </button>
+        </div>
+        {#if feedOpen}
+            <div class="stream-body">
+                {#if feedSlice.length === 0}
+                    <span class="stream-empty">Waiting for events…</span>
+                {:else}
+                    {#each feedSlice as row (row.id)}
+                        {@const dname = nodeDetails.get(row.nodeId)?.name ?? devices.find((d) => d.nodeId === row.nodeId)?.name ?? null}
+                        {@const epname = row.endpointId !== undefined ? (nodeDetails.get(row.nodeId)?.endpoints.find((e) => e.endpointId === row.endpointId)?.name ?? null) : null}
+                        {@const attrLabel = row.clusterName && row.attrName && row.clusterName !== row.attrName ? `${row.clusterName}.${row.attrName}` : (row.attrName ?? row.clusterName)}
+                        <div class="er">
+                            <span class="e-ts">{fmtTime(row.ts)}</span>
+                            {#if row.kind === 'status'}
+                                <span class="e-badge e-badge-status">status</span>
+                                <span class="e-node">{dname ?? `#${row.nodeId}`}{#if dname}&nbsp;<span class="e-sub">(#{row.nodeId})</span>{/if}</span>
+                                <span class="e-val" class:e-online={row.online} class:e-offline={!row.online}>{row.online ? 'online' : 'offline'}</span>
+                            {:else}
+                                <span class="e-badge e-badge-attr">attr</span>
+                                <span class="e-node">{dname ?? `#${row.nodeId}`}{#if dname}&nbsp;<span class="e-sub">(#{row.nodeId})</span>{/if}</span>
+                                <span class="e-ep">{epname ?? `ep${row.endpointId}`}{#if epname}&nbsp;<span class="e-sub">(ep {row.endpointId})</span>{/if}</span>
+                                <span class="e-attr">{attrLabel}</span>
+                                <span class="e-val">{fmtVal(row.value)}</span>
+                            {/if}
+                        </div>
+                    {/each}
+                {/if}
+            </div>
         {/if}
     </div>
 </div>
@@ -203,9 +684,15 @@
 <style>
     .matter-page {
         display: flex;
+        flex-direction: column;
         height: 100%;
         color: var(--fg);
         font-size: 13px;
+    }
+    .matter-main {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
     }
 
     /* Sidebar */
@@ -446,22 +933,171 @@
         color: var(--fg-dim);
         font-weight: normal;
     }
-    .cluster-list {
-        list-style: none;
-        margin: 0;
-        padding: 4px 10px 8px;
+    .ep-chips {
         display: flex;
         flex-wrap: wrap;
-        gap: 4px;
+        gap: 3px;
+        margin-left: 4px;
+        flex: 1;
+        overflow: hidden;
     }
-    .cluster-list li {
+    details[open] .ep-chips { display: none; }
+    .ep-chip {
         background: var(--bg-widget);
         border: 1px solid var(--border);
         border-radius: 3px;
+        padding: 0 5px;
+        font-family: monospace;
+        font-size: 10px;
+        font-weight: normal;
+        color: #ce9178;
+        white-space: nowrap;
+        line-height: 16px;
+    }
+    .cluster-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+        margin: 0;
+        table-layout: fixed;
+    }
+    .col-attr-name    { width: 200px; }
+    .col-attr-actions { width: 110px; }
+    .cluster-table tbody tr {
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .cluster-table tbody tr:last-child {
+        border-bottom: none;
+    }
+    .cluster-hdr-row {
+        background: var(--bg-hover);
+    }
+    .cluster-hdr-cell {
+        padding: 3px 10px;
+        font-family: monospace;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        color: #ce9178;
+        text-transform: none;
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .attr-name-cell {
+        padding: 3px 6px 3px 18px;
+        white-space: nowrap;
+        vertical-align: middle;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .attr-actions-cell {
         padding: 2px 6px;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+    .attr-val-cell {
+        padding: 3px 10px 3px 6px;
+        vertical-align: middle;
+    }
+    .attr-key {
+        color: var(--fg-muted);
+        font-family: monospace;
+    }
+    .attr-id {
+        color: var(--fg-dim);
+        font-family: monospace;
+        font-size: 10px;
+    }
+    .attr-actions {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 3px;
+    }
+    .attr-action-btn {
+        padding: 1px 6px;
+        font-size: 10px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        background: var(--bg-input, #2a2a2a);
+        color: var(--fg);
+        cursor: pointer;
+        line-height: 1.4;
+    }
+    .attr-action-btn:hover {
+        background: var(--bg-active);
+    }
+    .attr-action-btn:active {
+        opacity: 0.7;
+    }
+    .attr-val {
+        color: var(--fg-value);
+        font-family: monospace;
+        word-break: break-all;
+    }
+    .attr-link {
+        color: var(--fg-link, #4ec9b0);
+        font-family: monospace;
+        word-break: break-all;
+        text-decoration: none;
+    }
+    .attr-link:hover {
+        text-decoration: underline;
+    }
+    .attr-obj-table {
+        border-collapse: collapse;
+        font-size: 11px;
+        font-family: monospace;
+    }
+    .attr-arr-table {
+        border-collapse: collapse;
+        font-size: 11px;
+        font-family: monospace;
+    }
+    .attr-arr-table thead th {
+        color: var(--fg-muted);
+        font-weight: 600;
+        font-size: 10px;
+        padding: 0 10px 2px 0;
+        text-align: left;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .attr-arr-table tbody td {
+        color: var(--fg-value);
+        padding: 1px 10px 1px 0;
+        vertical-align: baseline;
+        white-space: nowrap;
+    }
+    .attr-obj-key {
+        color: var(--fg-muted);
+        padding: 0 8px 0 0;
+        white-space: nowrap;
+        vertical-align: baseline;
+    }
+    .attr-obj-val {
+        color: var(--fg-value);
+        word-break: break-all;
+        vertical-align: baseline;
+    }
+    .cmd-list {
         font-family: monospace;
         font-size: 11px;
-        color: #ce9178;
+    }
+    .cmd-name {
+        color: var(--fg-value);
+    }
+    .cmd-id {
+        color: var(--fg-dim);
+        font-size: 10px;
+    }
+    .cmd-sep {
+        color: var(--fg-dim);
+    }
+    .no-clusters {
+        margin: 0;
+        padding: 6px 10px;
+        font-style: italic;
+        color: var(--fg-dim);
+        font-size: 11px;
     }
     .info {
         color: var(--fg-dim);
@@ -470,4 +1106,98 @@
     .err {
         color: var(--fg-err);
     }
+
+    /* ── Matter Events stream pane ── */
+    .stream-panel {
+        flex-shrink: 0;
+        border-top: 1px solid var(--border);
+        background: var(--bg-panel);
+        display: flex;
+        flex-direction: column;
+        min-height: 28px;
+    }
+    .stream-resize {
+        height: 5px;
+        margin-top: -3px;
+        cursor: ns-resize;
+        flex-shrink: 0;
+        background: transparent;
+        transition: background 0.15s;
+    }
+    .stream-resize:hover { background: var(--accent); opacity: 0.4; }
+    .stream-hdr-row {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        padding: 4px 8px 4px 12px;
+        gap: 6px;
+        border-bottom: 1px solid var(--border-sub);
+        min-height: 28px;
+    }
+    .stream-title {
+        flex: 1;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--fg-muted);
+    }
+    .stream-badge {
+        font-size: 10px;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 8px;
+        padding: 0 5px;
+        line-height: 16px;
+    }
+    .stream-toggle {
+        background: none;
+        border: none;
+        color: var(--fg-dim);
+        cursor: pointer;
+        padding: 2px 6px;
+        font-size: 11px;
+        border-radius: 3px;
+        flex-shrink: 0;
+    }
+    .stream-toggle:hover { background: var(--bg-hover); color: var(--fg); }
+    .stream-body {
+        overflow: hidden;
+        flex: 1;
+        font-size: 12px;
+        font-family: monospace;
+    }
+    .stream-empty { padding: 4px 12px; color: var(--fg-dim); font-style: italic; }
+    .er {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 20px;
+        padding: 0 12px;
+    }
+    .er:hover { background: var(--bg-hover); }
+    .e-ts { color: var(--fg-dim); font-size: 11px; flex-shrink: 0; width: 64px; }
+    .e-badge {
+        font-size: 10px;
+        border-radius: 3px;
+        padding: 0 4px;
+        flex-shrink: 0;
+        line-height: 16px;
+    }
+    .e-badge-attr   { background: #1e3a5f; color: #79b8ff; }
+    .e-badge-status { background: #2d3b1e; color: #98c379; }
+    .e-node  { color: var(--fg-muted); flex-shrink: 0; }
+    .e-ep    { color: var(--fg-dim); flex-shrink: 0; }
+    .e-cluster { color: #ce9178; flex-shrink: 0; }
+    .e-attr  { color: var(--fg-value); flex-shrink: 0; }
+    .e-sub   { color: var(--fg-dim); font-size: 10px; }
+    .e-val {
+        color: var(--fg);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+    }
+    .e-online  { color: var(--fg-ok); }
+    .e-offline { color: var(--fg-err); }
 </style>

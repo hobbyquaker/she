@@ -10,9 +10,10 @@
         currentScript?: AiCurrentScript | null;
         onApply?: (code: string) => void;
         onCreateFile?: (suggestedName: string, code: string) => void;
+        extraFiles?: AiExtraFile[];
     }
 
-    let { currentScript = null, onApply, onCreateFile }: Props = $props();
+    let { currentScript = null, onApply, onCreateFile, extraFiles = $bindable<AiExtraFile[]>([]) }: Props = $props();
 
     // ── State ────────────────────────────────────────────────────────────────
     let messages = $state<AiMessage[]>([]);
@@ -76,7 +77,6 @@
 
     // File context chips
     let includeCurrentScript = $state(true);
-    let uploadedFiles = $state<AiExtraFile[]>([]);
     let isDragOver = $state(false);
     let fileInputEl: HTMLInputElement;
 
@@ -171,7 +171,7 @@
     $effect(() => {
         const ctx = context;
         const script = activeScript;
-        const files = uploadedFiles;
+        const files = extraFiles;
         if (!configured) return;
         getAiPrompt({ context: ctx, currentScript: script ?? null, extraFiles: files.length > 0 ? files : undefined })
             .then(res => { promptBytes = new TextEncoder().encode(res.prompt).length; })
@@ -316,7 +316,7 @@
     }
 
     function removeUpload(idx: number) {
-        uploadedFiles = uploadedFiles.filter((_, i) => i !== idx);
+        extraFiles = extraFiles.filter((_, i) => i !== idx);
     }
 
     function openFilePicker() {
@@ -327,7 +327,7 @@
         if (!files || files.length === 0) return;
         for (const file of Array.from(files)) {
             const content = await file.text();
-            uploadedFiles = [...uploadedFiles, { name: file.name, content }];
+            extraFiles = [...extraFiles, { name: file.name, content }];
         }
     }
 
@@ -371,7 +371,7 @@
 
         try {
             await streamChatWithAI(
-                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, extraFiles: uploadedFiles.length > 0 ? uploadedFiles : undefined },
+                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
                 (event) => { toolEvents = [...toolEvents, event]; },
@@ -610,7 +610,7 @@
                 </button>
             </span>
         {/if}
-        {#each uploadedFiles as f, i}
+        {#each extraFiles as f, i}
             {@const ext = fileExt(f.name)}
             <span class="file-chip">
                 <span class="badge badge-{ext.toLowerCase()}">{fileBadgeContent(ext)}</span>
@@ -632,7 +632,7 @@
                 bind:this={inputEl}
                 bind:value={input}
                 onkeydown={handleKeydown}
-                placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline)' : 'AI not configured'}
+                placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline, drag & drop files to add context)' : 'AI not configured'}
                 rows="3"
                 disabled={loading || !configured}
             ></textarea>

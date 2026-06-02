@@ -212,6 +212,7 @@ require('./web/ai-api').init(store);
 // MQTT message rate counter — reset on each stats poll
 let _mqttMsgCount = 0;
 let _mqttMsgTs = Date.now();
+let _prevCpuUsage = process.cpuUsage();
 
 // Register runtime stats provider for GET /she/status
 require('./web/server').setStatsProvider(() => {
@@ -223,6 +224,14 @@ require('./web/server').setStatsProvider(() => {
     const mqttMsgPerSec = elapsed > 0 ? Math.round((_mqttMsgCount / elapsed) * 10) / 10 : 0;
     _mqttMsgCount = 0;
     _mqttMsgTs = now;
+    const cpuDelta = process.cpuUsage(_prevCpuUsage);
+    _prevCpuUsage = process.cpuUsage();
+    const cpuPercent = elapsed > 0 ? Math.round(((cpuDelta.user + cpuDelta.system) / 1000 / (elapsed * 1000)) * 1000) / 10 : 0;
+    const mem = process.memoryUsage();
+    const memMb = Math.round(mem.rss / 1048576);
+    const core = shedb.getCore();
+    const dbDocs = core ? Object.keys(core.docs).length : null;
+    const dbViews = core ? Object.keys(core.queries).length : null;
     let matterNodes = 0;
     let matterEndpoints = 0;
     if (config.matterStorage) {
@@ -242,6 +251,12 @@ require('./web/server').setStatsProvider(() => {
         matterEnabled: !!config.matterStorage,
         matterNodes,
         matterEndpoints,
+        dbEnabled: !!config.dbPath,
+        dbDocs,
+        dbViews,
+        handlers: subscriptions.length + varSubscriptions.length + mqttEventCallbacks.length,
+        memMb,
+        cpuPercent,
     };
 });
 

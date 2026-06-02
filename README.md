@@ -3,18 +3,21 @@
 [![License][mit-badge]][mit-url]
 
 > [!WARNING]
-> **This project is under heavy development and many features are not working yet.** The API is changing frequently and there are no stability guarantees yet.
+> **This project is under heavy development.** The API is changing frequently and there are no stability guarantees yet.
 
 Your home, your rules - written in plain JavaScript.
 
 **she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl, no opinionated bloated schemata. Just scripts that do exactly what you (if you want: with the help of the integrated AI assisstant) tell them.
 
-- **Scripts** — Monaco-based Script IDE, AI assistant, git integration, autocompletion, ...
+- **Scripts** — Monaco-based Script IDE, AI assistant, git integration, autocompletion, hot-reload without process restart
 - **MQTT** — subscribe, publish, react to state changes with wildcards, conditions, and delays
-- **Matter** — pair and control Matter devices directly from your scripts
-- **sheDB** — a lightweight document store with map/reduce views, right in the daemon
+- **Matter** — control Matter devices directly from your scripts
+- **sheDB** — lightweight document store with map/reduce views, right in the daemon
 - **Scheduler** — cron expressions and solar events (`sunrise`, `sunset`, …) in one call
-- **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB-Frontend, log viewer
+- **Script HTTP routes** — scripts can register their own REST endpoints under `/api/<scriptName>/`
+- **`require()`** — load npm packages from `~/.she/node_modules/` or relative files inside scripts
+- Supports **InfluxDB**, **Elasticsearch** and **Redis** — convenience methods for time series, full text indexing, shared states across multiple she instances
+- **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer
 
 ## Motivation
 
@@ -40,6 +43,7 @@ The goal is simple: a smart home that remains understandable years later. No mig
 | [HTTP API](doc/http-api.md) | REST endpoints and WebSocket |
 | [sheDB](doc/db/README.md) | Embedded document store — script API, views, examples |
 | [Examples](doc/examples.md) | Real-world script patterns |
+| [Screenshots](doc/screenshots.md) | Web UI screenshots |
 
 ## Quick look
 
@@ -47,13 +51,13 @@ The goal is simple: a smart home that remains understandable years later. No mig
 // lights.js
 
 // Follow a motion sensor
-she.mqtt.sub('home//hall/motion', { change: true }, (topic, val) => {
-    she.mqtt.set('home//hall/light', val ? 1 : 0);
+she.mqtt.sub('home/hall/motion', { change: true }, (topic, val) => {
+    she.mqtt.set('home/hall/light', val);
 });
 
 // Solar schedule — no hardcoded times
-she.schedule('sunset',  () => she.mqtt.set('home//lights/outdoor', 1));
-she.schedule('sunrise', () => she.mqtt.set('home//lights/outdoor', 0));
+she.schedule('sunset',  () => she.mqtt.set('home/lights/outdoor', 1));
+she.schedule('sunrise', () => she.mqtt.set('home/lights/outdoor', 0));
 
 // Keep device metadata in sheDB
 she.db.set('hall/motion', { name: 'Hall PIR', location: 'hall' });
@@ -66,7 +70,7 @@ npm install -g smart-home-engine
 she
 ```
 
-Then open **http://localhost:8080** and start writing.
+Then open **http://localhost:8080** and start creating scripts
 
 ## License
 

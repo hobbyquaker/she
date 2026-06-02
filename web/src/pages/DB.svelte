@@ -11,6 +11,7 @@
         putView,
         deleteView,
         getViewResult,
+        getConfig,
         type ViewDefinition,
         type ViewResult,
     } from '../lib/api.js';
@@ -35,6 +36,9 @@
     let viewResult: ViewResult | null = $state(null);
     let viewLoading = $state(false);
     let viewError: string | null = $state(null);
+
+    // dbPrefix from daemon config (e.g. "she/db/")
+    let dbViewPrefix = $state('she/db/view/');
 
     // ---- Tabs inside DB panel ----
     let panel: 'docs' | 'views' = $state('docs');
@@ -266,6 +270,11 @@
     onMount(() => {
         loadDocs();
         loadViews();
+        getConfig().then((cfg) => {
+            const raw = (cfg.dbPrefix as string | undefined) || 'she/db/';
+            const prefix = raw.endsWith('/') ? raw : raw + '/';
+            dbViewPrefix = prefix + 'view/';
+        }).catch(() => {});
 
         const unsubIds = subscribeWs('db:ids', (msg) => {
             docIds = (msg.ids as string[]) ?? [];
@@ -425,11 +434,11 @@
                             <div class="view-section">
                                 <div class="section-title">Filter <span class="section-hint">— MQTT wildcard, optional</span></div>
                                 <div class="section-body">
-                                    <input class="filter-input" bind:value={viewFilter} placeholder="devices/#" />
+                                    <input class="filter-input" bind:value={viewFilter} placeholder="#" />
                                 </div>
                             </div>
                             <div class="view-section">
-                                <div class="section-title">Map <span class="section-hint">— <code>this</code> = document &nbsp;·&nbsp; call <code>emit(value)</code> to include in result</span></div>
+                                <div class="section-title">Map <span class="section-hint">— <code>this</code> = document &nbsp;·&nbsp; call <code>emit(this)</code> to include in result</span></div>
                                 <div class="monaco-view-wrap monaco-view-wrap--map">
                                     <MonacoEditor bind:value={viewMap} language="javascript" />
                                 </div>
@@ -445,7 +454,7 @@
                                     <input type="checkbox" bind:checked={viewMqttPub} />
                                     <span class="checkmark"></span>
                                     Publish to MQTT
-                                    <span class="section-hint">— result published to <code>{selectedViewId}</code> topic under <code>/db/view/</code> on every update</span>
+                                    <span class="section-hint">— publish view to MQTT topic <code>{dbViewPrefix}{selectedViewId} on every update</code></span>
                                 </label>
                                 {#if viewMqttPub}
                                 <label class="opt-check">
@@ -742,7 +751,8 @@
     }
 
     .monaco-view-wrap {
-        overflow: hidden;
+        overflow: auto;
+        resize: vertical;
     }
     .monaco-view-wrap--map    { height: 240px; }
     .monaco-view-wrap--reduce { height: 160px; }

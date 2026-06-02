@@ -138,7 +138,7 @@
                     {#each filteredInstalled as dep (dep.name)}
                         <div class="dep-row" class:dep-busy={!!busy[dep.name]}>
                             <div class="dep-info">
-                                <span class="dep-name">{dep.name}</span>
+                                <a class="dep-name" href={dep.url ?? `https://www.npmjs.com/package/${dep.name}`} target="_blank" rel="noopener noreferrer">{dep.name}</a>
                                 <span class="dep-ver">{dep.version}</span>
                             </div>
                             <div class="dep-btns">
@@ -151,7 +151,7 @@
                                     {#if busy[dep.name]}
                                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6" stroke-dasharray="18" stroke-dashoffset="4" /></svg>
                                     {:else}
-                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.65 2.35A8 8 0 1 0 15 8"/><polyline points="15,2 15,8 9,8"/></svg>
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8A5 5 0 1 1 10.5 3.67"/><polyline points="10.5,1.5 10.5,4 13,4"/></svg>
                                     {/if}
                                 </button>
                                 <button
@@ -192,7 +192,7 @@
                     {#each searchResults as r (r.name)}
                         <div class="result-row">
                             <div class="result-info">
-                                <span class="result-name">{r.name}</span>
+                                <a class="result-name" href={r.url ?? `https://www.npmjs.com/package/${r.name}`} target="_blank" rel="noopener noreferrer">{r.name}</a>
                                 <span class="result-ver">{r.version}</span>
                                 {#if r.description}
                                     <span class="result-desc">{r.description}</span>
@@ -336,7 +336,9 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        text-decoration: none;
     }
+    .dep-name:hover { text-decoration: underline; }
     .dep-ver {
         font-family: monospace;
         font-size: 10px;
@@ -425,7 +427,8 @@
         gap: 8px;
         flex-wrap: wrap;
     }
-    .result-name { font-family: monospace; font-size: 12px; color: var(--fg-value); white-space: nowrap; }
+    .result-name { font-family: monospace; font-size: 12px; color: var(--fg-value); white-space: nowrap; text-decoration: none; }
+    .result-name:hover { text-decoration: underline; }
     .result-ver  { font-family: monospace; font-size: 11px; color: var(--fg-muted); white-space: nowrap; }
     .result-desc { font-size: 11px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .install-btn {

@@ -27,7 +27,8 @@ const TOOL_DEFINITIONS = [
             description:
                 'Search for MQTT topics currently tracked by the she daemon. ' +
                 'Returns matching topic names and their current values. ' +
-                'Use this to discover real topic names before writing scripts.',
+                'Use this to discover real topic names before writing scripts. ' +
+                'Homematic related topics (under the topic tree hm/) end with STATE for switching actuators and with LEVEL for dimmers.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -44,9 +45,7 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'read_script',
-            description:
-                'Read the content of a script file from the she scripts directory. ' +
-                'Use this to review existing scripts before suggesting changes.',
+            description: 'Read the content of a script file from the she scripts directory. ' + 'Use this to review existing scripts before suggesting changes.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -63,9 +62,7 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'get_script_logs',
-            description:
-                'Retrieve recent log messages from the she daemon. ' +
-                'Filter by script name to diagnose errors or trace what a specific script has been doing.',
+            description: 'Retrieve recent log messages from the she daemon. ' + 'Filter by script name to diagnose errors or trace what a specific script has been doing.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -107,8 +104,7 @@ const TOOL_DEFINITIONS = [
         function: {
             name: 'get_mqtt_topic',
             description:
-                'Get the current value and timestamps of a specific MQTT topic from the she state store. ' +
-                'Use this when you need the exact current state of a known topic.',
+                'Get the current value and timestamps of a specific MQTT topic from the she state store. ' + 'Use this when you need the exact current state of a known topic.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -125,9 +121,7 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'list_shedb_docs',
-            description:
-                'List document IDs in the sheDB document store. ' +
-                'Use this to discover what documents exist before fetching their content.',
+            description: 'List document IDs in the sheDB document store. ' + 'Use this to discover what documents exist before fetching their content.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -144,9 +138,7 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'get_shedb_doc',
-            description:
-                'Retrieve a specific document from the sheDB document store by its ID. ' +
-                'Use list_shedb_docs first to discover valid IDs.',
+            description: 'Retrieve a specific document from the sheDB document store by its ID. ' + 'Use list_shedb_docs first to discover valid IDs.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -165,7 +157,8 @@ const TOOL_DEFINITIONS = [
             name: 'list_matter_devices',
             description:
                 'List all paired Matter devices with their online status, endpoints and available clusters. ' +
-                'Use this whenever the user asks about a Matter device or smart home hardware.',
+                'Use this whenever the user asks about a Matter device or smart home hardware. ' +
+                'Use node and endpoint friendly names in matter commands.',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -196,15 +189,24 @@ const TOOL_DEFINITIONS_ANTHROPIC = TOOL_DEFINITIONS.map((t) => ({
 async function executeTool(name, args, ctx) {
     try {
         switch (name) {
-            case 'search_mqtt_topics':  return toolSearchMqttTopics(args, ctx.store);
-            case 'get_mqtt_topic':      return toolGetMqttTopic(args, ctx.store);
-            case 'read_script':         return toolReadScript(args, ctx.scriptDir);
-            case 'get_script_logs':     return toolGetScriptLogs(args);
-            case 'she_fetch':           return await toolSheFetch(args);
-            case 'list_shedb_docs':     return toolListShedbDocs(args);
-            case 'get_shedb_doc':       return toolGetShedbDoc(args);
-            case 'list_matter_devices': return toolListMatterDevices();
-            default:                    return `Unknown tool: ${name}`;
+            case 'search_mqtt_topics':
+                return toolSearchMqttTopics(args, ctx.store);
+            case 'get_mqtt_topic':
+                return toolGetMqttTopic(args, ctx.store);
+            case 'read_script':
+                return toolReadScript(args, ctx.scriptDir);
+            case 'get_script_logs':
+                return toolGetScriptLogs(args);
+            case 'she_fetch':
+                return await toolSheFetch(args);
+            case 'list_shedb_docs':
+                return toolListShedbDocs(args);
+            case 'get_shedb_doc':
+                return toolGetShedbDoc(args);
+            case 'list_matter_devices':
+                return toolListMatterDevices();
+            default:
+                return `Unknown tool: ${name}`;
         }
     } catch (e) {
         return `Tool error (${name}): ${e.message}`;
@@ -277,7 +279,12 @@ async function toolSheFetch({ url }) {
     const ct = res.headers.get('content-type') || '';
     const text = await res.text();
     // Strip HTML tags for cleaner text
-    const plain = ct.includes('html') ? text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : text;
+    const plain = ct.includes('html')
+        ? text
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+        : text;
     const truncated = plain.length > MAX_FETCH_CHARS ? plain.slice(0, MAX_FETCH_CHARS) + `\n… (truncated, ${plain.length} chars total)` : plain;
     return `Content of ${url}:\n\n${truncated}`;
 }
@@ -337,7 +344,9 @@ function toolListMatterDevices() {
                     const name = ep.name || String(ep.endpointId);
                     lines.push(`- endpoint "${name}" (id: ${ep.endpointId}): ${ep.clusters.join(', ')}`);
                 }
-            } catch { /* node may be offline */ }
+            } catch {
+                /* node may be offline */
+            }
         }
         return lines.join('\n');
     } catch (e) {

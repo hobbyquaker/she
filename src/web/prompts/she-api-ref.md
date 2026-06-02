@@ -53,6 +53,9 @@ she.db.query(filter, mapFn, [reduceFn])  Synchronous ad-hoc query → Array
 ```
 
 ### Matter
+
+Use names for nodeId, endpointId and cluster, not numbers
+
 ```
 she.matter.sub(nodeId, endpointId, cluster, attr, cb)    Subscribe to attribute
 she.matter.unsub(listenerId)
@@ -70,4 +73,18 @@ she.age(topic)                       Alias for she.mqtt.age
 she.now()                            Current timestamp in ms
 she.debug / .info / .warn / .error   Structured logging (prefixed with script name)
 she.global                           Shared mutable object across all scripts
+she.fetch(url, [opts])               HTTP/HTTPS fetch → Promise<string|object>
+                                       Auto-parses JSON by Content-Type.
+                                       Throws on non-2xx status.
 ```
+
+### Script HTTP API
+Scripts can expose HTTP endpoints under `/api/<scriptName>/`.
+```
+she.api.get(path, handler)           GET /api/<script><path> → handler(req)
+she.api.post(path, handler)          POST /api/<script><path> → handler(req, body)
+she.api.put(path, handler)           PUT /api/<script><path> → handler(req, body)
+she.api.delete(path, handler)        DELETE /api/<script><path> → handler(req)
+```
+req = { params, query, headers }. Return value (or resolved Promise) is JSON-serialised.
+Express path params supported: she.api.get('/items/:id', (req) => ...).

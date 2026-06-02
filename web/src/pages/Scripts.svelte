@@ -13,6 +13,7 @@
         gitPush,
         type GitStatus,
         type TreeEntry,
+        type AiExtraFile,
     } from '../lib/api.js';
     import { subscribeLog, type LogEntry } from '../lib/ws.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
@@ -50,6 +51,13 @@
 
     let scriptErrors = $state<Set<string>>(new Set());
     const scriptHadError = new Set<string>();
+    let chatExtraFiles = $state<AiExtraFile[]>([]);
+    let libTip = $state<{ x: number; y: number } | null>(null);
+    function showLibTip(e: MouseEvent) {
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        libTip = { x: rect.left, y: rect.top };
+    }
+    function hideLibTip() { libTip = null; }
 
     let editorContainer: HTMLDivElement;
     let editor: monaco.editor.IStandaloneCodeEditor;
@@ -457,6 +465,15 @@ declare const she: {
         await loadTree();
     }
 
+    async function ctxAddToAiContext(entry: TreeEntry) {
+        closeCtxMenu();
+        const { content } = await readScript(entry.path);
+        if (!chatExtraFiles.some(f => f.name === entry.name)) {
+            chatExtraFiles = [...chatExtraFiles, { name: entry.name, content }];
+        }
+        chatOpen = true;
+    }
+
     // ── Drag-drop ─────────────────────────────────────────────────────────────
     function onDragStart(e: DragEvent, path: string) {
         dragSrc = path;
@@ -721,10 +738,17 @@ declare const she: {
         {:else}
             <button onclick={() => openTab(ctxMenu!.entry.path)}>Open</button>
             <button onclick={() => ctxRename(ctxMenu!.entry)}>Rename…</button>
+            <button onclick={() => ctxAddToAiContext(ctxMenu!.entry)}>Add to AI context</button>
             <hr/>
             <button class="danger" onclick={() => ctxDelete(ctxMenu!.entry)}>Delete</button>
         {/if}
     </div>
+{/if}
+
+{#if libTip}
+<div class="lib-tip-float" style:left="{libTip.x}px" style:top="{libTip.y - 4}px">
+    Library directory — files here are not auto-loaded as scripts
+</div>
 {/if}
 
 <div class="layout">
@@ -764,7 +788,8 @@ declare const she: {
                         >{entry.name}</span>
                         <label class="lib-label">
                             <input type="checkbox" checked={entry.lib} onchange={() => toggleLib(entry.path, !entry.lib)} />
-                            lib<span class="lib-info" title="Library directory — files here are not auto-loaded as scripts">ⓘ</span>
+                            <span class="lib-checkmark"></span>
+                            <span class="lib-tip" onmouseenter={showLibTip} onmouseleave={hideLibTip}>lib</span>
                         </label>
                     </div>
                     {#if expandedDirs[entry.path] && entry.children}
@@ -968,7 +993,7 @@ declare const she: {
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <div class="chat-resize-handle" role="separator" onmousedown={onChatResizeStart}></div>
                 <div class="chat-container" style:width="{chatWidth}px">
-                    <Chat currentScript={chatScript} {onApply} {onCreateFile} />
+                    <Chat currentScript={chatScript} {onApply} {onCreateFile} bind:extraFiles={chatExtraFiles} />
                 </div>
             {/if}
         </div>
@@ -1014,8 +1039,29 @@ declare const she: {
         display: flex; align-items: center; gap: 3px; color: var(--fg-muted);
         font-size: 10px; cursor: pointer; flex-shrink: 0; user-select: none;
     }
-    .lib-label input[type='checkbox'] { accent-color: var(--fg-brand); width: 10px; height: 10px; cursor: pointer; }
-    .lib-info { font-size: 9px; color: var(--fg-dim); cursor: default; }
+    .lib-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .lib-checkmark {
+        flex-shrink: 0; width: 10px; height: 10px;
+        border: 1.5px solid var(--border); border-radius: 2px;
+        background: var(--bg-input); position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .lib-label input:checked + .lib-checkmark { background: var(--accent); border-color: var(--accent); }
+    .lib-label input:checked + .lib-checkmark::after {
+        content: ''; position: absolute;
+        left: 2px; top: 0; width: 3px; height: 6px;
+        border: 1.5px solid #fff; border-top: none; border-left: none;
+        transform: rotate(45deg);
+    }
+    .lib-label:hover .lib-checkmark { border-color: var(--accent); }
+    .lib-tip { cursor: default; }
+    .lib-tip-float {
+        position: fixed;
+        transform: translateY(-100%);
+        background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px;
+        padding: 5px 8px; font-size: 11px; color: var(--fg);
+        width: 200px; line-height: 1.4; z-index: 200; white-space: normal; pointer-events: none;
+    }
 
     .tree-file button {
         display: flex; align-items: center; gap: 5px; width: 100%; text-align: left;

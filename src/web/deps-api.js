@@ -56,7 +56,28 @@ function isValidVersion(v) {
 router.get('/', (req, res) => {
     const pkg = readPackageJson();
     const deps = pkg.dependencies || {};
-    res.json(Object.entries(deps).map(([name, version]) => ({ name, version })));
+    res.json(
+        Object.entries(deps).map(([name, version]) => {
+            let url = `https://www.npmjs.com/package/${encodeURIComponent(name)}`;
+            try {
+                const meta = JSON.parse(fs.readFileSync(path.join(STORAGE_ROOT, 'node_modules', name, 'package.json'), 'utf8'));
+                if (meta.homepage && /^https?:\/\//.test(meta.homepage)) {
+                    url = meta.homepage;
+                } else {
+                    let repo = typeof meta.repository === 'object' ? meta.repository.url : meta.repository;
+                    if (typeof repo === 'string' && repo) {
+                        repo = repo.replace(/^git\+/, '').replace(/\.git$/, '').replace(/^git:\/\//, 'https://');
+                        if (/^https?:\/\//.test(repo)) url = repo;
+                        else {
+                            const m = repo.match(/^(?:github:|github\.com[:/])?([\w.-]+\/[\w.-]+)$/);
+                            if (m) url = `https://github.com/${m[1]}`;
+                        }
+                    }
+                }
+            } catch { /* not installed or no metadata */ }
+            return { name, version, url };
+        }),
+    );
 });
 
 // GET /she/deps/search?q=term  — search the npm registry
@@ -77,6 +98,7 @@ router.get('/search', (req, res) => {
                     name: obj.package.name,
                     version: obj.package.version,
                     description: obj.package.description ?? '',
+                    url: obj.package.links?.repository || obj.package.links?.homepage || obj.package.links?.npm || `https://www.npmjs.com/package/${encodeURIComponent(obj.package.name)}`,
                 }));
                 res.json(results);
             } catch {

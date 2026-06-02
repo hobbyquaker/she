@@ -18,6 +18,7 @@ import {
     listMatterDevices,
     getMatterDevice,
     type MatterNodeDetail,
+    type MatterCluster,
 } from './api.js';
 
 // ── Matter cluster schema ─────────────────────────────────────────────────────
@@ -316,14 +317,15 @@ function endpointIdItems(range: monaco.IRange, nodeId: string): monaco.languages
     if (!detail) return [];
     return detail.endpoints.map(ep => {
         const label = ep.name ?? String(ep.endpointId);
+        const clusterNames = ep.clusters.map((c: MatterCluster) => c.name).join(', ');
         return {
             label,
             kind: CK.Value,
             insertText: label,
             range,
             detail: ep.name
-                ? `Endpoint ${ep.endpointId} — ${ep.clusters.join(', ')}`
-                : `Clusters: ${ep.clusters.join(', ')}`,
+                ? `Endpoint ${ep.endpointId} — ${clusterNames}`
+                : `Clusters: ${clusterNames}`,
             sortText: '0' + String(ep.endpointId).padStart(4, '0'),
         };
     });
@@ -338,13 +340,13 @@ function clusterItems(
     if (!detail) return [];
     const ep = resolveEndpoint(detail, endpointId);
     if (!ep) return [];
-    return ep.clusters.map(c => ({
-        label: c,
+    return ep.clusters.map((c: MatterCluster) => ({
+        label: c.name,
         kind: CK.Value,
-        insertText: c,
+        insertText: c.name,
         range,
         detail: 'Matter cluster',
-        sortText: '0' + c,
+        sortText: '0' + c.name,
     }));
 }
 
@@ -365,7 +367,10 @@ function attrItems(
 }
 
 // ── Public init ───────────────────────────────────────────────────────────────
+let _registered = false;
 export function registerCompletionProviders(): void {
+    if (_registered) return;
+    _registered = true;
     // Initial fetch
     void refreshMqtt();
     void refreshDb();

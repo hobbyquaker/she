@@ -15,9 +15,9 @@ const path = require('path');
 // Load prompt templates once at startup — plain Markdown files, no escaping needed
 const P = path.join(__dirname, 'prompts');
 const SCRIPTS_BASE_PROMPT = fs.readFileSync(path.join(P, 'scripts-base.md'), 'utf8').trim();
-const SHE_API_REF         = fs.readFileSync(path.join(P, 'she-api-ref.md'),  'utf8').trim();
-const DB_VIEW_PROMPT      = fs.readFileSync(path.join(P, 'db-view.md'),       'utf8').trim();
-const DB_DOC_PROMPT       = fs.readFileSync(path.join(P, 'db-doc.md'),        'utf8').trim();
+const SHE_API_REF = fs.readFileSync(path.join(P, 'she-api-ref.md'), 'utf8').trim();
+const DB_VIEW_PROMPT = fs.readFileSync(path.join(P, 'db-view.md'), 'utf8').trim();
+const DB_DOC_PROMPT = fs.readFileSync(path.join(P, 'db-doc.md'), 'utf8').trim();
 
 /**
  * Build the full system prompt, including optional context sections.
@@ -31,8 +31,8 @@ const DB_DOC_PROMPT       = fs.readFileSync(path.join(P, 'db-doc.md'),        'u
  * @returns {string}
  */
 function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, store, extraFiles) {
-    const isViewMode = !!(currentView?.id);
-    const isDocMode  = !!(currentDoc?.id);
+    const isViewMode = !!currentView?.id;
+    const isDocMode = !!currentDoc?.id;
 
     let basePrompt;
     if (isViewMode) {
@@ -54,10 +54,10 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
     }
 
     if (currentView?.id) {
-        const filterStr  = (currentView.filter || '').trim();
-        const mapBody    = (currentView.map    || '').trim();
+        const filterStr = (currentView.filter || '').trim();
+        const mapBody = (currentView.map || '').trim();
         const reduceBody = (currentView.reduce || '').trim();
-        const viewLines  = [`## Current view: ${currentView.id}`];
+        const viewLines = [`## Current view: ${currentView.id}`];
         viewLines.push(`Filter: ${filterStr || '(none)'}`);
         viewLines.push(`Map:\n\`\`\`javascript\n${mapBody || '// (empty)'}\n\`\`\``);
         if (reduceBody) {
@@ -69,9 +69,7 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
     }
 
     if (currentDoc?.id) {
-        const content = typeof currentDoc.content === 'string'
-            ? currentDoc.content
-            : JSON.stringify(currentDoc.content, null, 2);
+        const content = typeof currentDoc.content === 'string' ? currentDoc.content : JSON.stringify(currentDoc.content, null, 2);
         parts.push(`## Current document: ${currentDoc.id}\n\`\`\`json\n${content}\n\`\`\``);
     }
 
