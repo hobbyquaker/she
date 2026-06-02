@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /* eslint-disable func-names */
 /* eslint-disable func-name-matching */
 /* eslint-disable camelcase */
