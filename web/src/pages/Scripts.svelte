@@ -455,13 +455,32 @@ declare const she: {
         } catch (e: any) { error = e.message; }
     }
 
+    function countDescendants(entry: TreeEntry): number {
+        if (!entry.children) return 0;
+        let n = 0;
+        for (const child of entry.children) {
+            n++;
+            if (child.type === 'dir') n += countDescendants(child);
+        }
+        return n;
+    }
+
     async function ctxDelete(entry: TreeEntry) {
         closeCtxMenu();
-        if (!(await dialog.show(`Delete ${entry.path}?`, { confirm: 'Delete', danger: true }))) return;
-        if (entry.type === 'file') {
-            await closeTab(entry.path);
-            await deleteScript(entry.path);
+        let msg = `Delete ${entry.type === 'dir' ? 'folder' : 'file'} "${entry.path}"?`;
+        if (entry.type === 'dir') {
+            const count = countDescendants(entry);
+            if (count > 0) msg += ` This will also delete ${count} item${count === 1 ? '' : 's'} inside.`;
         }
+        if (!(await dialog.show(msg, { confirm: 'Delete', danger: true }))) return;
+        if (entry.type === 'dir') {
+            for (const tab of [...tabs]) {
+                if (tab.path.startsWith(entry.path + '/')) await closeTab(tab.path);
+            }
+        } else {
+            await closeTab(entry.path);
+        }
+        await deleteScript(entry.path);
         await loadTree();
     }
 
@@ -482,6 +501,11 @@ declare const she: {
 
     function onDragOver(e: DragEvent, dirPath: string) {
         e.preventDefault();
+        if (dragSrc && (dragSrc === dirPath || dirPath.startsWith(dragSrc + '/'))) {
+            e.dataTransfer && (e.dataTransfer.dropEffect = 'none');
+            dragOver = null;
+            return;
+        }
         e.dataTransfer && (e.dataTransfer.dropEffect = 'move');
         dragOver = dirPath;
     }
@@ -506,16 +530,22 @@ declare const she: {
         // Internal drag: rename/move
         const src = dragSrc ?? e.dataTransfer?.getData('text/plain');
         dragSrc = null;
-        if (!src || src === dirPath) return;
+        if (!src || src === dirPath || dirPath.startsWith(src + '/')) return;
         const filename = src.split('/').pop()!;
         const target = `${dirPath}/${filename}`;
         if (target === src) return;
         try {
             await renameScript(src, target);
-            const tab = tabs.find(t => t.path === src);
-            if (tab) {
-                tab.path = target;
-                if (activeTab === src) activeTab = target;
+            // Update open tabs (handles both single-file and folder moves)
+            for (const tab of tabs) {
+                if (tab.path === src) {
+                    if (activeTab === src) activeTab = target;
+                    tab.path = target;
+                } else if (tab.path.startsWith(src + '/')) {
+                    const newPath = target + tab.path.slice(src.length);
+                    if (activeTab === tab.path) activeTab = newPath;
+                    tab.path = newPath;
+                }
             }
             await loadTree();
         } catch (e: any) { error = e.message; }
@@ -735,6 +765,7 @@ declare const she: {
             <button onclick={() => ctxNewFolderHere(ctxMenu!.entry.path)}>New subfolder here</button>
             <hr/>
             <button onclick={() => ctxRename(ctxMenu!.entry)}>Rename folder…</button>
+            <button class="danger" onclick={() => ctxDelete(ctxMenu!.entry)}>Delete folder…</button>
         {:else}
             <button onclick={() => openTab(ctxMenu!.entry.path)}>Open</button>
             <button onclick={() => ctxRename(ctxMenu!.entry)}>Rename…</button>
@@ -770,6 +801,8 @@ declare const she: {
                         role="treeitem"
                         aria-selected={selectedDir === entry.path}
                         tabindex="-1"
+                        draggable="true"
+                        ondragstart={(e) => onDragStart(e, entry.path)}
                         ondragover={(e) => onDragOver(e, entry.path)}
                         ondragleave={onDragLeave}
                         ondrop={(e) => onDrop(e, entry.path)}

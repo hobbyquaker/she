@@ -132,12 +132,17 @@ router.use((req, res) => {
         }
     }
 
-    // DELETE /she/scripts/<path>  — delete file
+    // DELETE /she/scripts/<path>  — delete file or directory (recursive)
     if (method === 'DELETE') {
         const abs = safePath(root, filePath);
         if (!abs) return res.status(400).json({ error: 'Invalid path' });
         try {
-            fs.unlinkSync(abs);
+            const stat = fs.statSync(abs);
+            if (stat.isDirectory()) {
+                fs.rmSync(abs, { recursive: true });
+            } else {
+                fs.unlinkSync(abs);
+            }
             return res.json({ ok: true });
         } catch (err) {
             if (err.code === 'ENOENT') return res.status(404).json({ error: 'Not found' });
