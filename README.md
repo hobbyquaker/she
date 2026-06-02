@@ -40,7 +40,7 @@ Then open **http://localhost:8080** and start creating scripts
 
 ## Quick look
 
-![AI assistant proposing changes to an existing script with inline diff](screenshots/she-ai-2.png)
+![AI assistant proposing changes to an existing script with inline diff](doc/screenshots/she-ai-2.png)
 
 ## Motivation
 
