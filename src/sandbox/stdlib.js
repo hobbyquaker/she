@@ -88,11 +88,11 @@ module.exports = function (she) {
     she.timer = function (src, target, time) {
         she.mqttsub(src, { retain: false }, (topic, val) => {
             if (val) {
-                clearTimeout(timeouts[target]);
+                she.clearTimeout(timeouts[target]);
                 if (!she.getValue(target)) {
                     she.setValue(target, 1);
                 }
-                timeouts[target] = setTimeout(() => {
+                timeouts[target] = she.setTimeout(() => {
                     if (she.getValue(target)) {
                         she.setValue(target, 0);
                     }
@@ -100,7 +100,7 @@ module.exports = function (she) {
             }
         });
 
-        timeouts[target] = setTimeout(() => {
+        timeouts[target] = she.setTimeout(() => {
             if (she.getValue(target)) {
                 she.setValue(target, 0);
             }

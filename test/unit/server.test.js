@@ -14,12 +14,12 @@ function httpGet(port, urlPath, headers = {}) {
 }
 
 describe('web server registry', () => {
-    let registerRoute;
+    let registerRoute, unregisterRoutesByScript;
 
     // Use a fresh module (and fresh registry Map) for every test
     beforeEach(() => {
         jest.resetModules();
-        ({ registerRoute } = require('../../src/web/server'));
+        ({ registerRoute, unregisterRoutesByScript } = require('../../src/web/server'));
     });
 
     test('registers a new route without error', () => {
@@ -39,6 +39,29 @@ describe('web server registry', () => {
     test('allows different paths to coexist', () => {
         registerRoute('get', '/api/s/a', () => {});
         expect(() => registerRoute('get', '/api/s/b', () => {})).not.toThrow();
+    });
+
+    test('unregisterRoutesByScript allows re-registration after unload', () => {
+        registerRoute('get', '/api/myscript/foo', () => {});
+        registerRoute('post', '/api/myscript/bar', () => {});
+        expect(() => registerRoute('get', '/api/myscript/foo', () => {})).toThrow('Route already registered');
+
+        unregisterRoutesByScript('myscript');
+
+        expect(() => registerRoute('get', '/api/myscript/foo', () => {})).not.toThrow();
+        expect(() => registerRoute('post', '/api/myscript/bar', () => {})).not.toThrow();
+    });
+
+    test('unregisterRoutesByScript does not affect other scripts', () => {
+        registerRoute('get', '/api/scriptA/foo', () => {});
+        registerRoute('get', '/api/scriptB/foo', () => {});
+
+        unregisterRoutesByScript('scriptA');
+
+        // scriptB's route should still be registered
+        expect(() => registerRoute('get', '/api/scriptB/foo', () => {})).toThrow('Route already registered');
+        // scriptA's route can be re-registered
+        expect(() => registerRoute('get', '/api/scriptA/foo', () => {})).not.toThrow();
     });
 });
 

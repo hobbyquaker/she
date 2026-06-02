@@ -82,8 +82,15 @@ app.use((req, res, next) => {
 // Central route registry — key: 'METHOD /api/scriptname/path'
 const registry = new Map();
 
+// Per-script Express sub-routers for she.api routes.
+// Each script gets one Router mounted at /api/<scriptName>; the layer reference
+// is kept so it can be spliced out of the app's middleware stack on unload.
+const scriptRouters = new Map(); // scriptName → { router, layer }
+
 /**
  * Register an HTTP route. Throws if the same method+path pair is already registered.
+ * Routes under /api/<scriptName>/... are grouped into a per-script sub-router so
+ * they can all be removed at once when the script is unloaded.
  * @param {'get'|'post'|'put'|'delete'} method
  * @param {string} fullPath  - absolute Express path, e.g. '/api/myscript/foo'
  * @param {Function} handler - Express route handler (req, res)
@@ -94,7 +101,51 @@ function registerRoute(method, fullPath, handler) {
         throw new Error(`Route already registered: ${key}`);
     }
     registry.set(key, true);
-    app[method](fullPath, handler);
+
+    // Route belongs to a user script — use a per-script sub-router.
+    const m = fullPath.match(/^\/api\/([^/]+)(\/.*)?$/);
+    if (m) {
+        const scriptName = m[1];
+        const routePath = m[2] || '/';
+        let entry = scriptRouters.get(scriptName);
+        if (!entry) {
+            const router = express.Router();
+            app.use('/api/' + scriptName, router);
+            // Capture the layer Express just pushed onto its stack.
+            // Express 5 exposes the router via the public `app.router` getter.
+            const stack = app.router.stack;
+            const layer = stack[stack.length - 1];
+            entry = { router, layer };
+            scriptRouters.set(scriptName, entry);
+        }
+        entry.router[method](routePath, handler);
+    } else {
+        // Fallback for any non-/api/ paths (shouldn't occur in normal usage).
+        app[method](fullPath, handler);
+    }
+}
+
+/**
+ * Remove all HTTP routes registered by a script and allow re-registration.
+ * Called by unloadScript() in index.js on hot-reload.
+ * @param {string} scriptName - basename without extension, e.g. 'myscript'
+ */
+function unregisterRoutesByScript(scriptName) {
+    const entry = scriptRouters.get(scriptName);
+    if (entry) {
+        const stack = app.router?.stack;
+        if (stack) {
+            const idx = stack.indexOf(entry.layer);
+            if (idx !== -1) stack.splice(idx, 1);
+        }
+        scriptRouters.delete(scriptName);
+    }
+    // Clear registry entries so the routes can be re-registered on reload.
+    for (const key of [...registry.keys()]) {
+        if (key.includes('/api/' + scriptName + '/') || key.endsWith('/api/' + scriptName)) {
+            registry.delete(key);
+        }
+    }
 }
 
 let httpServer = null;
@@ -145,4 +196,4 @@ function stopServer() {
     });
 }
 
-module.exports = { app, registerRoute, setStatsProvider, startServer, stopServer };
+module.exports = { app, registerRoute, unregisterRoutesByScript, setStatsProvider, startServer, stopServer };

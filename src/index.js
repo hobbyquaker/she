@@ -659,7 +659,10 @@ function runScript(script, name, origin) {
             if (options.random) {
                 _myJobs.push(
                     scheduler.scheduleJob(pattern, () => {
-                        setTimeout(scriptDomain.bind(callback), (parseFloat(options.random) || 0) * 1000 * Math.random());
+                        // Track the random-delay timer so it is cancelled on unload
+                        // if the job fires in the same tick as the script is reloaded.
+                        const id = setTimeout(scriptDomain.bind(callback), (parseFloat(options.random) || 0) * 1000 * Math.random());
+                        _myTimers.add(id);
                     }),
                 );
             } else {
@@ -935,8 +938,19 @@ function runScript(script, name, origin) {
     };
 
     const scriptName = path.basename(name, path.extname(name));
+    // she.setTimeout / she.clearTimeout — tracked versions for use by stdlib and
+    // sandbox modules that don't have direct access to the Sandbox context.
+    she.setTimeout = (fn, delay, ...args) => {
+        const id = setTimeout(fn, delay, ...args);
+        _myTimers.add(id);
+        return id;
+    };
+    she.clearTimeout = (id) => {
+        _myTimers.delete(id);
+        clearTimeout(id);
+    };
     sandboxModules.forEach((md) => {
-        md(she, { scriptDomain, scriptName });
+        md(she, { scriptDomain, scriptName, scriptFile: name });
     });
 
     log.debug(name, 'contextifying sandbox');
@@ -1009,6 +1023,10 @@ function unloadScript(file) {
     for (let i = mqttEventCallbacks.length - 1; i >= 0; i--) {
         if (mqttEventCallbacks[i]._script === file) mqttEventCallbacks.splice(i, 1);
     }
+
+    // Remove HTTP routes registered by this script via she.api
+    const scriptName = path.basename(file, path.extname(file));
+    require('./web/server').unregisterRoutesByScript(scriptName);
 
     // Cancel all node-schedule jobs for this script
     const jobs = scriptJobs.get(file);

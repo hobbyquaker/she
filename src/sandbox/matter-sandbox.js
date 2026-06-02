@@ -26,7 +26,10 @@
 
 const controller = require('../matter/controller');
 
-module.exports = function (she, { scriptDomain, scriptName }) {
+module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
+    // Use full file path as the tracking key so cleanup() called from
+    // unloadScript() (which passes the full path) matches what was registered.
+    const trackingKey = scriptFile || scriptName;
     she.matter = {
         /**
          * Subscribe to an attribute change on a paired Matter device.
@@ -40,7 +43,7 @@ module.exports = function (she, { scriptDomain, scriptName }) {
          */
         sub(nodeId, endpointId, clusterName, attrName, callback) {
             try {
-                return controller.subscribeAttribute(scriptName, nodeId, endpointId, clusterName, attrName, callback);
+                return controller.subscribeAttribute(trackingKey, nodeId, endpointId, clusterName, attrName, callback);
             } catch (err) {
                 scriptDomain.emit('error', err);
             }
@@ -52,7 +55,7 @@ module.exports = function (she, { scriptDomain, scriptName }) {
          * @param {number} listenerId  Returned by she.matter.sub()
          */
         unsub(listenerId) {
-            controller.unsubscribe(scriptName, listenerId);
+            controller.unsubscribe(trackingKey, listenerId);
         },
 
         /**

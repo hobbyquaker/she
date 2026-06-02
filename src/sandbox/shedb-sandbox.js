@@ -17,8 +17,11 @@
 
 const { getCore, addListener, removeListenersByScript } = require('../web/shedb');
 
-module.exports = function (she, { scriptDomain, scriptName }) {
+module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
     const core = getCore();
+    // Use the full file path as the tracking key so cleanup() in index.js
+    // (which passes the full path) matches what was registered here.
+    const trackingKey = scriptFile || scriptName;
 
     // sheDB may not be initialised (--db-path not given or startup still in progress).
     // We expose stubs that are no-ops / return undefined so user scripts don't crash.
@@ -62,7 +65,7 @@ module.exports = function (she, { scriptDomain, scriptName }) {
             if (!core) return;
             // Wrap in script domain so errors don't crash the process
             const wrapped = scriptDomain.bind(callback);
-            addListener(pattern, wrapped, scriptName);
+            addListener(pattern, wrapped, trackingKey);
         },
 
         /**
