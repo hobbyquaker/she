@@ -28,6 +28,7 @@
     let loginPassword = $state('');
     let loginError = $state('');
     let loginLoading = $state(false);
+    let authReady = $state(false); // true once initial auth probe is done
 
     onUnauthorized(() => { showLogin = true; });
 
@@ -82,6 +83,7 @@
         } catch {
             // best-effort
         }
+        authReady = true;
 
         // Check for newer version on npm (best-effort, silent on failure)
         fetch('https://registry.npmjs.org/smart-home-engine/latest')
@@ -105,6 +107,7 @@
 
 <svelte:document onclick={() => { if (statsOpen) statsOpen = false; }} />
 
+{#if authReady && !showLogin}
 <div class="shell">
     <nav>
         <span class="brand">she</span>
@@ -254,33 +257,34 @@
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
         <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>
     </main>
-
-    {#if showLogin}
-    <div class="login-overlay">
-        <form class="login-box" onsubmit={(e) => { e.preventDefault(); handleLogin(); }}>
-            <div class="login-brand">she</div>
-            <h2>Sign in</h2>
-            <div class="login-field">
-                <label for="she-password">Password</label>
-                <input
-                    id="she-password"
-                    type="password"
-                    bind:value={loginPassword}
-                    placeholder="Enter password"
-                    autocomplete="current-password"
-                    disabled={loginLoading}
-                />
-            </div>
-            {#if loginError}
-            <div class="login-error">{loginError}</div>
-            {/if}
-            <button type="submit" class="login-btn" disabled={loginLoading || !loginPassword}>
-                {loginLoading ? 'Signing in…' : 'Sign in'}
-            </button>
-        </form>
-    </div>
-    {/if}
 </div>
+{/if}
+
+{#if showLogin}
+<div class="login-overlay">
+    <form class="login-box" onsubmit={(e) => { e.preventDefault(); handleLogin(); }}>
+        <div class="login-brand">she</div>
+        <h2>Sign in</h2>
+        <div class="login-field">
+            <label for="she-password">Password</label>
+            <input
+                id="she-password"
+                type="password"
+                bind:value={loginPassword}
+                placeholder="Enter password"
+                autocomplete="current-password"
+                disabled={loginLoading}
+            />
+        </div>
+        {#if loginError}
+        <div class="login-error">{loginError}</div>
+        {/if}
+        <button type="submit" class="login-btn" disabled={loginLoading || !loginPassword}>
+            {loginLoading ? 'Signing in…' : 'Sign in'}
+        </button>
+    </form>
+</div>
+{/if}
 
 <style>
     .shell {
@@ -446,7 +450,7 @@
     .login-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(0,0,0,0.6);
+        background: var(--bg);
         display: flex;
         align-items: center;
         justify-content: center;
