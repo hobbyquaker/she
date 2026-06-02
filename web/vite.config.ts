@@ -20,8 +20,8 @@ export default defineConfig({
             },
         }),
         monacoEditorPlugin.default({
-            // Only include editor base worker + JavaScript/TypeScript worker
-            languageWorkers: ['editorWorkerService', 'typescript'],
+            // Include editor base worker + JavaScript/TypeScript + JSON workers
+            languageWorkers: ['editorWorkerService', 'typescript', 'json'],
         }),
     ],
     build: {
@@ -30,14 +30,13 @@ export default defineConfig({
         rollupOptions: {
             output: {
                 // Consolidate Monaco's 80+ per-language syntax files and unused
-                // language services (CSS/HTML/JSON) into one lazy chunk.
-                // Only tsMode (JavaScript/TypeScript) stays separate as it is needed.
+                // language services (CSS/HTML) into one lazy chunk.
+                // tsMode (JS/TS) and json stay separate — both workers are active.
                 manualChunks(id) {
                     if (
                         id.includes('monaco-editor/esm/vs/basic-languages') ||
                         id.includes('monaco-editor/esm/vs/language/css') ||
-                        id.includes('monaco-editor/esm/vs/language/html') ||
-                        id.includes('monaco-editor/esm/vs/language/json')
+                        id.includes('monaco-editor/esm/vs/language/html')
                     ) {
                         return 'monaco-langs';
                     }

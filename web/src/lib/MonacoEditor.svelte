@@ -15,6 +15,11 @@
     let ignoring = false;
 
     onMount(() => {
+        const langOpts: Partial<monaco.editor.IStandaloneEditorConstructionOptions> =
+            language === 'json'
+                ? { formatOnPaste: true, autoIndent: 'full' }
+                : {};
+
         editor = monaco.editor.create(container, {
             value,
             language,
@@ -29,6 +34,7 @@
             renderLineHighlight: 'none',
             overviewRulerLanes: 0,
             scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+            ...langOpts,
         });
 
         editor.onDidChangeModelContent(() => {
