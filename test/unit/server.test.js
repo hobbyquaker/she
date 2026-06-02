@@ -1,6 +1,10 @@
 'use strict';
 
 const http = require('http');
+const bcrypt = require('bcryptjs');
+
+// Pre-compute once — 1 round is enough for test speed
+const TEST_HASH = bcrypt.hashSync('secret', 1);
 
 function httpGet(port, urlPath, headers = {}) {
     return new Promise((resolve, reject) => {
@@ -10,6 +14,32 @@ function httpGet(port, urlPath, headers = {}) {
             res.on('end', () => resolve({ status: res.statusCode }));
         });
         req.on('error', reject);
+    });
+}
+
+function httpPost(port, urlPath, body, headers = {}) {
+    return new Promise((resolve, reject) => {
+        const bodyStr = JSON.stringify(body);
+        const options = {
+            host: '127.0.0.1',
+            port,
+            path: urlPath,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(bodyStr),
+                ...headers,
+            },
+        };
+        const req = http.request(options, (res) => {
+            const cookies = res.headers['set-cookie'] || [];
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => resolve({ status: res.statusCode, cookies }));
+        });
+        req.on('error', reject);
+        req.write(bodyStr);
+        req.end();
     });
 }
 
@@ -65,7 +95,7 @@ describe('web server registry', () => {
     });
 });
 
-describe('API key authentication', () => {
+describe('password authentication', () => {
     let startServer, stopServer, serverPort;
 
     beforeEach(() => {
@@ -75,33 +105,37 @@ describe('API key authentication', () => {
 
     afterEach(() => stopServer());
 
-    test('passes /she/* and /api/* requests when no api-key is configured', async () => {
+    test('passes /she/* requests when no auth is configured', async () => {
         serverPort = await startServer(0);
         const res = await httpGet(serverPort, '/she/config');
         expect(res.status).not.toBe(401);
     });
 
-    test('rejects /she/* request with no Authorization header when api-key is set', async () => {
-        serverPort = await startServer(0, { apiKey: 'secret' });
+    test('rejects /she/* request with no session cookie when password auth is set', async () => {
+        serverPort = await startServer(0, { auth: 'password', password: TEST_HASH });
         const res = await httpGet(serverPort, '/she/config');
         expect(res.status).toBe(401);
     });
 
-    test('rejects /she/* request with wrong Bearer token', async () => {
-        serverPort = await startServer(0, { apiKey: 'secret' });
-        const res = await httpGet(serverPort, '/she/config', { authorization: 'Bearer wrong' });
+    test('rejects /she/* request with wrong session cookie when password auth is set', async () => {
+        serverPort = await startServer(0, { auth: 'password', password: TEST_HASH });
+        const res = await httpGet(serverPort, '/she/config', { cookie: 'she_session=' + 'a'.repeat(64) });
         expect(res.status).toBe(401);
     });
 
-    test('accepts /she/* request with correct Bearer token', async () => {
-        serverPort = await startServer(0, { apiKey: 'secret' });
-        const res = await httpGet(serverPort, '/she/config', { authorization: 'Bearer secret' });
+    test('accepts /she/* request with valid session cookie after login', async () => {
+        serverPort = await startServer(0, { auth: 'password', password: TEST_HASH });
+        const loginRes = await httpPost(serverPort, '/she/auth/login', { password: 'secret' });
+        expect(loginRes.status).toBe(200);
+        const sessionCookie = loginRes.cookies.find((c) => c.startsWith('she_session='));
+        const cookieHeader = sessionCookie.split(';')[0];
+        const res = await httpGet(serverPort, '/she/config', { cookie: cookieHeader });
         expect(res.status).not.toBe(401);
     });
 
-    test('rejects /api/* request with no Authorization header when api-key is set', async () => {
-        serverPort = await startServer(0, { apiKey: 'secret' });
+    test('/api/* requests are not protected by password auth', async () => {
+        serverPort = await startServer(0, { auth: 'password', password: TEST_HASH });
         const res = await httpGet(serverPort, '/api/anything');
-        expect(res.status).toBe(401);
+        expect(res.status).not.toBe(401);
     });
 });
