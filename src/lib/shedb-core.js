@@ -112,6 +112,10 @@ class SheDBCore extends EventEmitter {
 
         this._viewEnvs = {}; // id → { compileError? } — only syntax-check metadata
         this._saveTimer = null;
+        this._saveViewsTimer = null;
+        this._viewsPath = dbPath.endsWith('.json')
+            ? dbPath.slice(0, -5) + '-views.json'
+            : dbPath + '-views.json';
         this._worker = null;
 
         this._spawnWorker();
@@ -123,16 +127,41 @@ class SheDBCore extends EventEmitter {
     // -------------------------------------------------------------------------
 
     _load() {
+        let legacyViews = null;
         try {
             const data = JSON.parse(fs.readFileSync(this.dbPath, 'utf8'));
             this.rev = data.rev || 0;
             this.docs = data.docs || {};
             this.queries = data.queries || {};
-            this.views = data.views || {};
+            if (data.views && Object.keys(data.views).length > 0) legacyViews = data.views;
             this.log.info('shedb loaded ' + Object.keys(this.docs).length + ' docs, ' + Object.keys(this.queries).length + ' views from ' + this.dbPath);
         } catch (err) {
             if (err.code !== 'ENOENT') {
                 this.log.warn('shedb: could not load ' + this.dbPath + ': ' + err.message);
+            }
+        }
+
+        try {
+            const vdata = JSON.parse(fs.readFileSync(this._viewsPath, 'utf8'));
+            this.views = vdata.views || {};
+        } catch (err) {
+            if (err.code !== 'ENOENT') {
+                this.log.warn('shedb: could not load views from ' + this._viewsPath + ': ' + err.message);
+            }
+            if (legacyViews) {
+                // Migrate: split legacy single-file format into two files
+                this.views = legacyViews;
+                this.log.info('shedb: migrating views to separate file ' + this._viewsPath);
+                try {
+                    const vtmp = this._viewsPath + '.tmp';
+                    fs.writeFileSync(vtmp, JSON.stringify({ views: this.views }), 'utf8');
+                    fs.renameSync(vtmp, this._viewsPath);
+                    const tmp = this.dbPath + '.tmp';
+                    fs.writeFileSync(tmp, JSON.stringify({ rev: this.rev, docs: this.docs, queries: this.queries }), 'utf8');
+                    fs.renameSync(tmp, this.dbPath);
+                } catch (e) {
+                    this.log.error('shedb: migration failed: ' + e.message);
+                }
             }
         }
 
@@ -150,10 +179,23 @@ class SheDBCore extends EventEmitter {
         this._saveTimer = setTimeout(() => {
             const tmp = this.dbPath + '.tmp';
             try {
-                fs.writeFileSync(tmp, JSON.stringify({ rev: this.rev, docs: this.docs, queries: this.queries, views: this.views }), 'utf8');
+                fs.writeFileSync(tmp, JSON.stringify({ rev: this.rev, docs: this.docs, queries: this.queries }), 'utf8');
                 fs.renameSync(tmp, this.dbPath); // atomic on Linux (same FS)
             } catch (err) {
                 this.log.error('shedb: save failed: ' + err.message);
+            }
+        }, 250);
+    }
+
+    _saveViews() {
+        clearTimeout(this._saveViewsTimer);
+        this._saveViewsTimer = setTimeout(() => {
+            const tmp = this._viewsPath + '.tmp';
+            try {
+                fs.writeFileSync(tmp, JSON.stringify({ views: this.views }), 'utf8');
+                fs.renameSync(tmp, this._viewsPath);
+            } catch (err) {
+                this.log.error('shedb: save views failed: ' + err.message);
             }
         }, 250);
     }
@@ -308,6 +350,7 @@ class SheDBCore extends EventEmitter {
             delete this._viewEnvs[id];
             delete this.views[id];
             this._save();
+            this._saveViews();
             if (this._worker) this._worker.postMessage({ type: 'delQuery', id });
             this.emit('view', id, '');
             return;
@@ -361,7 +404,7 @@ class SheDBCore extends EventEmitter {
                 delete this.views[id].result;
                 this.log.error('shedb view ' + id + ': ' + msg.error);
                 this.emit('view', id, this.views[id]);
-                this._save();
+                this._saveViews();
                 return;
             }
 
@@ -369,7 +412,7 @@ class SheDBCore extends EventEmitter {
                 this.views[id] = { _id: id, _rev: (prev._rev ?? -1) + 1, result: msg.result, length: msg.result.length };
                 delete this.views[id].error;
                 this.emit('view', id, this.views[id]);
-                this._save();
+                this._saveViews();
             }
         });
 

@@ -27,7 +27,7 @@ const TIMEOUT = (workerData && workerData.scriptTimeout) || 5000;
 
 let docs = {};
 const queries = {};
-let queue = [];
+let queue = new Set();
 let running = false;
 
 // ---------------------------------------------------------------------------
@@ -52,17 +52,18 @@ function enqueueForDoc(docId) {
 // ---------------------------------------------------------------------------
 
 function enqueue(id) {
-    if (!queue.includes(id)) queue.push(id);
+    queue.add(id);
     if (!running) scheduleNext();
 }
 
 function scheduleNext() {
-    if (queue.length === 0) {
+    if (queue.size === 0) {
         running = false;
         return;
     }
     running = true;
-    const id = queue.shift();
+    const id = queue.values().next().value;
+    queue.delete(id);
     setImmediate(() => buildAndRun(id));
 }
 
@@ -73,20 +74,7 @@ function buildAndRun(id) {
         return;
     }
 
-    const { filter, map, reduce } = q;
-
-    // Build script source — same structure as the original in-process approach
-    let src = `api.map = function() {\n${map}\n};\napi._result = [];\n`;
-    if (filter) {
-        src += `api.forEachDocument(docId => { if (api.mqttWildcard(docId, ${JSON.stringify(filter)})) api.map.apply(api.getDocument(docId)); });\n`;
-    } else {
-        src += `api.forEachDocument(docId => { api.map.apply(api.getDocument(docId)); });\n`;
-    }
-    if (reduce) {
-        src += `api.reduce = function(result) {\n${reduce}\n};\napi._result = api.reduce(api._result);\n`;
-    }
-
-    // Sandbox — uses the local docs snapshot
+    // Sandbox — uses the live docs object (updated by patch/del messages)
     const sandbox = {
         api: {
             forEachDocument: (cb) => Object.keys(docs).forEach(cb),
@@ -99,9 +87,8 @@ function buildAndRun(id) {
     sandbox.emit = (item) => sandbox.api._result.push(item);
 
     try {
-        const script = new vm.Script(src, { filename: 'shedb-view-' + id });
         const ctx = vm.createContext(sandbox);
-        script.runInContext(ctx, { timeout: TIMEOUT });
+        q.script.runInContext(ctx, { timeout: TIMEOUT });
         parentPort.postMessage({ type: 'view', id, result: Array.from(ctx.api._result) });
     } catch (err) {
         parentPort.postMessage({ type: 'view', id, error: 'runtime: ' + err.message });
@@ -132,10 +119,28 @@ parentPort.on('message', (msg) => {
             enqueueForDoc(msg.id);
             break;
 
-        case 'query':
-            queries[msg.id] = msg.payload;
+        case 'query': {
+            const { filter, map, reduce } = msg.payload;
+            let src = `api.map = function() {\n${map}\n};\napi._result = [];\n`;
+            if (filter) {
+                src += `api.forEachDocument(docId => { if (api.mqttWildcard(docId, ${JSON.stringify(filter)})) api.map.apply(api.getDocument(docId)); });\n`;
+            } else {
+                src += `api.forEachDocument(docId => { api.map.apply(api.getDocument(docId)); });\n`;
+            }
+            if (reduce) {
+                src += `api.reduce = function(result) {\n${reduce}\n};\napi._result = api.reduce(api._result);\n`;
+            }
+            let script;
+            try {
+                script = new vm.Script(src, { filename: 'shedb-view-' + msg.id });
+            } catch (err) {
+                parentPort.postMessage({ type: 'view', id: msg.id, error: 'compile: ' + err.message });
+                break;
+            }
+            queries[msg.id] = { ...msg.payload, script };
             enqueue(msg.id);
             break;
+        }
 
         case 'delQuery':
             delete queries[msg.id];
