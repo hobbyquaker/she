@@ -1,8 +1,8 @@
 she.info('test log');
 
-she.mqttsub('test//incr', function (topic, val) {
+she.mqttsub('test/status/incr', function (topic, val) {
     val += 1;
-    she.setValue(topic, val);
+    she.setValue('test/set/incr', val);
 });
 
 she.mqttsub('test/target', () => {

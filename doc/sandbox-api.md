@@ -34,7 +34,7 @@ Subscribe to one or more MQTT topics.
 
 | Param | Type | Description |
 |---|---|---|
-| `topic` | `string \| string[]` | Topic or array of topics. MQTT wildcards (`+`, `#`) are supported. Use `+//` as shorthand for `+/status/`. |
+| `topic` | `string \| string[]` | Topic or array of topics. MQTT wildcards (`+`, `#`) are supported. |
 | `[options]` | `object \| function \| string` | Options object, or shorthand for `options.condition`. |
 | `[options.change]` | `boolean` | Only call callback when the value actually changes. |
 | `[options.retain]` | `boolean` | Also call callback for retained messages received on connect. |

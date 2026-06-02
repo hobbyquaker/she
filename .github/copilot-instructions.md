@@ -34,7 +34,7 @@
 Scripts run in a VM sandbox and receive a `she` object:
 
 ### MQTT (primary interface)
-- `she.mqtt.sub(topic, [options], callback)` — subscribe; `+//` shorthand for `+/status/`
+- `she.mqtt.sub(topic, [options], callback)` — subscribe
 - `she.mqtt.pub(topic, payload, [options])` — publish
 - `she.mqtt.get(topic)` → current value
 - `she.mqtt.set(topic, val)` — publish retained value

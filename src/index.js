@@ -392,7 +392,7 @@ function stateChange(topic, state, oldState, msg) {
         const match = mqttWildcards(topic, subs.topic);
 
         if (match && typeof options.condition === 'function') {
-            if (!options.condition(topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), state.val, state, oldState, msg)) {
+            if (!options.condition(topic, state.val, state, oldState, msg)) {
                 return;
             }
         }
@@ -418,13 +418,13 @@ function stateChange(topic, state, oldState, msg) {
             setTimeout(() => {
                 /**
                  * @callback subscribeCallback
-                 * @param {string} topic - the topic that triggered this callback. +/status/# will be replaced by +//#
+                 * @param {string} topic - the topic that triggered this callback
                  * @param {mixed} val - the val property of the new state
                  * @param {object} obj - new state - the whole state object (e.g. {"val": true, "ts": 12346345, "lc": 12346345} )
                  * @param {object} objPrev - previous state - the whole state object
                  * @param {object} msg - the mqtt message as received from MQTT.js
                  */
-                subs.callback(topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), state.val, state, oldState, msg);
+                subs.callback(topic, state.val, state, oldState, msg);
             }, delay);
         }
     });
@@ -564,8 +564,6 @@ function runScript(script, name, origin) {
             }
 
             if (typeof topic === 'string') {
-                topic = topic.replace(/^([^/]+)\/\//, '$1/status/');
-
                 if (typeof options.condition === 'string') {
                     if (options.condition.indexOf('\n') !== -1) {
                         throw new Error('options.condition string must be one-line javascript');
@@ -581,11 +579,11 @@ function runScript(script, name, origin) {
                 subscriptions.push({ topic, options, callback: typeof callback === 'function' && scriptDomain.bind(callback), _script: name });
 
                 if (options.retain && store.has('mqtt::' + topic) && typeof callback === 'function') {
-                    callback(topic.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), store.get('mqtt::' + topic), store.getObject('mqtt::' + topic));
+                    callback(topic, store.get('mqtt::' + topic), store.getObject('mqtt::' + topic));
                 } else if (options.retain && (/\/\+\//.test(topic) || /\+$/.test(topic) || /\+/.test(topic) || topic.endsWith('#')) && typeof callback === 'function') {
                     for (const [t, obj] of store.mqttEntries()) {
                         if (mqttWildcards(t, topic)) {
-                            callback(t.replace(/^([^/]+)\/status\/(.+)/, '$1//$2'), obj.val, obj);
+                            callback(t, obj.val, obj);
                         }
                     }
                 }
@@ -728,7 +726,6 @@ function runScript(script, name, origin) {
                     she.mqttpub(topic, val, { retain: false });
                 }
             } else {
-                topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
                 she.mqttpub(topic, val, { retain: false });
             }
         },
@@ -739,7 +736,6 @@ function runScript(script, name, origin) {
          * @returns {mixed} the topics value
          */
         getValue: function Sandbox_getValue(topic) {
-            topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
             return store.get('mqtt::' + topic);
         },
 
@@ -753,7 +749,6 @@ function runScript(script, name, origin) {
          * she.getProp('hm//Bewegungsmelder Keller/MOTION', 'ts');
          */
         getProp: function Sandbox_getProp(topic, ...props) {
-            topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/status/$2');
             if (props.length > 0) {
                 let tmp = store.getObject('mqtt::' + topic);
                 if (typeof tmp === 'undefined') {

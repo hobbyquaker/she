@@ -10,7 +10,6 @@ Scripts run in a sandboxed VM. The `she` object is injected automatically.
 ### MQTT
 ```
 she.mqtt.sub(topic, [opts], cb)        Subscribe; wildcards: + (1 level) # (multi)
-                                         +//sensor  →  +/status/sensor shorthand
                                          opts.change: true = only fire when value changes
 she.mqtt.pub(topic, payload, [opts])   Publish; opts: { qos, retain }
 she.mqtt.get(topic)                    Current retained value (sync)
