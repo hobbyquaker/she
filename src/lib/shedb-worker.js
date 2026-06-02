@@ -7,8 +7,10 @@
  *
  * Message protocol:
  *   Main → Worker:
- *     { type: 'db',       docs: {...} }              full docs snapshot
- *     { type: 'query',    id, payload: {filter?,map,reduce?} }
+ *     { type: 'init',  docs: {...} }              full snapshot (startup/respawn only)
+ *     { type: 'patch', id, doc }                  single document created/updated
+ *     { type: 'del',   id }                       single document deleted
+ *     { type: 'query', id, payload: {filter?,map,reduce?} }
  *     { type: 'delQuery', id }
  *
  *   Worker → Main:
@@ -35,6 +37,14 @@ let running = false;
 function getProp(obj, propPath) {
     if (obj == null || !propPath) return undefined;
     return propPath.split('.').reduce((cur, k) => (cur != null ? cur[k] : undefined), obj);
+}
+
+// Enqueue only the views whose filter matches the changed doc id.
+// Views with no filter must always re-run (they iterate all docs).
+function enqueueForDoc(docId) {
+    for (const [id, q] of Object.entries(queries)) {
+        if (!q.filter || mqttWildcard(docId, q.filter)) enqueue(id);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,10 +116,20 @@ function buildAndRun(id) {
 
 parentPort.on('message', (msg) => {
     switch (msg.type) {
-        case 'db':
+        case 'init':
             docs = msg.docs;
-            // Re-run all registered views with the new docs snapshot
+            // Re-run all registered views with the fresh snapshot
             for (const id of Object.keys(queries)) enqueue(id);
+            break;
+
+        case 'patch':
+            docs[msg.id] = msg.doc;
+            enqueueForDoc(msg.id);
+            break;
+
+        case 'del':
+            delete docs[msg.id];
+            enqueueForDoc(msg.id);
             break;
 
         case 'query':

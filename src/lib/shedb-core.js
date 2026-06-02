@@ -112,7 +112,6 @@ class SheDBCore extends EventEmitter {
 
         this._viewEnvs = {}; // id → { compileError? } — only syntax-check metadata
         this._saveTimer = null;
-        this._sendDbScheduled = false;
         this._worker = null;
 
         this._spawnWorker();
@@ -215,7 +214,7 @@ class SheDBCore extends EventEmitter {
             this.rev++;
             this._save();
             this.emit('update', id, this.docs[id]);
-            this._sendDb();
+            this._sendPatch(id, this.docs[id]);
             return true;
         }
         this._setRev(id, rev);
@@ -244,7 +243,7 @@ class SheDBCore extends EventEmitter {
             this.rev++;
             this._save();
             this.emit('update', id, this.docs[id]);
-            this._sendDb();
+            this._sendPatch(id, this.docs[id]);
             return true;
         }
         this._setRev(id, rev);
@@ -256,7 +255,7 @@ class SheDBCore extends EventEmitter {
         this.rev++;
         this._save();
         this.emit('update', id, '');
-        this._sendDb();
+        this._sendPatch(id, null);
     }
 
     /**
@@ -287,7 +286,7 @@ class SheDBCore extends EventEmitter {
             this.rev++;
             this._save();
             this.emit('update', id, this.docs[id]);
-            this._sendDb();
+            this._sendPatch(id, this.docs[id]);
             return true;
         }
         this._setRev(id, rev);
@@ -390,22 +389,20 @@ class SheDBCore extends EventEmitter {
         });
     }
 
-    /** Send full docs snapshot to the worker (debounced via setImmediate). */
-    _sendDb() {
-        if (this._sendDbScheduled) return;
-        this._sendDbScheduled = true;
-        setImmediate(() => {
-            this._sendDbScheduled = false;
-            if (this._worker) {
-                this._worker.postMessage({ type: 'db', docs: structuredClone(this.docs) });
-            }
-        });
+    /** Send a single-document patch (or deletion) to the worker — O(1). */
+    _sendPatch(id, doc) {
+        if (!this._worker) return;
+        if (doc) {
+            this._worker.postMessage({ type: 'patch', id, doc: structuredClone(doc) });
+        } else {
+            this._worker.postMessage({ type: 'del', id });
+        }
     }
 
-    /** Send full state (docs + all queries) to the worker — used on init and respawn. */
+    /** Send full state (docs + all queries) to the worker — used on init and respawn only. */
     _sendInitialState() {
         if (!this._worker) return;
-        this._worker.postMessage({ type: 'db', docs: structuredClone(this.docs) });
+        this._worker.postMessage({ type: 'init', docs: structuredClone(this.docs) });
         for (const id of Object.keys(this.queries)) {
             this._worker.postMessage({ type: 'query', id, payload: this.queries[id] });
         }
