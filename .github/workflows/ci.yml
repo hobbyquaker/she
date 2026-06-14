@@ -2,6 +2,8 @@ name: CI
 
 on:
     push:
+        branches:
+            - '**' # branches only — tag pushes are handled by release.yml
     pull_request:
 
 jobs:
