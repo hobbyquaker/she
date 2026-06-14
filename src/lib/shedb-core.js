@@ -91,7 +91,7 @@ function deepExtend(target, source) {
 class SheDBCore extends EventEmitter {
     /**
      * @param {object} opts
-     * @param {string}  opts.dbPath        - absolute path to the JSON data file
+     * @param {string}  opts.dbPath        - path to the directory that holds docs.json and views.json
      * @param {object}  opts.log           - pino-compatible logger
      * @param {number}  [opts.scriptTimeout=5000] - vm script timeout in ms
      */
@@ -113,9 +113,8 @@ class SheDBCore extends EventEmitter {
         this._viewEnvs = {}; // id → { compileError? } — only syntax-check metadata
         this._saveTimer = null;
         this._saveViewsTimer = null;
-        this._viewsPath = dbPath.endsWith('.json')
-            ? dbPath.slice(0, -5) + '-views.json'
-            : dbPath + '-views.json';
+        this._docsPath = path.join(dbPath, 'docs.json');
+        this._viewsPath = path.join(dbPath, 'views.json');
         this._worker = null;
 
         this._spawnWorker();
@@ -127,17 +126,21 @@ class SheDBCore extends EventEmitter {
     // -------------------------------------------------------------------------
 
     _load() {
-        let legacyViews = null;
         try {
-            const data = JSON.parse(fs.readFileSync(this.dbPath, 'utf8'));
+            fs.mkdirSync(this.dbPath, { recursive: true });
+        } catch (err) {
+            this.log.error('shedb: could not create directory ' + this.dbPath + ': ' + err.message);
+        }
+
+        try {
+            const data = JSON.parse(fs.readFileSync(this._docsPath, 'utf8'));
             this.rev = data.rev || 0;
             this.docs = data.docs || {};
             this.queries = data.queries || {};
-            if (data.views && Object.keys(data.views).length > 0) legacyViews = data.views;
             this.log.info('shedb loaded ' + Object.keys(this.docs).length + ' docs, ' + Object.keys(this.queries).length + ' views from ' + this.dbPath);
         } catch (err) {
             if (err.code !== 'ENOENT') {
-                this.log.warn('shedb: could not load ' + this.dbPath + ': ' + err.message);
+                this.log.warn('shedb: could not load ' + this._docsPath + ': ' + err.message);
             }
         }
 
@@ -147,21 +150,6 @@ class SheDBCore extends EventEmitter {
         } catch (err) {
             if (err.code !== 'ENOENT') {
                 this.log.warn('shedb: could not load views from ' + this._viewsPath + ': ' + err.message);
-            }
-            if (legacyViews) {
-                // Migrate: split legacy single-file format into two files
-                this.views = legacyViews;
-                this.log.info('shedb: migrating views to separate file ' + this._viewsPath);
-                try {
-                    const vtmp = this._viewsPath + '.tmp';
-                    fs.writeFileSync(vtmp, JSON.stringify({ views: this.views }), 'utf8');
-                    fs.renameSync(vtmp, this._viewsPath);
-                    const tmp = this.dbPath + '.tmp';
-                    fs.writeFileSync(tmp, JSON.stringify({ rev: this.rev, docs: this.docs, queries: this.queries }), 'utf8');
-                    fs.renameSync(tmp, this.dbPath);
-                } catch (e) {
-                    this.log.error('shedb: migration failed: ' + e.message);
-                }
             }
         }
 
@@ -177,10 +165,10 @@ class SheDBCore extends EventEmitter {
     _save() {
         clearTimeout(this._saveTimer);
         this._saveTimer = setTimeout(() => {
-            const tmp = this.dbPath + '.tmp';
+            const tmp = this._docsPath + '.tmp';
             try {
                 fs.writeFileSync(tmp, JSON.stringify({ rev: this.rev, docs: this.docs, queries: this.queries }), 'utf8');
-                fs.renameSync(tmp, this.dbPath); // atomic on Linux (same FS)
+                fs.renameSync(tmp, this._docsPath); // atomic on Linux (same FS)
             } catch (err) {
                 this.log.error('shedb: save failed: ' + err.message);
             }
