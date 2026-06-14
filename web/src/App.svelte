@@ -7,7 +7,7 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
-    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, type AuthMode, type DaemonStatus } from './lib/api.js';
+    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, type AuthMode, type DaemonStatus } from './lib/api.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -18,9 +18,10 @@
     }
 
     let page = $state<Page>(pageFromHash());
-    let latestVersion = $state<string | null>(null);
     let stats = $state<DaemonStatus | null>(null);
     let statsOpen = $state(false);
+    let versionOpen = $state(false);
+    let updating = $state(false);
 
     // ── Auth ────────────────────────────────────────────────────────────────
     let authMode = $state<AuthMode>('none');
@@ -59,6 +60,21 @@
         } catch { /* ignore — daemon is restarting */ }
     }
 
+    async function update() {
+        if (!confirm(`Update to v${stats?.latestVersion}? The daemon will restart after the update completes.`)) return;
+        versionOpen = false;
+        updating = true;
+        try { await updateDaemon(); } catch { /* ok — daemon will restart */ }
+        // Wait for daemon to go down then come back
+        await new Promise(resolve => setTimeout(resolve, 8000));
+        const deadline = Date.now() + 120_000;
+        while (Date.now() < deadline) {
+            try { await getDaemonStatus(); location.reload(); return; } catch { /* still restarting */ }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        location.reload();
+    }
+
     function navigate(p: Page) {
         page = p;
         location.hash = p;
@@ -85,13 +101,7 @@
         }
         authReady = true;
 
-        // Check for newer version on npm (best-effort, silent on failure)
-        fetch('https://registry.npmjs.org/smart-home-engine/latest')
-            .then(r => r.json())
-            .then((d: { version?: string }) => { if (d.version && d.version !== __APP_VERSION__) latestVersion = d.version; })
-            .catch(() => {});
-
-        // Poll daemon status every 5s
+        // Poll daemon status every 5s (latestVersion is included in status by the backend)
         async function pollStatus() {
             try { stats = await getDaemonStatus(); } catch { /* daemon may be restarting */ }
         }
@@ -105,7 +115,7 @@
     });
 </script>
 
-<svelte:document onclick={() => { if (statsOpen) statsOpen = false; }} />
+<svelte:document onclick={() => { if (statsOpen) statsOpen = false; if (versionOpen) versionOpen = false; }} />
 
 {#if authReady && !showLogin}
 <div class="shell">
@@ -219,12 +229,34 @@
         </div>
 
         <div class="nav-right">
-            <span class="version">
-                v{__APP_VERSION__}
-                {#if latestVersion}
-                    <a class="update-badge" href="https://www.npmjs.com/package/smart-home-engine" target="_blank" rel="noopener" title="Update available: v{latestVersion}">↑ {latestVersion}</a>
+            <!-- Version button + popup -->
+            <div class="version-wrap">
+                <button class="version" onclick={(e) => { e.stopPropagation(); versionOpen = !versionOpen; statsOpen = false; }}>
+                    v{__APP_VERSION__}
+                    {#if stats?.latestVersion}<span class="update-dot" title="Update available"></span>{/if}
+                </button>
+                {#if versionOpen}
+                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                <div class="version-popup" onclick={(e) => e.stopPropagation()}>
+                    <dl>
+                        <dt>Installed</dt><dd>v{__APP_VERSION__}</dd>
+                        {#if stats?.latestVersion}
+                        <dt>Latest</dt><dd style="color: #f90">v{stats.latestVersion}</dd>
+                        {:else}
+                        <dt>Latest</dt><dd>up to date</dd>
+                        {/if}
+                    </dl>
+                    {#if stats?.latestVersion}
+                    <div class="version-actions">
+                        <button onclick={update}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 4 4 10 10 10"/><path d="M4 10A9 9 0 1 0 6.5 5"/></svg>
+                            Update to v{stats.latestVersion}
+                        </button>
+                    </div>
+                    {/if}
+                </div>
                 {/if}
-            </span>
+            </div>
             <a class="nav-icon" href="https://github.com/hobbyquaker/she" target="_blank" rel="noopener" title="GitHub">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
@@ -283,6 +315,15 @@
             {loginLoading ? 'Signing in…' : 'Sign in'}
         </button>
     </form>
+</div>
+{/if}
+
+{#if updating}
+<div class="updating-overlay">
+    <div class="updating-box">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 4 4 10 10 10"/><path d="M4 10A9 9 0 1 0 6.5 5"/></svg>
+        Updating smart-home-engine…
+    </div>
 </div>
 {/if}
 
@@ -384,26 +425,68 @@
         gap: 2px;
     }
 
+    .version-wrap {
+        position: relative;
+    }
+
     .version {
         display: flex;
         align-items: center;
-        gap: 5px;
+        gap: 4px;
         font-size: 11px;
         color: var(--fg-dim);
-        padding: 0 6px;
+        padding: 4px 8px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        border-radius: 3px;
         white-space: nowrap;
     }
+    .version:hover { background: var(--bg-hover); color: var(--fg); }
 
-    .update-badge {
-        background: var(--accent);
-        color: #fff;
-        font-size: 10px;
-        padding: 1px 5px;
-        border-radius: 3px;
-        text-decoration: none;
-        line-height: 1.6;
+    .update-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #f90;
+        display: inline-block;
+        flex-shrink: 0;
     }
-    .update-badge:hover { background: var(--accent-hov); }
+
+    .version-popup {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 4px);
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 10px 14px 6px;
+        min-width: 180px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+        z-index: 200;
+    }
+    .version-popup dl {
+        margin: 0 0 6px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 3px 12px;
+        font-size: 12px;
+    }
+    .version-popup dt { color: var(--fg-dim); font-weight: normal; }
+    .version-popup dd { margin: 0; text-align: right; }
+    .version-actions {
+        border-top: 1px solid var(--border-sub);
+        padding-top: 6px;
+    }
+    .version-actions button {
+        width: 100%;
+        justify-content: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #f90;
+        padding: 4px 8px;
+    }
+    .version-actions button:hover { color: var(--fg); }
 
     .nav-icon {
         display: flex;
@@ -515,4 +598,28 @@
     }
     .login-btn:hover:not(:disabled) { background: var(--accent-hov); }
     .login-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── Updating overlay ──────────────────────────────────────────── */
+    .updating-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+    }
+    .updating-box {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 20px 28px;
+        font-size: 14px;
+        color: var(--fg);
+    }
+    .updating-box svg { animation: spin 1s linear infinite; color: #f90; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 </style>

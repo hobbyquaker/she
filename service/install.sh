@@ -12,7 +12,7 @@ SHE_USER=she
 SERVICE_SRC="$(npm root -g)/smart-home-engine/service/smart-home-engine.service"
 SERVICE_DST=/etc/systemd/system/smart-home-engine.service
 
-# --- ensure sudo is installed (required for web UI restart button) --------
+# --- ensure sudo is installed (required for web UI restart/update buttons) -
 if ! command -v sudo &>/dev/null; then
     echo "sudo not found, installing..."
     apt-get install -y sudo
@@ -35,9 +35,13 @@ fi
 # --- state directory (required by ReadWritePaths before first start) ------
 install -d -o "$SHE_USER" -g "$SHE_USER" -m 700 /home/she/.she
 
-# --- sudoers rule (allows web UI restart button to work) -----------------
+# --- sudoers rules -------------------------------------------------------
+NPM_BIN="$(command -v npm)"
 SUDOERS_FILE=/etc/sudoers.d/she
-echo "she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine" > "$SUDOERS_FILE"
+cat > "$SUDOERS_FILE" <<EOF
+she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine
+she ALL=(root) NOPASSWD: $NPM_BIN install -g smart-home-engine
+EOF
 chmod 440 "$SUDOERS_FILE"
 echo "created $SUDOERS_FILE"
 

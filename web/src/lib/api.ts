@@ -150,6 +150,7 @@ export interface DaemonStatus {
     handlers?: number;
     memMb?: number;
     cpuPercent?: number;
+    latestVersion?: string;
 }
 
 export function getDaemonStatus(): Promise<DaemonStatus> {
@@ -158,6 +159,10 @@ export function getDaemonStatus(): Promise<DaemonStatus> {
 
 export function restartDaemon(): Promise<{ ok: boolean }> {
     return request('POST', '/she/restart');
+}
+
+export function updateDaemon(): Promise<{ ok: boolean }> {
+    return request('POST', '/she/update');
 }
 
 export function gitRemotes(): Promise<GitRemote[]> {

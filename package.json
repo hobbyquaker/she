@@ -28,10 +28,10 @@
     "author": "Sebastian 'hobbyquaker' Raff <hobbyquaker@gmail.com>",
     "license": "MIT",
     "dependencies": {
-        "bcryptjs": "^2.4.3",
         "@elastic/elasticsearch": "^9.4.2",
         "@influxdata/influxdb-client": "^1.35.0",
         "@matter/main": "^0.17.0",
+        "bcryptjs": "^2.4.3",
         "chokidar": "^4.0.0",
         "express": "^5.2.1",
         "ioredis": "^5.11.0",
@@ -39,6 +39,7 @@
         "node-schedule": "^2.0.0",
         "pino": "^9.0.0",
         "pino-pretty": "^13.0.0",
+        "semantic-compare": "^1.0.2",
         "suncalc": "^1.9.0",
         "ws": "^8.21.0",
         "yargs": "^17.0.0"

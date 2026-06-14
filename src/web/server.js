@@ -2,6 +2,9 @@
 
 const express = require('express');
 const path = require('path');
+const { spawnSync, spawn } = require('child_process');
+const semverCompare = require('semantic-compare');
+const pkg = require('../../package.json');
 const { router: configRouter } = require('./config-api');
 const { router: scriptsRouter } = require('./scripts-api');
 const { router: shedbRouter } = require('./shedb-api');
@@ -56,19 +59,37 @@ app.use('/she/ai', aiRouter);
 // When running under systemd, delegate to `sudo systemctl restart` so the
 // service actually comes back up. Otherwise fall back to exit(0) and let
 // whatever process manager is in use handle it.
+function _systemdRestart() {
+    if (process.env.INVOCATION_ID) {
+        spawn('sudo', ['systemctl', 'restart', 'smart-home-engine'], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+        process.exit(0);
+    }
+}
+
 app.post('/she/restart', (req, res) => {
     res.json({ ok: true });
+    setTimeout(_systemdRestart, 200);
+});
+
+// npm version check — poll once on startup and every hour
+let _latestNpmVersion = null;
+async function _checkNpmVersion() {
+    try {
+        const res = await fetch('https://registry.npmjs.org/smart-home-engine/latest');
+        const data = await res.json();
+        _latestNpmVersion = (data.version && semverCompare(pkg.version, data.version) < 0) ? data.version : null;
+    } catch { /* best-effort */ }
+}
+_checkNpmVersion();
+setInterval(_checkNpmVersion, 60 * 60 * 1000);
+
+// Update — install latest npm package, then restart
+app.post('/she/update', (req, res) => {
+    res.json({ ok: true });
     setTimeout(() => {
-        if (process.env.INVOCATION_ID) {
-            // Running under systemd
-            require('child_process').spawn(
-                'sudo',
-                ['systemctl', 'restart', 'smart-home-engine'],
-                { detached: true, stdio: 'ignore' },
-            ).unref();
-        } else {
-            process.exit(0);
-        }
+        spawnSync('sudo', ['npm', 'install', '-g', 'smart-home-engine'], { stdio: 'inherit' });
+        _systemdRestart();
     }, 200);
 });
 
@@ -78,7 +99,9 @@ function setStatsProvider(fn) {
     _getStats = fn;
 }
 app.get('/she/status', (req, res) => {
-    res.json(_getStats ? _getStats() : { scripts: 0, topics: 0 });
+    const s = _getStats ? _getStats() : { scripts: 0, topics: 0 };
+    if (_latestNpmVersion) s.latestVersion = _latestNpmVersion;
+    res.json(s);
 });
 
 // Serve the built Svelte SPA from dist/web/
