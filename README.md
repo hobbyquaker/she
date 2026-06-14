@@ -26,6 +26,8 @@ npm install -g smart-home-engine
 she
 ```
 
+All state is kept in `~/.she`
+
 **Install as a systemd service** (Debian/Ubuntu/Raspberry Pi OS):
 
 ```bash
@@ -34,7 +36,7 @@ sudo she --install
 sudo systemctl start smart-home-engine
 ```
 
-`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state is kept in `/home/she/.she/`.
+`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state is kept in `/var/lib/she/`.
 
 > **Tip:** use `journalctl -u smart-home-engine -o cat -f` to follow logs with colours intact.
 
