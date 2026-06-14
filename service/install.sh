@@ -12,6 +12,12 @@ SHE_USER=she
 SERVICE_SRC="$(npm root -g)/smart-home-engine/service/smart-home-engine.service"
 SERVICE_DST=/etc/systemd/system/smart-home-engine.service
 
+# --- ensure sudo is installed (required for web UI restart button) --------
+if ! command -v sudo &>/dev/null; then
+    echo "sudo not found, installing..."
+    apt-get install -y sudo
+fi
+
 # --- system user ---------------------------------------------------------
 if ! id "$SHE_USER" &>/dev/null; then
     useradd \
