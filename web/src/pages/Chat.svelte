@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, type AiConfig } from '../lib/api.js';
+    import { type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, type AiConversation, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, listConversations, getConversation, saveConversation, deleteConversation, type AiConfig } from '../lib/api.js';
+    import { onMount } from 'svelte';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
     import { marked } from 'marked';
@@ -22,6 +23,16 @@
     let loading = $state(false);
     let error = $state('');
     let aiConfig = $state<AiConfig | null>(null);
+
+    // ── Conversation persistence ──────────────────────────────────────────────
+    const CONV_ID_KEY = 'she:conversationId';
+    function genId() { return crypto.randomUUID().replace(/-/g, '').slice(0, 16); }
+
+    let conversationId = $state<string>(localStorage.getItem(CONV_ID_KEY) ?? genId());
+    let conversations = $state<AiConversation[]>([]);
+    let showHistory = $state(false);
+
+    $effect(() => { localStorage.setItem(CONV_ID_KEY, conversationId); });
 
     // Model selection — persisted in localStorage
     let availableModels = $state<string[]>([]);
@@ -354,6 +365,56 @@
         isDragOver = false;
     }
 
+    // ── Conversation persistence helpers ─────────────────────────────────────
+
+    async function refreshConversations() {
+        try { conversations = await listConversations(); } catch { /* best-effort */ }
+    }
+
+    async function persistConversation() {
+        if (messages.length === 0) return;
+        const title = messages.find(m => m.role === 'user')?.content.slice(0, 80) ?? conversationId;
+        try {
+            await saveConversation(conversationId, title, messages);
+            await refreshConversations();
+        } catch { /* best-effort */ }
+    }
+
+    async function loadConversation(id: string) {
+        try {
+            const conv = await getConversation(id);
+            messages = conv.messages;
+            conversationId = id;
+            showHistory = false;
+            error = '';
+        } catch { /* ignore */ }
+    }
+
+    async function deleteConv(id: string) {
+        try {
+            await deleteConversation(id);
+            await refreshConversations();
+            if (id === conversationId) newConversation();
+        } catch { /* ignore */ }
+    }
+
+    function newConversation() {
+        messages = [];
+        error = '';
+        conversationId = genId();
+        showHistory = false;
+    }
+
+    onMount(async () => {
+        // Load current conversation messages from server
+        try {
+            const conv = await getConversation(conversationId);
+            messages = conv.messages;
+        } catch { /* new conversation, start fresh */ }
+        // Load conversation list for history panel
+        await refreshConversations();
+    });
+
     // ── Send ─────────────────────────────────────────────────────────────────
 
     async function send() {
@@ -393,6 +454,7 @@
             streamingContent = null;
             toolEvents = [];
             loading = false;
+            void persistConversation();
         }
     }
 
@@ -407,7 +469,7 @@
         }
     }
 
-    function clearHistory() { messages = []; error = ''; }
+    function clearHistory() { newConversation(); }
 
     const SUGGESTIONS = [
         'Explain what this script does',
@@ -432,10 +494,36 @@
                 {#if configured}{aiConfig.provider} · {selectedModel || aiConfig.model}{:else}Not configured{/if}
             </span>
         {/if}
+        <button class="icon-hdr-btn" onclick={() => showHistory = !showHistory} title="Conversation history" class:active={showHistory}>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><polyline points="8,5 8,8 10,10"/></svg>
+        </button>
         {#if messages.length > 0}
-            <button class="clear-btn" onclick={clearHistory} title="Clear conversation">✕</button>
+            <button class="clear-btn" onclick={clearHistory} title="New conversation">+</button>
         {/if}
     </div>
+
+    {#if showHistory}
+        <div class="history-panel">
+            <div class="history-hdr">
+                <span>Conversations</span>
+                <button class="new-conv-btn" onclick={newConversation}>+ New</button>
+            </div>
+            {#if conversations.length === 0}
+                <p class="history-empty">No saved conversations.</p>
+            {:else}
+                <ul class="history-list">
+                    {#each conversations as conv (conv.id)}
+                        <li class="history-item" class:history-active={conv.id === conversationId}>
+                            <button class="history-load" onclick={() => loadConversation(conv.id)} title={conv.id}>
+                                {conv.title || conv.id}
+                            </button>
+                            <button class="history-del" onclick={() => deleteConv(conv.id)} title="Delete">✕</button>
+                        </li>
+                    {/each}
+                </ul>
+            {/if}
+        </div>
+    {/if}
 
     <!-- Messages -->
     <div class="messages" bind:this={messagesEl}>
@@ -737,9 +825,54 @@
     .chat-model { font-size: 10px; color: var(--fg-muted); }
     .clear-btn {
         background: none; border: none; color: var(--fg-muted); cursor: pointer;
-        font-size: 11px; padding: 1px 4px; border-radius: 2px;
+        font-size: 13px; padding: 1px 4px; border-radius: 2px;
     }
     .clear-btn:hover { background: var(--bg-hover); color: var(--fg); }
+    .icon-hdr-btn {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        padding: 2px 4px; border-radius: 2px; display: flex; align-items: center;
+    }
+    .icon-hdr-btn:hover, .icon-hdr-btn.active { background: var(--bg-active); color: var(--fg); }
+
+    /* History panel */
+    .history-panel {
+        border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
+        background: var(--bg-sidebar);
+        max-height: 220px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .history-hdr {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 5px 10px; border-bottom: 1px solid var(--border-sub);
+        font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-muted);
+        flex-shrink: 0;
+    }
+    .new-conv-btn {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        font-size: 10px; padding: 1px 5px; border-radius: 2px;
+    }
+    .new-conv-btn:hover { background: var(--bg-active); color: var(--fg); }
+    .history-empty { font-size: 11px; color: var(--fg-muted); padding: 8px 10px; margin: 0; }
+    .history-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+    .history-item {
+        display: flex; align-items: center;
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .history-item:hover { background: var(--bg-hover); }
+    .history-item.history-active { background: var(--bg-active); }
+    .history-load {
+        flex: 1; background: none; border: none; color: var(--fg); cursor: pointer;
+        text-align: left; padding: 5px 10px; font-size: 11px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .history-del {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        font-size: 10px; padding: 2px 6px; flex-shrink: 0;
+    }
+    .history-del:hover { color: var(--fg-err); }
 
     .messages {
         flex: 1;

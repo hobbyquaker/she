@@ -18,9 +18,11 @@
 
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 
 const { buildSystemPrompt } = require('./ai-context');
 const { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool } = require('./ai-tools');
+const { STORAGE_ROOT } = require('../lib/storage');
 
 const router = express.Router();
 let _store = null;
@@ -519,6 +521,71 @@ router.post('/chat/stream', async (req, res) => {
         send({ error: e.message });
         res.end();
     }
+});
+
+// ---------------------------------------------------------------------------
+// Conversation persistence — GET/PUT/DELETE /she/ai/conversations[/:id]
+// ---------------------------------------------------------------------------
+
+const AI_DIR = path.join(STORAGE_ROOT, 'ai');
+
+function ensureAiDir() {
+    fs.mkdirSync(AI_DIR, { recursive: true });
+}
+
+function convPath(id) {
+    // Sanitize: only allow alphanumerics, hyphens, underscores
+    if (!/^[a-z0-9_-]{1,64}$/i.test(id)) return null;
+    return path.join(AI_DIR, `${id}.json`);
+}
+
+// GET /she/ai/conversations — list conversations sorted by updatedAt desc
+router.get('/conversations', (req, res) => {
+    ensureAiDir();
+    let list = [];
+    try {
+        const files = fs.readdirSync(AI_DIR).filter(f => f.endsWith('.json'));
+        list = files.map(f => {
+            try {
+                const data = JSON.parse(fs.readFileSync(path.join(AI_DIR, f), 'utf8'));
+                return { id: data.id, title: data.title || data.id, updatedAt: data.updatedAt || 0 };
+            } catch { return null; }
+        }).filter(Boolean);
+        list.sort((a, b) => b.updatedAt - a.updatedAt);
+    } catch { /* empty dir */ }
+    res.json(list);
+});
+
+// GET /she/ai/conversations/:id
+router.get('/conversations/:id', (req, res) => {
+    const p = convPath(req.params.id);
+    if (!p) return res.status(400).json({ error: 'invalid id' });
+    try {
+        const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+        res.json(data);
+    } catch {
+        res.status(404).json({ error: 'not found' });
+    }
+});
+
+// PUT /she/ai/conversations/:id — { title, messages }
+router.put('/conversations/:id', (req, res) => {
+    const p = convPath(req.params.id);
+    if (!p) return res.status(400).json({ error: 'invalid id' });
+    const { title, messages } = req.body || {};
+    if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
+    ensureAiDir();
+    const data = { id: req.params.id, title: String(title || req.params.id).slice(0, 200), updatedAt: Date.now(), messages };
+    fs.writeFileSync(p, JSON.stringify(data), 'utf8');
+    res.json({ ok: true });
+});
+
+// DELETE /she/ai/conversations/:id
+router.delete('/conversations/:id', (req, res) => {
+    const p = convPath(req.params.id);
+    if (!p) return res.status(400).json({ error: 'invalid id' });
+    try { fs.unlinkSync(p); } catch { /* already gone */ }
+    res.json({ ok: true });
 });
 
 module.exports = { router, init };

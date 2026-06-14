@@ -208,6 +208,7 @@ export interface ViewDefinition {
     reduce?: string;
     mqttpub?: boolean;
     retain?: boolean;
+    description?: string;
 }
 
 export interface ViewResult {
@@ -301,6 +302,31 @@ export function getOutdatedDeps(): Promise<Record<string, DepOutdatedEntry>> {
 
 export function checkOutdatedDeps(): Promise<Record<string, DepOutdatedEntry>> {
     return request('POST', '/she/deps/check-outdated');
+}
+
+// ---- AI Conversations API ----
+
+export interface AiConversation {
+    id: string;
+    title: string;
+    updatedAt: number;
+    messages: AiMessage[];
+}
+
+export function listConversations(): Promise<AiConversation[]> {
+    return request('GET', '/she/ai/conversations');
+}
+
+export function getConversation(id: string): Promise<AiConversation> {
+    return request('GET', `/she/ai/conversations/${encodeURIComponent(id)}`);
+}
+
+export function saveConversation(id: string, title: string, messages: AiMessage[]): Promise<{ ok: boolean }> {
+    return request('PUT', `/she/ai/conversations/${encodeURIComponent(id)}`, { title, messages });
+}
+
+export function deleteConversation(id: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/ai/conversations/${encodeURIComponent(id)}`);
 }
 
 export function getViewResult(id: string): Promise<ViewResult> {

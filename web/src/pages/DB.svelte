@@ -32,6 +32,7 @@
     let viewFilter = $state('#');
     let viewMap = $state('// emit(this.someProperty)');
     let viewReduce = $state('');
+    let viewDescription = $state('');
     let viewMqttPub = $state(false);
     let viewRetain  = $state(false);
     let viewResult: ViewResult | null = $state(null);
@@ -197,6 +198,7 @@
             viewFilter = def.filter ?? '';
             viewMap = def.map;
             viewReduce = def.reduce ?? '';
+            viewDescription = def.description ?? '';
             viewMqttPub = def.mqttpub ?? false;
             viewRetain  = def.retain  ?? false;
             viewResult = await getViewResult(id).catch(() => null);
@@ -214,6 +216,7 @@
             const def: ViewDefinition = { map: viewMap };
             if (viewFilter.trim()) def.filter = viewFilter.trim();
             if (viewReduce.trim()) def.reduce = viewReduce.trim();
+            if (viewDescription.trim()) def.description = viewDescription.trim();
             if (viewMqttPub) def.mqttpub = true;
             if (viewRetain)  def.retain  = true;
             await putView(selectedViewId, def);
@@ -240,6 +243,7 @@
             viewFilter = '';
             viewMap = '// emit(this.someProperty)';
             viewReduce = '';
+            viewDescription = '';
             viewMqttPub = false;
             viewRetain  = false;
             viewResult = null;
@@ -455,6 +459,12 @@
                         <div class="loading">Loading…</div>
                     {:else}
                         <div class="view-sections">
+                            <div class="view-section">
+                                <div class="section-title">Description <span class="section-hint">— optional, shown in sidebar</span></div>
+                                <div class="section-body">
+                                    <input class="filter-input" bind:value={viewDescription} placeholder="(optional description)" />
+                                </div>
+                            </div>
                             <div class="view-section">
                                 <div class="section-title">Filter <span class="section-hint">— MQTT wildcard, optional</span></div>
                                 <div class="section-body">
