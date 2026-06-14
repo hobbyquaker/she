@@ -6,12 +6,17 @@
         installDep,
         removeDep,
         updateDep,
+        getOutdatedDeps,
+        checkOutdatedDeps,
         type DepEntry,
+        type DepOutdatedEntry,
         type NpmSearchResult,
     } from '../lib/api.js';
 
     let installed = $state<DepEntry[]>([]);
     let installedFilter = $state('');
+    let outdated = $state<Record<string, DepOutdatedEntry>>({});
+    let checkingOutdated = $state(false);
     let searchQuery = $state('');
     let searchResults = $state<NpmSearchResult[]>([]);
     let pendingRestart = $state(false);
@@ -25,9 +30,10 @@
             ? installed.filter(d => d.name.toLowerCase().includes(installedFilter.toLowerCase()))
             : installed
     );
+    const outdatedCount = $derived(Object.keys(outdated).length);
 
     onMount(async () => {
-        await loadInstalled();
+        await Promise.all([loadInstalled(), loadOutdated()]);
     });
 
     async function loadInstalled() {
@@ -36,6 +42,21 @@
             error = '';
         } catch (e: any) {
             error = e.message;
+        }
+    }
+
+    async function loadOutdated() {
+        try {
+            outdated = await getOutdatedDeps();
+        } catch { /* best-effort */ }
+    }
+
+    async function handleCheckOutdated() {
+        checkingOutdated = true;
+        try {
+            outdated = await checkOutdatedDeps();
+        } catch { /* best-effort */ } finally {
+            checkingOutdated = false;
         }
     }
 
@@ -77,6 +98,8 @@
             const res = await removeDep(name);
             output = res.stdout || res.stderr || 'Done.';
             pendingRestart = true;
+            // optimistic: remove from outdated immediately
+            const outs = { ...outdated }; delete outs[name]; outdated = outs;
             await loadInstalled();
         } catch (e: any) {
             error = e.message;
@@ -93,6 +116,8 @@
             const res = await updateDep(name);
             output = res.stdout || res.stderr || 'Done.';
             pendingRestart = true;
+            // optimistic: remove from outdated immediately
+            const outs = { ...outdated }; delete outs[name]; outdated = outs;
             await loadInstalled();
         } catch (e: any) {
             error = e.message;
@@ -120,6 +145,17 @@
             <div class="pane-hdr">
                 <span class="pane-title">Installed</span>
                 <span class="pane-count">{installed.length}</span>
+                {#if outdatedCount > 0}
+                    <span class="pane-count pane-count--warn">{outdatedCount} outdated</span>
+                {/if}
+                <button
+                    class="icon-btn check-outdated-btn"
+                    onclick={handleCheckOutdated}
+                    disabled={checkingOutdated}
+                    title="Check for package updates"
+                >
+                    <svg class:spinning={checkingOutdated} width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8A5 5 0 1 1 10.5 3.67"/><polyline points="10.5,1.5 10.5,4 13,4"/></svg>
+                </button>
             </div>
             <div class="filter-row">
                 <input
@@ -139,14 +175,18 @@
                         <div class="dep-row" class:dep-busy={!!busy[dep.name]}>
                             <div class="dep-info">
                                 <a class="dep-name" href={dep.url ?? `https://www.npmjs.com/package/${dep.name}`} target="_blank" rel="noopener noreferrer">{dep.name}</a>
-                                <span class="dep-ver">{dep.version}</span>
+                                <span class="dep-ver">{dep.installedVersion ?? dep.version}</span>
+                                {#if outdated[dep.name]}
+                                    <span class="dep-latest">→ v{outdated[dep.name].latest}</span>
+                                {/if}
                             </div>
                             <div class="dep-btns">
                                 <button
                                     class="icon-btn"
+                                    class:icon-btn--update={!!outdated[dep.name]}
                                     onclick={() => update(dep.name)}
                                     disabled={!!busy[dep.name]}
-                                    title="Update to latest"
+                                    title={outdated[dep.name] ? `Update to v${outdated[dep.name].latest}` : 'Update to latest'}
                                 >
                                     {#if busy[dep.name]}
                                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="8" r="6" stroke-dasharray="18" stroke-dashoffset="4" /></svg>
@@ -289,6 +329,14 @@
         padding: 1px 5px;
         border-radius: 8px;
     }
+    .pane-count--warn {
+        background: var(--bg-warn-subtle);
+        color: var(--fg-warn-subtle);
+        border: 1px solid var(--border-warn);
+    }
+    .check-outdated-btn {
+        margin-left: auto;
+    }
 
     .filter-row {
         padding: 6px 8px;
@@ -344,6 +392,11 @@
         font-size: 10px;
         color: var(--fg-muted);
     }
+    .dep-latest {
+        font-family: monospace;
+        font-size: 10px;
+        color: var(--fg-warn-subtle);
+    }
     .dep-btns {
         display: flex;
         gap: 2px;
@@ -363,6 +416,11 @@
     .icon-btn:hover:not(:disabled) { background: var(--bg-active); color: var(--fg); }
     .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
     .icon-btn--danger:hover:not(:disabled) { color: var(--fg-err); background: var(--bg-err-subtle); }
+    .icon-btn--update { color: var(--fg-warn-subtle); }
+    .icon-btn--update:hover:not(:disabled) { background: var(--bg-warn-subtle); color: var(--fg-warn-subtle); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { animation: spin 0.8s linear infinite; }
 
     /* Right pane */
     .pkg-right {

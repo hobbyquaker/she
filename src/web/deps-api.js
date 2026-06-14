@@ -7,6 +7,39 @@ const path = require('path');
 const https = require('https');
 const { STORAGE_ROOT } = require('../lib/storage');
 
+/** Cache of outdated packages: { [name]: { current, latest } } or null while unchecked. */
+let _outdated = null;
+/** In-flight promise for the current outdated check, to avoid duplicate runs. */
+let _outdatedPromise = null;
+
+function _checkOutdated() {
+    if (_outdatedPromise) return _outdatedPromise;
+    const pkg = readPackageJson();
+    if (!pkg.dependencies || Object.keys(pkg.dependencies).length === 0) {
+        _outdated = {};
+        return Promise.resolve({});
+    }
+    _outdatedPromise = new Promise((resolve) => {
+        execFile('npm', ['outdated', '--json'], { cwd: STORAGE_ROOT, timeout: 60_000 }, (err, stdout) => {
+            _outdatedPromise = null;
+            // npm exits with code 1 when packages are outdated — not a real error
+            if (err && err.code !== 1) {
+                resolve(_outdated ?? {});
+                return;
+            }
+            try {
+                const data = JSON.parse(stdout || '{}');
+                _outdated = {};
+                for (const [name, info] of Object.entries(data)) {
+                    _outdated[name] = { current: info.current, latest: info.latest };
+                }
+            } catch { /* ignore parse errors */ }
+            resolve(_outdated ?? {});
+        });
+    });
+    return _outdatedPromise;
+}
+
 const router = express.Router();
 
 /** Ensure ~/.she/package.json exists so npm commands work. */
@@ -52,6 +85,10 @@ function isValidVersion(v) {
     return typeof v === 'string' && v.length > 0 && v.length <= 50 && /^[a-z0-9_\-.*^~>=<|]+$/i.test(v);
 }
 
+// Start background outdated check on module load + refresh every 24 h
+_checkOutdated();
+setInterval(_checkOutdated, 24 * 60 * 60 * 1000);
+
 // GET /she/deps  — list installed packages from ~/.she/package.json
 router.get('/', (req, res) => {
     const pkg = readPackageJson();
@@ -59,8 +96,10 @@ router.get('/', (req, res) => {
     res.json(
         Object.entries(deps).map(([name, version]) => {
             let url = `https://www.npmjs.com/package/${encodeURIComponent(name)}`;
+            let installedVersion;
             try {
                 const meta = JSON.parse(fs.readFileSync(path.join(STORAGE_ROOT, 'node_modules', name, 'package.json'), 'utf8'));
+                installedVersion = meta.version;
                 if (meta.homepage && /^https?:\/\//.test(meta.homepage)) {
                     url = meta.homepage;
                 } else {
@@ -80,9 +119,26 @@ router.get('/', (req, res) => {
             } catch {
                 /* not installed or no metadata */
             }
-            return { name, version, url };
+            return { name, version, installedVersion, url };
         }),
     );
+});
+
+// GET /she/deps/outdated  — return cached outdated map { [name]: { current, latest } }
+router.get('/outdated', (req, res) => {
+    res.json(_outdated ?? {});
+});
+
+// POST /she/deps/check-outdated  — force a fresh check and return result
+router.post('/check-outdated', async (req, res) => {
+    _outdated = null;
+    _outdatedPromise = null;
+    try {
+        const result = await _checkOutdated();
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // GET /she/deps/search?q=term  — search the npm registry

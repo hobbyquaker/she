@@ -258,8 +258,14 @@ export function deleteView(id: string): Promise<{ ok: boolean }> {
 
 export interface DepEntry {
     name: string;
-    version: string;
+    version: string;           // specifier from package.json (e.g. "^1.0.0")
+    installedVersion?: string; // actual version in node_modules
     url?: string;
+}
+
+export interface DepOutdatedEntry {
+    current: string;
+    latest: string;
 }
 
 export interface NpmSearchResult {
@@ -287,6 +293,14 @@ export function removeDep(name: string): Promise<{ ok: boolean; stdout: string; 
 
 export function updateDep(name: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
     return request('POST', '/she/deps/update', { name });
+}
+
+export function getOutdatedDeps(): Promise<Record<string, DepOutdatedEntry>> {
+    return request('GET', '/she/deps/outdated');
+}
+
+export function checkOutdatedDeps(): Promise<Record<string, DepOutdatedEntry>> {
+    return request('POST', '/she/deps/check-outdated');
 }
 
 export function getViewResult(id: string): Promise<ViewResult> {
