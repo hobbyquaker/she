@@ -16,7 +16,13 @@
 
     // ── field state ───────────────────────────────────────────────────────
     // MQTT
-    let mqttUrl        = $state('');
+    let mqttProtocol   = $state('mqtt');
+    let mqttHost       = $state('');
+    let mqttUsername   = $state('');
+    let mqttPassword   = $state('');
+    let mqttCa         = $state('');
+    let mqttCert       = $state('');
+    let mqttKey        = $state('');
     let mqttName       = $state('logic');
     let varPrefix      = $state('var');
     let disableVars    = $state(false);
@@ -29,6 +35,7 @@
     let authMode       = $state<AuthMode>('none');
     let authPassword   = $state('');
     let authProxyHeader = $state('X-Remote-User');
+    let authProxyLogoutUrl = $state('');
     let authSaving     = $state(false);
     let authMsg        = $state('');
     let authErr        = $state('');
@@ -118,7 +125,8 @@
 
     const KNOWN = new Set([
         'url', 'name', 'variablePrefix', 'disableVariables',
-        'port', 'bindAddress', 'auth', 'password', 'proxyHeader',
+        'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey',
+        'port', 'bindAddress', 'auth', 'password', 'proxyHeader', 'proxyLogoutUrl',
         'dir', 'disableWatch',
         'latitude', 'longitude',
         'verbosity',
@@ -211,7 +219,20 @@
     onMount(async () => {
         try {
             const cfg = await getConfig();
-            if (typeof cfg.url              === 'string')  mqttUrl      = cfg.url;
+            if (typeof cfg.url === 'string' && cfg.url) {
+                try {
+                    const u = new URL(cfg.url);
+                    mqttProtocol = u.protocol.replace(':', '');
+                    mqttHost     = u.host;
+                } catch {
+                    mqttHost = cfg.url;
+                }
+            }
+            if (typeof cfg.mqttUsername === 'string') mqttUsername = cfg.mqttUsername;
+            if (typeof cfg.mqttPassword === 'string') mqttPassword = cfg.mqttPassword;
+            if (typeof cfg.mqttCa   === 'string') mqttCa   = cfg.mqttCa;
+            if (typeof cfg.mqttCert === 'string') mqttCert = cfg.mqttCert;
+            if (typeof cfg.mqttKey  === 'string') mqttKey  = cfg.mqttKey;
             if (typeof cfg.name             === 'string')  mqttName     = cfg.name;
             if (typeof cfg.variablePrefix   === 'string')  varPrefix    = cfg.variablePrefix;
             if (typeof cfg.disableVariables === 'boolean') disableVars  = cfg.disableVariables;
@@ -219,6 +240,7 @@
             if (typeof cfg.bindAddress      === 'string')  bindAddress  = cfg.bindAddress;
             if (typeof cfg.auth             === 'string')  authMode     = cfg.auth as AuthMode;
             if (typeof cfg.proxyHeader      === 'string')  authProxyHeader = cfg.proxyHeader;
+            if (typeof cfg.proxyLogoutUrl   === 'string')  authProxyLogoutUrl = cfg.proxyLogoutUrl;
             if (typeof cfg.dir              === 'string')  dir          = cfg.dir;
             if (typeof cfg.disableWatch     === 'boolean') disableWatch = cfg.disableWatch;
             if (typeof cfg.latitude         === 'number')  latitude     = cfg.latitude;
@@ -258,6 +280,7 @@
                 authMode,
                 authMode === 'password' ? authPassword : undefined,
                 authMode === 'proxy' ? authProxyHeader : undefined,
+                authMode === 'proxy' ? authProxyLogoutUrl : undefined,
             );
             authPassword = '';
             authMsg = 'Authentication settings saved.';
@@ -273,10 +296,15 @@
         msg    = '';
         const cfg: Record<string, unknown> = { ...extra };
 
-        if (mqttUrl)    cfg.url             = mqttUrl;
-        cfg.name                            = mqttName;
-        cfg.variablePrefix                  = varPrefix;
+        if (mqttHost)     cfg.url             = `${mqttProtocol}://${mqttHost}`;
+        cfg.name                              = mqttName;
+        cfg.variablePrefix                    = varPrefix;
         if (disableVars)    cfg.disableVariables = true;
+        if (mqttUsername)   cfg.mqttUsername   = mqttUsername;
+        if (mqttPassword)   cfg.mqttPassword   = mqttPassword;
+        if (mqttCa)         cfg.mqttCa         = mqttCa;
+        if (mqttCert)       cfg.mqttCert       = mqttCert;
+        if (mqttKey)        cfg.mqttKey        = mqttKey;
 
         if (port !== '')    cfg.port        = Number(port);
         if (bindAddress)    cfg.bindAddress = bindAddress;
@@ -394,17 +422,66 @@
                     <h3>MQTT</h3>
                     <div class="field">
                         <label>
-                            Broker URL
-                            {@render tip('mqtt:// or mqtts:// URL of the broker. Leave empty to run without MQTT.')}
+                            Protocol
+                            {@render tip('Transport protocol. Use mqtts or wss for TLS encryption.')}
                         </label>
-                        <input type="text" bind:value={mqttUrl} placeholder="mqtt://localhost:1883" />
+                        <select bind:value={mqttProtocol}>
+                            <option value="mqtt">mqtt (plain TCP)</option>
+                            <option value="mqtts">mqtts (TLS)</option>
+                            <option value="ws">ws (WebSocket)</option>
+                            <option value="wss">wss (WebSocket + TLS)</option>
+                        </select>
                     </div>
                     <div class="field">
                         <label>
-                            Client name
-                            {@render tip('MQTT client ID and topic prefix used for the "connected" status message. Default: logic')}
+                            Broker address
+                            {@render tip('Hostname and optional port of the MQTT broker. Example: 192.168.1.1:1883. Leave empty to run without MQTT.')}
                         </label>
-                        <input type="text" bind:value={mqttName} placeholder="logic" />
+                        <input type="text" bind:value={mqttHost} placeholder="localhost:1883" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Username
+                            {@render tip('MQTT broker username. Leave empty if the broker does not require authentication.')}
+                        </label>
+                        <input type="text" bind:value={mqttUsername} placeholder="(optional)" autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Password
+                            {@render tip('MQTT broker password. Stored in plain text in config.json.')}
+                        </label>
+                        <input type="password" bind:value={mqttPassword} placeholder="(optional)" autocomplete="new-password" />
+                    </div>
+                    {#if mqttProtocol === 'mqtts' || mqttProtocol === 'wss'}
+                    <div class="field">
+                        <label>
+                            CA certificate
+                            {@render tip("PEM-encoded CA certificate to verify the broker's TLS certificate. Leave empty to use the system's default CA store.")}
+                        </label>
+                        <textarea bind:value={mqttCa} rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Client certificate
+                            {@render tip('PEM-encoded client certificate for mutual TLS authentication.')}
+                        </label>
+                        <textarea bind:value={mqttCert} rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Client private key
+                            {@render tip('PEM-encoded private key matching the client certificate.')}
+                        </label>
+                        <textarea bind:value={mqttKey} rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----" spellcheck="false"></textarea>
+                    </div>
+                    {/if}
+                    <div class="field">
+                        <label>
+                            Client name
+                            {@render tip('MQTT client ID and topic prefix used for the "connected" status message. Default: she')}
+                        </label>
+                        <input type="text" bind:value={mqttName} placeholder="she" />
                     </div>
                     <div class="field">
                         <label>
@@ -456,6 +533,13 @@
                             {@render tip('The HTTP header that nginx/authentik sets after successful authentication. Default: X-Remote-User')}
                         </label>
                         <input type="text" bind:value={authProxyHeader} placeholder="X-Remote-User" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Logout URL
+                            {@render tip('URL to redirect to when the user clicks Logout (e.g. https://auth.example.com/application/o/she/end-session/ for Authentik). Leave empty to do nothing on logout.')}
+                        </label>
+                        <input type="text" bind:value={authProxyLogoutUrl} placeholder="https://auth.example.com/…/end-session/" />
                     </div>
                     {/if}
                     {#if authErr}<div class="field-error">{authErr}</div>{/if}
@@ -916,7 +1000,8 @@
     input[type='text'],
     input[type='number'],
     input[type='password'],
-    select {
+    select,
+    textarea {
         background: var(--bg-input);
         color: var(--fg);
         border: 1px solid var(--border);
@@ -929,10 +1014,18 @@
         outline: none;
     }
 
+    textarea {
+        resize: vertical;
+        font-family: monospace;
+        font-size: 11px;
+        line-height: 1.5;
+    }
+
     input[type='text']:focus,
     input[type='number']:focus,
     input[type='password']:focus,
-    select:focus { border-color: var(--fg-brand); }
+    select:focus,
+    textarea:focus { border-color: var(--fg-brand); }
 
     input[type='checkbox'] {
         width: 14px;
@@ -942,7 +1035,8 @@
         flex-shrink: 0;
     }
 
-    input::placeholder { color: var(--fg-dim); }
+    input::placeholder,
+    textarea::placeholder { color: var(--fg-dim); }
 
     /* ── tooltip ─────────────────────────────────────────────────────── */
     .tip {

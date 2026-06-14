@@ -32,15 +32,17 @@ const _sessions = new Map(); // token (hex64) → { createdAt: number }
 let _mode = 'none';
 let _passwordHash = null; // bcrypt hash, only used in 'password' mode
 let _proxyHeader = 'x-remote-user'; // lowercase for req.headers lookup
+let _proxyLogoutUrl = null; // URL to redirect to on logout in proxy mode
 let _configPath = null;
 
 /**
  * Initialise auth state. Called once from startServer().
  */
-function init({ auth = 'none', password = null, proxyHeader = 'X-Remote-User', configPath = null } = {}) {
+function init({ auth = 'none', password = null, proxyHeader = 'X-Remote-User', proxyLogoutUrl = null, configPath = null } = {}) {
     _mode = auth;
     _passwordHash = password || null;
     _proxyHeader = proxyHeader.toLowerCase();
+    _proxyLogoutUrl = proxyLogoutUrl || null;
     _configPath = configPath;
 }
 
@@ -95,7 +97,9 @@ const router = express.Router();
 
 /** GET /she/auth/mode — always public */
 router.get('/mode', (req, res) => {
-    res.json({ mode: _mode });
+    const r = { mode: _mode };
+    if (_mode === 'proxy' && _proxyLogoutUrl) r.proxyLogoutUrl = _proxyLogoutUrl;
+    res.json(r);
 });
 
 /** POST /she/auth/login — always public; only meaningful in password mode */
@@ -135,7 +139,7 @@ router.post('/setup', async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { mode, password, proxyHeader } = req.body || {};
+    const { mode, password, proxyHeader, proxyLogoutUrl } = req.body || {};
 
     if (!['none', 'password', 'proxy'].includes(mode)) {
         return res.status(400).json({ error: 'Invalid auth mode. Must be none, password, or proxy.' });
@@ -157,12 +161,14 @@ router.post('/setup', async (req, res) => {
         cfg.auth = mode;
         delete cfg.password;
         delete cfg.proxyHeader;
+        delete cfg.proxyLogoutUrl;
 
         if (mode === 'password') {
             cfg.password = await bcrypt.hash(password, BCRYPT_ROUNDS);
         }
         if (mode === 'proxy') {
             cfg.proxyHeader = proxyHeader || 'X-Remote-User';
+            if (proxyLogoutUrl) cfg.proxyLogoutUrl = proxyLogoutUrl;
         }
 
         // Write back
@@ -173,6 +179,7 @@ router.post('/setup', async (req, res) => {
         _mode = mode;
         _passwordHash = cfg.password || null;
         _proxyHeader = (cfg.proxyHeader || 'X-Remote-User').toLowerCase();
+        _proxyLogoutUrl = cfg.proxyLogoutUrl || null;
 
         // Invalidate all existing sessions when switching away from password mode
         if (mode !== 'password') _sessions.clear();

@@ -190,7 +190,7 @@ let httpServer = null;
 /**
  * Start listening. Resolves with the actual port (useful when port 0 is given).
  * @param {number} port
- * @param {{ auth?: string, password?: string, proxyHeader?: string, bindAddress?: string, configPath?: string, scriptDir?: string }} [options]
+ * @param {{ auth?: string, password?: string, proxyHeader?: string, proxyLogoutUrl?: string, bindAddress?: string, configPath?: string, scriptDir?: string }} [options]
  * @returns {Promise<number>}
  */
 function startServer(port, options = {}) {
@@ -198,6 +198,7 @@ function startServer(port, options = {}) {
         auth: options.auth || 'none',
         password: options.password || null,
         proxyHeader: options.proxyHeader || 'X-Remote-User',
+        proxyLogoutUrl: options.proxyLogoutUrl || null,
         configPath: options.configPath || null,
     });
     if (options.configPath) {

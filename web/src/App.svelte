@@ -7,7 +7,7 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
-    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, type AuthMode, type DaemonStatus } from './lib/api.js';
+    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -24,8 +24,7 @@
     let updating = $state(false);
 
     // ── Auth ────────────────────────────────────────────────────────────────
-    let authMode = $state<AuthMode>('none');
-    let showLogin = $state(false);
+    let authMode = $state<AuthMode>('none');    let proxyLogoutUrl = $state('');    let showLogin = $state(false);
     let loginPassword = $state('');
     let loginError = $state('');
     let loginLoading = $state(false);
@@ -48,6 +47,10 @@
     }
 
     async function handleLogout() {
+        if (authMode === 'proxy' && proxyLogoutUrl) {
+            window.location.href = proxyLogoutUrl;
+            return;
+        }
         await logout();
         showLogin = true;
     }
@@ -90,7 +93,9 @@
 
         // Detect auth mode — show login overlay immediately if in password mode
         try {
-            authMode = await getAuthMode();
+            const authResult = await getAuthMode();
+            authMode = authResult.mode;
+            proxyLogoutUrl = authResult.proxyLogoutUrl ?? '';
             if (authMode === 'password') {
                 // Probe a protected endpoint to check if we already have a valid session
                 const probe = await fetch('/she/scripts');

@@ -29,10 +29,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export type AuthMode = 'none' | 'password' | 'proxy';
 
-export async function getAuthMode(): Promise<AuthMode> {
+export interface AuthModeResponse {
+    mode: AuthMode;
+    proxyLogoutUrl?: string;
+}
+
+export async function getAuthMode(): Promise<AuthModeResponse> {
     const res = await fetch('/she/auth/mode');
     const data = await res.json();
-    return data.mode as AuthMode;
+    return data as AuthModeResponse;
 }
 
 export async function login(password: string): Promise<void> {
@@ -51,11 +56,11 @@ export async function logout(): Promise<void> {
     await fetch('/she/auth/logout', { method: 'POST' });
 }
 
-export async function setupAuth(mode: AuthMode, password?: string, proxyHeader?: string): Promise<void> {
+export async function setupAuth(mode: AuthMode, password?: string, proxyHeader?: string, proxyLogoutUrl?: string): Promise<void> {
     const res = await fetch('/she/auth/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, password, proxyHeader }),
+        body: JSON.stringify({ mode, password, proxyHeader, proxyLogoutUrl }),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));

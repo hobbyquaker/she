@@ -79,6 +79,7 @@ if (typeof config.port !== 'undefined') {
             auth: config.auth,
             password: config.password || null,
             proxyHeader: config.proxyHeader,
+            proxyLogoutUrl: config.proxyLogoutUrl || null,
             bindAddress: config.bindAddress,
             configPath: config.config,
             scriptDir: config.dir || null,
@@ -283,7 +284,13 @@ if (!config.url) {
 }
 
 if (config.url) {
-    mqtt = modules.mqtt.connect(config.url, { will: { topic: config.name + '/connected', payload: '0', retain: true } });
+    const _mqttOpts = { will: { topic: config.name + '/connected', payload: '0', retain: true } };
+    if (config.mqttUsername) _mqttOpts.username = config.mqttUsername;
+    if (config.mqttPassword) _mqttOpts.password = config.mqttPassword;
+    if (config.mqttCa)   _mqttOpts.ca   = config.mqttCa;
+    if (config.mqttCert) _mqttOpts.cert = config.mqttCert;
+    if (config.mqttKey)  _mqttOpts.key  = config.mqttKey;
+    mqtt = modules.mqtt.connect(config.url, _mqttOpts);
     mqtt.publish(config.name + '/connected', '2', { retain: true });
 
     mqtt.on('connect', () => {
