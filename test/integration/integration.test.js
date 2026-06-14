@@ -139,10 +139,10 @@ describe('start daemon', () => {
     it('should subscribe to #', (done) => {
         subscribe('ms', /mqtt subscribe #/, () => done());
     }, 20000);
-    it('should publish 2 on logic/connected', (done) => {
-        mqttSubscribe('logic/connected', (payload) => {
+    it('should publish 2 on she/connected', (done) => {
+        mqttSubscribe('she/connected', (payload) => {
             if (payload > 0) {
-                mqtt.unsubscribe('logic/connected');
+                mqtt.unsubscribe('she/connected');
                 done();
             }
         });
