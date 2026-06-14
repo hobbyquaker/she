@@ -1,10 +1,11 @@
-name: CI
+name: Test
 
 on:
     push:
         branches:
             - '**' # branches only — tag pushes are handled by release.yml
     pull_request:
+    workflow_call: # allow release.yml to reuse this workflow as a gate
 
 jobs:
     test:

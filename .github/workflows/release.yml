@@ -9,8 +9,13 @@ permissions:
     contents: write
 
 jobs:
+    test:
+        name: Test
+        uses: ./.github/workflows/test.yml
+
     release:
         name: Create GitHub Release
+        needs: test
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
@@ -50,7 +55,7 @@ jobs:
 
     publish:
         name: Publish to npm
-        needs: release
+        needs: [test, release]
         runs-on: ubuntu-latest
         permissions:
             contents: read
