@@ -1312,32 +1312,33 @@ function loadDir(dir) {
                 return;
             }
 
+            const fileLabel = (scriptOrigins.get(filePath) || 'user') + '::' + path.basename(filePath) + ':';
             if (event === 'change' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
-                    log.warn(filePath, 'is a library file - scripts that require() it will see the old version until they or the daemon are restarted');
+                    log.warn(fileLabel, 'is a library file - scripts that require() it will see the old version until they or the daemon are restarted');
                     return;
                 }
                 if (isDisabledPath(filePath) || isInDisabledDir(filePath, dir)) {
-                    log.debug(filePath, 'is disabled - ignoring change');
+                    log.debug(fileLabel, 'is disabled - ignoring change');
                     return;
                 }
-                log.info(filePath, 'change detected. hot-reloading.');
+                log.info(fileLabel, 'change detected. hot-reloading.');
                 unloadScript(filePath);
                 loadScript(filePath);
             } else if (event === 'add' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
-                    log.debug(filePath, 'is a library file - not loading as script');
+                    log.debug(fileLabel, 'is a library file - not loading as script');
                     return;
                 }
                 if (isDisabledPath(filePath) || isInDisabledDir(filePath, dir)) {
-                    log.debug(filePath, 'is disabled - not loading as script');
+                    log.debug(fileLabel, 'is disabled - not loading as script');
                     return;
                 }
-                log.info(filePath, 'added. loading.');
+                log.info(fileLabel, 'added. loading.');
                 loadScript(filePath);
             } else if (event === 'unlink' && filePath.endsWith('.js')) {
                 if (scripts[filePath]) {
-                    log.info(filePath, 'removed. unloading.');
+                    log.info(fileLabel, 'removed. unloading.');
                     unloadScript(filePath);
                 }
             }
