@@ -81,13 +81,18 @@ function startMs() {
     ms = cp.spawn(process.execPath, [msCmd, ...msArgs]);
     const rlOut = readline.createInterface({ input: ms.stdout, crlfDelay: Infinity });
     const rlErr = readline.createInterface({ input: ms.stderr, crlfDelay: Infinity });
+    // Strip ANSI escape codes so regex comparisons in tests are not confused by
+    // colour wrapping added by pino-pretty's colorize:true option.
+    const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
     rlOut.on('line', (data) => {
-        console.log('ms', data.toString());
-        matchSubscriptions('ms', data.toString());
+        const line = stripAnsi(data.toString());
+        console.log('ms', line);
+        matchSubscriptions('ms', line);
     });
     rlErr.on('line', (data) => {
-        console.log('ms', data.toString());
-        matchSubscriptions('ms', data.toString());
+        const line = stripAnsi(data.toString());
+        console.log('ms', line);
+        matchSubscriptions('ms', line);
     });
 }
 
