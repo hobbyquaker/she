@@ -33,5 +33,5 @@ systemctl daemon-reload
 systemctl enable smart-home-engine
 
 echo ""
-echo "Done. Edit /home/she/.she/config/config.json, then:"
+echo "Done. To start the service:"
 echo "  systemctl start smart-home-engine"
