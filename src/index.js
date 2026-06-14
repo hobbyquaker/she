@@ -32,9 +32,8 @@ const PinoPretty = require('pino-pretty');
 const _pino = require('pino')(
     { level: 'debug' },
     PinoPretty({
-        colorize: false,
-        translateTime: 'SYS:yyyy-mm-dd HH:MM:ss.l',
-        ignore: 'pid,hostname',
+        colorize: true,
+        ignore: 'pid,hostname,time,level',
         sync: true,
     }),
 );

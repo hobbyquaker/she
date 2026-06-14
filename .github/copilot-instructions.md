@@ -18,7 +18,7 @@
 | File watching | chokidar v4 (`usePolling: true` required for WSL2/NTFS paths) |
 | Scheduling | node-schedule v2 |
 | Solar events | suncalc |
-| Logging | pino v9 + pino-pretty v13, **no ANSI colors** (`colorize: false`), `sync: true` (same-thread stream, not worker-thread transport) |
+| Logging | pino v9 + pino-pretty v13, `colorize: true`, `sync: true` (same-thread stream, not worker-thread transport) |
 | CLI args | yargs v17 |
 | HTTP server | Express v5 |
 | WebSocket | ws v8 |
@@ -149,7 +149,6 @@ Server → client message types:
 
 ## Important Constraints
 
-- **No ANSI colors** in log output — `colorize: false` in pino-pretty
 - **Preserve full stack traces** in domain error handler
 - **chokidar v4** (not v5) — v5 is ESM-only; this project uses CJS `require()`
 - **`usePolling: true`** in all `chokidar.watch()` calls — required for WSL2 NTFS paths

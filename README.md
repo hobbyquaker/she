@@ -36,6 +36,8 @@ sudo systemctl start smart-home-engine
 
 `she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state is kept in `/home/she/.she/`.
 
+> **Tip:** use `journalctl -u smart-home-engine -o cat -f` to follow logs with colours intact.
+
 Then open **http://localhost:8080** and start creating scripts
 
 ## Docs
