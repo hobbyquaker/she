@@ -343,6 +343,23 @@
     <div class="panel-tabs">
         <button class:active={panel === 'docs'} onclick={() => (panel = 'docs')}>Documents</button>
         <button class:active={panel === 'views'} onclick={() => (panel = 'views')}>Views</button>
+        {#if panel === 'views'}
+        <button
+            class="ai-toggle"
+            class:ai-open={chatOpen}
+            onclick={() => chatOpen = !chatOpen}
+            title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
+        >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+                <line x1="5.5" y1="5" x2="4" y2="2.5"/>
+                <line x1="10.5" y1="5" x2="12" y2="2.5"/>
+                <path d="M3 11 V7 A5 3.5 0 0 0 13 7 V11 Z" stroke-linejoin="round"/>
+                <circle cx="6" cy="8.2" r="0.7" fill="currentColor" stroke="none"/>
+                <circle cx="10" cy="8.2" r="0.7" fill="currentColor" stroke="none"/>
+            </svg>
+            AI
+        </button>
+        {/if}
     </div>
 
     {#if panel === 'docs'}
@@ -401,7 +418,6 @@
             <aside class="sidebar" style:width="{sidebarWidth}px">
                 <div class="toolbar">
                     <button onclick={() => { showNewViewForm = !showNewViewForm; newViewError = null; }}>+ View</button>
-                    <button class="chat-toggle" class:active={chatOpen} onclick={() => chatOpen = !chatOpen} title="AI assistant">AI</button>
                 </div>
                 {#if showNewViewForm}
                     <div class="new-item-form">
@@ -518,6 +534,7 @@
 
     .panel-tabs {
         display: flex;
+        align-items: center;
         gap: 4px;
         padding: 4px 8px;
         border-bottom: 1px solid var(--border-sub);
@@ -536,6 +553,24 @@
         background: var(--bg-active);
         color: var(--fg-text);
     }
+
+    /* AI toggle — same look as Scripts page */
+    .ai-toggle {
+        margin-left: auto;
+        background: var(--bg-widget) !important;
+        color: var(--fg-brand) !important;
+        border: 1px solid var(--border) !important;
+        font-weight: 600 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        padding: 3px 10px !important;
+        border-radius: 4px !important;
+        cursor: pointer !important;
+        font-size: 12px !important;
+    }
+    .ai-toggle:hover { background: var(--bg-hover) !important; }
+    .ai-toggle.ai-open { background: var(--fg-brand) !important; color: #fff !important; border-color: var(--fg-brand) !important; }
 
     .panel {
         display: flex;
@@ -609,14 +644,7 @@
 
     .toolbar button:hover { background: var(--accent-hov); }
 
-    .toolbar .chat-toggle {
-        flex: 0 0 auto;
-        background: var(--bg-app);
-        color: var(--fg-dim);
-        border: 1px solid var(--border);
-    }
-    .toolbar .chat-toggle:hover { background: var(--bg-active); color: var(--fg); }
-    .toolbar .chat-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 
     /* ---- New-item form ---- */
     .new-item-form {
