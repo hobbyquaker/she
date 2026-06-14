@@ -13,7 +13,8 @@
         "lint:fix": "eslint --cache --cache-location .cache/.eslintcache --fix .",
         "format": "prettier --cache --cache-location .cache/.prettiercache --write .",
         "format:check": "prettier --cache --cache-location .cache/.prettiercache --check .",
-        "build:web": "cd web && npm install && npm run build"
+        "build:web": "cd web && npm install && npm run build",
+        "postinstall": "node -e \"console.log('\\n  smart-home-engine installed.\\n  To run as a systemd service: sudo she --install\\n')\""
     },
     "bin": {
         "she": "src/index.js"
