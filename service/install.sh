@@ -32,8 +32,9 @@ else
     echo "user '$SHE_USER' already exists, skipping"
 fi
 
-# --- state directory (required by ReadWritePaths before first start) ------
-install -d -o "$SHE_USER" -g "$SHE_USER" -m 700 /home/she/.she
+# --- state directory ------------------------------------------------------
+install -d -o "$SHE_USER" -g "$SHE_USER" -m 750 /var/lib/she
+echo "created /var/lib/she"
 
 # --- sudoers rules -------------------------------------------------------
 NPM_BIN="$(command -v npm)"

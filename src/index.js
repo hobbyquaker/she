@@ -25,7 +25,16 @@ if (process.argv.includes('--install')) {
     process.exit(0);
 }
 
-// Ensure ~/.she/ exists before anything else runs
+// Resolve --data-dir early so that storage.js and config.js both see the correct
+// data root when they are first require()'d below.
+;(function () {
+    const idx = process.argv.indexOf('--data-dir');
+    if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith('-')) {
+        process.env.SHE_DATA_DIR = process.argv[idx + 1];
+    }
+}());
+
+// Ensure the data directory exists before anything else runs
 require('./lib/storage').ensureRoot();
 
 const PinoPretty = require('pino-pretty');

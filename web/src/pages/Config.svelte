@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, type AuthMode } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, type AuthMode } from '../lib/api.js';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
@@ -13,6 +13,7 @@
     L.Icon.Default.mergeOptions({ iconUrl: markerIconUrl, iconRetinaUrl: markerRetinaUrl, shadowUrl: markerShadowUrl });
 
     let theme = $state<Theme>(getTheme());
+    let dataDir = $state('~/.she');
 
     // ── field state ───────────────────────────────────────────────────────
     // MQTT
@@ -217,6 +218,10 @@
     }
 
     onMount(async () => {
+        try {
+            const st = await getDaemonStatus();
+            if (st.dataDir) dataDir = st.dataDir;
+        } catch { /* best-effort */ }
         try {
             const cfg = await getConfig();
             if (typeof cfg.url === 'string' && cfg.url) {
@@ -585,9 +590,9 @@
                     <div class="field">
                         <label>
                             Scripts directory
-                            {@render tip('Directory that is watched for .js script files. Defaults to ~/.she/scripts')}
+                            {@render tip('Directory that is watched for .js script files. Defaults to {dataDir}/scripts')}
                         </label>
-                        <input type="text" bind:value={dir} placeholder="~/.she/scripts (default)" />
+                        <input type="text" bind:value={dir} placeholder="{dataDir}/scripts (default)" />
                     </div>
                     <div class="field field--check">
                         <span></span>
@@ -665,9 +670,9 @@
                     <div class="field">
                         <label>
                             Database path
-                            {@render tip('Path to the sheDB data directory. Defaults to ~/.she/db. Leave empty to disable sheDB.')}
+                            {@render tip('Path to the sheDB data directory. Defaults to {dataDir}/db. Leave empty to disable sheDB.')}
                         </label>
-                        <input type="text" bind:value={dbPath} placeholder="defaults to ~/.she/db" />
+                        <input type="text" bind:value={dbPath} placeholder="defaults to {dataDir}/db" />
                     </div>
                     <div class="field">
                         <label>

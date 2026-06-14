@@ -11,9 +11,9 @@ Group=she
 Restart=on-failure
 RestartSec=5s
 
-ExecStart=/usr/local/bin/she
+ExecStart=/usr/local/bin/she --data-dir /var/lib/she
 
-ReadWritePaths=/home/she/.she
+ReadWritePaths=/var/lib/she
 
 StandardOutput=journal
 StandardError=journal

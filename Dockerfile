@@ -13,5 +13,6 @@ COPY --from=jsbuilder /app /app
 
 WORKDIR /app
 
+ENV SHE_DATA_DIR=/var/lib/she
 EXPOSE 8080
 ENTRYPOINT [ "node", "src/index.js" ]

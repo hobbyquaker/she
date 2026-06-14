@@ -4,23 +4,29 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// Default config file location (can be overridden with --config on the CLI)
-const configPath = path.join(os.homedir(), '.she', 'config', 'config.json');
+// Resolve data root: --data-dir is pre-parsed in index.js and written to SHE_DATA_DIR
+// so that this module and storage.js both see the same root when first required.
+const DATA_ROOT = process.env.SHE_DATA_DIR || path.join(os.homedir(), '.she');
 
 const config = require('yargs')
+    .option('data-dir', {
+        describe: 'root data directory for scripts, db, config, etc. (default: ~/.she)',
+        default: DATA_ROOT,
+        type: 'string',
+    })
     .option('dir', {
         alias: 'd',
         describe: 'directory to load user scripts from',
-        default: path.join(os.homedir(), '.she', 'scripts'),
+        default: path.join(DATA_ROOT, 'scripts'),
         type: 'string',
     })
     .option('db-path', {
         describe: 'path to sheDB data directory (empty string to disable)',
-        default: path.join(os.homedir(), '.she', 'db'),
+        default: path.join(DATA_ROOT, 'db'),
         type: 'string',
     })
     .option('matter-storage', {
-        describe: 'enable Matter controller; pass a directory path or true to use ~/.she/matter',
+        describe: 'enable Matter controller; pass a directory path or true to use <data-dir>/matter',
         type: 'string',
     })
     .option('port', {
@@ -36,7 +42,7 @@ const config = require('yargs')
             return {};
         }
     })
-    .default('config', configPath)
+    .default('config', path.join(DATA_ROOT, 'config', 'config.json'))
     .hide('config')
     // Sensible defaults for values not present in config.json
     .default({

@@ -156,6 +156,7 @@ export interface DaemonStatus {
     memMb?: number;
     cpuPercent?: number;
     latestVersion?: string;
+    dataDir?: string;
 }
 
 export function getDaemonStatus(): Promise<DaemonStatus> {

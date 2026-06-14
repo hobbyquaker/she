@@ -107,6 +107,7 @@ function setStatsProvider(fn) {
 app.get('/she/status', (req, res) => {
     const s = _getStats ? _getStats() : { scripts: 0, topics: 0 };
     if (_latestNpmVersion) s.latestVersion = _latestNpmVersion;
+    s.dataDir = require('../lib/storage').STORAGE_ROOT;
     res.json(s);
 });
 

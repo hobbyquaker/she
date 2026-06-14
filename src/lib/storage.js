@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const STORAGE_ROOT = path.join(os.homedir(), '.she');
+const STORAGE_ROOT = process.env.SHE_DATA_DIR || path.join(os.homedir(), '.she');
 const CONFIG_ROOT = path.join(STORAGE_ROOT, 'config');
 const SCRIPTS_ROOT = path.join(STORAGE_ROOT, 'scripts');
 const DB_ROOT = path.join(STORAGE_ROOT, 'db');
