@@ -29,6 +29,12 @@ fi
 # --- state directory (required by ReadWritePaths before first start) ------
 install -d -o "$SHE_USER" -g "$SHE_USER" -m 700 /home/she/.she
 
+# --- sudoers rule (allows web UI restart button to work) -----------------
+SUDOERS_FILE=/etc/sudoers.d/she
+echo "she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine" > "$SUDOERS_FILE"
+chmod 440 "$SUDOERS_FILE"
+echo "created $SUDOERS_FILE"
+
 # --- systemd service -----------------------------------------------------
 cp "$SERVICE_SRC" "$SERVICE_DST"
 chmod 644 "$SERVICE_DST"

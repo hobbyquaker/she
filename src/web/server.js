@@ -52,10 +52,24 @@ app.use('/she/git', gitRouter);
 // AI assistant proxy: /she/ai/*
 app.use('/she/ai', aiRouter);
 
-// Graceful daemon restart — exit(0) and let the process manager restart
+// Graceful daemon restart
+// When running under systemd, delegate to `sudo systemctl restart` so the
+// service actually comes back up. Otherwise fall back to exit(0) and let
+// whatever process manager is in use handle it.
 app.post('/she/restart', (req, res) => {
     res.json({ ok: true });
-    setTimeout(() => process.exit(0), 200);
+    setTimeout(() => {
+        if (process.env.INVOCATION_ID) {
+            // Running under systemd
+            require('child_process').spawn(
+                'sudo',
+                ['systemctl', 'restart', 'smart-home-engine'],
+                { detached: true, stdio: 'ignore' },
+            ).unref();
+        } else {
+            process.exit(0);
+        }
+    }, 200);
 });
 
 // Runtime stats — script count + MQTT topic count
