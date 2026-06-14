@@ -331,11 +331,11 @@
             }
         }
         if (redisUrl) cfg.redis = { url: redisUrl };
-        if (aiProvider && aiModel) {
+        if (aiProvider) {
             cfg.ai = {
                 provider: aiProvider,
                 ...(aiBaseUrl  ? { baseUrl:  aiBaseUrl }  : {}),
-                model:    aiModel,
+                ...(aiModel    ? { model:    aiModel }    : {}),
                 ...(aiApiKey   ? { apiKey:   aiApiKey }   : {}),
             };
         }

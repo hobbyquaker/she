@@ -104,6 +104,8 @@
     });
 
     const configured = $derived(aiConfig?.configured ?? false);
+    // Can chat if fully configured (model in config) OR if provider is set and a model is selected in the UI
+    const canChat = $derived(configured || (!!aiConfig?.provider && !!selectedModel));
     const requestBytes = $derived(promptBytes + new TextEncoder().encode(input).length);
     const activeScript = $derived(includeCurrentScript ? currentScript : null);
 
@@ -143,7 +145,7 @@
     });
 
     $effect(() => {
-        if (aiConfig?.configured) {
+        if (aiConfig?.provider) {
             getAiModels().then(r => { availableModels = r.models; }).catch(() => {});
         }
     });
@@ -183,7 +185,7 @@
         const ctx = context;
         const script = activeScript;
         const files = extraFiles;
-        if (!configured) return;
+        if (!canChat) return;
         getAiPrompt({ context: ctx, currentScript: script ?? null, extraFiles: files.length > 0 ? files : undefined })
             .then(res => { promptBytes = new TextEncoder().encode(res.prompt).length; })
             .catch(() => {});
@@ -491,7 +493,7 @@
         <span class="chat-title">AI Assistant</span>
         {#if aiConfig}
             <span class="chat-model" title="Provider: {aiConfig.provider}">
-                {#if configured}{aiConfig.provider} · {selectedModel || aiConfig.model}{:else}Not configured{/if}
+                {#if canChat}{aiConfig.provider} · {selectedModel || aiConfig.model}{:else if aiConfig.provider}{aiConfig.provider} · pick a model below{:else}Not configured{/if}
             </span>
         {/if}
         <button class="icon-hdr-btn" onclick={() => showHistory = !showHistory} title="Conversation history" class:active={showHistory}>
@@ -720,20 +722,20 @@
                 bind:this={inputEl}
                 bind:value={input}
                 onkeydown={handleKeydown}
-                placeholder={configured ? 'Ask anything… (Enter to send, Shift+Enter for newline, drag & drop files to add context)' : 'AI not configured'}
+                placeholder={canChat ? 'Ask anything… (Enter to send, Shift+Enter for newline, drag & drop files to add context)' : configured ? 'Select a model above to start chatting' : 'AI not configured'}
                 rows="3"
-                disabled={loading || !configured}
+                disabled={loading || !canChat}
             ></textarea>
         </div>
         {#if loading}
             <button class="stop-btn" onclick={stop} title="Stop generation">■</button>
         {:else}
-            <button class="send-btn" onclick={send} disabled={!input.trim() || !configured}>↑</button>
+            <button class="send-btn" onclick={send} disabled={!input.trim() || !canChat}>↑</button>
         {/if}
     </div>
 
     <!-- Model bar -->
-    {#if configured && aiConfig}
+    {#if aiConfig?.provider && (configured || availableModels.length > 0)}
         <div class="model-bar">
             <span class="model-provider">{aiConfig.provider}</span>
             {#if availableModels.length > 0}

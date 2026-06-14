@@ -441,14 +441,15 @@ router.post('/prompt', (req, res) => {
 // POST /she/ai/chat — non-streaming
 router.post('/chat', async (req, res) => {
     const ai = readAiConfig(req.app.locals.configPath);
-    if (!ai?.provider || !ai?.model) {
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
+    const effectiveModel = (modelOverride && typeof modelOverride === 'string') ? modelOverride : ai?.model;
+    if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
-    const aiWithModel = modelOverride && typeof modelOverride === 'string' ? { ...ai, model: modelOverride } : ai;
+    const aiWithModel = { ...ai, model: effectiveModel };
     const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
@@ -471,14 +472,15 @@ router.post('/chat', async (req, res) => {
 // POST /she/ai/chat/stream — SSE streaming
 router.post('/chat/stream', async (req, res) => {
     const ai = readAiConfig(req.app.locals.configPath);
-    if (!ai?.provider || !ai?.model) {
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
+    const effectiveModel = (modelOverride && typeof modelOverride === 'string') ? modelOverride : ai?.model;
+    if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
 
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
-    const aiWithModel = modelOverride && typeof modelOverride === 'string' ? { ...ai, model: modelOverride } : ai;
+    const aiWithModel = { ...ai, model: effectiveModel };
 
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
     let systemPrompt;
