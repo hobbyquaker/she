@@ -1,25 +1,17 @@
-[Unit]
+﻿[Unit]
 Description=Smart Home Engine (she)
 Documentation=https://github.com/hobbyquaker/she
-After=network-online.target mosquitto.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=nobody
-Group=nogroup
+User=she
+Group=she
 Restart=on-failure
 RestartSec=5s
 
-ExecStart=/usr/bin/node /usr/local/lib/node_modules/smart-home-engine/src/index.js \
-    --url mqtt://127.0.0.1 \
-    --dir /etc/smart-home-engine/scripts \
-    --config /etc/smart-home-engine/config.json \
-    --port 1884 \
-    --verbosity info
-
-# Allow reading/writing script directory and config
-ReadWritePaths=/etc/smart-home-engine
+ExecStart=/usr/local/bin/she
 
 StandardOutput=journal
 StandardError=journal
