@@ -78,7 +78,7 @@ The goal is simple: a smart home that remains understandable years later. No mig
 
 ## License
 
-MIT © [Sebastian Raff](https://github.com/hobbyquaker)
+GPL-3.0 © [Sebastian Raff](https://github.com/hobbyquaker)
 
-[mit-badge]: https://img.shields.io/badge/License-MIT-blue.svg?style=flat
-[mit-url]: LICENSE
+[license-badge]: https://img.shields.io/badge/License-GPL--3.0-blue.svg?style=flat
+[license-url]: LICENSE
