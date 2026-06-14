@@ -7,7 +7,7 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
-    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
+    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -21,6 +21,7 @@
     let stats = $state<DaemonStatus | null>(null);
     let statsOpen = $state(false);
     let versionOpen = $state(false);
+    let checkingUpdate = $state(false);
     let updating = $state(false);
 
     // ── Auth ────────────────────────────────────────────────────────────────
@@ -61,6 +62,16 @@
             await restartDaemon();
             setTimeout(() => location.reload(), 2500);
         } catch { /* ignore — daemon is restarting */ }
+    }
+
+    async function handleCheckUpdate() {
+        checkingUpdate = true;
+        try {
+            const res = await checkForUpdate();
+            if (stats) stats = { ...stats, latestVersion: res.latestVersion ?? undefined };
+        } catch { /* best-effort */ } finally {
+            checkingUpdate = false;
+        }
     }
 
     async function update() {
@@ -210,14 +221,18 @@
                         <dt>Latest</dt><dd>up to date</dd>
                         {/if}
                     </dl>
-                    {#if stats?.latestVersion}
                     <div class="version-actions">
+                        {#if stats?.latestVersion}
                         <button onclick={update}>
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 4 4 10 10 10"/><path d="M4 10A9 9 0 1 0 6.5 5"/></svg>
                             Update to v{stats.latestVersion}
                         </button>
+                        {/if}
+                        <button class="check-btn" onclick={handleCheckUpdate} disabled={checkingUpdate} title="Check for updates now">
+                            <svg class:spinning={checkingUpdate} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 4 4 10 10 10"/><path d="M4 10A9 9 0 1 0 6.5 5"/></svg>
+                            {checkingUpdate ? 'Checking…' : 'Check for updates'}
+                        </button>
                     </div>
-                    {/if}
                 </div>
                 {/if}
             </div>
@@ -482,6 +497,9 @@
     .version-actions {
         border-top: 1px solid var(--border-sub);
         padding-top: 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
     }
     .version-actions button {
         width: 100%;
@@ -492,6 +510,11 @@
         padding: 4px 8px;
     }
     .version-actions button:hover { color: var(--fg); }
+    .version-actions .check-btn { color: var(--fg-dim); }
+    .version-actions .check-btn:hover { color: var(--fg); }
+    .version-actions .check-btn:disabled { opacity: 0.5; cursor: default; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { animation: spin 0.8s linear infinite; display: inline-block; }
 
     .nav-icon {
         display: flex;

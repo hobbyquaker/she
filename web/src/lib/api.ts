@@ -170,6 +170,10 @@ export function updateDaemon(): Promise<{ ok: boolean }> {
     return request('POST', '/she/update');
 }
 
+export function checkForUpdate(): Promise<{ latestVersion: string | null }> {
+    return request('POST', '/she/check-update');
+}
+
 export function gitRemotes(): Promise<GitRemote[]> {
     return request('GET', '/she/git/remotes');
 }

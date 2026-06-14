@@ -72,7 +72,7 @@ app.post('/she/restart', (req, res) => {
     setTimeout(_systemdRestart, 200);
 });
 
-// npm version check — poll once on startup and every hour
+// npm version check — poll once on startup and every 24 hours
 let _latestNpmVersion = null;
 async function _checkNpmVersion() {
     try {
@@ -82,7 +82,13 @@ async function _checkNpmVersion() {
     } catch { /* best-effort */ }
 }
 _checkNpmVersion();
-setInterval(_checkNpmVersion, 60 * 60 * 1000);
+setInterval(_checkNpmVersion, 24 * 60 * 60 * 1000);
+
+// Trigger an immediate version check (called by the UI refresh button)
+app.post('/she/check-update', async (req, res) => {
+    await _checkNpmVersion();
+    res.json({ latestVersion: _latestNpmVersion });
+});
 
 // Update — install latest npm package, then restart
 app.post('/she/update', (req, res) => {
