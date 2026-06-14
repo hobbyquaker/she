@@ -42,7 +42,7 @@ const config = require('yargs')
     .default({
         latitude: 48.7408,
         longitude: 9.1778,
-        name: 'logic',
+        name: 'she',
         variablePrefix: 'var',
         verbosity: 'info',
         disableVariables: false,
