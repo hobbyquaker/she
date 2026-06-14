@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE=root@she
+REMOTE=root@she-dev
 REMOTE_DIR=/usr/local/lib/node_modules/smart-home-engine
 
 echo "==> Building web frontend..."

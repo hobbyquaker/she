@@ -13,5 +13,5 @@ COPY --from=jsbuilder /app /app
 
 WORKDIR /app
 
-EXPOSE 3000
+EXPOSE 8080
 ENTRYPOINT [ "node", "src/index.js" ]
