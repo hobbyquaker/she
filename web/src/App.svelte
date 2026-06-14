@@ -79,14 +79,21 @@
         versionOpen = false;
         updating = true;
         try { await updateDaemon(); } catch { /* ok — daemon will restart */ }
-        // Wait for daemon to go down then come back
-        await new Promise(resolve => setTimeout(resolve, 8000));
-        const deadline = Date.now() + 120_000;
+        // Wait for the daemon to go down, then come back up, then reload.
+        // We require it to have been *down* at least once to avoid reloading
+        // against the old instance before systemd has had a chance to stop it.
+        let wentDown = false;
+        const deadline = Date.now() + 180_000;
         while (Date.now() < deadline) {
-            try { await getDaemonStatus(); location.reload(); return; } catch { /* still restarting */ }
             await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                await getDaemonStatus();
+                if (wentDown) { location.reload(); return; }
+            } catch {
+                wentDown = true; // daemon is (still) down — keep polling
+            }
         }
-        location.reload();
+        location.reload(); // give up waiting, reload anyway
     }
 
     function navigate(p: Page) {
