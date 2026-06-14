@@ -13,6 +13,8 @@ RestartSec=5s
 
 ExecStart=/usr/local/bin/she
 
+ReadWritePaths=/home/she/.she
+
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=she
