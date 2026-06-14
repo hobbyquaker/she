@@ -8,6 +8,23 @@
 
 /* eslint n/no-deprecated-api: "warn" */
 
+// Handle --install before initialising anything else (must run before ensureRoot so
+// we don't create ~/.she dirs under root when invoked with sudo)
+if (process.argv.includes('--install')) {
+    if (typeof process.getuid === 'function' && process.getuid() !== 0) {
+        console.error('error: she --install must be run as root (sudo she --install)');
+        process.exit(1);
+    }
+    const { execFileSync } = require('child_process');
+    const _installScript = require('path').join(__dirname, '..', 'service', 'install.sh');
+    try {
+        execFileSync('bash', [_installScript], { stdio: 'inherit' });
+    } catch (e) {
+        process.exit(e.status || 1);
+    }
+    process.exit(0);
+}
+
 // Ensure ~/.she/ exists before anything else runs
 require('./lib/storage').ensureRoot();
 

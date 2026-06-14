@@ -53,6 +53,10 @@ const config = require('yargs')
         proxyHeader: 'X-Remote-User',
         bindAddress: '0.0.0.0',
     })
+    .option('install', {
+        describe: 'create system user and install systemd service, then exit (run as root)',
+        type: 'boolean',
+    })
     .version()
     .help('help')
     .parseSync();

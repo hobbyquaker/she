@@ -19,10 +19,22 @@ Your home, your rules - written in plain JavaScript.
 
 ## Quick start
 
+**Run manually** (no system service):
+
 ```bash
 npm install -g smart-home-engine
 she
 ```
+
+**Install as a systemd service** (Debian/Ubuntu/Raspberry Pi OS):
+
+```bash
+sudo npm install -g smart-home-engine
+sudo she --install
+sudo systemctl start smart-home-engine
+```
+
+`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state is kept in `/home/she/.she/`.
 
 Then open **http://localhost:8080** and start creating scripts
 
