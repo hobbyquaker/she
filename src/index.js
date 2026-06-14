@@ -980,7 +980,7 @@ function runScript(script, name, origin) {
         md(she, { scriptDomain, scriptName, scriptFile: name });
     });
 
-    log.debug(name, 'contextifying sandbox');
+    log.debug(logLabel, 'contextifying sandbox');
     const context = vm.createContext(Sandbox);
 
     scriptDomain.on('error', (e) => {
