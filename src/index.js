@@ -1041,14 +1041,17 @@ function unloadScript(file) {
     log.info(unloadLabel, 'unloading');
     scriptOrigins.delete(file);
 
+    let removedCallbacks = 0;
+    let removedTimers = 0;
+
     // Remove MQTT subscriptions belonging to this script
     for (let i = subscriptions.length - 1; i >= 0; i--) {
-        if (subscriptions[i]._script === file) subscriptions.splice(i, 1);
+        if (subscriptions[i]._script === file) { subscriptions.splice(i, 1); removedCallbacks++; }
     }
 
     // Remove MQTT event callbacks (connect/disconnect) belonging to this script
     for (let i = mqttEventCallbacks.length - 1; i >= 0; i--) {
-        if (mqttEventCallbacks[i]._script === file) mqttEventCallbacks.splice(i, 1);
+        if (mqttEventCallbacks[i]._script === file) { mqttEventCallbacks.splice(i, 1); removedCallbacks++; }
     }
 
     // Remove HTTP routes registered by this script via she.api
@@ -1059,6 +1062,7 @@ function unloadScript(file) {
     const jobs = scriptJobs.get(file);
     if (jobs) {
         jobs.forEach((job) => job && job.cancel());
+        removedTimers += jobs.length;
         scriptJobs.delete(file);
     }
 
@@ -1067,6 +1071,7 @@ function unloadScript(file) {
         if (sunEvents[i]._script === file) {
             if (sunEvents[i]._job) sunEvents[i]._job.cancel();
             sunEvents.splice(i, 1);
+            removedTimers++;
         }
     }
 
@@ -1074,6 +1079,7 @@ function unloadScript(file) {
     const timers = scriptTimers.get(file);
     if (timers) {
         timers.forEach((id) => clearTimeout(id));
+        removedTimers += timers.size;
         scriptTimers.delete(file);
     }
 
@@ -1082,6 +1088,7 @@ function unloadScript(file) {
         if (varSubscriptions[i]._script === file) {
             store.removeListener('change', varSubscriptions[i].handler);
             varSubscriptions.splice(i, 1);
+            removedCallbacks++;
         }
     }
 
@@ -1093,6 +1100,13 @@ function unloadScript(file) {
     if (config.matterStorage) {
         const matterSandbox = require('./sandbox/matter-sandbox');
         matterSandbox.cleanup(file);
+    }
+
+    if (removedCallbacks > 0 || removedTimers > 0) {
+        const parts = [];
+        if (removedCallbacks > 0) parts.push(`${removedCallbacks} callback${removedCallbacks !== 1 ? 's' : ''}`);
+        if (removedTimers > 0) parts.push(`${removedTimers} timer${removedTimers !== 1 ? 's' : ''}`);
+        log.debug(unloadLabel, `unregistered ${parts.join(' and ')}`);
     }
 
     // Remove from scripts map so it can be re-loaded
