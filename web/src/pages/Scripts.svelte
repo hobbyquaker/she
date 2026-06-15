@@ -692,6 +692,21 @@ declare const she: {
                 };
             });
             monaco.editor.setModelMarkers(model, 'she-syntax', markers);
+
+            // Reflect live syntax errors in the file tree
+            if (activeTab) {
+                if (markers.length > 0) {
+                    scriptHadError.add(activeTab);
+                    if (!scriptErrors.has(activeTab)) {
+                        scriptErrors = new Set([...scriptErrors, activeTab]);
+                    }
+                } else if (scriptHadError.has(activeTab)) {
+                    scriptHadError.delete(activeTab);
+                    const next = new Set(scriptErrors);
+                    next.delete(activeTab);
+                    scriptErrors = next;
+                }
+            }
         } catch { /* worker not ready yet */ }
     }
 
@@ -919,7 +934,7 @@ declare const she: {
                     oncontextmenu={(e) => openCtxMenu(e, entry)}
                 >
                     <div class="file-row">
-                        <button class:lib={entry.lib} class:dis={entry.disabled} onclick={() => openTab(entry.path)}>
+                        <button class:lib={entry.lib} class:dis={entry.disabled} class:err={hasErr} onclick={() => openTab(entry.path)}>
                             <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
                             <span class="fname">{entry.name}</span>
                             {#if tabs.find(t => t.path === entry.path)?.dirty}<span class="dirty-dot">●</span>{/if}
@@ -1241,6 +1256,7 @@ declare const she: {
     }
     .tree-file button.lib .fname { color: var(--fg-muted); font-style: italic; }
     .tree-file button.dis .fname { color: var(--fg-dim); }
+    .tree-file button.err .fname { color: var(--fg-err); }
     .tree-file button:hover { background: var(--bg-hover); }
     .tree-file.active-tab button { background: var(--bg-active); color: var(--fg-text); }
     .tree-file.active:not(.active-tab) button { background: var(--bg-hover); }
