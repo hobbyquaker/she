@@ -16,8 +16,14 @@
         confirmLabel = opts?.confirm ?? 'OK';
         value = opts?.initial ?? '';
         open = true;
-        // Focus the input on next tick after the element renders
-        setTimeout(() => input?.select(), 0);
+        // Focus the input and place cursor at end (no selection) on next tick
+        setTimeout(() => {
+            if (input) {
+                input.focus();
+                const len = input.value.length;
+                input.setSelectionRange(len, len);
+            }
+        }, 0);
         return new Promise((r) => (resolve = r));
     }
 
