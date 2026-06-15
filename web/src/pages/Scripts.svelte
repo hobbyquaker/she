@@ -1034,6 +1034,19 @@ declare const she: {
                                     <span>·</span>
                                     <a href="https://github.com/hobbyquaker/she/blob/main/README.md" target="_blank" rel="noopener">README</a>
                                 </div>
+                                <div class="welcome-shortcuts">
+                                    <div class="welcome-shortcuts-title">Keyboard shortcuts</div>
+                                    <div class="welcome-shortcuts-grid">
+                                        <span class="keys"><kbd>Ctrl</kbd><kbd>S</kbd></span><span>Save</span>
+                                        <span class="keys"><kbd>Ctrl</kbd><kbd>F</kbd></span><span>Find</span>
+                                        <span class="keys"><kbd>Ctrl</kbd><kbd>H</kbd></span><span>Find &amp; Replace</span>
+                                        <span class="keys"><kbd>Ctrl</kbd><kbd>G</kbd></span><span>Go to line</span>
+                                        <span class="keys"><kbd>Ctrl</kbd><kbd>Z</kbd></span><span>Undo</span>
+                                        <span class="keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Z</kbd></span><span>Redo</span>
+                                        <span class="keys"><kbd>Ctrl</kbd><kbd>/</kbd></span><span>Toggle comment</span>
+                                        <span class="keys"><kbd>Alt</kbd><kbd>↑ / ↓</kbd></span><span>Move line up / down</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     {/if}
@@ -1465,4 +1478,28 @@ declare const she: {
     .welcome-links a { color: var(--fg-brand); text-decoration: none; }
     .welcome-links a:hover { text-decoration: underline; }
     .welcome-links span { color: var(--fg-dim); }
+    .welcome-shortcuts {
+        margin-top: 20px; text-align: left;
+        background: var(--bg-panel); border: 1px solid var(--border-sub);
+        border-radius: 6px; padding: 12px 18px;
+    }
+    .welcome-shortcuts-title {
+        font-size: 11px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.06em; color: var(--fg-muted); margin-bottom: 10px;
+    }
+    .welcome-shortcuts-grid {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 5px 12px; align-items: center;
+        font-size: 12px;
+    }
+    .welcome-shortcuts-grid .keys {
+        display: flex; gap: 3px; align-items: center;
+    }
+    .welcome-shortcuts-grid kbd {
+        background: var(--bg-widget); border: 1px solid var(--border);
+        border-radius: 3px; padding: 1px 5px; font-size: 11px;
+        font-family: inherit; white-space: nowrap;
+    }
+    .welcome-shortcuts-grid span { color: var(--fg-muted); padding-left: 4px; }
 </style>
