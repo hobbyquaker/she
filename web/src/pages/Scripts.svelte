@@ -871,15 +871,15 @@ declare const she: {
                             onclick={() => { selectedDir = entry.path; expandedDirs[entry.path] = true; }}
                             onkeydown={(e) => e.key === 'Enter' && (selectedDir = entry.path)}
                         >{entry.name}</span>
-                        <label class="lib-label">
+                        <label class="lib-label" title="Library directory — files here are not auto-loaded as scripts" onmouseenter={showLibTip} onmouseleave={hideLibTip}>
                             <input type="checkbox" checked={entry.lib} onchange={() => toggleLib(entry.path, !entry.lib)} />
                             <span class="lib-checkmark"></span>
-                            <span class="lib-tip" onmouseenter={showLibTip} onmouseleave={hideLibTip}>lib</span>
+                            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3V3z"/><line x1="3" y1="12" x2="13" y2="12"/><line x1="6" y1="3" x2="6" y2="12"/></svg>
                         </label>
                         <label class="dis-label" title="Disable — scripts in this folder will not be executed">
                             <input type="checkbox" checked={entry.disabled} onchange={() => toggleDisabled(entry.path, !entry.disabled)} />
                             <span class="dis-checkmark"></span>
-                            <span>dis</span>
+                            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><line x1="3.8" y1="12.2" x2="12.2" y2="3.8"/></svg>
                         </label>
                     </div>
                     {#if expandedDirs[entry.path] && entry.children}
@@ -913,7 +913,7 @@ declare const she: {
                             <label class="dis-label" title="Disable — this script will not be executed">
                                 <input type="checkbox" checked={entry.disabled} onchange={() => toggleDisabled(entry.path, !entry.disabled)} />
                                 <span class="dis-checkmark"></span>
-                                <span>dis</span>
+                                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><line x1="3.8" y1="12.2" x2="12.2" y2="3.8"/></svg>
                             </label>
                         {:else}
                             <span class="dis-spacer"></span>
@@ -1148,8 +1148,8 @@ declare const she: {
     .dir-name { color: var(--fg); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dir-name.lib { color: var(--fg-muted); font-style: italic; }
     .lib-label {
-        display: flex; align-items: center; gap: 3px; color: var(--fg-muted);
-        font-size: 10px; cursor: pointer; flex-shrink: 0; user-select: none;
+        display: flex; align-items: center; gap: 2px; color: var(--fg-muted);
+        cursor: pointer; flex-shrink: 0; user-select: none; padding-right: 2px;
     }
     .lib-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
     .lib-checkmark {
@@ -1166,7 +1166,6 @@ declare const she: {
         transform: rotate(45deg);
     }
     .lib-label:hover .lib-checkmark { border-color: var(--accent); }
-    .lib-tip { cursor: default; }
     .lib-tip-float {
         position: fixed;
         transform: translateY(-100%);
@@ -1176,8 +1175,8 @@ declare const she: {
     }
 
     .dis-label {
-        display: flex; align-items: center; gap: 3px; color: var(--fg-muted);
-        font-size: 10px; cursor: pointer; flex-shrink: 0; user-select: none; padding-right: 4px;
+        display: flex; align-items: center; gap: 2px; color: var(--fg-muted);
+        cursor: pointer; flex-shrink: 0; user-select: none; padding-right: 4px;
     }
     .dis-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
     .dis-checkmark {
@@ -1194,7 +1193,7 @@ declare const she: {
         transform: rotate(45deg);
     }
     .dis-label:hover .dis-checkmark { border-color: var(--fg-warn); }
-    .dis-spacer { width: 34px; flex-shrink: 0; }
+    .dis-spacer { width: 28px; flex-shrink: 0; }
 
     .tree-file button {
         display: flex; align-items: center; gap: 5px; width: 100%; text-align: left;
