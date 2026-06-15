@@ -346,6 +346,7 @@
         saving = true;
         try {
             const res = await putConfig(cfg);
+            window.dispatchEvent(new CustomEvent('she:config-changed'));
             msg = res.restartRequired ? 'Saved — restart required to apply changes.' : 'Saved.';
         } catch (e: any) {
             errMsg = e.message;

@@ -131,12 +131,17 @@
         }
     });
 
-    $effect(() => {
-        getAiConfig().then(c => {
+    async function reloadAiConfig() {
+        try {
+            const c = await getAiConfig();
             aiConfig = c;
-            // Use localStorage value if present, else fall back to config model
             if (c.configured && !selectedModel) selectedModel = c.model;
-        }).catch(() => {});
+        } catch {}
+    }
+
+    $effect(() => {
+        window.addEventListener('she:config-changed', reloadAiConfig);
+        return () => window.removeEventListener('she:config-changed', reloadAiConfig);
     });
 
     // Persist model selection across page reloads
@@ -146,7 +151,10 @@
 
     $effect(() => {
         if (aiConfig?.provider) {
-            getAiModels().then(r => { availableModels = r.models; }).catch(() => {});
+            getAiModels().then(r => {
+                availableModels = r.models;
+                if (!selectedModel && r.models.length > 0) selectedModel = r.models[0];
+            }).catch(() => {});
         }
     });
 
@@ -408,6 +416,7 @@
     }
 
     onMount(async () => {
+        reloadAiConfig();
         // Load current conversation messages from server
         try {
             const conv = await getConversation(conversationId);

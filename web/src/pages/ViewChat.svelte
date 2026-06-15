@@ -3,6 +3,7 @@
         type AiMessage, type AiContext, type AiCurrentView, type AiExtraFile, type AiToolEvent, type OllamaModelInfo,
         streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, type AiConfig,
     } from '../lib/api.js';
+    import { onMount } from 'svelte';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
     import { marked } from 'marked';
@@ -92,20 +93,31 @@
     const activeView   = $derived(includeCurrentView ? currentView : null);
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
-    $effect(() => {
-        getAiConfig().then(c => {
+    async function reloadAiConfig() {
+        try {
+            const c = await getAiConfig();
             aiConfig = c;
             if (c.configured && !selectedModel) selectedModel = c.model;
-        }).catch(() => {});
+        } catch {}
+    }
+
+    $effect(() => {
+        window.addEventListener('she:config-changed', reloadAiConfig);
+        return () => window.removeEventListener('she:config-changed', reloadAiConfig);
     });
+
+    onMount(() => { reloadAiConfig(); });
 
     $effect(() => {
         if (selectedModel) localStorage.setItem('she:selectedModel', selectedModel);
     });
 
     $effect(() => {
-        if (aiConfig?.configured) {
-            getAiModels().then(r => { availableModels = r.models; }).catch(() => {});
+        if (aiConfig?.provider) {
+            getAiModels().then(r => {
+                availableModels = r.models;
+                if (!selectedModel && r.models.length > 0) selectedModel = r.models[0];
+            }).catch(() => {});
         }
     });
 
