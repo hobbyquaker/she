@@ -52,6 +52,22 @@
     let scriptErrors = $state<Set<string>>(new Set());
     const scriptHadError = new Set<string>();
     let chatExtraFiles = $state<AiExtraFile[]>([]);
+
+    // Script log panel filters
+    let logFilterLevel = $state<'all' | 'debug' | 'info' | 'warn' | 'error'>('all');
+    let logFilterText = $state('');
+    let logFilterRegex = $state(false);
+    const LOG_LEVELS = ['all', 'debug', 'info', 'warn', 'error'] as const;
+    const LOG_LEVEL_ORDER = { debug: 0, info: 1, warn: 2, error: 3 } as const;
+
+    function logEntryVisible(e: LogEntry): boolean {
+        if (logFilterLevel !== 'all' && LOG_LEVEL_ORDER[e.level] < LOG_LEVEL_ORDER[logFilterLevel]) return false;
+        if (!logFilterText) return true;
+        if (logFilterRegex) {
+            try { return new RegExp(logFilterText, 'i').test(e.msg); } catch { /* invalid regex */ }
+        }
+        return e.msg.toLowerCase().includes(logFilterText.toLowerCase());
+    }
     let libTip = $state<{ x: number; y: number } | null>(null);
     function showLibTip(e: MouseEvent) {
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -1092,12 +1108,21 @@ declare const she: {
                             {#if activeTab}<span class="log-file"> — {activeTab.split('/').pop()}</span>{/if}
                         </button>
                         {#if logPanelOpen}
+                            <select class="log-filter-level" bind:value={logFilterLevel}>
+                                {#each LOG_LEVELS as l}<option value={l}>{l}</option>{/each}
+                            </select>
+                            <input class="log-filter-text" type="search" placeholder="Filter…" bind:value={logFilterText} />
+                            <label class="log-filter-regex" title="Interpret filter as a regular expression">
+                                <input type="checkbox" bind:checked={logFilterRegex} />
+                                <span class="log-filter-checkmark"></span>
+                                Regex
+                            </label>
                             <button class="log-clear" onclick={clearLog}>Clear</button>
                         {/if}
                     </div>
                     {#if logPanelOpen}
                         <div class="log-body" bind:this={logEl}>
-                            {#each currentTab?.logEntries ?? [] as e (e.ts + e.msg)}
+                            {#each (currentTab?.logEntries ?? []).filter(logEntryVisible) as e (e.ts + e.msg)}
                                 <div class="log-line {e.level}">
                                     <span class="ts">{fmt(e.ts)}</span>
                                     <span class="lvl">{e.level.toUpperCase()}</span>
@@ -1409,6 +1434,32 @@ declare const she: {
         font-size: 11px; padding: 0 4px; border-radius: 2px;
     }
     .log-clear:hover { background: var(--bg-hover); color: var(--fg); }
+    .log-filter-level {
+        background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
+        padding: 1px 4px; border-radius: 3px; font-size: 11px;
+    }
+    .log-filter-text {
+        flex: 1; max-width: 160px;
+        background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
+        padding: 1px 5px; border-radius: 3px; font-size: 11px;
+    }
+    .log-filter-regex {
+        display: flex; align-items: center; gap: 4px; cursor: pointer;
+        font-size: 11px; color: var(--fg-muted); user-select: none; white-space: nowrap;
+    }
+    .log-filter-regex input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .log-filter-checkmark {
+        flex-shrink: 0; width: 12px; height: 12px;
+        border: 1.5px solid var(--border); border-radius: 3px;
+        background: var(--bg-input); position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .log-filter-regex input:checked + .log-filter-checkmark { background: var(--accent); border-color: var(--accent); }
+    .log-filter-regex input:checked + .log-filter-checkmark::after {
+        content: ''; position: absolute; left: 2px; top: 0px; width: 4px; height: 7px;
+        border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg);
+    }
+    .log-filter-regex:hover .log-filter-checkmark { border-color: var(--accent); }
     .log-body { flex: 1; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; padding: 2px 0; }
     .log-line { display: flex; gap: 8px; padding: 0 8px; line-height: 1.6; }
     .log-line:hover { background: var(--bg-hover); }
