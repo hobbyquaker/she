@@ -14,8 +14,8 @@ SERVICE_DST=/etc/systemd/system/smart-home-engine.service
 
 # --- ensure sudo is installed (required for web UI restart/update buttons) -
 if ! command -v sudo &>/dev/null; then
-    echo "sudo not found, installing..."
-    apt-get install -y sudo
+    echo "error: sudo not found. Please install sudo before running this script." >&2
+    exit 1
 fi
 
 # --- system user ---------------------------------------------------------
