@@ -362,7 +362,7 @@ if (config.url) {
         } else {
             if (!state) {
                 log.error('invalid state', topic, payload);
-                process.exit();
+                return;
             }
             if (!state.ts) {
                 state.ts = new Date().getTime();

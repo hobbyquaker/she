@@ -140,10 +140,18 @@ module.exports = function (she) {
      * @returns {Promise<string|object>}
      */
     she.fetch = function Sandbox_fetch(url, options) {
-        return fetch(url, options).then((r) => {
+        const TIMEOUT_MS = 30_000;
+        let signal = options?.signal;
+        let timer;
+        if (!signal) {
+            const ac = new AbortController();
+            signal = ac.signal;
+            timer = setTimeout(() => ac.abort(new Error(`she.fetch timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS);
+        }
+        return fetch(url, { ...options, signal }).then((r) => {
             if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
             const ct = r.headers.get('content-type') || '';
             return ct.includes('json') ? r.json() : r.text();
-        });
+        }).finally(() => clearTimeout(timer));
     };
 };
