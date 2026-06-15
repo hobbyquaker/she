@@ -57,7 +57,7 @@
         showLogin = true;
     }
 
-    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> };
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
     async function restart() {
         if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
