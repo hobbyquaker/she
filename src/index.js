@@ -27,12 +27,12 @@ if (process.argv.includes('--install')) {
 
 // Resolve --data-dir early so that storage.js and config.js both see the correct
 // data root when they are first require()'d below.
-;(function () {
+(function () {
     const idx = process.argv.indexOf('--data-dir');
     if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith('-')) {
         process.env.SHE_DATA_DIR = process.argv[idx + 1];
     }
-}());
+})();
 
 // Ensure the data directory exists before anything else runs
 require('./lib/storage').ensureRoot();
@@ -72,6 +72,21 @@ const log = {
 };
 const config = require('./config.js');
 const pkg = require('../package.json');
+
+/**
+ * Build a short log label for a script file.
+ * Uses the path relative to the configured script dir(s) when possible,
+ * falling back to the bare filename for files outside the script dir.
+ */
+function makeLabel(filePath) {
+    const normalized = filePath.replace(/\\/g, '/');
+    const dirs = config.dir ? (Array.isArray(config.dir) ? config.dir : [config.dir]) : [];
+    for (const d of dirs) {
+        const rel = path.relative(d, normalized).replace(/\\/g, '/');
+        if (!rel.startsWith('..')) return rel + ':';
+    }
+    return path.basename(normalized) + ':';
+}
 
 log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1 ? 'info' : config.verbosity);
 log.info('she ' + pkg.version + ' starting');
@@ -296,9 +311,9 @@ if (config.url) {
     const _mqttOpts = { will: { topic: config.name + '/connected', payload: '0', retain: true } };
     if (config.mqttUsername) _mqttOpts.username = config.mqttUsername;
     if (config.mqttPassword) _mqttOpts.password = config.mqttPassword;
-    if (config.mqttCa)   _mqttOpts.ca   = config.mqttCa;
+    if (config.mqttCa) _mqttOpts.ca = config.mqttCa;
     if (config.mqttCert) _mqttOpts.cert = config.mqttCert;
-    if (config.mqttKey)  _mqttOpts.key  = config.mqttKey;
+    if (config.mqttKey) _mqttOpts.key = config.mqttKey;
     mqtt = modules.mqtt.connect(config.url, _mqttOpts);
     mqtt.publish(config.name + '/connected', '2', { retain: true });
 
@@ -497,18 +512,19 @@ function setVariable(name, val) {
 }
 
 function createScript(source, name) {
-    log.debug(name, 'compiling');
+    const compileLabel = makeLabel(name);
+    log.debug(compileLabel, 'compiling');
     try {
         return new vm.Script(source, { filename: name });
     } catch (err) {
-        log.error(name, err.name + ':', err.message);
+        log.error(compileLabel, err.name + ':', err.message);
         return false;
     }
 }
 
 function runScript(script, name, origin) {
     const scriptDir = path.dirname(path.resolve(name));
-    const logLabel = (origin || 'user') + '::' + path.basename(name) + ':';
+    const logLabel = makeLabel(name);
 
     // Initialise per-script resource tracking
     if (!scriptJobs.has(name)) scriptJobs.set(name, []);
@@ -1009,7 +1025,7 @@ function runScript(script, name, origin) {
 function loadScript(file, origin) {
     origin = origin || 'user';
     file = file.replace(/\\/g, '/');
-    const loadLabel = (origin || 'user') + '::' + path.basename(file) + ':';
+    const loadLabel = makeLabel(file);
     if (scripts[file]) {
         log.error(loadLabel, 'already loaded?!');
         return;
@@ -1037,7 +1053,7 @@ function loadScript(file, origin) {
 function unloadScript(file) {
     file = file.replace(/\\/g, '/');
     const origin = scriptOrigins.get(file) || 'user';
-    const unloadLabel = (origin || 'user') + '::' + path.basename(file) + ':';
+    const unloadLabel = makeLabel(file);
     log.info(unloadLabel, 'unloading');
     scriptOrigins.delete(file);
 
@@ -1046,12 +1062,18 @@ function unloadScript(file) {
 
     // Remove MQTT subscriptions belonging to this script
     for (let i = subscriptions.length - 1; i >= 0; i--) {
-        if (subscriptions[i]._script === file) { subscriptions.splice(i, 1); removedCallbacks++; }
+        if (subscriptions[i]._script === file) {
+            subscriptions.splice(i, 1);
+            removedCallbacks++;
+        }
     }
 
     // Remove MQTT event callbacks (connect/disconnect) belonging to this script
     for (let i = mqttEventCallbacks.length - 1; i >= 0; i--) {
-        if (mqttEventCallbacks[i]._script === file) { mqttEventCallbacks.splice(i, 1); removedCallbacks++; }
+        if (mqttEventCallbacks[i]._script === file) {
+            mqttEventCallbacks.splice(i, 1);
+            removedCallbacks++;
+        }
     }
 
     // Remove HTTP routes registered by this script via she.api
@@ -1158,7 +1180,7 @@ function loadSandbox(callback) {
                 sandboxWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
                 sandboxWatcher.on('all', (event, filePath) => {
                     sandboxWatcher.close();
-                    log.info(filePath, 'sandbox change detected. exiting.');
+                    log.info(makeLabel(filePath), 'sandbox change detected. exiting.');
                     process.exit(0);
                 });
             }
@@ -1290,9 +1312,9 @@ function loadDir(dir) {
             // .shelib marker changes - warn only, manual restart required
             if (basename === '.shelib') {
                 if (event === 'add') {
-                    log.warn(filePath, 'library marker added - .js files in this directory will no longer load as scripts after daemon restart');
+                    log.warn(makeLabel(filePath), 'library marker added - .js files in this directory will no longer load as scripts after daemon restart');
                 } else if (event === 'unlink') {
-                    log.warn(filePath, 'library marker removed - .js files in this directory will load as scripts after daemon restart');
+                    log.warn(makeLabel(filePath), 'library marker removed - .js files in this directory will load as scripts after daemon restart');
                 }
                 return;
             }
@@ -1312,7 +1334,7 @@ function loadDir(dir) {
                 return;
             }
 
-            const fileLabel = (scriptOrigins.get(filePath) || 'user') + '::' + path.basename(filePath) + ':';
+            const fileLabel = makeLabel(filePath);
             if (event === 'change' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
                     log.warn(fileLabel, 'is a library file - scripts that require() it will see the old version until they or the daemon are restarted');

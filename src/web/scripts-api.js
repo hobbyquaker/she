@@ -46,6 +46,7 @@ function walk(dir, base, parentIsLib) {
     for (const entry of entries) {
         if (entry.name === '.shelib') continue;
         if (entry.name.startsWith('.shedisable-')) continue;
+        if (entry.isDirectory() && entry.name.startsWith('.')) continue;
         const rel = base ? `${base}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
             results.push(...walk(path.join(dir, entry.name), rel, lib));
@@ -75,6 +76,7 @@ function buildTree(dir, base, parentIsLib) {
     for (const entry of entries) {
         if (entry.name === '.shelib') continue;
         if (entry.name.startsWith('.shedisable-')) continue;
+        if (entry.isDirectory() && entry.name.startsWith('.')) continue;
         const rel = base ? `${base}/${entry.name}` : entry.name;
         const abs = path.join(dir, entry.name);
         if (entry.isDirectory()) {

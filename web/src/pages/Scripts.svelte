@@ -219,21 +219,26 @@ declare const she: {
         });
 
         unsubLog = subscribeLog((entry) => {
-            const match = entry.msg.match(/^user::([^:]+):/);
+            // Match log label: "some/path/script.js: message" (may be just "script.js:" at root)
+            const match = entry.msg.match(/^([^:\n]+\.js):\s/);
             if (!match) return;
-            const basename = match[1];
+            const relPath = match[1];
+
+            // Update error marker state (affects file tree icons)
             if (entry.level === 'error') {
-                scriptHadError.add(basename);
-                if (!scriptErrors.has(basename)) {
-                    scriptErrors = new Set([...scriptErrors, basename]);
+                scriptHadError.add(relPath);
+                if (!scriptErrors.has(relPath)) {
+                    scriptErrors = new Set([...scriptErrors, relPath]);
                 }
-            } else if (scriptHadError.has(basename)) {
-                scriptHadError.delete(basename);
+            } else if (scriptHadError.has(relPath)) {
+                scriptHadError.delete(relPath);
                 const next = new Set(scriptErrors);
-                next.delete(basename);
+                next.delete(relPath);
                 scriptErrors = next;
             }
-            const tab = tabs.find(t => t.path.split('/').pop() === basename);
+
+            // Route log entry to the matching open tab
+            const tab = tabs.find(t => t.path === relPath);
             if (tab) {
                 tab.logEntries = [...tab.logEntries.slice(-199), entry];
                 if (tab.path === activeTab && logPanelOpen && logEl) {
@@ -448,12 +453,15 @@ declare const she: {
 
     async function ctxRename(entry: TreeEntry) {
         closeCtxMenu();
-        const newName = await inputDialog.show(
+        const dir = entry.path.includes('/')
+            ? entry.path.slice(0, entry.path.lastIndexOf('/') + 1)
+            : '';
+        const newBasename = await inputDialog.show(
             entry.type === 'dir' ? 'Rename folder:' : 'Rename script:',
-            { initial: entry.path, placeholder: entry.path, confirm: 'Rename' },
+            { initial: entry.name, placeholder: entry.name, confirm: 'Rename' },
         );
-        if (!newName || newName === entry.path) return;
-        const target = newName;
+        if (!newBasename || newBasename === entry.name) return;
+        const target = dir + newBasename;
         try {
             await renameScript(entry.path, target);
             // update any open tab
@@ -882,8 +890,7 @@ declare const she: {
                     {/if}
                 </li>
             {:else}
-                {@const basename = entry.name}
-                {@const hasErr = scriptErrors.has(basename)}
+                {@const hasErr = scriptErrors.has(entry.path)}
                 {@const ext = (entry.name.split('.').pop() ?? 'txt').toUpperCase()}
                 {@const isJs = entry.name.endsWith('.js')}
                 <li
