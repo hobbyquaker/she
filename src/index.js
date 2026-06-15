@@ -1329,12 +1329,21 @@ function loadDir(dir) {
                 return;
             }
 
-            // .shelib marker changes - warn only, manual restart required
+            // .shelib marker changes - unload or reload scripts in the affected directory
             if (basename === '.shelib') {
+                const affectedDir = path.dirname(filePath);
                 if (event === 'add') {
-                    log.warn(makeLabel(filePath), 'library marker added - .js files in this directory will no longer load as scripts after daemon restart');
+                    log.info(makeLabel(filePath), 'library marker added - unloading scripts in this directory');
+                    Object.keys(scripts).forEach((scriptFile) => {
+                        const absScript = path.resolve(scriptFile);
+                        const absDir = path.resolve(affectedDir);
+                        if (absScript.startsWith(absDir + path.sep) || path.dirname(absScript) === absDir) {
+                            unloadScript(scriptFile);
+                        }
+                    });
                 } else if (event === 'unlink') {
-                    log.warn(makeLabel(filePath), 'library marker removed - .js files in this directory will load as scripts after daemon restart');
+                    log.info(makeLabel(filePath), 'library marker removed - loading scripts in this directory');
+                    loadDirRecursive(affectedDir, path.resolve(dir));
                 }
                 return;
             }
