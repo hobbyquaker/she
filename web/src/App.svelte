@@ -59,12 +59,24 @@
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
+    let restarting = $state(false);
+
     async function restart() {
         if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
-        try {
-            await restartDaemon();
-            setTimeout(() => location.reload(), 2500);
-        } catch { /* ignore — daemon is restarting */ }
+        restarting = true;
+        try { await restartDaemon(); } catch { /* ignore — daemon is restarting */ }
+        let wentDown = false;
+        const deadline = Date.now() + 60_000;
+        while (Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            try {
+                await getDaemonStatus();
+                if (wentDown) { location.reload(); return; }
+            } catch {
+                wentDown = true;
+            }
+        }
+        location.reload();
     }
 
     async function handleCheckUpdate() {
@@ -346,6 +358,15 @@
             {loginLoading ? 'Signing in…' : 'Sign in'}
         </button>
     </form>
+</div>
+{/if}
+
+{#if restarting}
+<div class="updating-overlay">
+    <div class="updating-box">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 4 4 10 10 10"/><path d="M4 10A9 9 0 1 0 6.5 5"/></svg>
+        Restarting smart-home-engine…
+    </div>
 </div>
 {/if}
 
