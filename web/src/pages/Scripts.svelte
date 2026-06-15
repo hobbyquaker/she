@@ -877,7 +877,7 @@ declare const she: {
         </div>
         {#if error}<div class="err">{error}</div>{/if}
 
-        {#snippet treeEntry(entry: TreeEntry)}
+        {#snippet treeEntry(entry: TreeEntry, parentDisabled: boolean = false)}
             {#if entry.type === 'dir'}
                 <li class="tree-dir">
                     <div
@@ -920,7 +920,7 @@ declare const she: {
                     {#if expandedDirs[entry.path] && entry.children}
                         <ul class="tree-children">
                             {#each entry.children as child (child.path)}
-                                {@render treeEntry(child)}
+                                {@render treeEntry(child, entry.disabled || parentDisabled)}
                             {/each}
                         </ul>
                     {/if}
@@ -947,8 +947,8 @@ declare const she: {
                             {#if hasErr}<span class="err-dot">●</span>{/if}
                         </button>
                         {#if isJs}
-                            <label class="dis-label" title="Disable — this script will not be executed">
-                                <input type="checkbox" checked={entry.disabled} onchange={() => toggleDisabled(entry.path, !entry.disabled)} />
+                            <label class="dis-label" class:dis-locked={parentDisabled} title={parentDisabled ? 'Disabled by parent directory' : 'Disable — this script will not be executed'}>
+                                <input type="checkbox" checked={entry.disabled} disabled={parentDisabled} onchange={() => toggleDisabled(entry.path, !entry.disabled)} />
                                 <span class="dis-checkmark"></span>
                                 <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><line x1="3.8" y1="12.2" x2="12.2" y2="3.8"/></svg>
                             </label>
@@ -1252,6 +1252,7 @@ declare const she: {
         transform: rotate(45deg);
     }
     .dis-label:hover .dis-checkmark { border-color: var(--fg-warn); }
+    .dis-label.dis-locked { cursor: not-allowed; opacity: 0.4; pointer-events: none; }
     .dis-spacer { width: 28px; flex-shrink: 0; }
 
     .tree-file button {
