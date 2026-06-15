@@ -386,7 +386,8 @@ declare const she: {
         if (!activeTab) return;
         await save();
         if (error) return;
-        const msg = await inputDialog.show('Commit message:', { placeholder: 'Update script', confirm: 'Commit' });
+        const basename = activeTab.split('/').pop() ?? activeTab;
+        const msg = await inputDialog.show('Commit message:', { initial: `update ${basename}`, placeholder: 'Update script', confirm: 'Commit' });
         if (!msg) return;
         try {
             await commitFile(activeTab, msg);
