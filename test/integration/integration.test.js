@@ -156,64 +156,64 @@ describe('start daemon', () => {
 
 describe('script loading', () => {
     it('should load test1.js script file', (done) => {
-        subscribe('ms', /user::test1\.js: loading/, () => done());
+        subscribe('ms', /test1\.js: loading/, () => done());
     }, 20000);
     it('should execute test1.js script file', (done) => {
-        subscribe('ms', /user::test1\.js: running/, () => done());
+        subscribe('ms', /test1\.js: running/, () => done());
     }, 20000);
     it('should catch a syntax error', (done) => {
-        subscribe('ms', /testscripts\/test3\.js SyntaxError/, () => done());
+        subscribe('ms', /test3\.js: SyntaxError/, () => done());
     }, 20000);
 });
 
 describe('argument checks', () => {
     it('should throw on wrong arguments for she.mqttsub() - missing callback', (done) => {
-        subscribe('ms', /user::test4\.js: TypeError: callback is not a function/, () => done());
+        subscribe('ms', /test4\.js: TypeError: callback is not a function/, () => done());
     }, 20000);
     it('should throw on wrong arguments for she.mqttsub() - wrong callback', (done) => {
-        subscribe('ms', /user::test5\.js: TypeError: callback is not a function/, () => done());
+        subscribe('ms', /test5\.js: TypeError: callback is not a function/, () => done());
     }, 20000);
     it('should throw on wrong arguments for she.mqttsub() - missing topic', (done) => {
-        subscribe('ms', /user::test16\.js: TypeError: argument topic missing/, () => done());
+        subscribe('ms', /test16\.js: TypeError: argument topic missing/, () => done());
     }, 20000);
     it('should throw on wrong number of arguments for she.mqttsub()', (done) => {
-        subscribe('ms', /user::test6\.js: Error: wrong number of arguments/, () => done());
+        subscribe('ms', /test6\.js: Error: wrong number of arguments/, () => done());
     }, 20000);
     it('should throw on wrong options.condition for she.mqttsub()', (done) => {
-        subscribe('ms', /user::test17\.js: Error: options.condition/, () => done());
+        subscribe('ms', /test17\.js: Error: options.condition/, () => done());
     }, 20000);
     it('should throw on unknown suncalc event for she.schedule()', (done) => {
-        subscribe('ms', /user::test8\.js: TypeError: unknown suncalc event/, () => done());
+        subscribe('ms', /test8\.js: TypeError: unknown suncalc event/, () => done());
     }, 20000);
     it('should throw on wrong number of arguments for she.schedule()', (done) => {
-        subscribe('ms', /user::test9\.js: Error: wrong number of arguments/, () => done());
+        subscribe('ms', /test9\.js: Error: wrong number of arguments/, () => done());
     }, 20000);
     it('should throw on wrong callback type for she.schedule() (sun) #1', (done) => {
-        subscribe('ms', /user::test10\.js: TypeError: callback is not a function/, () => done());
+        subscribe('ms', /test10\.js: TypeError: callback is not a function/, () => done());
     }, 20000);
     it('should throw on wrong callback type for she.schedule() (sun) #2', (done) => {
-        subscribe('ms', /user::test11\.js: TypeError: callback is not a function/, () => done());
+        subscribe('ms', /test11\.js: TypeError: callback is not a function/, () => done());
     }, 20000);
     it('should throw on out-of-range shift for she.schedule()', (done) => {
-        subscribe('ms', /user::test15\.js: Error: options.shift out of range/, () => done());
+        subscribe('ms', /test15\.js: Error: options.shift out of range/, () => done());
     }, 20000);
     it('should throw on wrong callback type for she.schedule() #1', (done) => {
-        subscribe('ms', /user::test12\.js: TypeError: callback is not a function/, () => done());
+        subscribe('ms', /test12\.js: TypeError: callback is not a function/, () => done());
     }, 20000);
     it('should throw on wrong callback type for she.schedule() #2', (done) => {
-        subscribe('ms', /user::test13\.js: TypeError: callback is not a function/, () => done());
+        subscribe('ms', /test13\.js: TypeError: callback is not a function/, () => done());
     }, 20000);
     it('should throw on wrong number of arguments for she.schedule()', (done) => {
-        subscribe('ms', /user::test14\.js: Error: wrong number of arguments/, () => done());
+        subscribe('ms', /test14\.js: Error: wrong number of arguments/, () => done());
     }, 20000);
 });
 
 describe('testscripts/test1.js execution', () => {
     it('should log a msg', (done) => {
-        subscribe('ms', /user::test1\.js: test log/, () => done());
+        subscribe('ms', /test1\.js: test log/, () => done());
     }, 20000);
     it('should return true on getValue()', (done) => {
-        subscribe('ms', /user::test1\.js: test1 true/, () => done());
+        subscribe('ms', /test1\.js: test1 true/, () => done());
     }, 20000);
 });
 
@@ -347,7 +347,7 @@ describe('schedule()', () => {
 
 describe('exception', () => {
     it('should catch an exception occuring in a script', (done) => {
-        subscribe('ms', /user::test1\.js: Error: test exception/, () => done());
+        subscribe('ms', /test1\.js: Error: test exception/, () => done());
     }, 180000);
 });
 

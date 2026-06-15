@@ -115,7 +115,7 @@ beforeAll((done) => {
             // Wait for server port, then wait for the test script to finish loading
             subscribe(/http server listening on :(\d+)/, (line, m) => {
                 apiPort = parseInt(m[1], 10);
-                subscribe(/user::test-api\.js: loading/, () => done());
+                subscribe(/test-api\.js: loading/, () => done());
             });
         });
     });
