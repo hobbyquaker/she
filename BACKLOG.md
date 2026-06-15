@@ -44,6 +44,8 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## Operations
 
+- **show she uptime in statistics popup** — the status popup (shown when clicking the scripts/topics counter in the toolbar) currently shows script count and topic count; add daemon uptime (e.g. "up 3d 4h 12m") sourced from `GET /she/status` (extend the response with a `startedAt` timestamp or `uptimeSeconds`).
+
 - **health check endpoint** — `GET /she/health` returning 200 if the daemon is alive, configured mqtt broker is connected, ..., 503 otherwise. Useful for Docker health checks, nginx upstreams, and monitoring systems.
 
 - **`npm install` async update** — the `POST /she/update` handler uses `spawnSync`, blocking the entire process while npm runs. Switch to async `spawn` and stream output to the client via WebSocket.
