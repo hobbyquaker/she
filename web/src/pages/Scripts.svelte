@@ -107,6 +107,9 @@
             : null,
     );
 
+    /** Set of file paths (relative to scriptDir) that have uncommitted git changes. */
+    const gitChangedPaths = $derived(new Set(gitInfo?.changes.map(c => c.file) ?? []));
+
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
     let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
 
@@ -902,6 +905,7 @@ declare const she: {
                             onclick={() => { selectedDir = entry.path; expandedDirs[entry.path] = true; }}
                             onkeydown={(e) => e.key === 'Enter' && (selectedDir = entry.path)}
                         >{entry.name}</span>
+                        {#if gitChangedPaths.has(entry.path)}<span class="git-mod" title="Uncommitted changes">M</span>{/if}
                         <label class="lib-label" title="Library directory — files here are not auto-loaded as scripts" onmouseenter={showLibTip} onmouseleave={hideLibTip}>
                             <input type="checkbox" checked={entry.lib} onchange={() => toggleLib(entry.path, !entry.lib)} />
                             <span class="lib-checkmark"></span>
@@ -923,6 +927,7 @@ declare const she: {
                 </li>
             {:else}
                 {@const hasErr = scriptErrors.has(entry.path)}
+                {@const isGitMod = gitChangedPaths.has(entry.path)}
                 {@const ext = (entry.name.split('.').pop() ?? 'txt').toUpperCase()}
                 {@const isJs = entry.name.endsWith('.js')}
                 <li
@@ -937,7 +942,7 @@ declare const she: {
                         <button class:lib={entry.lib} class:dis={entry.disabled} class:err={hasErr} onclick={() => openTab(entry.path)}>
                             <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
                             <span class="fname">{entry.name}</span>
-                            {#if tabs.find(t => t.path === entry.path)?.dirty}<span class="dirty-dot">●</span>{/if}
+                            {#if isGitMod}<span class="git-mod" title="Uncommitted changes">M</span>{/if}<span class="dirty-dot">●</span>{/if}
                             {#if hasErr}<span class="err-dot">●</span>{/if}
                         </button>
                         {#if isJs}
@@ -1279,6 +1284,7 @@ declare const she: {
     .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dirty-dot { color: #e5c07b; font-size: 8px; flex-shrink: 0; }
     .err-dot { color: var(--fg-err); font-size: 8px; flex-shrink: 0; }
+    .git-mod { color: #e2c08d; font-size: 10px; font-weight: 600; flex-shrink: 0; }
     .err { color: var(--fg-err); padding: 8px; font-size: 12px; }
 
     .editor-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }

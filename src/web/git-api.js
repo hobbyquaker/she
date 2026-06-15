@@ -70,13 +70,26 @@ router.get('/status', async (req, res) => {
         const [statusOut, branchOut] = await Promise.all([git(['status', '--porcelain', '-u'], gitRoot), git(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot)]);
 
         const branch = branchOut.stdout.trim();
+
+        // Compute the path of scriptDir relative to gitRoot (forward slashes)
+        // so returned file paths are relative to scriptDir, matching the frontend tree.
+        const scriptRelToRoot = path.relative(gitRoot, scriptDir).replace(/\\/g, '/');
+
         const changes = statusOut.stdout
             .split('\n')
             .filter(Boolean)
-            .map((line) => ({
-                status: line.slice(0, 2).trim(),
-                file: line.slice(3),
-            }));
+            .map((line) => {
+                let file = line.slice(3);
+                if (scriptRelToRoot) {
+                    if (file.startsWith(scriptRelToRoot + '/')) {
+                        file = file.slice(scriptRelToRoot.length + 1);
+                    } else {
+                        return null; // outside scriptDir
+                    }
+                }
+                return { status: line.slice(0, 2).trim(), file };
+            })
+            .filter(Boolean);
 
         let ahead = 0;
         let behind = 0;
