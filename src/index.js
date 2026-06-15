@@ -1024,6 +1024,22 @@ function runScript(script, name, origin) {
         log.debug(logLabel, 'running');
         script.runInContext(context);
     });
+
+    // Log a summary of what was registered — symmetric with the unload summary
+    const registeredCallbacks =
+        subscriptions.filter((s) => s._script === name).length +
+        varSubscriptions.filter((s) => s._script === name).length +
+        mqttEventCallbacks.filter((c) => c._script === name).length;
+    const registeredTimers =
+        _myJobs.length +
+        sunEvents.filter((e) => e._script === name).length +
+        _myTimers.size;
+    if (registeredCallbacks > 0 || registeredTimers > 0) {
+        const parts = [];
+        if (registeredCallbacks > 0) parts.push(`${registeredCallbacks} callback${registeredCallbacks !== 1 ? 's' : ''}`);
+        if (registeredTimers > 0) parts.push(`${registeredTimers} timer${registeredTimers !== 1 ? 's' : ''}`);
+        log.debug(logLabel, `registered ${parts.join(' and ')}`);
+    }
 }
 
 function loadScript(file, origin) {
