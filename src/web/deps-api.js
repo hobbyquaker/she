@@ -164,6 +164,11 @@ router.get('/search', (req, res) => {
                         obj.package.links?.homepage ||
                         obj.package.links?.npm ||
                         `https://www.npmjs.com/package/${encodeURIComponent(obj.package.name)}`,
+                    author:
+                        obj.package.publisher?.username ||
+                        obj.package.author?.name ||
+                        (obj.package.maintainers?.[0]?.username ?? null),
+                    date: obj.package.date ?? null,
                 }));
                 res.json(results);
             } catch {

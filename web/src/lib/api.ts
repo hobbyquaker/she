@@ -275,6 +275,8 @@ export interface NpmSearchResult {
     version: string;
     description: string;
     url?: string;
+    author?: string;
+    date?: string;
 }
 
 export function listDeps(): Promise<DepEntry[]> {

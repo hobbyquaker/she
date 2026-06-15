@@ -74,6 +74,12 @@
         }
     }
 
+    function fmtDate(iso: string | undefined): string {
+        if (!iso) return '';
+        try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); }
+        catch { return ''; }
+    }
+
     async function install(name: string, version?: string) {
         busy[name] = true;
         error = '';
@@ -234,6 +240,8 @@
                             <div class="result-info">
                                 <a class="result-name" href={r.url ?? `https://www.npmjs.com/package/${r.name}`} target="_blank" rel="noopener noreferrer">{r.name}</a>
                                 <span class="result-ver">{r.version}</span>
+                                {#if r.author}<span class="result-author">{r.author}</span>{/if}
+                                {#if r.date}<span class="result-date" title={r.date}>{fmtDate(r.date)}</span>{/if}
                                 {#if r.description}
                                     <span class="result-desc">{r.description}</span>
                                 {/if}
@@ -488,6 +496,8 @@
     .result-name { font-family: monospace; font-size: 12px; color: var(--fg-value); white-space: nowrap; text-decoration: none; }
     .result-name:hover { text-decoration: underline; }
     .result-ver  { font-family: monospace; font-size: 11px; color: var(--fg-muted); white-space: nowrap; }
+    .result-author { font-size: 11px; color: var(--fg-muted); white-space: nowrap; }
+    .result-date   { font-size: 11px; color: var(--fg-dim);   white-space: nowrap; }
     .result-desc { font-size: 11px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .install-btn {
         background: var(--bg-active);
