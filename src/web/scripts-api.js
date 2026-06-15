@@ -63,7 +63,7 @@ function walk(dir, base, parentIsLib) {
  * Nested tree of all files and subdirectories.
  * Each node: { type:'file'|'dir', name, path, lib, size?, mtime?, children? }
  */
-function buildTree(dir, base, parentIsLib) {
+function buildTree(dir, base, parentIsLib, parentIsDisabled = false) {
     let entries;
     try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -81,13 +81,15 @@ function buildTree(dir, base, parentIsLib) {
         const abs = path.join(dir, entry.name);
         if (entry.isDirectory()) {
             const childIsLib = lib || hasShelibMarker(abs);
-            const disabled = hasShedisableMarker(abs);
-            const children = buildTree(abs, rel, childIsLib);
-            result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, disabled, children });
+            const selfDisabled = hasShedisableMarker(abs);
+            const effectiveDisabled = parentIsDisabled || selfDisabled;
+            const children = buildTree(abs, rel, childIsLib, effectiveDisabled);
+            result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, disabled: selfDisabled, children });
         } else {
             const stat = fs.statSync(abs);
             const isJs = entry.name.endsWith('.js');
-            const disabled = isJs ? hasShedisableMarker(abs) : false;
+            const selfDisabled = isJs ? hasShedisableMarker(abs) : false;
+            const disabled = parentIsDisabled || selfDisabled;
             result.push({ type: 'file', name: entry.name, path: rel, lib, size: stat.size, mtime: stat.mtimeMs, ...(isJs ? { disabled } : {}) });
         }
     }
