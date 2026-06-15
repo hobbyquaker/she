@@ -1,20 +1,8 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
-    import {
-        listDocs,
-        getDoc,
-        putDoc,
-        deleteDoc,
-        listViews,
-        getView,
-        putView,
-        deleteView,
-        getViewResult,
-        getConfig,
-        type ViewDefinition,
-        type ViewResult,
-    } from '../lib/api.js';
+    import { listDocs, getDoc, putDoc, deleteDoc, listViews, getView, putView, deleteView, getViewResult, getConfig, type ViewDefinition, type ViewResult } from '../lib/api.js';
+    import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import ViewChat from './ViewChat.svelte';
     import MonacoEditor from '../lib/MonacoEditor.svelte';
 
@@ -162,9 +150,11 @@
         }
     }
 
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> };
+
     async function deleteSelectedDoc() {
         if (!selectedDocId) return;
-        if (!confirm(`Delete document "${selectedDocId}"?`)) return;
+        if (!(await dialog.show(`Delete document "${selectedDocId}"?`, { confirm: 'Delete', danger: true }))) return;
         try {
             await deleteDoc(selectedDocId);
             selectedDocId = null;
@@ -236,7 +226,7 @@
 
     async function deleteSelectedView() {
         if (!selectedViewId) return;
-        if (!confirm(`Delete view "${selectedViewId}"?`)) return;
+        if (!(await dialog.show(`Delete view "${selectedViewId}"?`, { confirm: 'Delete', danger: true }))) return;
         try {
             await deleteView(selectedViewId);
             selectedViewId = null;
@@ -322,6 +312,7 @@
 </script>
 
 {#snippet dbWelcome()}
+<ConfirmDialog bind:this={dialog} />
     <div class="welcome">
         <div class="welcome-inner">
             <div class="welcome-logo">db</div>

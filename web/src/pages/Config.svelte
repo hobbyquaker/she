@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { getConfig, putConfig, setupAuth, getDaemonStatus, type AuthMode } from '../lib/api.js';
+    import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
@@ -169,8 +170,10 @@
         leafletMarker.setLatLng([Number(latitude), Number(longitude)]);
     });
 
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> };
+
     function geolocate() {
-        if (!navigator.geolocation) { alert('Geolocation is not supported by this browser.'); return; }
+        if (!navigator.geolocation) { dialog.show('Geolocation is not supported by this browser.', { alert: true }); return; }
         geoLoading = true;
         navigator.geolocation.getCurrentPosition(
             (pos) => {
@@ -353,6 +356,7 @@
 </script>
 
 <!-- ── tooltip helper ─────────────────────────────────────────────────── -->
+<ConfirmDialog bind:this={dialog} />
 {#snippet tip(text: string)}
     <span class="tip">
         <span class="tip-icon">ℹ</span>

@@ -8,6 +8,7 @@
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
     import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
+    import ConfirmDialog from './lib/ConfirmDialog.svelte';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -56,8 +57,10 @@
         showLogin = true;
     }
 
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> };
+
     async function restart() {
-        if (!confirm('Restart the she daemon? The page will reload after a moment.')) return;
+        if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
         try {
             await restartDaemon();
             setTimeout(() => location.reload(), 2500);
@@ -75,7 +78,7 @@
     }
 
     async function update() {
-        if (!confirm(`Update to v${stats?.latestVersion}? The daemon will restart after the update completes.`)) return;
+        if (!(await dialog.show(`Update to v${stats?.latestVersion}? The daemon will restart after the update completes.`, { confirm: 'Update' }))) return;
         versionOpen = false;
         updating = true;
         try { await updateDaemon(); } catch { /* ok — daemon will restart */ }
@@ -308,6 +311,7 @@
     </nav>
 
     <main>
+        <ConfirmDialog bind:this={dialog} />
         <div class="page-wrap" class:hidden={page !== 'scripts'}><Scripts active={page === 'scripts'} /></div>
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT /></div>

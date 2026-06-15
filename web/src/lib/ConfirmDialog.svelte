@@ -3,15 +3,17 @@
     let message = $state('');
     let confirmLabel = $state('Confirm');
     let danger = $state(false);
+    let alertMode = $state(false);
     let resolve: ((v: boolean) => void) | null = null;
 
     export function show(
         msg: string,
-        opts?: { confirm?: string; danger?: boolean },
+        opts?: { confirm?: string; danger?: boolean; alert?: boolean },
     ): Promise<boolean> {
         message = msg;
-        confirmLabel = opts?.confirm ?? 'Confirm';
+        confirmLabel = opts?.confirm ?? (opts?.alert ? 'OK' : 'Confirm');
         danger = opts?.danger ?? false;
+        alertMode = opts?.alert ?? false;
         open = true;
         return new Promise((r) => (resolve = r));
     }
@@ -36,7 +38,7 @@
     <div class="dialog" role="dialog" aria-modal="true">
         <p>{message}</p>
         <div class="actions">
-            <button class="cancel" onclick={() => choose(false)}>Cancel</button>
+            {#if !alertMode}<button class="cancel" onclick={() => choose(false)}>Cancel</button>{/if}
             <button class:danger onclick={() => choose(true)}>{confirmLabel}</button>
         </div>
     </div>

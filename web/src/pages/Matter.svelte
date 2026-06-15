@@ -1,15 +1,8 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
-    import {
-        listMatterDevices,
-        getMatterDevice,
-        commissionMatter,
-        unpairMatter,
-        sendMatterCommand,
-        type MatterDevice,
-        type MatterNodeDetail,
-    } from '../lib/api.js';
+    import { listMatterDevices, getMatterDevice, commissionMatter, unpairMatter, sendMatterCommand, type MatterDevice, type MatterNodeDetail } from '../lib/api.js';
+    import ConfirmDialog from '../lib/ConfirmDialog.svelte';
 
     interface AttrAction { label: string; command: string; args?: Record<string, unknown>; }
     const ATTR_ACTIONS: Record<string, Record<string, AttrAction[]>> = {
@@ -356,8 +349,10 @@
         }
     }
 
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> };
+
     async function unpair(nodeId: string) {
-        if (!confirm(`Unpair device ${nodeId}?`)) return;
+        if (!(await dialog.show(`Unpair device ${nodeId}?`, { confirm: 'Unpair', danger: true }))) return;
         try {
             await unpairMatter(nodeId);
             if (selected?.nodeId === nodeId) selected = null;
@@ -456,6 +451,7 @@
     onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); });
 </script>
 
+<ConfirmDialog bind:this={dialog} />
 <div class="matter-page">
     <div class="matter-main">
     <div class="sidebar">
