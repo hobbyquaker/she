@@ -928,6 +928,7 @@ declare const she: {
             {:else}
                 {@const hasErr = scriptErrors.has(entry.path)}
                 {@const isGitMod = gitChangedPaths.has(entry.path)}
+                {@const isDirty = tabs.some(t => t.path === entry.path && t.dirty)}
                 {@const ext = (entry.name.split('.').pop() ?? 'txt').toUpperCase()}
                 {@const isJs = entry.name.endsWith('.js')}
                 <li
@@ -942,7 +943,7 @@ declare const she: {
                         <button class:lib={entry.lib} class:dis={entry.disabled} class:err={hasErr} onclick={() => openTab(entry.path)}>
                             <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
                             <span class="fname">{entry.name}</span>
-                            {#if isGitMod}<span class="git-mod" title="Uncommitted changes">M</span>{/if}<span class="dirty-dot">●</span>
+                            {#if isGitMod}<span class="git-mod" title="Uncommitted changes">M</span>{/if}{#if isDirty}<span class="dirty-dot">●</span>{/if}
                             {#if hasErr}<span class="err-dot">●</span>{/if}
                         </button>
                         {#if isJs}
