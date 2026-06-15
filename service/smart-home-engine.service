@@ -5,7 +5,6 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
 User=she
 Group=she
 Restart=on-failure
@@ -14,10 +13,6 @@ RestartSec=5s
 ExecStart=/usr/local/bin/she --data-dir /var/lib/she
 
 ReadWritePaths=/var/lib/she
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=she
 
 [Install]
 WantedBy=multi-user.target

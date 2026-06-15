@@ -692,7 +692,7 @@
             {@const ext = fileExt(currentScript.path.split('/').pop() ?? currentScript.path)}
             <span class="file-chip" class:inactive={!includeCurrentScript}>
                 <span class="badge badge-{ext.toLowerCase()}">{fileBadgeContent(ext)}</span>
-                <span class="chip-name">{currentScript.path.split('/').pop()}</span>
+                <span class="chip-name">{currentScript.path}</span>
                 <button class="chip-remove"
                     onclick={() => (includeCurrentScript = !includeCurrentScript)}
                     title={includeCurrentScript ? 'Remove from context' : 'Re-add to context'}>

@@ -526,8 +526,8 @@ declare const she: {
     async function ctxAddToAiContext(entry: TreeEntry) {
         closeCtxMenu();
         const { content } = await readScript(entry.path);
-        if (!chatExtraFiles.some(f => f.name === entry.name)) {
-            chatExtraFiles = [...chatExtraFiles, { name: entry.name, content }];
+        if (!chatExtraFiles.some(f => f.name === entry.path)) {
+            chatExtraFiles = [...chatExtraFiles, { name: entry.path, content }];
         }
         chatOpen = true;
     }
