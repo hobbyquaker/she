@@ -270,8 +270,10 @@
 
     onMount(() => {
         loadDocs();
-        loadViews();
-        if (selectedViewId) selectView(selectedViewId);
+        loadViews().then(() => {
+            if (selectedViewId && viewIds.includes(selectedViewId)) selectView(selectedViewId);
+            else selectedViewId = null;
+        });
         getConfig().then((cfg) => {
             const raw = (cfg.dbPrefix as string | undefined) || 'she/db/';
             const prefix = raw.endsWith('/') ? raw : raw + '/';
