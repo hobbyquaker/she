@@ -1194,7 +1194,7 @@ declare const she: {
     .tree-children { list-style: none; padding: 0; margin: 0 0 0 10px; border-left: 1px solid var(--indent-line); }
     .dir-row {
         display: flex; align-items: center; gap: 4px;
-        padding: 3px 8px 3px 6px; cursor: default;
+        padding: 3px 0 3px 6px; cursor: default;
     }
     .chevron {
         background: none; border: none; color: var(--fg-muted); cursor: pointer;
