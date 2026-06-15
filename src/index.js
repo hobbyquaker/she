@@ -537,6 +537,10 @@ function runScript(script, name, origin) {
 
     log.debug(logLabel, 'creating sandbox');
 
+    function serializeArg(a) {
+        return a !== null && typeof a === 'object' ? JSON.stringify(a) : a;
+    }
+
     const she = {
         global: _global,
 
@@ -546,7 +550,7 @@ function runScript(script, name, origin) {
          * @param {...*}
          */
         debug(...args) {
-            log.debug(logLabel, ...args);
+            log.debug(logLabel, ...args.map(serializeArg));
         },
         /**
          * Log an info message
@@ -554,7 +558,7 @@ function runScript(script, name, origin) {
          * @param {...*}
          */
         info(...args) {
-            log.info(logLabel, ...args);
+            log.info(logLabel, ...args.map(serializeArg));
         },
         /**
          * Log a warning message
@@ -562,7 +566,7 @@ function runScript(script, name, origin) {
          * @param {...*}
          */
         warn(...args) {
-            log.warn(logLabel, ...args);
+            log.warn(logLabel, ...args.map(serializeArg));
         },
         /**
          * Log an error message
@@ -570,7 +574,7 @@ function runScript(script, name, origin) {
          * @param {...*}
          */
         error(...args) {
-            log.error(logLabel, ...args);
+            log.error(logLabel, ...args.map(serializeArg));
         },
 
         /**
