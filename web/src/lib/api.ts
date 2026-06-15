@@ -157,6 +157,7 @@ export interface DaemonStatus {
     cpuPercent?: number;
     latestVersion?: string;
     dataDir?: string;
+    startedAt?: number;
 }
 
 export function getDaemonStatus(): Promise<DaemonStatus> {
@@ -185,6 +186,11 @@ export function commitFile(filePath: string, message: string): Promise<{ ok: boo
 
 export function commitFiles(files: string[], message: string): Promise<{ ok: boolean }> {
     return request('POST', '/she/git/commit', { files, message });
+}
+
+/** Stage the entire script directory and commit. */
+export function commitAll(message: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/git/commit', { message });
 }
 
 export function gitPush(remote?: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {

@@ -19,6 +19,8 @@ const { init: initAuth, authMiddleware, checkAuth, router: authRouter } = requir
 const app = express();
 app.use(express.json());
 
+const SERVER_START_TIME = Date.now();
+
 // Public auth routes — always accessible regardless of auth mode.
 // Must be mounted BEFORE the auth middleware.
 app.use('/she/auth', authRouter);
@@ -108,6 +110,7 @@ app.get('/she/status', (req, res) => {
     const s = _getStats ? _getStats() : { scripts: 0, topics: 0 };
     if (_latestNpmVersion) s.latestVersion = _latestNpmVersion;
     s.dataDir = require('../lib/storage').STORAGE_ROOT;
+    s.startedAt = SERVER_START_TIME;
     res.json(s);
 });
 

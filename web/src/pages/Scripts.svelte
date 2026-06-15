@@ -9,8 +9,11 @@
         renameScript,
         createScriptDir,
         commitFile,
+        commitFiles,
+        commitAll,
         gitStatus,
         gitPush,
+        getConfig,
         type GitStatus,
         type TreeEntry,
         type AiExtraFile,
@@ -47,6 +50,8 @@
     let dropdownOpen = $state(false);
     let logPanelOpen = $state(true);
     let gitInfo = $state<GitStatus | null>(null);
+    let gitAutoCommit = $state(false);
+    let gitAutoPush   = $state(false);
     let logEl = $state<HTMLDivElement | undefined>(undefined);
 
     let scriptErrors = $state<Set<string>>(new Set());
@@ -268,6 +273,11 @@ declare const she: {
 
         await loadTree();
         loadGitStatus();
+        try {
+            const cfg = await getConfig() as Record<string, unknown>;
+            if (typeof cfg.gitAutoCommit === 'boolean') gitAutoCommit = cfg.gitAutoCommit;
+            if (typeof cfg.gitAutoPush   === 'boolean') gitAutoPush   = cfg.gitAutoPush;
+        } catch { /* best effort */ }
 
         const savedPaths = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]') as string[];
         const savedActive = localStorage.getItem(ACTIVE_KEY);
@@ -323,6 +333,7 @@ declare const she: {
             if (makeLib) await writeScript(`${dirPath}/.shelib`, '');
             else await deleteScript(`${dirPath}/.shelib`);
             await loadTree();
+            await gitAutoAction('all', makeLib ? `lib ${dirPath}` : `unlib ${dirPath}`);
         } catch (e: any) { error = e.message; }
     }
 
@@ -334,6 +345,7 @@ declare const she: {
             if (makeDisabled) await writeScript(marker, '');
             else await deleteScript(marker);
             await loadTree();
+            await gitAutoAction('all', makeDisabled ? `disable ${entryPath}` : `enable ${entryPath}`);
         } catch (e: any) { error = e.message; }
     }
 
@@ -385,6 +397,17 @@ declare const she: {
         catch { gitInfo = null; }
     }
 
+    /** Commit files (or entire scriptDir when paths==='all') and optionally push. Silent on error. */
+    async function gitAutoAction(paths: string[] | 'all', message: string) {
+        if (!gitInfo) return;
+        try {
+            if (paths === 'all') await commitAll(message);
+            else await commitFiles(paths, message);
+            if (gitAutoPush) try { await gitPush(); } catch { /* ignore push errors */ }
+            await loadGitStatus();
+        } catch { /* ignore — e.g. nothing to commit */ }
+    }
+
     async function save() {
         if (!activeTab) return;
         const tab = tabs.find(t => t.path === activeTab);
@@ -396,7 +419,11 @@ declare const she: {
             tab.savedContent = value;
             tab.dirty = false;
             error = '';
-            loadGitStatus();
+            if (gitAutoCommit) {
+                await gitAutoAction([activeTab], `update ${activeTab}`);
+            } else {
+                loadGitStatus();
+            }
         } catch (e: any) { error = (e as Error).message; }
         finally { saving = false; }
     }
@@ -405,11 +432,11 @@ declare const she: {
         if (!activeTab) return;
         await save();
         if (error) return;
-        const basename = activeTab.split('/').pop() ?? activeTab;
-        const msg = await inputDialog.show('Commit message:', { initial: `update ${basename}`, placeholder: 'Update script', confirm: 'Commit' });
+        const msg = await inputDialog.show('Commit message:', { initial: `update ${activeTab}`, placeholder: 'Update script', confirm: 'Commit' });
         if (!msg) return;
         try {
             await commitFile(activeTab, msg);
+            if (gitAutoPush) try { await gitPush(); } catch { /* ignore */ }
             loadGitStatus();
         } catch (e: any) { error = 'Git: ' + (e as Error).message; }
     }
@@ -491,6 +518,7 @@ declare const she: {
                 if (activeTab === entry.path) activeTab = target;
             }
             await loadTree();
+            await gitAutoAction('all', `rename ${entry.path} → ${target}`);
         } catch (e: any) { error = e.message; }
     }
 
@@ -521,6 +549,7 @@ declare const she: {
         }
         await deleteScript(entry.path);
         await loadTree();
+        await gitAutoAction('all', `delete ${entry.path}`);
     }
 
     async function ctxAddToAiContext(entry: TreeEntry) {
@@ -587,6 +616,7 @@ declare const she: {
                 }
             }
             await loadTree();
+            await gitAutoAction('all', `rename ${src} → ${target}`);
         } catch (e: any) { error = e.message; }
     }
 
@@ -641,6 +671,7 @@ declare const she: {
         await closeTab(toDelete);
         await deleteScript(toDelete);
         await loadTree();
+        await gitAutoAction('all', `delete ${toDelete}`);
     }
 
     function clearLog() { if (currentTab) currentTab.logEntries = []; }
@@ -812,7 +843,11 @@ declare const she: {
         try {
             await writeScript(activeTab, code);
             error = '';
-            loadGitStatus();
+            if (gitAutoCommit) {
+                await gitAutoAction([activeTab], `update ${activeTab}`);
+            } else {
+                loadGitStatus();
+            }
         } catch (e: any) { error = (e as Error).message; }
 
         cleanupDiffEditor();

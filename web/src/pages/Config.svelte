@@ -45,6 +45,8 @@
     // Scripts
     let dir            = $state('');
     let disableWatch   = $state(false);
+    let gitAutoCommit  = $state(false);
+    let gitAutoPush    = $state(false);
 
     // Solar events
     let latitude       = $state<number | ''>(48.7408);
@@ -129,7 +131,7 @@
         'url', 'name', 'variablePrefix', 'disableVariables',
         'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey',
         'port', 'bindAddress', 'auth', 'password', 'proxyHeader', 'proxyLogoutUrl',
-        'dir', 'disableWatch',
+        'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush',
         'latitude', 'longitude',
         'verbosity',
         'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
@@ -200,7 +202,7 @@
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
-        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
+        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir','git','auto commit','auto push'] },
         { id: 'solar',      label: 'Solar events', terms: ['latitude','longitude','sunrise','sunset','geo'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','path','retain'] },
@@ -251,6 +253,8 @@
             if (typeof cfg.proxyLogoutUrl   === 'string')  authProxyLogoutUrl = cfg.proxyLogoutUrl;
             if (typeof cfg.dir              === 'string')  dir          = cfg.dir;
             if (typeof cfg.disableWatch     === 'boolean') disableWatch = cfg.disableWatch;
+            if (typeof cfg.gitAutoCommit    === 'boolean') gitAutoCommit = cfg.gitAutoCommit;
+            if (typeof cfg.gitAutoPush      === 'boolean') gitAutoPush   = cfg.gitAutoPush;
             if (typeof cfg.latitude         === 'number')  latitude     = cfg.latitude;
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.verbosity        === 'string')  verbosity    = cfg.verbosity;
@@ -319,6 +323,8 @@
 
         if (dir)            cfg.dir         = dir;
         if (disableWatch)   cfg.disableWatch = true;
+        if (gitAutoCommit)  cfg.gitAutoCommit = true;
+        if (gitAutoPush)    cfg.gitAutoPush   = true;
 
         if (latitude  !== '') cfg.latitude  = Number(latitude);
         if (longitude !== '') cfg.longitude = Number(longitude);
@@ -606,6 +612,24 @@
                             <span class="checkmark"></span>
                             Disable file watching
                             {@render tip('When enabled the daemon will not watch for file changes and will not hot-reload scripts.')}
+                        </label>
+                    </div>
+                    <div class="field field--check">
+                        <span></span>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={gitAutoCommit} />
+                            <span class="checkmark"></span>
+                            Auto-commit on save
+                            {@render tip('When enabled, saving a script automatically creates a git commit. Only effective when the scripts directory is inside a git repository.')}
+                        </label>
+                    </div>
+                    <div class="field field--check">
+                        <span></span>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={gitAutoPush} />
+                            <span class="checkmark"></span>
+                            Auto-push after commit
+                            {@render tip('When enabled, every commit (manual or automatic) is immediately pushed to the remote.')}
                         </label>
                     </div>
                 </section>

@@ -64,17 +64,23 @@
     async function restart() {
         if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
         restarting = true;
+        let prevStartedAt: number | undefined;
+        try {
+            const s = await getDaemonStatus();
+            prevStartedAt = s.startedAt;
+        } catch { /* best-effort */ }
         try { await restartDaemon(); } catch { /* ignore — daemon is restarting */ }
-        let wentDown = false;
         const deadline = Date.now() + 60_000;
         while (Date.now() < deadline) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 250));
             try {
-                await getDaemonStatus();
-                if (wentDown) { location.reload(); return; }
-            } catch {
-                wentDown = true;
-            }
+                const s = await getDaemonStatus();
+                // Reload as soon as we see a new startedAt (or any response if we had no baseline)
+                if (prevStartedAt === undefined || s.startedAt !== prevStartedAt) {
+                    location.reload();
+                    return;
+                }
+            } catch { /* daemon is down — keep polling */ }
         }
         location.reload();
     }
