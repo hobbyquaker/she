@@ -522,7 +522,7 @@ function createScript(source, name) {
     }
 }
 
-function runScript(script, name, origin) {
+function runScript(script, name, _origin) {
     const scriptDir = path.dirname(path.resolve(name));
     const logLabel = makeLabel(name);
 
@@ -1035,10 +1035,7 @@ function runScript(script, name, origin) {
         subscriptions.filter((s) => s._script === name).length +
         varSubscriptions.filter((s) => s._script === name).length +
         mqttEventCallbacks.filter((c) => c._script === name).length;
-    const registeredTimers =
-        _myJobs.length +
-        sunEvents.filter((e) => e._script === name).length +
-        _myTimers.size;
+    const registeredTimers = _myJobs.length + sunEvents.filter((e) => e._script === name).length + _myTimers.size;
     if (registeredCallbacks > 0 || registeredTimers > 0) {
         const parts = [];
         if (registeredCallbacks > 0) parts.push(`${registeredCallbacks} callback${registeredCallbacks !== 1 ? 's' : ''}`);
@@ -1077,7 +1074,7 @@ function loadScript(file, origin) {
 
 function unloadScript(file) {
     file = file.replace(/\\/g, '/');
-    const origin = scriptOrigins.get(file) || 'user';
+    const _origin = scriptOrigins.get(file) || 'user';
     const unloadLabel = makeLabel(file);
     log.info(unloadLabel, 'unloading');
     scriptOrigins.delete(file);
@@ -1194,7 +1191,6 @@ function loadSandbox(callback) {
                     sandboxModules.push(require(path.join(dir, file)));
                 }
             });
-
 
             callback();
         }
