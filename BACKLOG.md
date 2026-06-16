@@ -6,6 +6,10 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **per-file git history panel** — right-click a file → "Show git history" (only when `gitInfo !== null`); shows a commit list in the left aside (below the file tree, fixed height ~220 px); clicking a commit opens a read-only diff in the existing diff overlay (historic content vs. current editor content). Requires two new backend routes: `GET /she/git/log?path=&limit=` and `GET /she/git/show?hash=&path=`. Full spec in VS Code prompt `she-git-history-view`.
 
+- **clickable uncommitted-changes indicator** — the `✎N` badge in the Scripts toolbar is currently passive. Clicking it should open a small popup that (a) lists every changed file with its git status letter (`M`, `D`, `A`, `?`, etc.), and (b) offers a "Commit all" button with an inline message input. This also fixes the UX confusion where the counter shows N > 0 but no file in the tree has an M dot — which happens legitimately when deleted files, hidden marker files (`.shedisable-*`), or staged-only changes are involved. The popup makes the actual change set visible regardless of whether those paths appear in the tree.
+
+- **propagate M markers to parent directories** — when only a file deep in a subdirectory has uncommitted changes, its parent folder(s) in the tree show no indicator. Add a faint dot or `M` to parent dirs so the user can find the changed file without expanding every folder.
+
 ## AI 
 
 - **AI-generated auto-commit messages** — when auto-commit is enabled and a script is saved (or renamed/deleted), instead of the generic `"update <path>"` message, ask the configured AI to generate a meaningful commit message based on the diff (`git diff --cached`). Should be best-effort: fall back to the generic message if the AI call fails or times out. Needs a budget-conscious prompt (diff only, no extra context) and a short timeout so saves don't feel sluggish.
