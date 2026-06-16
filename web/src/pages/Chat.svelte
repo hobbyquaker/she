@@ -166,6 +166,14 @@
         infoError = '';
     });
 
+    // Auto-load Ollama model info (for context window indicator) when provider is ollama
+    $effect(() => {
+        if (aiConfig?.provider !== 'ollama') return;
+        const model = selectedModel || aiConfig?.model;
+        if (!model || ollamaInfo) return;
+        getOllamaModelInfo(model).then(info => { ollamaInfo = info; }).catch(() => {});
+    });
+
     // Cycle status messages while loading
     $effect(() => {
         if (!loading) return;
@@ -692,7 +700,7 @@
         <label title="Let the AI query MQTT state, sheDB documents and Matter devices on demand. Disables real-time streaming.">
             <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 😎 Agent
         </label>
-        <span class="req-size">{formatBytes(requestBytes)}</span>
+        <span class="req-size">{formatBytes(requestBytes)}{#if ollamaInfo?.contextLength}{@const pct = Math.min(100, Math.round(requestBytes / 4 / ollamaInfo.contextLength * 100))}<span class="ctx-indicator" title="~{pct}% of {ollamaInfo.contextLength.toLocaleString()} token context window used"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="var(--border-sub)" stroke-width="2"/><circle cx="6" cy="6" r="5" fill="none" stroke="{pct > 80 ? 'var(--fg-err)' : pct > 50 ? 'var(--fg-warn)' : 'var(--fg-ok)'}" stroke-width="2" stroke-dasharray="{(pct / 100 * 31.4).toFixed(1)} 31.4" stroke-dashoffset="7.85" stroke-linecap="round"/></svg></span>{/if}</span>
     </div>
 
     <!-- File context chips -->
@@ -1148,7 +1156,11 @@
         color: var(--fg-dim);
         white-space: nowrap;
         flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
     }
+    .ctx-indicator { display: inline-flex; align-items: center; vertical-align: middle; }
 
     /* ── File context chips ───────────────────────────────────────────────── */
     .files-row {

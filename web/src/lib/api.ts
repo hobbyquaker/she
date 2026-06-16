@@ -506,6 +506,7 @@ export interface OllamaModelInfo {
     version: string | null;
     details: OllamaModelDetails | null;
     running: OllamaRunningModel[] | null;
+    contextLength: number | null;
 }
 
 export function getAiConfig(): Promise<AiConfig> {

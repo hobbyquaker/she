@@ -424,6 +424,13 @@ router.get('/model-info', async (req, res) => {
         version: versionRes.status === 'fulfilled' ? versionRes.value.version : null,
         details: showRes.status === 'fulfilled' ? showRes.value.details : null,
         running: psRes.status === 'fulfilled' ? psRes.value.models || [] : null,
+        contextLength: (() => {
+            if (showRes.status !== 'fulfilled') return null;
+            const info = showRes.value.model_info;
+            if (!info || typeof info !== 'object') return null;
+            const key = Object.keys(info).find((k) => k.endsWith('.context_length'));
+            return key ? (info[key] ?? null) : null;
+        })(),
     });
 });
 
