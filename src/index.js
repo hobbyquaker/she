@@ -47,7 +47,7 @@ const _pino = require('pino')(
     }),
 );
 // Lazy import â€” log-ws exports a no-op broadcastLog when the HTTP server is not started.
-const { broadcastLog, broadcast } = require('./web/log-ws');
+const { broadcastLog, broadcast, setWelcomeProvider } = require('./web/log-ws');
 const shedb = require('./web/shedb');
 const log = {
     debug: (...args) => {
@@ -247,7 +247,7 @@ let _startupTimeout = null; // fires if broker never connects
 let _sentinelTimeout = null; // fires if sentinel never arrives after connecting
 let _sentinelValue = null; // unique value for this boot's sentinel
 const _STARTUP_TIMEOUT_MS = 10000; // ms to wait for broker before starting anyway
-const _SENTINEL_TIMEOUT_MS = 10000; // ms to wait for sentinel after connecting
+const _SENTINEL_TIMEOUT_MS = 15000; // ms to wait for sentinel after connecting
 
 function startOnce(reason) {
     if (_started) return;
@@ -261,6 +261,7 @@ function startOnce(reason) {
         _sentinelTimeout = null;
     }
     if (reason) log.info(reason);
+    broadcast({ type: 'mqtt:status', ready: true });
     start();
 }
 
@@ -326,6 +327,10 @@ require('./web/server').setStatsProvider(() => {
     };
 });
 
+// Inform newly-connected WebSocket clients of the current mqtt:status so the
+// UI shows the correct indicator even if the browser opened after the event fired.
+setWelcomeProvider(() => ({ type: 'mqtt:status', ready: _started }));
+
 if (!config.url) {
     log.warn('no MQTT broker URL configured â€” set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
 }
@@ -363,6 +368,7 @@ if (config.url) {
             _sentinelValue = String(Date.now());
             mqtt.publish(config.name + '/she-sentinel', _sentinelValue, { retain: false });
             log.debug('mqtt: waiting for retained-state sentinel');
+            broadcast({ type: 'mqtt:status', ready: false });
 
             // Fallback: if sentinel never arrives (e.g. abnormal broker behaviour)
             _sentinelTimeout = setTimeout(() => {

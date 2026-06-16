@@ -9,6 +9,7 @@
     import Packages from './pages/Packages.svelte';
     import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
+    import { subscribeWs } from './lib/ws.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -60,6 +61,7 @@
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
     let restarting = $state(false);
+    let mqttConnecting = $state(false); // true while waiting for retained-state sentinel
 
     async function restart() {
         if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
@@ -155,9 +157,15 @@
         pollStatus();
         const statusInterval = setInterval(pollStatus, 5000);
 
+        // Subscribe to mqtt:status events — shows/hides the connecting dot on the MQTT tab
+        const unsubMqttStatus = subscribeWs('mqtt:status', (msg) => {
+            mqttConnecting = msg.ready === false;
+        });
+
         return () => {
             window.removeEventListener('hashchange', onHashChange);
             clearInterval(statusInterval);
+            unsubMqttStatus();
         };
     });
 </script>
@@ -195,6 +203,7 @@
                 <path fill-rule="evenodd" d="M2,0 H14 A2,2 0 0,1 16,2 V14 A2,2 0 0,1 14,16 H0 V2 A2,2 0 0,1 2,0 Z M0,16 L0,12 A4,4 0 0,1 4,16 Z M0,10.5 A5.5,5.5 0 0,1 5.5,16 L9,16 A9,9 0 0,0 0,7 Z M0,5.5 A10.5,10.5 0 0,1 10.5,16 L13.5,16 A13.5,13.5 0 0,0 0,2.5 Z"/>
             </svg>
             MQTT
+            {#if mqttConnecting}<span class="mqtt-dot" title="Waiting for retained MQTT state"></span>{/if}
         </button>
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
@@ -519,6 +528,20 @@
         background: #f90;
         display: inline-block;
         flex-shrink: 0;
+    }
+
+    .mqtt-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #f90;
+        display: inline-block;
+        flex-shrink: 0;
+        animation: mqttBlink 0.9s ease-in-out infinite;
+    }
+    @keyframes mqttBlink {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.1; }
     }
 
     .version-popup {

@@ -4,6 +4,17 @@ const { WebSocketServer } = require('ws');
 
 let _wss = null;
 const _clients = new Set();
+let _welcomeProvider = null;
+
+/**
+ * Register a function that returns a welcome message to send to each new
+ * WebSocket client immediately after it connects.  Useful for pushing
+ * current state (e.g. mqtt:status) without waiting for the next broadcast.
+ * @param {() => object} fn
+ */
+function setWelcomeProvider(fn) {
+    _welcomeProvider = fn;
+}
 
 // Ring buffer of recent log entries for the AI tool get_script_logs
 const _logBuffer = [];
@@ -31,6 +42,11 @@ function attachWss(httpServer, authCheck = () => true) {
         _clients.add(ws);
         ws.on('close', () => _clients.delete(ws));
         ws.on('error', () => _clients.delete(ws));
+        // Send current state to this new client immediately
+        if (_welcomeProvider) {
+            const welcome = _welcomeProvider();
+            if (welcome) ws.send(JSON.stringify(welcome));
+        }
     });
 
     // Keepalive ping every 30 s
@@ -90,4 +106,4 @@ function closeWss() {
     });
 }
 
-module.exports = { attachWss, broadcast, broadcastLog, closeWss, getLogBuffer };
+module.exports = { attachWss, broadcast, broadcastLog, closeWss, getLogBuffer, setWelcomeProvider };
