@@ -4,21 +4,21 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## Git Integration
 
-- **git history: rename tracking** — `git show <hash>:<currentPath>` fails for commits made before the file was renamed to its current path. To fix: use `git log --follow --name-only` to recover the historic filename per commit, then use that historic name in `git show`. Deferred — accept the limitation for now.
+- **propagate M markers to parent directories** — done (v0.28.0)
 
-- **clickable uncommitted-changes indicator** — the `✎N` badge in the Scripts toolbar is currently passive. Clicking it should open a small popup that (a) lists every changed file with its git status letter (`M`, `D`, `A`, `?`, etc.), and (b) offers a "Commit all" button with an inline message input. This also fixes the UX confusion where the counter shows N > 0 but no file in the tree has an M dot — which happens legitimately when deleted files, hidden marker files (`.shedisable-*`), or staged-only changes are involved. The popup makes the actual change set visible regardless of whether those paths appear in the tree.
+- **clickable uncommitted-changes indicator** — done (v0.28.0)
 
-- **propagate M markers to parent directories** — when only a file deep in a subdirectory has uncommitted changes, its parent folder(s) in the tree show no indicator. Add a faint dot or `M` to parent dirs so the user can find the changed file without expanding every folder.
+- **git history: rename tracking** — done (v0.28.0)
 
 ## AI 
 
 - **AI-generated auto-commit messages** — when auto-commit is enabled and a script is saved (or renamed/deleted), instead of the generic `"update <path>"` message, ask the configured AI to generate a meaningful commit message based on the diff (`git diff --cached`). Should be best-effort: fall back to the generic message if the AI call fails or times out. Needs a budget-conscious prompt (diff only, no extra context) and a short timeout so saves don't feel sluggish.
 
-- **context window usage indicator** — show a circle near the chat input indicating context window usage %. Ollama exposes context length per model via `POST /api/show` → `model_info` (field name is architecture-specific, e.g. `llama.context_length`); non-Ollama providers don't have an equivalent. `Chat.svelte` already tracks `requestBytes` (prompt + input size in bytes). The indicator needs the model's max context size as the denominator.
+- **context window usage indicator** — done (v0.28.0, Ollama only)
 
 ## Script Engine
 
-- **configurable timezone** — add a `timezone` field to the Config UI (e.g. `"Europe/Berlin"`). The daemon should set `process.env.TZ` at startup so that Node.js date/time operations and `node-schedule` cron expressions all work in the configured timezone. Without this, cron schedules run in the server's system timezone which may differ from the user's local time. The Config UI should offer a searchable dropdown of IANA timezone names. Document the option and note that a daemon restart is required when changed.
+- **configurable timezone** — done (v0.28.0)
 
 - **per-script resource limits** — detect callbacks that take too long, log a warning
 
@@ -40,13 +40,13 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## MQTT
 
-- **configurable MQTT protocol version** — the mqtt.js client currently uses its default protocol version (MQTT 3.1.1). Add a `mqttProtocol` config option (e.g. `3`, `4`, or `5`) that is passed as `protocolVersion` in the mqtt.js connect options, enabling users to connect to MQTT 5.0 brokers and use MQTT 5.0 features.
+- **configurable MQTT protocol version** — done (v0.28.0)
 
 - **per-topic value history** — the MQTT tab shows current state only. A configurable ring buffer (e.g. last 20 values with timestamps) per topic would be useful for debugging value changes over time.
 
 ## sheDB
 
-- **view auto-refresh** — the DB tab's view result doesn't update when underlying documents change. A "live" toggle that re-runs the view on `db:change` WebSocket events would be useful.
+
 
 ## Sandbox API
 

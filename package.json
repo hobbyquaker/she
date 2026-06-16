@@ -1,6 +1,6 @@
 {
     "name": "smart-home-engine",
-    "version": "0.27.8",
+    "version": "0.28.0",
     "description": "Node.js based script runner for use in MQTT based Smart Home environments",
     "main": "src/index.js",
     "scripts": {
