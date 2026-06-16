@@ -204,9 +204,9 @@
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
-        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir','timezone','time zone','iana','schedule'] },
+        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
         { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository'] },
-        { id: 'solar',      label: 'Solar events', terms: ['latitude','longitude','sunrise','sunset','geo'] },
+        { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','path','retain'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
@@ -617,25 +617,6 @@
                     <h3>Scripts</h3>
                     <div class="field">
                         <label>
-                            Timezone
-                            {@render tip('IANA timezone for cron scheduling (e.g. Europe/Berlin). Leave empty to use the system timezone. Requires daemon restart.')}
-                        </label>
-                        <input
-                            type="text"
-                            list="tz-list"
-                            bind:value={timezone}
-                            placeholder="(system default)"
-                            autocomplete="off"
-                            spellcheck="false"
-                        />
-                        <datalist id="tz-list">
-                            {#each (Intl.supportedValuesOf?.('timeZone') ?? []) as tz}
-                                <option value={tz}>{tz}</option>
-                            {/each}
-                        </datalist>
-                    </div>
-                    <div class="field">
-                        <label>
                             Scripts directory
                             {@render tip('Directory that is watched for .js script files. Defaults to {dataDir}/scripts')}
                         </label>
@@ -678,10 +659,29 @@
                 </section>
                 {/if}
 
-                <!-- ── Solar events ──────────────────────────────── -->
+                <!-- ── Location ────────────────────────────────────── -->
                 {#if visibleSections.some(s => s.id === 'solar')}
                 <section id="sec-solar">
-                    <h3>Solar events</h3>
+                    <h3>Location</h3>
+                    <div class="field">
+                        <label>
+                            Timezone
+                            {@render tip('IANA timezone for cron scheduling (e.g. Europe/Berlin). Leave empty to use the system timezone. Requires daemon restart.')}
+                        </label>
+                        <input
+                            type="text"
+                            list="tz-list"
+                            bind:value={timezone}
+                            placeholder="(system default)"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                        <datalist id="tz-list">
+                            {#each (Intl.supportedValuesOf?.('timeZone') ?? []) as tz}
+                                <option value={tz}>{tz}</option>
+                            {/each}
+                        </datalist>
+                    </div>
                     <div class="field">
                         <label>
                             Latitude

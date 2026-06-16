@@ -16,6 +16,7 @@
         getGitLog,
         getGitFileAtCommit,
         getConfig,
+        restartDaemon,
         type GitStatus,
         type GitCommit,
         type TreeEntry,
@@ -1285,8 +1286,9 @@ declare const she: {
                     <div class="split-backdrop" role="presentation" onclick={() => dropdownOpen = false}></div>
                     <div class="split-menu">
                         <button onclick={() => { dropdownOpen = false; save(); }}>Save</button>
-                        <button onclick={() => { dropdownOpen = false; saveAndCommit(); }}>Save & Commit</button>
+                        <button onclick={() => { dropdownOpen = false; saveAndCommit(); }}>Save &amp; Commit</button>
                         <button onclick={push} disabled={!gitInfo}>Push</button>
+                        <button onclick={() => { dropdownOpen = false; save().then(() => restartDaemon()); }}>Save &amp; Restart</button>
                     </div>
                 {/if}
             </div>
