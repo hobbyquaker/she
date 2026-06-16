@@ -1195,20 +1195,6 @@ function loadSandbox(callback) {
                 }
             });
 
-            if (!config.disableWatch) {
-                const sandboxWatcher = chokidar.watch(dir, {
-                    ignored: (p, stats) => stats?.isFile() && !p.endsWith('.js'),
-                    persistent: true,
-                    ignoreInitial: true,
-                    usePolling: true,
-                });
-                sandboxWatcher.on('ready', () => log.debug('watch', dir, 'initialized'));
-                sandboxWatcher.on('all', (event, filePath) => {
-                    sandboxWatcher.close();
-                    log.info(makeLabel(filePath), 'sandbox change detected. exiting.');
-                    process.exit(0);
-                });
-            }
 
             callback();
         }
