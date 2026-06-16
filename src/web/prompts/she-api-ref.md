@@ -75,6 +75,8 @@ she.global                           Shared mutable object across all scripts
 she.fetch(url, [opts])               HTTP/HTTPS fetch → Promise<string|object>
                                        Auto-parses JSON by Content-Type.
                                        Throws on non-2xx status.
+she.config.latitude                  Read-only: geographic latitude from daemon config
+she.config.longitude                 Read-only: geographic longitude from daemon config
 ```
 
 ### Script HTTP API

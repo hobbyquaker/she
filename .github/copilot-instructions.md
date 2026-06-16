@@ -78,6 +78,7 @@ Scripts run in a VM sandbox and receive a `she` object:
 - `she.debug/info/warn/error(...args)` — structured logging (prefixed with script name)
 - `she.global` — shared mutable object across all scripts
 - `she.fetch(url, [opts])` → Promise — HTTP/HTTPS fetch; auto-parses JSON by Content-Type; throws on non-OK status
+- `she.config.latitude` / `she.config.longitude` — read-only geographic coordinates from daemon config (frozen object)
 
 ### Variable system
 Topics prefixed with `config.variablePrefix` (default `var`) are tracked in the `var::` store namespace and published retained.

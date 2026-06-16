@@ -423,6 +423,29 @@ she.mqtt.set('home/device/response', result.ok);
 
 ---
 
+---
+
+## she.config
+
+A read-only object exposing daemon configuration values relevant to scripts. Attempting to modify properties throws a `TypeError` (the object is frozen).
+
+| Property | Type | Description |
+|---|---|---|
+| `she.config.latitude` | `number` | Geographic latitude configured under *Config → Solar events*. Used internally for suncalc event scheduling. |
+| `she.config.longitude` | `number` | Geographic longitude configured under *Config → Solar events*. |
+
+```js
+she.info('location:', she.config.latitude, she.config.longitude);
+
+// Use coordinates for a custom API call
+const weather = await she.fetch(
+    `https://api.open-meteo.com/v1/forecast?latitude=${she.config.latitude}&longitude=${she.config.longitude}&current_weather=true`
+);
+she.mqtt.set('home/weather/temperature', weather.current_weather.temperature);
+```
+
+---
+
 ## she.api -- Script HTTP routes
 
 Register HTTP endpoints served under `/api/<scriptName>/`. Routes are registered at script load and removed on hot-reload. Registering the same method + path twice throws.
