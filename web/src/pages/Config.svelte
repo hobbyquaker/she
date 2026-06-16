@@ -27,6 +27,7 @@
     let mqttKey        = $state('');
     let mqttName       = $state('logic');
     let varPrefix      = $state('var');
+    let mqttVersion    = $state('');
     let disableVars    = $state(false);
 
     // Web server
@@ -47,6 +48,7 @@
     let disableWatch   = $state(false);
     let gitAutoCommit  = $state(false);
     let gitAutoPush    = $state(false);
+    let timezone       = $state('');
 
     // Solar events
     let latitude       = $state<number | ''>(48.7408);
@@ -129,10 +131,10 @@
 
     const KNOWN = new Set([
         'url', 'name', 'variablePrefix', 'disableVariables',
-        'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey',
+        'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey', 'mqttVersion',
         'port', 'bindAddress', 'auth', 'password', 'proxyHeader', 'proxyLogoutUrl',
         'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush',
-        'latitude', 'longitude',
+        'latitude', 'longitude', 'timezone',
         'verbosity',
         'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
         'redis',
@@ -200,9 +202,9 @@
     const SECTIONS = [
         { id: 'appearance', label: 'Appearance',  terms: ['theme','color','dark','light'] },
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
-        { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix'] },
+        { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
-        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
+        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir','timezone','time zone','iana','schedule'] },
         { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository'] },
         { id: 'solar',      label: 'Solar events', terms: ['latitude','longitude','sunrise','sunset','geo'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
@@ -244,6 +246,7 @@
             if (typeof cfg.mqttCa   === 'string') mqttCa   = cfg.mqttCa;
             if (typeof cfg.mqttCert === 'string') mqttCert = cfg.mqttCert;
             if (typeof cfg.mqttKey  === 'string') mqttKey  = cfg.mqttKey;
+            if (typeof cfg.mqttVersion === 'string') mqttVersion = cfg.mqttVersion;
             if (typeof cfg.name             === 'string')  mqttName     = cfg.name;
             if (typeof cfg.variablePrefix   === 'string')  varPrefix    = cfg.variablePrefix;
             if (typeof cfg.disableVariables === 'boolean') disableVars  = cfg.disableVariables;
@@ -258,6 +261,7 @@
             if (typeof cfg.gitAutoPush      === 'boolean') gitAutoPush   = cfg.gitAutoPush;
             if (typeof cfg.latitude         === 'number')  latitude     = cfg.latitude;
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
+            if (typeof cfg.timezone         === 'string')  timezone     = cfg.timezone;
             if (typeof cfg.verbosity        === 'string')  verbosity    = cfg.verbosity;
             if (typeof cfg.dbPath           === 'string')  dbPath       = cfg.dbPath;
             if (typeof cfg.dbPrefix         === 'string')  dbPrefix     = cfg.dbPrefix;
@@ -312,6 +316,7 @@
         if (mqttHost)     cfg.url             = `${mqttProtocol}://${mqttHost}`;
         cfg.name                              = mqttName;
         cfg.variablePrefix                    = varPrefix;
+        if (mqttVersion)    cfg.mqttVersion    = mqttVersion;
         if (disableVars)    cfg.disableVariables = true;
         if (mqttUsername)   cfg.mqttUsername   = mqttUsername;
         if (mqttPassword)   cfg.mqttPassword   = mqttPassword;
@@ -329,6 +334,7 @@
 
         if (latitude  !== '') cfg.latitude  = Number(latitude);
         if (longitude !== '') cfg.longitude = Number(longitude);
+        if (timezone)         cfg.timezone  = timezone;
 
         cfg.verbosity = verbosity;
 
@@ -495,6 +501,16 @@
                     {/if}
                     <div class="field">
                         <label>
+                            MQTT protocol version
+                            {@render tip('MQTT protocol version used when connecting to the broker. Choose 5 only if your broker supports MQTT 5.0. Default: 3.1.1 (mqtt.js default).')}
+                        </label>
+                        <select bind:value={mqttVersion}>
+                            <option value="">3.1.1 (default)</option>
+                            <option value="5">5.0</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>
                             Client name
                             {@render tip('MQTT client ID and topic prefix used for the "connected" status message. Default: she')}
                         </label>
@@ -599,6 +615,25 @@
                 {#if visibleSections.some(s => s.id === 'scripts')}
                 <section id="sec-scripts">
                     <h3>Scripts</h3>
+                    <div class="field">
+                        <label>
+                            Timezone
+                            {@render tip('IANA timezone for cron scheduling (e.g. Europe/Berlin). Leave empty to use the system timezone. Requires daemon restart.')}
+                        </label>
+                        <input
+                            type="text"
+                            list="tz-list"
+                            bind:value={timezone}
+                            placeholder="(system default)"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                        <datalist id="tz-list">
+                            {#each (Intl.supportedValuesOf?.('timeZone') ?? []) as tz}
+                                <option value={tz}>{tz}</option>
+                            {/each}
+                        </datalist>
+                    </div>
                     <div class="field">
                         <label>
                             Scripts directory

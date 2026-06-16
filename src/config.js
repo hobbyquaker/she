@@ -58,6 +58,8 @@ const config = require('yargs')
         auth: 'none',
         proxyHeader: 'X-Remote-User',
         bindAddress: '0.0.0.0',
+        timezone: '',
+        mqttVersion: '',
     })
     .option('install', {
         describe: 'create system user and install systemd service, then exit (run as root)',

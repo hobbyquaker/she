@@ -37,6 +37,13 @@ if (process.argv.includes('--install')) {
 // Ensure the data directory exists before anything else runs
 require('./lib/storage').ensureRoot();
 
+const config = require('./config');
+
+// Apply configured timezone before any Date/scheduler usage
+if (config.timezone) {
+    process.env.TZ = config.timezone;
+}
+
 const PinoPretty = require('pino-pretty');
 const _pino = require('pino')(
     { level: 'debug' },
@@ -70,7 +77,6 @@ const log = {
         _pino.level = level;
     },
 };
-const config = require('./config.js');
 const pkg = require('../package.json');
 
 /**
@@ -342,6 +348,7 @@ if (config.url) {
     if (config.mqttCa) _mqttOpts.ca = config.mqttCa;
     if (config.mqttCert) _mqttOpts.cert = config.mqttCert;
     if (config.mqttKey) _mqttOpts.key = config.mqttKey;
+    if (config.mqttVersion === '5') _mqttOpts.protocolVersion = 5;
     mqtt = modules.mqtt.connect(config.url, _mqttOpts);
     mqtt.publish(config.name + '/connected', '2', { retain: true });
 
