@@ -3,8 +3,45 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { git, getGitRoot } = require('./git-api');
 
 const router = express.Router();
+
+/**
+ * Read gitAutoCommit / gitAutoPush from the live config file.
+ * Returns defaults when the file cannot be read.
+ */
+function readGitConfig(req) {
+    const configPath = req.app.locals.configPath;
+    if (!configPath) return { autoCommit: false, autoPush: false };
+    try {
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return { autoCommit: !!cfg.gitAutoCommit, autoPush: !!cfg.gitAutoPush };
+    } catch {
+        return { autoCommit: false, autoPush: false };
+    }
+}
+
+/**
+ * Auto-commit all changes in scriptDir if gitAutoCommit is enabled.
+ * Optionally pushes. Silent on errors (e.g. nothing to commit).
+ */
+async function maybeAutoCommit(req, message) {
+    const { autoCommit, autoPush } = readGitConfig(req);
+    if (!autoCommit) return;
+    const scriptDir = getRoot(req);
+    if (!scriptDir) return;
+    const gitRoot = await getGitRoot(scriptDir);
+    if (!gitRoot) return;
+    try {
+        const scriptDirRel = path.relative(gitRoot, scriptDir).replace(/\\/g, '/');
+        await git(['add', scriptDirRel + '/'], gitRoot);
+        await git(['commit', '-m', message], gitRoot);
+        if (autoPush) {
+            try { await git(['push', 'origin'], gitRoot, 60000); } catch { /* ignore push errors */ }
+        }
+    } catch { /* nothing to commit or other transient error — ignore */ }
+}
 
 /**
  * Resolve a safe absolute path within the script root.
@@ -158,6 +195,7 @@ router.use((req, res) => {
             } else {
                 fs.unlinkSync(abs);
             }
+            maybeAutoCommit(req, `delete ${filePath}`).catch(() => {});
             return res.json({ ok: true });
         } catch (err) {
             if (err.code === 'ENOENT') return res.status(404).json({ error: 'Not found' });
@@ -194,6 +232,7 @@ router.use((req, res) => {
         try {
             fs.mkdirSync(path.dirname(absNew), { recursive: true });
             fs.renameSync(abs, absNew);
+            maybeAutoCommit(req, `rename ${srcPath} \u2192 ${newName}`).catch(() => {});
             return res.json({ ok: true, path: newName });
         } catch (err) {
             if (err.code === 'ENOENT') return res.status(404).json({ error: 'Not found' });
