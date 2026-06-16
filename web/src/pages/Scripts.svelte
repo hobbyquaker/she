@@ -119,9 +119,11 @@
     let asideWidth = $state(parseInt(localStorage.getItem('she-scripts-sidebar-width') ?? '220', 10));
     let logHeight = $state(parseInt(localStorage.getItem('she-scripts-log-height') ?? '130', 10));
     let chatWidth = $state(parseInt(localStorage.getItem('she-scripts-chat-width') ?? '340', 10));
+    let historyPanelHeight = $state(parseInt(localStorage.getItem('she-scripts-history-height') ?? '220', 10));
     let sidebarResizing = false, sidebarResizeStartX = 0, sidebarResizeStartW = 0;
     let logResizing = false, logResizeStartY = 0, logResizeStartH = 0;
     let chatResizing = false, chatResizeStartX = 0, chatResizeStartW = 0;
+    let historyPanelResizing = false, historyPanelResizeStartY = 0, historyPanelResizeStartH = 0;
 
     const chatScript = $derived(
         activeTab && currentTab
@@ -386,6 +388,8 @@ declare const she: {
     async function switchTab(path: string) {
         const tab = tabs.find(t => t.path === path);
         if (!tab?.model) return;
+        closeHistoryDiff();
+        proposedCode = null;
         activeTab = path;
         suppressChange = true;
         editor.setModel(tab.model);
@@ -516,6 +520,7 @@ declare const she: {
     async function openHistoryDiff(commit: GitCommit) {
         if (!historyEntry) return;
         closeHistoryDiff();
+        await openTab(historyEntry.path);
 
         let result: { content: string | null; binary: boolean };
         try {
@@ -864,17 +869,20 @@ declare const she: {
     function onSidebarResizeStart(e: MouseEvent) { sidebarResizing = true; sidebarResizeStartX = e.clientX; sidebarResizeStartW = asideWidth; e.preventDefault(); }
     function onLogResizeStart(e: MouseEvent) { logResizing = true; logResizeStartY = e.clientY; logResizeStartH = logHeight; e.preventDefault(); }
     function onChatResizeStart(e: MouseEvent) { chatResizing = true; chatResizeStartX = e.clientX; chatResizeStartW = chatWidth; e.preventDefault(); }
+    function onHistoryPanelResizeStart(e: MouseEvent) { historyPanelResizing = true; historyPanelResizeStartY = e.clientY; historyPanelResizeStartH = historyPanelHeight; e.preventDefault(); }
 
     function onGlobalMouseMove(e: MouseEvent) {
         if (sidebarResizing) asideWidth = Math.max(140, Math.min(500, sidebarResizeStartW + e.clientX - sidebarResizeStartX));
         if (logResizing) logHeight = Math.max(60, Math.min(500, logResizeStartH - (e.clientY - logResizeStartY)));
         if (chatResizing) chatWidth = Math.max(200, Math.min(700, chatResizeStartW - (e.clientX - chatResizeStartX)));
+        if (historyPanelResizing) historyPanelHeight = Math.max(80, Math.min(600, historyPanelResizeStartH - (e.clientY - historyPanelResizeStartY)));
     }
 
     function onGlobalMouseUp() {
         if (sidebarResizing) { sidebarResizing = false; localStorage.setItem('she-scripts-sidebar-width', String(asideWidth)); }
         if (logResizing) { logResizing = false; localStorage.setItem('she-scripts-log-height', String(logHeight)); }
         if (chatResizing) { chatResizing = false; localStorage.setItem('she-scripts-chat-width', String(chatWidth)); }
+        if (historyPanelResizing) { historyPanelResizing = false; localStorage.setItem('she-scripts-history-height', String(historyPanelHeight)); }
     }
 
     function handleKeydown(e: KeyboardEvent) {
@@ -1130,7 +1138,9 @@ declare const she: {
         </ul>
 
         {#if historyEntry}
-        <div class="history-panel">
+        <div class="history-panel" style:height="{historyPanelHeight}px">
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <div class="history-resize-handle" role="separator" onmousedown={onHistoryPanelResizeStart}></div>
             <div class="history-hdr">
                 <span class="history-title" title={historyEntry.path}>History: {historyEntry.name}</span>
                 <button class="history-close" onclick={closeHistory}>✕</button>
@@ -1147,9 +1157,11 @@ declare const she: {
                             <span class="history-meta">{commit.hash.slice(0, 7)} · {fmtRelDate(commit.date)}</span>
                         </button>
                     {/each}
+                    {#if historyCommits.length >= historyLimit}
                     <button class="history-load-more" onclick={loadMoreHistory} disabled={historyLoading}>
                         {historyLoading ? 'Loading…' : 'Load more'}
                     </button>
+                    {/if}
                 {/if}
             </div>
         </div>
@@ -1388,13 +1400,17 @@ declare const she: {
     /* ── Git history panel ── */
     .history-panel {
         flex-shrink: 0;
-        height: 220px;
         display: flex;
         flex-direction: column;
         border-top: 1px solid var(--border-sub);
         background: var(--bg-panel);
         overflow: hidden;
     }
+    .history-resize-handle {
+        height: 5px; cursor: row-resize; flex-shrink: 0;
+        background: var(--border-sub); transition: background 0.15s;
+    }
+    .history-resize-handle:hover, .history-resize-handle:active { background: var(--accent); }
     .history-hdr {
         display: flex;
         align-items: center;
