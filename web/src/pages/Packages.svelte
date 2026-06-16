@@ -8,10 +8,12 @@
         updateDep,
         getOutdatedDeps,
         checkOutdatedDeps,
+        restartDaemon,
         type DepEntry,
         type DepOutdatedEntry,
         type NpmSearchResult,
     } from '../lib/api.js';
+    import ConfirmDialog from '../lib/ConfirmDialog.svelte';
 
     let installed = $state<DepEntry[]>([]);
     let installedFilter = $state('');
@@ -20,6 +22,7 @@
     let searchQuery = $state('');
     let searchResults = $state<NpmSearchResult[]>([]);
     let pendingRestart = $state(false);
+    let restarting = $state(false);
     let searching = $state(false);
     let error = $state('');
     let output = $state('');
@@ -131,13 +134,29 @@
             busy[name] = false;
         }
     }
+
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
+
+    async function restart() {
+        if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
+        restarting = true;
+        try { await restartDaemon(); } catch { /* ignore — daemon is restarting */ }
+        setTimeout(() => { window.location.reload(); }, 3000);
+    }
 </script>
+
+<ConfirmDialog bind:this={dialog} />
 
 <div class="pkg-shell">
 
-    {#if pendingRestart}
+    {#if restarting}
+        <div class="restart-banner restart-banner--restarting">
+            Restarting daemon…
+        </div>
+    {:else if pendingRestart}
         <div class="restart-banner">
-            ⚠ Package changes require a daemon restart to take effect. Use the ↺ button in the topbar.
+            ⚠ Package changes require a daemon restart to take effect.
+            <button class="restart-btn" onclick={restart}>Restart now</button>
         </div>
     {/if}
 
@@ -282,11 +301,33 @@
     /* Banners */
     .restart-banner {
         flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
         background: var(--bg-warn-subtle);
         border-bottom: 1px solid var(--border-warn);
         padding: 8px 16px;
         font-size: 12px;
         color: var(--fg-warn-subtle);
+    }
+    .restart-banner--restarting {
+        background: var(--bg-active);
+        border-color: var(--border-sub);
+        color: var(--fg-muted);
+    }
+    .restart-btn {
+        margin-left: auto;
+        padding: 3px 10px;
+        font-size: 11px;
+        border-radius: 4px;
+        border: 1px solid var(--border-warn);
+        background: var(--bg-warn-subtle);
+        color: var(--fg-warn-subtle);
+        cursor: pointer;
+    }
+    .restart-btn:hover {
+        background: var(--border-warn);
+        color: var(--fg);
     }
     .err {
         flex-shrink: 0;
