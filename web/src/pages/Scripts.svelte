@@ -13,8 +13,11 @@
         commitAll,
         gitStatus,
         gitPush,
+        getGitLog,
+        getGitFileAtCommit,
         getConfig,
         type GitStatus,
+        type GitCommit,
         type TreeEntry,
         type AiExtraFile,
     } from '../lib/api.js';
@@ -52,6 +55,20 @@
     let gitInfo = $state<GitStatus | null>(null);
     let gitAutoCommit = $state(false);
     let gitAutoPush   = $state(false);
+
+    // Git history panel
+    let historyEntry = $state<TreeEntry | null>(null);
+    let historyCommits = $state<GitCommit[]>([]);
+    let historyLoading = $state(false);
+    let historyLimit = $state(30);
+    // History diff overlay
+    let historyDiffContainer = $state<HTMLDivElement | undefined>(undefined);
+    let historyDiffEditor: monaco.editor.IStandaloneDiffEditor | null = null;
+    let historyDiffOrigModel: monaco.editor.ITextModel | null = null;
+    let historyDiffModModel: monaco.editor.ITextModel | null = null;
+    let historyDiffOpen = $state(false);
+    let historyDiffHash = $state('');
+    let historyDiffBinary = $state(false);
     let logEl = $state<HTMLDivElement | undefined>(undefined);
 
     let scriptErrors = $state<Set<string>>(new Set());
@@ -448,6 +465,105 @@ declare const she: {
             await loadGitStatus();
             error = '';
         } catch (e: any) { error = 'Git push: ' + (e as Error).message; }
+    }
+
+    // ── Git history ───────────────────────────────────────────────────────────
+
+    function fmtRelDate(isoDate: string): string {
+        const ms = Date.now() - new Date(isoDate).getTime();
+        const sec = Math.floor(ms / 1000);
+        if (sec < 60) return 'just now';
+        const min = Math.floor(sec / 60);
+        if (min < 60) return `${min}m ago`;
+        const hr = Math.floor(min / 60);
+        if (hr < 24) return `${hr}h ago`;
+        const d = Math.floor(hr / 24);
+        if (d < 30) return `${d}d ago`;
+        const mo = Math.floor(d / 30);
+        if (mo < 12) return `${mo}mo ago`;
+        return `${Math.floor(mo / 12)}y ago`;
+    }
+
+    async function showHistory(entry: TreeEntry) {
+        closeCtxMenu();
+        historyEntry = entry;
+        historyCommits = [];
+        historyLimit = 30;
+        await loadHistory();
+    }
+
+    async function loadHistory() {
+        if (!historyEntry) return;
+        historyLoading = true;
+        try {
+            historyCommits = await getGitLog(historyEntry.path, historyLimit);
+        } catch { /* ignore */ } finally {
+            historyLoading = false;
+        }
+    }
+
+    async function loadMoreHistory() {
+        historyLimit += 30;
+        await loadHistory();
+    }
+
+    function closeHistory() {
+        historyEntry = null;
+        historyCommits = [];
+        closeHistoryDiff();
+    }
+
+    async function openHistoryDiff(commit: GitCommit) {
+        if (!historyEntry) return;
+        closeHistoryDiff();
+
+        let result: { content: string | null; binary: boolean };
+        try {
+            result = await getGitFileAtCommit(commit.hash, historyEntry.path);
+        } catch { return; }
+
+        historyDiffHash = commit.hash;
+        historyDiffBinary = result.binary;
+        historyDiffOpen = true;
+
+        if (result.binary || result.content === null) return;
+
+        // Get current content — prefer open tab, fall back to disk
+        let currentContent = '';
+        const tab = tabs.find(t => t.path === historyEntry!.path);
+        if (tab?.model) {
+            currentContent = tab.model.getValue();
+        } else {
+            try { currentContent = (await readScript(historyEntry.path)).content; } catch { /* ok */ }
+        }
+
+        await tick();
+        if (!historyDiffContainer) return;
+
+        const lang = langFromPath(historyEntry.path);
+        historyDiffOrigModel = monaco.editor.createModel(result.content, lang);
+        historyDiffModModel  = monaco.editor.createModel(currentContent, lang);
+        historyDiffEditor = monaco.editor.createDiffEditor(historyDiffContainer, {
+            theme: 'vs-dark',
+            readOnly: true,
+            renderSideBySide: true,
+            automaticLayout: true,
+            minimap: { enabled: false },
+            fontSize: 13,
+            scrollBeyondLastLine: false,
+        });
+        historyDiffEditor.setModel({ original: historyDiffOrigModel, modified: historyDiffModModel });
+    }
+
+    function closeHistoryDiff() {
+        historyDiffOpen = false;
+        historyDiffBinary = false;
+        historyDiffEditor?.dispose();
+        historyDiffEditor = null;
+        historyDiffOrigModel?.dispose();
+        historyDiffOrigModel = null;
+        historyDiffModModel?.dispose();
+        historyDiffModModel = null;
     }
 
     async function newFile() {
@@ -891,6 +1007,9 @@ declare const she: {
             <button onclick={() => openTab(ctxMenu!.entry.path)}>Open</button>
             <button onclick={() => ctxRename(ctxMenu!.entry)}>Rename…</button>
             <button onclick={() => ctxAddToAiContext(ctxMenu!.entry)}>Add to AI context</button>
+            {#if gitInfo}
+            <button onclick={() => showHistory(ctxMenu!.entry)}>Show git history</button>
+            {/if}
             <hr/>
             <button class="danger" onclick={() => ctxDelete(ctxMenu!.entry)}>Delete</button>
         {/if}
@@ -1009,6 +1128,32 @@ declare const she: {
                 {@render treeEntry(entry)}
             {/each}
         </ul>
+
+        {#if historyEntry}
+        <div class="history-panel">
+            <div class="history-hdr">
+                <span class="history-title" title={historyEntry.path}>History: {historyEntry.name}</span>
+                <button class="history-close" onclick={closeHistory}>✕</button>
+            </div>
+            <div class="history-body">
+                {#if historyLoading && historyCommits.length === 0}
+                    <div class="history-empty">Loading…</div>
+                {:else if historyCommits.length === 0}
+                    <div class="history-empty">No commits found.</div>
+                {:else}
+                    {#each historyCommits as commit (commit.hash)}
+                        <button class="history-row" onclick={() => openHistoryDiff(commit)}>
+                            <span class="history-subject">{commit.subject}</span>
+                            <span class="history-meta">{commit.hash.slice(0, 7)} · {fmtRelDate(commit.date)}</span>
+                        </button>
+                    {/each}
+                    <button class="history-load-more" onclick={loadMoreHistory} disabled={historyLoading}>
+                        {historyLoading ? 'Loading…' : 'Load more'}
+                    </button>
+                {/if}
+            </div>
+        </div>
+        {/if}
     </aside>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="sidebar-resize-handle" role="separator" onmousedown={onSidebarResizeStart}></div>
@@ -1153,6 +1298,22 @@ declare const she: {
                     {/if}
                 </div>
 
+                {#if historyDiffOpen}
+                <div class="diff-overlay">
+                    <div class="diff-bar">
+                        <span class="diff-title">Commit <code>{historyDiffHash.slice(0, 7)}</code> → current — <em>{historyEntry?.name}</em></span>
+                        <div class="diff-actions">
+                            <button class="discard-btn" onclick={closeHistoryDiff}>Close</button>
+                        </div>
+                    </div>
+                    {#if historyDiffBinary}
+                        <div class="history-diff-notice">Binary file — diff not available.</div>
+                    {:else}
+                        <div class="diff-container" bind:this={historyDiffContainer}></div>
+                    {/if}
+                </div>
+                {/if}
+
                 <div class="log-panel" class:collapsed={!logPanelOpen} style:height={logPanelOpen ? `${logHeight}px` : '26px'}>
                     {#if logPanelOpen}
                         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -1224,6 +1385,98 @@ declare const she: {
     .toolbar button:hover { background: var(--accent-hov); }
 
     .tree { flex: 1; overflow-y: auto; list-style: none; padding: 4px 0; margin: 0; }
+
+    /* ── Git history panel ── */
+    .history-panel {
+        flex-shrink: 0;
+        height: 220px;
+        display: flex;
+        flex-direction: column;
+        border-top: 1px solid var(--border-sub);
+        background: var(--bg-panel);
+        overflow: hidden;
+    }
+    .history-hdr {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 8px;
+        border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
+    }
+    .history-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--fg-muted);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .history-close {
+        background: none;
+        border: none;
+        color: var(--fg-muted);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 0 2px;
+        line-height: 1;
+        flex-shrink: 0;
+    }
+    .history-close:hover { color: var(--fg); }
+    .history-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 2px 0;
+    }
+    .history-row {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        padding: 4px 8px;
+        cursor: pointer;
+        color: var(--fg);
+    }
+    .history-row:hover { background: var(--bg-active); }
+    .history-subject {
+        display: block;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .history-meta {
+        display: block;
+        font-size: 10px;
+        color: var(--fg-muted);
+        margin-top: 1px;
+    }
+    .history-empty {
+        padding: 8px;
+        font-size: 11px;
+        color: var(--fg-muted);
+    }
+    .history-load-more {
+        display: block;
+        width: 100%;
+        background: none;
+        border: none;
+        border-top: 1px solid var(--border-sub);
+        padding: 5px 8px;
+        font-size: 11px;
+        color: var(--fg-muted);
+        cursor: pointer;
+        text-align: center;
+    }
+    .history-load-more:hover:not(:disabled) { background: var(--bg-active); color: var(--fg); }
+    .history-load-more:disabled { opacity: 0.5; cursor: default; }
+    .history-diff-notice {
+        padding: 16px;
+        font-size: 12px;
+        color: var(--fg-muted);
+    }
     .tree-root-drop { height: 8px; list-style: none; }
     .tree-root-drop.drag-target { background: var(--bg-active); outline: 1px dashed var(--fg-brand); outline-offset: -1px; }
     .tree-dir, .tree-file { list-style: none; }

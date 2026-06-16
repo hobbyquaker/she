@@ -198,4 +198,136 @@ router.post('/push', async (req, res) => {
     }
 });
 
+// GET /she/git/log?path=<relPath>&limit=<n>
+// Returns commits touching the given file (relative to scriptDir), up to limit.
+router.get('/log', async (req, res) => {
+    const scriptDir = getRoot(req);
+    if (!scriptDir) return res.status(500).json({ error: 'scriptDir not configured' });
+
+    const relPath = String(req.query.path ?? '').trim();
+    if (!relPath) return res.status(400).json({ error: 'Missing path parameter' });
+
+    const limit = Math.min(parseInt(String(req.query.limit ?? '30'), 10) || 30, 200);
+
+    const gitRoot = await getGitRoot(scriptDir);
+    if (!gitRoot) return res.status(404).json({ error: 'Not a git repository' });
+
+    const abs = safePath(scriptDir, relPath);
+    if (!abs) return res.status(400).json({ error: 'Invalid path' });
+
+    const relToRoot = path.relative(gitRoot, abs).replace(/\\/g, '/');
+
+    try {
+        const { stdout } = await git(
+            ['log', '--follow', '--format=%H%x1f%s%x1f%an%x1f%ai', `-n`, String(limit), '--', relToRoot],
+            gitRoot,
+        );
+        const commits = stdout
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => {
+                const [hash, subject, author, date] = line.split('\x1f');
+                return { hash, subject, author, date };
+            });
+        res.json(commits);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /she/git/show?hash=<hash>&path=<relPath>
+// Returns { content: string, binary: false } or { content: null, binary: true }.
+router.get('/show', async (req, res) => {
+    const scriptDir = getRoot(req);
+    if (!scriptDir) return res.status(500).json({ error: 'scriptDir not configured' });
+
+    const hash = String(req.query.hash ?? '').trim();
+    if (!/^[0-9a-f]{4,64}$/i.test(hash)) return res.status(400).json({ error: 'Invalid hash' });
+
+    const relPath = String(req.query.path ?? '').trim();
+    if (!relPath) return res.status(400).json({ error: 'Missing path parameter' });
+
+    const gitRoot = await getGitRoot(scriptDir);
+    if (!gitRoot) return res.status(404).json({ error: 'Not a git repository' });
+
+    const abs = safePath(scriptDir, relPath);
+    if (!abs) return res.status(400).json({ error: 'Invalid path' });
+
+    const relToRoot = path.relative(gitRoot, abs).replace(/\\/g, '/');
+
+    try {
+        const { stdout } = await git(['show', `${hash}:${relToRoot}`], gitRoot);
+        const binary = stdout.includes('\0');
+        res.json({ content: binary ? null : stdout, binary });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /she/git/log?path=<relPath>&limit=<n>
+// Returns commits touching the given file (relative to scriptDir), up to limit.
+router.get('/log', async (req, res) => {
+    const scriptDir = getRoot(req);
+    if (!scriptDir) return res.status(500).json({ error: 'scriptDir not configured' });
+
+    const relPath = String(req.query.path ?? '').trim();
+    if (!relPath) return res.status(400).json({ error: 'Missing path parameter' });
+
+    const limit = Math.min(parseInt(String(req.query.limit ?? '30'), 10) || 30, 200);
+
+    const gitRoot = await getGitRoot(scriptDir);
+    if (!gitRoot) return res.status(404).json({ error: 'Not a git repository' });
+
+    const abs = safePath(scriptDir, relPath);
+    if (!abs) return res.status(400).json({ error: 'Invalid path' });
+
+    const relToRoot = path.relative(gitRoot, abs).replace(/\\/g, '/');
+
+    try {
+        const { stdout } = await git(
+            ['log', '--follow', '--format=%H%x1f%s%x1f%an%x1f%ai', `-n`, String(limit), '--', relToRoot],
+            gitRoot,
+        );
+        const commits = stdout
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => {
+                const [hash, subject, author, date] = line.split('\x1f');
+                return { hash, subject, author, date };
+            });
+        res.json(commits);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /she/git/show?hash=<hash>&path=<relPath>
+// Returns { content: string, binary: false } or { content: null, binary: true }.
+router.get('/show', async (req, res) => {
+    const scriptDir = getRoot(req);
+    if (!scriptDir) return res.status(500).json({ error: 'scriptDir not configured' });
+
+    const hash = String(req.query.hash ?? '').trim();
+    if (!/^[0-9a-f]{4,64}$/i.test(hash)) return res.status(400).json({ error: 'Invalid hash' });
+
+    const relPath = String(req.query.path ?? '').trim();
+    if (!relPath) return res.status(400).json({ error: 'Missing path parameter' });
+
+    const gitRoot = await getGitRoot(scriptDir);
+    if (!gitRoot) return res.status(404).json({ error: 'Not a git repository' });
+
+    const abs = safePath(scriptDir, relPath);
+    if (!abs) return res.status(400).json({ error: 'Invalid path' });
+
+    const relToRoot = path.relative(gitRoot, abs).replace(/\\/g, '/');
+
+    try {
+        const { stdout } = await git(['show', `${hash}:${relToRoot}`], gitRoot);
+        const binary = stdout.includes('\0');
+        res.json({ content: binary ? null : stdout, binary });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 module.exports = { router, git, getGitRoot };

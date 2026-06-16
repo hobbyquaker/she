@@ -197,6 +197,21 @@ export function gitPush(remote?: string): Promise<{ ok: boolean; stdout: string;
     return request('POST', '/she/git/push', { remote });
 }
 
+export interface GitCommit {
+    hash: string;
+    subject: string;
+    author: string;
+    date: string;
+}
+
+export function getGitLog(filePath: string, limit: number): Promise<GitCommit[]> {
+    return request('GET', `/she/git/log?path=${encodeURIComponent(filePath)}&limit=${limit}`);
+}
+
+export function getGitFileAtCommit(hash: string, filePath: string): Promise<{ content: string | null; binary: boolean }> {
+    return request('GET', `/she/git/show?hash=${encodeURIComponent(hash)}&path=${encodeURIComponent(filePath)}`);
+}
+
 // ---- Config API ----
 
 export function getConfig(): Promise<Record<string, unknown>> {
