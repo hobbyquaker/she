@@ -985,6 +985,11 @@ function runScript(script, name, origin) {
     };
 
     const scriptName = path.basename(name, path.extname(name));
+    // Expose read-only config values relevant to scripts.
+    she.config = Object.freeze({
+        latitude: config.latitude,
+        longitude: config.longitude,
+    });
     // she.setTimeout / she.clearTimeout — tracked versions for use by stdlib and
     // sandbox modules that don't have direct access to the Sandbox context.
     she.setTimeout = (fn, delay, ...args) => {
