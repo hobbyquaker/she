@@ -6,13 +6,15 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **per-file git history panel** — right-click a file → "Show git history" (only when `gitInfo !== null`); shows a commit list in the left aside (below the file tree, fixed height ~220 px); clicking a commit opens a read-only diff in the existing diff overlay (historic content vs. current editor content). Requires two new backend routes: `GET /she/git/log?path=&limit=` and `GET /she/git/show?hash=&path=`. Full spec in VS Code prompt `she-git-history-view`.
 
-## AI Chat
+## AI 
 
 - **AI-generated auto-commit messages** — when auto-commit is enabled and a script is saved (or renamed/deleted), instead of the generic `"update <path>"` message, ask the configured AI to generate a meaningful commit message based on the diff (`git diff --cached`). Should be best-effort: fall back to the generic message if the AI call fails or times out. Needs a budget-conscious prompt (diff only, no extra context) and a short timeout so saves don't feel sluggish.
 
 - **context window usage indicator** — show a circle near the chat input indicating context window usage %. Ollama exposes context length per model via `POST /api/show` → `model_info` (field name is architecture-specific, e.g. `llama.context_length`); non-Ollama providers don't have an equivalent. `Chat.svelte` already tracks `requestBytes` (prompt + input size in bytes). The indicator needs the model's max context size as the denominator.
 
 ## Script Engine
+
+- **configurable timezone** — add a `timezone` field to the Config UI (e.g. `"Europe/Berlin"`). The daemon should set `process.env.TZ` at startup so that Node.js date/time operations and `node-schedule` cron expressions all work in the configured timezone. Without this, cron schedules run in the server's system timezone which may differ from the user's local time. The Config UI should offer a searchable dropdown of IANA timezone names. Document the option and note that a daemon restart is required when changed.
 
 - **per-script resource limits** — detect callbacks that take too long, log a warning
 
