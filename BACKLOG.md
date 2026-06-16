@@ -8,6 +8,8 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## AI Chat
 
+- **AI-generated auto-commit messages** — when auto-commit is enabled and a script is saved (or renamed/deleted), instead of the generic `"update <path>"` message, ask the configured AI to generate a meaningful commit message based on the diff (`git diff --cached`). Should be best-effort: fall back to the generic message if the AI call fails or times out. Needs a budget-conscious prompt (diff only, no extra context) and a short timeout so saves don't feel sluggish.
+
 - **context window usage indicator** — show a circle near the chat input indicating context window usage %. Ollama exposes context length per model via `POST /api/show` → `model_info` (field name is architecture-specific, e.g. `llama.context_length`); non-Ollama providers don't have an equivalent. `Chat.svelte` already tracks `requestBytes` (prompt + input size in bytes). The indicator needs the model's max context size as the denominator.
 
 ## Script Engine
@@ -41,6 +43,10 @@ Items that are intentionally deferred. Pick up when the time is right.
 ## Sandbox API
 
 - **`she.http` webhook input** — `she.http.sub('/webhook/mydevice', callback)` that auto-registers a POST endpoint and calls the callback on each request, closing a common "receive a webhook and trigger logic" pattern.
+
+## Secrets
+
+- **secrets management** — store secrets (named groups of arbitrary string fields, e.g. `{ "smtp": { "password": "…", "host": "…" } }`) in a dedicated encrypted file (`~/.she/secrets.enc`) separate from `config.json`, using AES-256-GCM via Node.js built-in `crypto`. Encryption key sourced from env var `SHE_SECRETS_KEY` (takes precedence) or key file `~/.she/secrets.key` (chmod 600). Access from scripts via `she.secrets.get('<name>/<field>')`. Integrate as own section in config ui (show/hide values). Open questions to resolve before implementation: HTTP API exposure (security concern — avoid reading secret values over the network, or localhost-only), behavior when key is missing, hot-reload vs. startup-only, CLI subcommands for management, configurable secrets file path.
 
 ## Operations
 
