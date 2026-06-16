@@ -112,10 +112,12 @@ beforeAll((done) => {
                 matchSubscriptions(data.toString());
             });
 
-            // Wait for server port, then wait for the test script to finish loading
+            // Wait for server port, then wait for all scripts to finish executing
+            // (watch 'initialized' fires after chokidar's first scan, by which time
+            //  all script bodies have run and routes/callbacks are registered).
             subscribe(/http server listening on :(\d+)/, (line, m) => {
                 apiPort = parseInt(m[1], 10);
-                subscribe(/test-api\.js: loading/, () => done());
+                subscribe(/watch .* initialized/, () => done());
             });
         });
     });

@@ -247,7 +247,7 @@ let _startupTimeout = null; // fires if broker never connects
 let _sentinelTimeout = null; // fires if sentinel never arrives after connecting
 let _sentinelValue = null; // unique value for this boot's sentinel
 const _STARTUP_TIMEOUT_MS = 10000; // ms to wait for broker before starting anyway
-const _SENTINEL_TIMEOUT_MS = 15000; // ms to wait for sentinel after connecting
+const _SENTINEL_TIMEOUT_MS = 5000; // ms to wait for sentinel after connecting
 
 function startOnce(reason) {
     if (_started) return;
