@@ -1296,23 +1296,22 @@ declare const she: {
                             <div class="diff-container" bind:this={diffEditorContainer}></div>
                         </div>
                     {/if}
-                </div>
-
-                {#if historyDiffOpen}
-                <div class="diff-overlay">
-                    <div class="diff-bar">
-                        <span class="diff-title">Commit <code>{historyDiffHash.slice(0, 7)}</code> → current — <em>{historyEntry?.name}</em></span>
-                        <div class="diff-actions">
-                            <button class="discard-btn" onclick={closeHistoryDiff}>Close</button>
+                    {#if historyDiffOpen}
+                    <div class="diff-overlay">
+                        <div class="diff-bar">
+                            <span class="diff-title">Commit <code>{historyDiffHash.slice(0, 7)}</code> → current — <em>{historyEntry?.name}</em></span>
+                            <div class="diff-actions">
+                                <button class="discard-btn" onclick={closeHistoryDiff}>Close</button>
+                            </div>
                         </div>
+                        {#if historyDiffBinary}
+                            <div class="history-diff-notice">Binary file — diff not available.</div>
+                        {:else}
+                            <div class="diff-container" bind:this={historyDiffContainer}></div>
+                        {/if}
                     </div>
-                    {#if historyDiffBinary}
-                        <div class="history-diff-notice">Binary file — diff not available.</div>
-                    {:else}
-                        <div class="diff-container" bind:this={historyDiffContainer}></div>
                     {/if}
                 </div>
-                {/if}
 
                 <div class="log-panel" class:collapsed={!logPanelOpen} style:height={logPanelOpen ? `${logHeight}px` : '26px'}>
                     {#if logPanelOpen}
