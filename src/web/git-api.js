@@ -167,8 +167,9 @@ router.post('/commit', async (req, res) => {
             }
         } else {
             // Stage the entire script directory.
+            // When scriptDir === gitRoot, relative() returns '' — use '.' in that case.
             const scriptDirRel = path.relative(gitRoot, scriptDir).replace(/\\/g, '/');
-            await git(['add', scriptDirRel + '/'], gitRoot);
+            await git(['add', scriptDirRel ? scriptDirRel + '/' : '.'], gitRoot);
         }
 
         await git(['commit', '-m', message], gitRoot);
