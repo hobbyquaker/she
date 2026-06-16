@@ -243,10 +243,11 @@ let connected = false;
 
 // Deferred start — wait for retained MQTT state before running scripts
 let _started = false;
-let _startupTimeout = null;
-let _quietTimer = null;
-const _RETAIN_QUIET_MS = 300; // ms of silence after last retained msg → start
+let _startupTimeout = null; // fires if broker never connects
+let _sentinelTimeout = null; // fires if sentinel never arrives after connecting
+let _sentinelValue = null; // unique value for this boot's sentinel
 const _STARTUP_TIMEOUT_MS = 10000; // ms to wait for broker before starting anyway
+const _SENTINEL_TIMEOUT_MS = 10000; // ms to wait for sentinel after connecting
 
 function startOnce(reason) {
     if (_started) return;
@@ -255,9 +256,9 @@ function startOnce(reason) {
         clearTimeout(_startupTimeout);
         _startupTimeout = null;
     }
-    if (_quietTimer) {
-        clearTimeout(_quietTimer);
-        _quietTimer = null;
+    if (_sentinelTimeout) {
+        clearTimeout(_sentinelTimeout);
+        _sentinelTimeout = null;
     }
     if (reason) log.info(reason);
     start();
@@ -346,10 +347,28 @@ if (config.url) {
         mqtt.subscribe('#');
         mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => c.callback());
 
-        // Arm the quiet-period timer (only needed on first connect, before scripts start)
         if (!_started) {
-            if (_quietTimer) clearTimeout(_quietTimer);
-            _quietTimer = setTimeout(() => startOnce('mqtt: retained state ready, starting scripts'), _RETAIN_QUIET_MS);
+            // Cancel the “broker not connecting” startup timeout — we’re connected.
+            if (_startupTimeout) {
+                clearTimeout(_startupTimeout);
+                _startupTimeout = null;
+            }
+
+            // Publish a non-retained sentinel immediately after subscribing to #.
+            // MQTT.js sends packets in order on a single TCP connection, so the
+            // broker receives SUBSCRIBE before this PUBLISH. Retained messages are
+            // queued for us when SUBSCRIBE is processed; the sentinel is queued
+            // afterwards. Receiving the sentinel means all retained messages have
+            // been delivered — deterministic, no heuristic timer needed.
+            _sentinelValue = String(Date.now());
+            mqtt.publish(config.name + '/she-sentinel', _sentinelValue, { retain: false });
+            log.debug('mqtt: waiting for retained-state sentinel');
+
+            // Fallback: if sentinel never arrives (e.g. abnormal broker behaviour)
+            _sentinelTimeout = setTimeout(() => {
+                log.warn('mqtt sentinel timeout — starting scripts without full retained state');
+                startOnce();
+            }, _SENTINEL_TIMEOUT_MS);
         }
     });
 
@@ -368,10 +387,12 @@ if (config.url) {
     mqtt.on('message', (topic, payload, msg) => {
         _mqttMsgCount++;
 
-        // Reset the quiet-period timer while the initial retained-message burst is in flight
-        if (!_started && msg.retain && _quietTimer) {
-            clearTimeout(_quietTimer);
-            _quietTimer = setTimeout(() => startOnce('mqtt: retained state ready, starting scripts'), _RETAIN_QUIET_MS);
+        // Sentinel detection: a non-retained message we publish to ourselves right
+        // after subscribing to #. When it arrives, all retained messages from the
+        // broker have already been delivered and stored.
+        if (!_started && _sentinelValue !== null && !msg.retain && topic === config.name + '/she-sentinel' && payload.toString() === _sentinelValue) {
+            startOnce('mqtt: retained state ready, starting scripts');
+            return; // sentinel is internal — don’t process further
         }
 
         if (shedb.handleMqttMessage(topic, payload)) return;
