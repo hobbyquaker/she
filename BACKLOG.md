@@ -40,6 +40,8 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## MQTT
 
+- **configurable MQTT protocol version** — the mqtt.js client currently uses its default protocol version (MQTT 3.1.1). Add a `mqttProtocol` config option (e.g. `3`, `4`, or `5`) that is passed as `protocolVersion` in the mqtt.js connect options, enabling users to connect to MQTT 5.0 brokers and use MQTT 5.0 features.
+
 - **per-topic value history** — the MQTT tab shows current state only. A configurable ring buffer (e.g. last 20 values with timestamps) per topic would be useful for debugging value changes over time.
 
 ## sheDB
