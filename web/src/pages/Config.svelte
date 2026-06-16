@@ -202,7 +202,8 @@
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
-        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir','git','auto commit','auto push'] },
+        { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
+        { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository'] },
         { id: 'solar',      label: 'Solar events', terms: ['latitude','longitude','sunrise','sunset','geo'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','path','retain'] },
@@ -614,13 +615,20 @@
                             {@render tip('When enabled the daemon will not watch for file changes and will not hot-reload scripts.')}
                         </label>
                     </div>
+                </section>
+                {/if}
+
+                <!-- ── Git ─────────────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'git')}
+                <section id="sec-git">
+                    <h3>Git</h3>
                     <div class="field field--check">
                         <span></span>
                         <label class="check-label">
                             <input type="checkbox" bind:checked={gitAutoCommit} />
                             <span class="checkmark"></span>
                             Auto-commit on save
-                            {@render tip('When enabled, saving a script automatically creates a git commit. Only effective when the scripts directory is inside a git repository.')}
+                            {@render tip('When enabled, saving or renaming/deleting a script automatically creates a git commit. Only effective when the scripts directory is inside a git repository.')}
                         </label>
                     </div>
                     <div class="field field--check">
