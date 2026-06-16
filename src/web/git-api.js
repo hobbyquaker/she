@@ -18,7 +18,7 @@ function git(args, cwd, timeout = 30000) {
     return new Promise((resolve, reject) => {
         execFile('git', args, { cwd, timeout }, (err, stdout, stderr) => {
             if (err) {
-                const e = new Error(stderr.trim() || err.message);
+                const e = new Error(stderr.trim() || stdout.trim() || err.message);
                 e.stderr = stderr;
                 e.stdout = stdout;
                 reject(e);
@@ -198,4 +198,4 @@ router.post('/push', async (req, res) => {
     }
 });
 
-module.exports = { router };
+module.exports = { router, git, getGitRoot };
