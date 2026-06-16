@@ -144,7 +144,7 @@ parentPort.on('message', (msg) => {
 
         case 'delQuery':
             delete queries[msg.id];
-            queue = queue.filter((id) => id !== msg.id);
+            queue.delete(msg.id);
             parentPort.postMessage({ type: 'view', id: msg.id, deleted: true });
             break;
     }
