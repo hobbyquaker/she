@@ -241,6 +241,28 @@ function sunScheduleEvent(obj, shift) {
 let mqtt = null;
 let connected = false;
 
+// Deferred start — wait for retained MQTT state before running scripts
+let _started = false;
+let _startupTimeout = null;
+let _quietTimer = null;
+const _RETAIN_QUIET_MS = 300; // ms of silence after last retained msg → start
+const _STARTUP_TIMEOUT_MS = 10000; // ms to wait for broker before starting anyway
+
+function startOnce(reason) {
+    if (_started) return;
+    _started = true;
+    if (_startupTimeout) {
+        clearTimeout(_startupTimeout);
+        _startupTimeout = null;
+    }
+    if (_quietTimer) {
+        clearTimeout(_quietTimer);
+        _quietTimer = null;
+    }
+    if (reason) log.info(reason);
+    start();
+}
+
 // Wire up the MQTT API: pass the state store and a getter for the live MQTT client.
 // The getter always returns the current value of `mqtt` (null until connected).
 require('./web/mqtt-api').init(store, () => mqtt);
@@ -323,6 +345,12 @@ if (config.url) {
         log.debug('mqtt subscribe #');
         mqtt.subscribe('#');
         mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => c.callback());
+
+        // Arm the quiet-period timer (only needed on first connect, before scripts start)
+        if (!_started) {
+            if (_quietTimer) clearTimeout(_quietTimer);
+            _quietTimer = setTimeout(() => startOnce('mqtt: retained state ready, starting scripts'), _RETAIN_QUIET_MS);
+        }
     });
 
     mqtt.on('close', () => {
@@ -339,6 +367,13 @@ if (config.url) {
 
     mqtt.on('message', (topic, payload, msg) => {
         _mqttMsgCount++;
+
+        // Reset the quiet-period timer while the initial retained-message burst is in flight
+        if (!_started && msg.retain && _quietTimer) {
+            clearTimeout(_quietTimer);
+            _quietTimer = setTimeout(() => startOnce('mqtt: retained state ready, starting scripts'), _RETAIN_QUIET_MS);
+        }
+
         if (shedb.handleMqttMessage(topic, payload)) return;
 
         const state = require('./lib/parse-payload')(payload);
@@ -428,8 +463,18 @@ if (config.matterStorage) {
     log.warn('matter controller disabled â€” set matterStorage in config.json to enable');
 }
 
-// Start scripts immediately â€” MQTT retained state will populate the store asynchronously
-start();
+// If no broker is configured, start scripts immediately.
+// If a broker is configured, startOnce() fires from the quiet-period timer inside
+// mqtt.on('connect') once the retained-message burst settles, or from the
+// startup-timeout fallback if the broker is unreachable.
+if (config.url) {
+    _startupTimeout = setTimeout(() => {
+        log.warn('mqtt startup timeout — starting scripts without retained state');
+        startOnce();
+    }, _STARTUP_TIMEOUT_MS);
+} else {
+    start();
+}
 
 function stateChange(topic, state, oldState, msg) {
     subscriptions.forEach((subs) => {
