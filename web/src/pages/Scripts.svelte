@@ -134,6 +134,39 @@
     /** Set of file paths (relative to scriptDir) that have uncommitted git changes. */
     const gitChangedPaths = $derived(new Set(gitInfo?.changes.map(c => c.file) ?? []));
 
+    /** Set of directory paths that contain at least one uncommitted-changed file. */
+    const gitChangedDirs = $derived.by(() => {
+        const dirs = new Set<string>();
+        for (const file of gitChangedPaths) {
+            const parts = file.split('/');
+            for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
+        }
+        return dirs;
+    });
+
+    // ── Uncommitted-changes popup ─────────────────────────────────────────────
+    let changesPopupOpen = $state(false);
+    let commitAllMsg     = $state('');
+    let commitAllBusy    = $state(false);
+    let commitAllErr     = $state('');
+
+    async function commitAllChanges() {
+        if (!commitAllMsg.trim()) return;
+        commitAllBusy = true;
+        commitAllErr  = '';
+        try {
+            await commitAll(commitAllMsg.trim());
+            if (gitAutoPush) try { await gitPush(); } catch { /* ignore */ }
+            commitAllMsg = '';
+            changesPopupOpen = false;
+            await loadGitStatus();
+        } catch (e: any) {
+            commitAllErr = e.message;
+        } finally {
+            commitAllBusy = false;
+        }
+    }
+
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
     let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
 
@@ -1067,7 +1100,7 @@ declare const she: {
                             onclick={() => { selectedDir = entry.path; expandedDirs[entry.path] = true; }}
                             onkeydown={(e) => e.key === 'Enter' && (selectedDir = entry.path)}
                         >{entry.name}</span>
-                        {#if gitChangedPaths.has(entry.path)}<span class="git-mod" title="Uncommitted changes">M</span>{/if}
+                        {#if gitChangedPaths.has(entry.path) || gitChangedDirs.has(entry.path)}<span class="git-mod" title="Uncommitted changes">M</span>{/if}
                         <label class="lib-label" title="Library directory — files here are not auto-loaded as scripts" onmouseenter={showLibTip} onmouseleave={hideLibTip}>
                             <input type="checkbox" checked={entry.lib} onchange={() => toggleLib(entry.path, !entry.lib)} />
                             <span class="lib-checkmark"></span>
@@ -1196,7 +1229,42 @@ declare const she: {
                 <span class="git-status">
                     <span class="git-branch" title="Branch: {gitInfo.branch}">⎇ {gitInfo.branch}</span>
                     {#if gitInfo.changes.length > 0}
-                        <span class="git-changes" title="{gitInfo.changes.length} uncommitted change(s)">✎{gitInfo.changes.length}</span>
+                        <div class="changes-wrap">
+                            <button
+                                class="git-changes"
+                                title="{gitInfo.changes.length} uncommitted change(s) — click to view"
+                                onclick={() => { changesPopupOpen = !changesPopupOpen; commitAllErr = ''; }}
+                            >✎{gitInfo.changes.length}</button>
+                            {#if changesPopupOpen}
+                            <div class="changes-backdrop" role="presentation" onclick={() => changesPopupOpen = false}></div>
+                            <div class="changes-popup">
+                                <div class="changes-popup-hdr">Uncommitted changes</div>
+                                <ul class="changes-list">
+                                    {#each gitInfo.changes as c}
+                                        <li class="changes-item">
+                                            <span class="changes-status">{c.status}</span>
+                                            <span class="changes-file">{c.file}</span>
+                                        </li>
+                                    {/each}
+                                </ul>
+                                <div class="changes-commit-row">
+                                    <input
+                                        class="changes-msg-input"
+                                        type="text"
+                                        placeholder="Commit message…"
+                                        bind:value={commitAllMsg}
+                                        onkeydown={(e) => e.key === 'Enter' && commitAllChanges()}
+                                    />
+                                    <button
+                                        class="changes-commit-btn"
+                                        onclick={commitAllChanges}
+                                        disabled={!commitAllMsg.trim() || commitAllBusy}
+                                    >{commitAllBusy ? '…' : 'Commit all'}</button>
+                                </div>
+                                {#if commitAllErr}<div class="changes-err">{commitAllErr}</div>{/if}
+                            </div>
+                            {/if}
+                        </div>
                     {/if}
                     {#if gitInfo.ahead > 0}
                         <span class="git-ahead" title="{gitInfo.ahead} commit(s) ahead of upstream">↑{gitInfo.ahead}</span>
@@ -1727,7 +1795,44 @@ declare const she: {
 
     .git-status { display: flex; align-items: center; gap: 5px; flex-shrink: 0; font-size: 11px; }
     .git-branch { color: var(--fg-muted); }
-    .git-changes { color: var(--fg-warn); font-weight: 600; }
+    .git-changes {
+        background: none; border: none; padding: 0; cursor: pointer;
+        color: var(--fg-warn); font-weight: 600; font-size: 11px;
+    }
+    .git-changes:hover { text-decoration: underline; }
+    .changes-wrap { position: relative; }
+    .changes-backdrop { position: fixed; inset: 0; z-index: 19; }
+    .changes-popup {
+        position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+        z-index: 20; background: var(--bg-widget); border: 1px solid var(--border);
+        border-radius: 4px; box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+        min-width: 280px; max-width: 400px; display: flex; flex-direction: column;
+    }
+    .changes-popup-hdr {
+        padding: 7px 10px; font-size: 11px; font-weight: 600; color: var(--fg-muted);
+        border-bottom: 1px solid var(--border-sub); flex-shrink: 0;
+    }
+    .changes-list {
+        list-style: none; padding: 4px 0; margin: 0; max-height: 180px; overflow-y: auto;
+    }
+    .changes-item { display: flex; align-items: center; gap: 6px; padding: 3px 10px; }
+    .changes-status { font-size: 10px; font-weight: 700; color: var(--fg-warn); flex-shrink: 0; width: 16px; }
+    .changes-file { font-size: 11px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .changes-commit-row {
+        display: flex; gap: 4px; padding: 6px 8px;
+        border-top: 1px solid var(--border-sub); flex-shrink: 0;
+    }
+    .changes-msg-input {
+        flex: 1; background: var(--bg-input); border: 1px solid var(--border-sub);
+        color: var(--fg); padding: 3px 6px; border-radius: 3px; font-size: 11px;
+    }
+    .changes-commit-btn {
+        background: var(--accent); color: #fff; border: none;
+        padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; flex-shrink: 0;
+    }
+    .changes-commit-btn:disabled { opacity: 0.4; cursor: default; }
+    .changes-commit-btn:not(:disabled):hover { background: var(--accent-hov); }
+    .changes-err { padding: 4px 10px 6px; font-size: 11px; color: var(--fg-err); }
     .git-ahead { color: #4fc1ff; font-weight: 600; }
     .git-behind { color: var(--fg-err); font-weight: 600; }
 
