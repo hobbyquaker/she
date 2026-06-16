@@ -279,6 +279,13 @@
                 <div class="stats-popup" onclick={(e) => e.stopPropagation()}>
                     {#if stats}
                     <dl>
+                        {#if stats.startedAt}
+                        {@const uptimeSec = Math.floor((Date.now() - stats.startedAt) / 1000)}
+                        {@const d = Math.floor(uptimeSec / 86400)}
+                        {@const h = Math.floor((uptimeSec % 86400) / 3600)}
+                        {@const m = Math.floor((uptimeSec % 3600) / 60)}
+                        <dt>Uptime</dt><dd>{d > 0 ? d + 'd ' : ''}{h > 0 || d > 0 ? h + 'h ' : ''}{m}m</dd>
+                        {/if}
                         <dt>Scripts</dt><dd>{stats.scripts}</dd>
                         <dt>MQTT topics</dt><dd>{stats.topics}</dd>
                         <dt>MQTT msg/s</dt><dd>{stats.mqttMsgPerSec ?? '—'}</dd>
