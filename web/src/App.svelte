@@ -99,22 +99,25 @@
         if (!(await dialog.show(`Update to v${stats?.latestVersion}? The daemon will restart after the update completes.`, { confirm: 'Update' }))) return;
         versionOpen = false;
         updating = true;
+        const prevStartedAt: number | undefined = stats?.startedAt;
         try { await updateDaemon(); } catch { /* ok — daemon will restart */ }
-        // Wait for the daemon to go down, then come back up, then reload.
-        // We require it to have been *down* at least once to avoid reloading
-        // against the old instance before systemd has had a chance to stop it.
-        let wentDown = false;
+        // Poll until startedAt changes (new daemon instance) — mirrors restart() logic.
+        // When the daemon goes down, switch the overlay to 'Restarting…'.
         const deadline = Date.now() + 180_000;
         while (Date.now() < deadline) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 1000));
             try {
-                await getDaemonStatus();
-                if (wentDown) { location.reload(); return; }
+                const s = await getDaemonStatus();
+                if (prevStartedAt === undefined || s.startedAt !== prevStartedAt) {
+                    location.reload(); return;
+                }
             } catch {
-                wentDown = true; // daemon is (still) down — keep polling
+                // Daemon is down — npm has finished and systemd is restarting the service.
+                updating = false;
+                restarting = true;
             }
         }
-        location.reload(); // give up waiting, reload anyway
+        location.reload(); // deadline hit — reload anyway
     }
 
     function navigate(p: Page) {

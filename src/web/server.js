@@ -2,7 +2,7 @@
 
 const express = require('express');
 const path = require('path');
-const { spawnSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const semverCompare = require('semantic-compare');
 const pkg = require('../../package.json');
 const { router: configRouter } = require('./config-api');
@@ -96,8 +96,10 @@ app.post('/she/check-update', async (req, res) => {
 app.post('/she/update', (req, res) => {
     res.json({ ok: true });
     setTimeout(() => {
-        spawnSync('sudo', ['npm', 'install', '-g', 'smart-home-engine'], { stdio: 'inherit' });
-        _systemdRestart();
+        // Use async spawn so the HTTP server (and event loop) remain responsive
+        // while npm runs. spawnSync would block all HTTP polling from the UI.
+        const child = spawn('sudo', ['npm', 'install', '-g', 'smart-home-engine'], { stdio: 'inherit' });
+        child.on('close', () => _systemdRestart());
     }, 200);
 });
 
