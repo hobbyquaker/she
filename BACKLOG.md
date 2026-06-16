@@ -32,7 +32,7 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## Scripts Editor
 
-- **Find & Replace entry point** — add "Find" and "Find & Replace" to Monaco's right-click context menu via `editor.addAction()` so mouse-driven users can discover the built-in widget. No custom widget needed; Monaco handles Ctrl+F / Ctrl+H natively. Full spec in VS Code prompt `she-editor-improvements`.
+- **Find & Replace entry point** — add a small **Edit** menu button in the editor toolbar, positioned between the `filename` span and the git-status badges (current layout left-to-right: `filename | [Edit▾] | git-status | Save | Delete | AI`). Clicking it opens a compact dropdown with at minimum: *Find* (`Ctrl+F`) and *Find & Replace* (`Ctrl+H`). Could also include *Go to line* (`Ctrl+G`). Each item calls `editor.getAction('<id>')?.run()` on the Monaco instance. No Monaco context-menu changes; no new route. Frontend-only, ~20 lines + dropdown styling.
 
 - **Format with Prettier** — `POST /she/scripts/format` backend route that runs Prettier server-side (already a root devDependency, not bundled to browser); frontend adds a toolbar button that calls the endpoint and replaces the editor content with the formatted result. Full spec in VS Code prompt `she-editor-improvements`.
 
