@@ -1896,7 +1896,11 @@ declare const she: {
     .changes-commit-btn:disabled { opacity: 0.4; cursor: default; }
     .changes-commit-btn:not(:disabled):hover { background: var(--accent-hov); }
     .changes-err { padding: 4px 10px 6px; font-size: 11px; color: var(--fg-err); }
-    .git-ahead { color: #4fc1ff; font-weight: 600; }
+    .git-ahead {
+        background: none; border: none; padding: 0; cursor: pointer;
+        color: #4fc1ff; font-weight: 600; font-size: 11px;
+    }
+    .git-ahead:hover { text-decoration: underline; }
     .git-behind { color: var(--fg-err); font-weight: 600; }
 
     .editor-toolbar > button {
