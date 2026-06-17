@@ -22,7 +22,7 @@
         type TreeEntry,
         type AiExtraFile,
     } from '../lib/api.js';
-    import { subscribeLog, type LogEntry } from '../lib/ws.js';
+    import { subscribeLog, subscribeWs, type LogEntry } from '../lib/ws.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import Chat from './Chat.svelte';
@@ -74,6 +74,7 @@
 
     let scriptErrors = $state<Set<string>>(new Set());
     const scriptHadError = new Set<string>();
+    let scriptRunning = $state<Set<string>>(new Set());
     let chatExtraFiles = $state<AiExtraFile[]>([]);
 
     // Script log panel filters
@@ -103,6 +104,7 @@
     let emptyModel: monaco.editor.ITextModel;
     let suppressChange = false;
     let unsubLog: (() => void) | null = null;
+    let unsubRunning: (() => void) | null = null;
     let _treeLoaded = false;
     let _mounted = false;
 
@@ -341,12 +343,28 @@ declare const she: {
             }
         });
 
+        unsubRunning = subscribeWs('script:running', (msg) => {
+            const p = msg.path as string;
+            if (msg.running) {
+                scriptRunning = new Set([...scriptRunning, p]);
+            } else {
+                const s = new Set(scriptRunning);
+                s.delete(p);
+                scriptRunning = s;
+            }
+        });
+
         await loadTree();
         loadGitStatus();
         try {
             const cfg = await getConfig() as Record<string, unknown>;
             if (typeof cfg.gitAutoCommit === 'boolean') gitAutoCommit = cfg.gitAutoCommit;
             if (typeof cfg.gitAutoPush   === 'boolean') gitAutoPush   = cfg.gitAutoPush;
+        } catch { /* best effort */ }
+
+        try {
+            const status = await getDaemonStatus();
+            scriptRunning = new Set(status.runningScripts ?? []);
         } catch { /* best effort */ }
 
         const savedPaths = JSON.parse(localStorage.getItem(TABS_KEY) ?? '[]') as string[];
@@ -363,6 +381,7 @@ declare const she: {
     onDestroy(() => {
         if (syntaxCheckTimer) clearTimeout(syntaxCheckTimer);
         unsubLog?.();
+        unsubRunning?.();
         for (const tab of tabs) tab.model?.dispose();
         emptyModel?.dispose();
         editor?.dispose();
@@ -1157,6 +1176,7 @@ declare const she: {
                             <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
                             <span class="fname">{entry.name}</span>
                             {#if isGitMod}<span class="git-mod" title="Uncommitted changes">M</span>{/if}{#if isDirty}<span class="dirty-dot">●</span>{/if}
+                            {#if isJs && scriptRunning.has(entry.path) && !hasErr}<span class="run-dot" title="Running">●</span>{/if}
                             {#if hasErr}<span class="err-dot">●</span>{/if}
                         </button>
                         {#if isJs}
@@ -1686,6 +1706,7 @@ declare const she: {
     .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dirty-dot { color: #e5c07b; font-size: 8px; flex-shrink: 0; }
     .err-dot { color: var(--fg-err); font-size: 8px; flex-shrink: 0; }
+    .run-dot { color: var(--fg-ok); font-size: 8px; flex-shrink: 0; }
     .git-mod { color: #e2c08d; font-size: 10px; font-weight: 600; flex-shrink: 0; }
     .err { color: var(--fg-err); padding: 8px; font-size: 12px; }
 

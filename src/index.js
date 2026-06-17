@@ -319,6 +319,7 @@ require('./web/server').setStatsProvider(() => {
     }
     return {
         scripts: Object.keys(scripts).length,
+        runningScripts: Object.keys(scripts).map(f => makeLabel(f).slice(0, -1)),
         topics,
         mqttMsgPerSec,
         matterEnabled: !!config.matterStorage,
@@ -1146,6 +1147,7 @@ function loadScript(file, origin) {
             if (scripts[file]) {
                 scriptOrigins.set(file, origin);
                 runScript(scripts[file], file, origin);
+                broadcast({ type: 'script:running', path: makeLabel(file).slice(0, -1), running: true });
             }
         }
     });
@@ -1234,6 +1236,7 @@ function unloadScript(file) {
 
     // Remove from scripts map so it can be re-loaded
     delete scripts[file];
+    broadcast({ type: 'script:running', path: makeLabel(file).slice(0, -1), running: false });
 }
 
 function loadBuiltinsDir(callback) {
