@@ -429,7 +429,9 @@ she.log('counter:', she.global.sharedCounter);
 
 ---
 
-## she.fetch(url, [options])
+## she.http -- HTTP helpers
+
+### she.http.fetch(url, [options])
 
 Makes an HTTP/HTTPS request using the native `fetch` API and returns a Promise. Automatically parses the response body: if the server returns a `Content-Type` containing `json`, the response is parsed as JSON; otherwise it is returned as plain text.
 
@@ -442,11 +444,11 @@ Throws an `Error` if the response status is not OK (4xx / 5xx).
 
 ```js
 // GET — auto-parsed JSON
-const data = await she.fetch('https://api.example.com/status');
+const data = await she.http.fetch('https://api.example.com/status');
 she.log('status:', data.status);
 
 // POST with JSON body
-const result = await she.fetch('https://api.example.com/command', {
+const result = await she.http.fetch('https://api.example.com/command', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'toggle' }),
@@ -455,8 +457,6 @@ const result = await she.fetch('https://api.example.com/command', {
 // Publish the result to MQTT
 she.mqtt.set('home/device/response', result.ok);
 ```
-
----
 
 ---
 
@@ -473,7 +473,7 @@ A read-only object exposing daemon configuration values relevant to scripts. Att
 she.info('location:', she.config.latitude, she.config.longitude);
 
 // Use coordinates for a custom API call
-const weather = await she.fetch(
+const weather = await she.http.fetch(
     `https://api.open-meteo.com/v1/forecast?latitude=${she.config.latitude}&longitude=${she.config.longitude}&current_weather=true`
 );
 she.mqtt.set('home/weather/temperature', weather.current_weather.temperature);
