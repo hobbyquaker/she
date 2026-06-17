@@ -19,9 +19,7 @@ Your home, your rules - written in plain JavaScript.
 | | |
 |---|---|
 | [Getting started](doc/getting-started.md) | Install, write your first script, configure |
-| [CLI reference](doc/cli.md) | All flags and environment variables |
 | [Sandbox API](doc/sandbox-api.md) | Everything available inside a script |
-| [HTTP API](doc/http-api.md) | REST endpoints and WebSocket |
 | [sheDB](doc/db/README.md) | Embedded document store — script API, views, examples |
 | [Examples](doc/examples.md) | Real-world script patterns |
 
