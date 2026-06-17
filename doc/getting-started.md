@@ -87,15 +87,6 @@ git -C /var/lib/she config user.name "Your Name"
 
 Git runs as root inside the container. Place SSH keys in the volume at `/var/lib/she/.ssh/` (mode `700` for the directory, `600` for key files).
 
-### Run manually (`npm install -g`)
-
-```bash
-git -C ~/.she init
-git -C ~/.she remote add origin git@github.com:you/she-scripts.git
-```
-
-Git uses your normal user account and SSH config, so no special setup is needed.
-
 ## Next steps
 
 - [sandbox-api.md](sandbox-api.md) — complete script API reference
