@@ -69,11 +69,8 @@ she.mqtt.timer(src, ms, topicOrCb)   Pulse topicOrCb=1 for ms after src goes tru
 she.mqtt.or(srcs[], topicOrCb)       Publish 1 if any source truthy, else 0
 she.mqtt.and(srcs[], topicOrCb)      Publish 1 if all sources truthy, else 0
 she.mqtt.max(srcs[], topicOrCb)      Publish maximum of source values
-                                         topicOrCb: topic string or callback(topic, val)
 she.mqtt.min(srcs[], topicOrCb)      Publish minimum of source values (0 if none set)
-                                         topicOrCb: topic string or callback(topic, val)
-she.link(src, target, [fn])          Alias for she.mqtt.link
-she.age(topic)                       Alias for she.mqtt.age
+                                         All topicOrCb: topic string or callback(topic, val)
 she.now()                            Current timestamp in ms
 she.debug / .info / .warn / .error   Structured logging (prefixed with script name)
 she.global                           Shared mutable object across all scripts

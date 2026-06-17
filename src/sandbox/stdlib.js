@@ -9,33 +9,6 @@ module.exports = function (she) {
         return new Date().getTime();
     };
 
-    /**
-     * @method age
-     * @param {string} topic
-     * @returns {number} seconds since last change
-     */
-    she.age = function Sandbox_age(topic) {
-        return Math.round((new Date().getTime() - she.getProp(topic, 'lc')) / 1000);
-    };
-
-    /**
-     * Link topic(s) to other topic(s)
-     * @method link
-     * @param {(string|string[])} source - topic or array of topics to subscribe
-     * @param {(string|string[])} target - topic or array of topics to publish
-     * @param {mixed} [value] - value to publish. If omitted the sources value is published. A function can be used to transform the value.
-     */
-    she.link = function Sandbox_link(source, target, /* optional */ value) {
-        she.mqttsub(source, (topic, val) => {
-            if (typeof value === 'function') {
-                val = value(val);
-            } else if (typeof value !== 'undefined') {
-                val = value;
-            }
-            she.setValue(target, val);
-        });
-    };
-
     // Route a computed value to a topic string (setValue) or a callback (called as fn(topic, val)).
     function sink(target, topic, val) {
         if (typeof target === 'function') {
@@ -64,9 +37,20 @@ module.exports = function (she) {
         /** Get a specific property from a topic's state object. */
         getProp: (...args) => she.getProp(...args),
         /** Forward value changes from source topic(s) to target topic(s). */
-        link: (...args) => she.link(...args),
+        link: function Sandbox_mqtt_link(source, target, /* optional */ value) {
+            she.mqttsub(source, (topic, val) => {
+                if (typeof value === 'function') {
+                    val = value(val);
+                } else if (typeof value !== 'undefined') {
+                    val = value;
+                }
+                she.setValue(target, val);
+            });
+        },
         /** Seconds since the topic's value last changed. */
-        age: (topic) => she.age(topic),
+        age: function Sandbox_mqtt_age(topic) {
+            return Math.round((new Date().getTime() - she.getProp(topic, 'lc')) / 1000);
+        },
         /** Register a callback for MQTT connection lifecycle events ('connect' or 'disconnect'). */
         on: (event, cb) => she._registerMqttEvent(event, cb),
         /**

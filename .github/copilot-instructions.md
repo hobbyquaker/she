@@ -68,13 +68,15 @@ Scripts run in a VM sandbox and receive a `she` object:
 - `she.matter.send(nodeId, endpointId, clusterName, command, [args])` → Promise\<result\>
 
 ### Stdlib helpers
-- `she.link(src, target, [transform])` — shorthand for `she.mqtt.link`
-- `she.combineBool(srcs[], target)` — publish OR of source values
-- `she.combineMax(srcs[], target)` — publish maximum of source values
-- `she.timer(src, target, ms)` — publish 1 on `target` for `ms` after `src` goes truthy
+- `she.mqtt.link(src, target, [transform])` — forward value changes; `target` is topic string or array
+- `she.mqtt.or(srcs[], topicOrCb)` — publish 1 if any source truthy, else 0
+- `she.mqtt.and(srcs[], topicOrCb)` — publish 1 if all sources truthy, else 0
+- `she.mqtt.max(srcs[], topicOrCb)` — publish maximum of source values
+- `she.mqtt.min(srcs[], topicOrCb)` — publish minimum of source values (0 if no values)
+- `she.mqtt.timer(src, ms, topicOrCb)` — publish 1 for `ms` after `src` goes truthy, then 0
+- All `topicOrCb` params accept a topic string or `callback(topic, val)`
 - `she.getValue(topic)` / `she.setValue(topic, val)` / `she.getProp(topic, ...props)` — legacy MQTT helpers
 - `she.now()` → ms since epoch
-- `she.age(topic)` → seconds since topic last changed
 - `she.debug/info/warn/error(...args)` — structured logging (prefixed with script name)
 - `she.global` — shared mutable object across all scripts
 - `she.fetch(url, [opts])` → Promise — HTTP/HTTPS fetch; auto-parses JSON by Content-Type; throws on non-OK status

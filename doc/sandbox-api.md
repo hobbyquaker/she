@@ -372,12 +372,6 @@ Returns the current time in milliseconds since the Unix epoch (equivalent to `Da
 
 ---
 
-## she.age(topic)
-
-Returns the number of seconds since the given MQTT topic's value last changed. Shorthand for `she.mqtt.age(topic)`.
-
----
-
 ## she.schedule(pattern, [options], callback)
 
 Schedule a recurring or one-shot callback, including solar events based on sun position.
@@ -417,12 +411,6 @@ she.schedule(['dawn', 'dusk'], callback);
 ```
 
 **Available suncalc events:** `sunrise`, `sunriseEnd`, `goldenHourEnd`, `solarNoon`, `goldenHour`, `sunsetStart`, `sunset`, `dusk`, `nauticalDusk`, `night`, `nadir`, `nightEnd`, `nauticalDawn`, `dawn`.
-
----
-
-## she.link(source, target, [value])
-
-Shorthand for `she.mqtt.link()`. See above.
 
 ---
 

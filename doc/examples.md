@@ -114,7 +114,7 @@ she.mqtt.sub('home/presence', { change: true }, (topic, val) => {
 
 ```js
 // home/motion/any = 1 when any room has motion
-she.combineBool(
+she.mqtt.or(
     ['home/motion/hall', 'home/motion/kitchen', 'home/motion/living'],
     'home/motion/any'
 );

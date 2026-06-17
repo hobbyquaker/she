@@ -29,20 +29,20 @@ describe('now()', () => {
     });
 });
 
-describe('age()', () => {
+describe('she.mqtt.age()', () => {
     it('returns seconds since last change', () => {
         const lc = Date.now() - 5000;
         const she = makeShe({ 'test/topic': { val: 1, lc } });
-        const a = she.age('test/topic');
+        const a = she.mqtt.age('test/topic');
         expect(a).toBeGreaterThanOrEqual(4);
         expect(a).toBeLessThanOrEqual(6);
     });
 });
 
-describe('link()', () => {
+describe('she.mqtt.link()', () => {
     it('subscribes source and publishes its value to target', () => {
         const she = makeShe();
-        she.link('src/topic', 'dst/topic');
+        she.mqtt.link('src/topic', 'dst/topic');
         expect(she.mqttsub).toHaveBeenCalledWith('src/topic', expect.any(Function));
         const cb = she.mqttsub.mock.calls[0][1];
         cb('src/topic', 42);
@@ -51,7 +51,7 @@ describe('link()', () => {
 
     it('publishes a fixed value when value arg provided', () => {
         const she = makeShe();
-        she.link('src/topic', 'dst/topic', 99);
+        she.mqtt.link('src/topic', 'dst/topic', 99);
         const cb = she.mqttsub.mock.calls[0][1];
         cb('src/topic', 1);
         expect(she.setValue).toHaveBeenCalledWith('dst/topic', 99);
@@ -59,7 +59,7 @@ describe('link()', () => {
 
     it('transforms value through function when function arg provided', () => {
         const she = makeShe();
-        she.link('src/topic', 'dst/topic', (v) => v * 2);
+        she.mqtt.link('src/topic', 'dst/topic', (v) => v * 2);
         const cb = she.mqttsub.mock.calls[0][1];
         cb('src/topic', 5);
         expect(she.setValue).toHaveBeenCalledWith('dst/topic', 10);

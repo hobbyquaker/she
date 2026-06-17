@@ -7,15 +7,15 @@ she.mqttsub('test/status/incr', function (topic, val) {
 
 she.mqttsub('test/target', () => {
     setTimeout(() => {
-        she.info('test/target age', she.age('test/target'));
+        she.info('test/target age', she.mqtt.age('test/target'));
         she.info('test/target lc', she.getProp('test/target', 'lc'), she.now());
     }, 5000);
 });
 
-she.link('test/src', 'test/target');
-she.link(['test/src1', 'test/src2'], ['test/target1', 'test/target2']);
-she.link('test/src3', 'test/target3', '1337');
-she.link('test/src4', 'test/target4', (val) => 2 * val);
+she.mqtt.link('test/src', 'test/target');
+she.mqtt.link(['test/src1', 'test/src2'], ['test/target1', 'test/target2']);
+she.mqtt.link('test/src3', 'test/target3', '1337');
+she.mqtt.link('test/src4', 'test/target4', (val) => 2 * val);
 
 she.schedule('* * * * *', () => {
     she.info('schedule callback');
