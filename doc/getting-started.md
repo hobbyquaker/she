@@ -7,7 +7,17 @@
 
 ## Installation
 
-### Docker (recommended)
+### Install as a systemd service (recommended)
+
+```bash
+sudo npm install -g smart-home-engine
+sudo she --install
+sudo systemctl start smart-home-engine
+```
+
+`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL.
+
+### Docker 
 
 ```bash
 docker build -t she https://github.com/hobbyquaker/she.git
@@ -20,25 +30,6 @@ docker run -d \
 
 All state (scripts, database, config) is stored in the `she-data` volume. Open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL (e.g. `mqtt://192.168.1.10`). Hit **Save** — she will connect to the broker and start loading scripts.
 
-### Run manually
-
-```bash
-npm install -g smart-home-engine
-she
-```
-
-Open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL. Hit **Save** — no config file editing needed.
-
-### Install as a systemd service (Linux)
-
-```bash
-sudo npm install -g smart-home-engine
-sudo she --install
-sudo systemctl start smart-home-engine
-```
-
-`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL.
-
 ## Web UI
 
 The web UI is served on port **8080** by default. It provides:
@@ -50,7 +41,7 @@ The web UI is served on port **8080** by default. It provides:
 | **Matter** | Commission and manage paired Matter devices |
 | **DB** | Inspect and edit sheDB documents and views |
 | **Logs** | Live structured log stream |
-| **Config** | All daemon settings — MQTT broker URL, authentication, port, and more |
+| **Config** | All daemon settings — MQTT broker settings, authentication, ... |
 
 ## Your first script
 
