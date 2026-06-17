@@ -57,6 +57,45 @@ she.mqtt.sub('home/#', (topic, val) => {
 
 Scripts are hot-reloaded automatically — saving a file in the editor restarts only that script, without restarting the entire daemon.
 
+## Git integration
+
+The **Scripts** editor has built-in git support (commit, push, history). To use it you need to set up a git repository in the scripts data directory yourself — she does not do this automatically.
+
+### systemd installation
+
+```bash
+sudo -u she git -C /var/lib/she init
+sudo -u she git -C /var/lib/she remote add origin git@github.com:you/she-scripts.git
+sudo -u she git -C /var/lib/she config user.email "you@example.com"
+sudo -u she git -C /var/lib/she config user.name "Your Name"
+```
+
+> **Note:** All git commands on `/var/lib/she` must be run as `sudo -u she` — the daemon runs as the `she` user and git operations will fail with permission errors otherwise. SSH keys for push access should be placed in `/var/lib/she/.ssh/`.
+
+### Docker
+
+```bash
+# open a shell into the running container
+docker exec -it she bash
+
+# inside the container
+git -C /var/lib/she init
+git -C /var/lib/she remote add origin git@github.com:you/she-scripts.git
+git -C /var/lib/she config user.email "you@example.com"
+git -C /var/lib/she config user.name "Your Name"
+```
+
+Git runs as root inside the container. Place SSH keys in the volume at `/var/lib/she/.ssh/` (mode `700` for the directory, `600` for key files).
+
+### Run manually (`npm install -g`)
+
+```bash
+git -C ~/.she init
+git -C ~/.she remote add origin git@github.com:you/she-scripts.git
+```
+
+Git uses your normal user account and SSH config, so no special setup is needed.
+
 ## Next steps
 
 - [sandbox-api.md](sandbox-api.md) — complete script API reference
