@@ -39,6 +39,25 @@ sudo systemctl start smart-home-engine
 
 Then open **http://localhost:8080** and start creating scripts
 
+**Run with Docker:**
+
+```bash
+docker build -t she .
+docker run -d \
+  -p 8080:8080 \
+  -v she-data:/var/lib/she \
+  she \
+  --url mqtt://192.168.1.10
+```
+
+All state (scripts, config, DB) is kept in the `she-data` volume at `/var/lib/she`. Pass `--url` with your MQTT broker address, or drop a `config.json` into the volume's `config/` subdirectory instead:
+
+```json
+{ "url": "mqtt://192.168.1.10", "latitude": 48.7, "longitude": 9.1 }
+```
+
+Then open **http://localhost:8080** and start creating scripts
+
 ## Docs
 
 | | |
