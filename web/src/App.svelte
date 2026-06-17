@@ -251,6 +251,9 @@
                     {#if stats?.latestVersion && !stats?.docker}<span class="update-dot" title="Update available"></span>{/if}
                 </button>
                 {#if versionOpen && !stats?.docker}
+                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                <div class="version-popup" onclick={(e) => e.stopPropagation()}>
+                    <dl>
                         <dt>Installed</dt><dd>v{__APP_VERSION__}</dd>
                         {#if stats?.latestVersion}
                         <dt>Latest</dt><dd style="color: #f90">v{stats.latestVersion}</dd>
