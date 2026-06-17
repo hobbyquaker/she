@@ -11,6 +11,8 @@ function makeShe(state = {}) {
         }),
         getProp: jest.fn((topic, prop) => she._state[topic]?.[prop]),
         mqttsub: jest.fn(),
+        setTimeout: jest.fn((fn, ms) => setTimeout(fn, ms)),
+        clearTimeout: jest.fn((id) => clearTimeout(id)),
     };
     installStdlib(she);
     return she;
@@ -256,5 +258,47 @@ describe('she.mqtt.min()', () => {
         she._state.a = { val: 2 };
         subCb('a');
         expect(cb).toHaveBeenCalledWith('a', 2);
+    });
+});
+
+describe('she.mqtt.timer()', () => {
+    it('subscribes to src and publishes 1 to target when src goes truthy', () => {
+        const she = makeShe({ 'home/motion': { val: 0 } });
+        she.mqtt.timer('home/motion', 5000, 'home/light');
+        const subCb = she.mqttsub.mock.calls[0][2];
+        subCb('home/motion', 1);
+        expect(she.setValue).toHaveBeenCalledWith('home/light', 1);
+    });
+
+    it('does not publish 1 when src is falsy', () => {
+        const she = makeShe();
+        she.mqtt.timer('home/motion', 5000, 'home/light');
+        she.setValue.mockClear();
+        const subCb = she.mqttsub.mock.calls[0][2];
+        subCb('home/motion', 0);
+        expect(she.setValue).not.toHaveBeenCalledWith('home/light', 1);
+    });
+
+    it('calls callback(topic, 1) when src goes truthy', () => {
+        const she = makeShe();
+        const cb = jest.fn();
+        she.mqtt.timer('home/motion', 5000, cb);
+        const subCb = she.mqttsub.mock.calls[0][2];
+        subCb('home/motion', 1);
+        expect(cb).toHaveBeenCalledWith('home/motion', 1);
+    });
+
+    it('does not set an initial cleanup timeout for callback targets', () => {
+        const she = makeShe();
+        const cb = jest.fn();
+        she.mqtt.timer('home/motion', 5000, cb);
+        // Only the src subscription should be registered; no initial setTimeout
+        expect(she.setTimeout).not.toHaveBeenCalled();
+    });
+
+    it('sets an initial cleanup timeout for topic targets', () => {
+        const she = makeShe({ 'home/light': { val: 1 } });
+        she.mqtt.timer('home/motion', 5000, 'home/light');
+        expect(she.setTimeout).toHaveBeenCalled();
     });
 });

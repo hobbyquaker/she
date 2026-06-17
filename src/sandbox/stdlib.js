@@ -45,35 +45,8 @@ module.exports = function (she) {
         }
     }
 
-    const timeouts = {};
-    /**
-     * Publishes 1 on target for specific time after src changed to true
-     * @method timer
-     * @param {(string|string[])} src - topic or array of topics to subscribe
-     * @param {string} target - topic to publish
-     * @param {number} time - timeout in milliseconds
-     */
-    she.timer = function (src, target, time) {
-        she.mqttsub(src, { retain: false }, (topic, val) => {
-            if (val) {
-                she.clearTimeout(timeouts[target]);
-                if (!she.getValue(target)) {
-                    she.setValue(target, 1);
-                }
-                timeouts[target] = she.setTimeout(() => {
-                    if (she.getValue(target)) {
-                        she.setValue(target, 0);
-                    }
-                }, time);
-            }
-        });
-
-        timeouts[target] = she.setTimeout(() => {
-            if (she.getValue(target)) {
-                she.setValue(target, 0);
-            }
-        }, time);
-    };
+    // Timeout handles indexed by target (string key or function reference).
+    const timerHandles = new Map();
 
     /**
      * Namespaced MQTT API - the primary way to interact with MQTT from scripts.
@@ -148,6 +121,36 @@ module.exports = function (she) {
             }
             combine(null);
             she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
+        },
+        /**
+         * Pulse target to 1 for ms after src goes truthy, then reset to 0.
+         * Signature: timer(src, ms, target)
+         * target may be a topic string or a callback(topic, val).
+         * When target is a topic string, any lingering 1 from a previous run is
+         * cleared by an initial timeout on startup.
+         */
+        timer: function Sandbox_mqtt_timer(src, ms, target) {
+            const key = target;
+            she.mqttsub(src, { retain: false }, (topic, val) => {
+                if (val) {
+                    she.clearTimeout(timerHandles.get(key));
+                    sink(target, topic, 1);
+                    timerHandles.set(
+                        key,
+                        she.setTimeout(() => {
+                            sink(target, null, 0);
+                        }, ms),
+                    );
+                }
+            });
+            if (typeof target !== 'function') {
+                timerHandles.set(
+                    key,
+                    she.setTimeout(() => {
+                        if (she.getValue(target)) she.setValue(target, 0);
+                    }, ms),
+                );
+            }
         },
     };
 

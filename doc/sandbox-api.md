@@ -283,6 +283,32 @@ she.mqtt.min(
 
 ---
 
+### she.mqtt.timer(src, ms, target)
+
+Publishes `1` to `target` when `src` becomes truthy, then publishes `0` after `ms` milliseconds. Cancels and restarts the timer if `src` fires again before the timeout.
+
+`target` may be a **topic string** or a **callback function** called as `callback(topic, val)` — `topic` is the MQTT topic that triggered the timer (or `null` when the timeout fires).
+
+When `target` is a topic string, any lingering `1` left over from a previous daemon run is cleared by an initial startup timeout.
+
+| Param | Type | Description |
+|---|---|---|
+| `src` | `string \| string[]` | Topic(s) to watch. |
+| `ms` | `number` | On-duration in milliseconds. |
+| `target` | `string \| function` | Topic to publish to, or `callback(topic, val)`. |
+
+```js
+// entrance light stays on for 30 s after doorbell
+she.mqtt.timer('home/doorbell', 30_000, 'home/light/entrance');
+
+// callback — drive a Matter device instead of publishing
+she.mqtt.timer('home/motion/hall', 30_000, (topic, val) => {
+    she.matter.send('bulb', 1, 'OnOff', val ? 'on' : 'off');
+});
+```
+
+---
+
 ## Universal key-based API
 
 These methods work across all namespaces (`mqtt::`, `var::`, `matter::`), providing a unified interface regardless of where data lives.
@@ -391,23 +417,6 @@ she.schedule(['dawn', 'dusk'], callback);
 ```
 
 **Available suncalc events:** `sunrise`, `sunriseEnd`, `goldenHourEnd`, `solarNoon`, `goldenHour`, `sunsetStart`, `sunset`, `dusk`, `nauticalDusk`, `night`, `nadir`, `nightEnd`, `nauticalDawn`, `dawn`.
-
----
-
-## she.timer(src, target, time)
-
-Publishes `1` to `target` when `src` becomes truthy, then publishes `0` after `time` milliseconds.
-
-| Param | Type | Description |
-|---|---|---|
-| `src` | `string \| string[]` | Topic(s) to watch. |
-| `target` | `string` | Topic to publish to. |
-| `time` | `number` | On-duration in milliseconds. |
-
-```js
-// entrance light stays on for 30 s after doorbell
-she.timer('home/doorbell', 'home/light/entrance', 30_000);
-```
 
 ---
 
