@@ -149,6 +149,7 @@
 
     // ── Uncommitted-changes popup ─────────────────────────────────────────────
     let changesPopupOpen = $state(false);
+    let pushPopupOpen = $state(false);
     let commitAllMsg     = $state('');
     let commitAllBusy    = $state(false);
     let commitAllErr     = $state('');
@@ -955,7 +956,7 @@ declare const she: {
 
     function handleKeydown(e: KeyboardEvent) {
         if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
-        if (e.key === 'Escape') { dropdownOpen = false; ctxMenu = null; }
+        if (e.key === 'Escape') { dropdownOpen = false; ctxMenu = null; pushPopupOpen = false; }
     }
 
     // ── AI apply / diff view ──────────────────────────────────────────────────
@@ -1313,7 +1314,22 @@ declare const she: {
                         </div>
                     {/if}
                     {#if gitInfo.ahead > 0}
-                        <span class="git-ahead" title="{gitInfo.ahead} commit(s) ahead of upstream">↑{gitInfo.ahead}</span>
+                        <div class="changes-wrap">
+                            <button
+                                class="git-ahead"
+                                title="{gitInfo.ahead} commit(s) ahead of upstream — click to push"
+                                onclick={() => pushPopupOpen = !pushPopupOpen}
+                            >↑{gitInfo.ahead}</button>
+                            {#if pushPopupOpen}
+                            <div class="changes-backdrop" role="presentation" onclick={() => pushPopupOpen = false}></div>
+                            <div class="changes-popup">
+                                <div class="changes-popup-hdr">{gitInfo.ahead} unpushed commit(s)</div>
+                                <div class="changes-commit-row">
+                                    <button class="changes-commit-btn" onclick={() => { pushPopupOpen = false; push(); }}>Push</button>
+                                </div>
+                            </div>
+                            {/if}
+                        </div>
                     {/if}
                     {#if gitInfo.behind > 0}
                         <span class="git-behind" title="{gitInfo.behind} commit(s) behind upstream">↓{gitInfo.behind}</span>
@@ -1332,8 +1348,6 @@ declare const she: {
                     <div class="split-menu">
                         <button onclick={() => { dropdownOpen = false; save(); }}>Save</button>
                         <button onclick={() => { dropdownOpen = false; saveAndCommit(); }}>Save &amp; Commit</button>
-                        <button onclick={push} disabled={!gitInfo}>Push</button>
-                        <button onclick={() => { dropdownOpen = false; save().then(() => restartDaemon()); }}>Save &amp; Restart</button>
                     </div>
                 {/if}
             </div>
