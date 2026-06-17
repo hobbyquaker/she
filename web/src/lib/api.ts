@@ -159,6 +159,7 @@ export interface DaemonStatus {
     latestVersion?: string;
     dataDir?: string;
     startedAt?: number;
+    docker?: boolean;
 }
 
 export function getDaemonStatus(): Promise<DaemonStatus> {

@@ -108,11 +108,13 @@ let _getStats = null;
 function setStatsProvider(fn) {
     _getStats = fn;
 }
+const _isDocker = require('fs').existsSync('/.dockerenv');
 app.get('/she/status', (req, res) => {
     const s = _getStats ? _getStats() : { scripts: 0, topics: 0 };
     if (_latestNpmVersion) s.latestVersion = _latestNpmVersion;
     s.dataDir = require('../lib/storage').STORAGE_ROOT;
     s.startedAt = SERVER_START_TIME;
+    if (_isDocker) s.docker = true;
     res.json(s);
 });
 

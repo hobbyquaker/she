@@ -248,12 +248,9 @@
             <div class="version-wrap">
                 <button class="version" onclick={(e) => { e.stopPropagation(); versionOpen = !versionOpen; statsOpen = false; }}>
                     v{__APP_VERSION__}
-                    {#if stats?.latestVersion}<span class="update-dot" title="Update available"></span>{/if}
+                    {#if stats?.latestVersion && !stats?.docker}<span class="update-dot" title="Update available"></span>{/if}
                 </button>
-                {#if versionOpen}
-                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                <div class="version-popup" onclick={(e) => e.stopPropagation()}>
-                    <dl>
+                {#if versionOpen && !stats?.docker}
                         <dt>Installed</dt><dd>v{__APP_VERSION__}</dd>
                         {#if stats?.latestVersion}
                         <dt>Latest</dt><dd style="color: #f90">v{stats.latestVersion}</dd>
@@ -317,6 +314,7 @@
                     <span class="stats-empty">Loading…</span>
                     {/if}
                     <div class="stats-actions">
+                        {#if !stats?.docker}
                         <button onclick={() => { statsOpen = false; restart(); }}>
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
@@ -324,6 +322,7 @@
                             </svg>
                             Restart daemon
                         </button>
+                        {/if}
                     </div>
                 </div>
                 {/if}
