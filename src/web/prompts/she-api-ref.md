@@ -65,7 +65,7 @@ she.matter.send(nodeId, endpointId, cluster, cmd, [args]) → Promise<result>
 ### Helpers
 ```
 she.timer(src, target, ms)           Pulse target=1 for ms after src goes truthy
-she.combineBool(srcs[], target)      Publish OR of source values to target
+she.mqtt.or(srcs[], topicOrCb)       Publish 1 if any source truthy, else 0
 she.combineMax(srcs[], target)       Publish maximum of source values to target
 she.link(src, target, [fn])          Alias for she.mqtt.link
 she.age(topic)                       Alias for she.mqtt.age

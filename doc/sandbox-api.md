@@ -219,6 +219,27 @@ she.mqtt.on('disconnect', () => she.warn('broker disconnected'));
 
 ---
 
+### she.mqtt.or(srcs, target)
+
+Publishes `1` to `target` when **any** of the source topics is truthy; publishes `0` otherwise. Evaluates immediately and re-evaluates on every source change.
+
+`target` may be a **topic string** or a **callback function**. When a function, it is called as `callback(topic, val)` — `topic` is the triggering source topic (or `null` on the initial evaluation), and `val` is the computed result.
+
+```js
+// forward to a topic
+she.mqtt.or(
+    ['home/motion/hall', 'home/motion/kitchen', 'home/motion/living'],
+    'home/motion/any'
+);
+
+// callback — cross-namespace sink
+she.mqtt.or(['light/1/on', 'light/2/on'], (topic, val) => {
+    she.matter.send('bulb', 1, 'OnOff', val ? 'on' : 'off');
+});
+```
+
+---
+
 ## Universal key-based API
 
 These methods work across all namespaces (`mqtt::`, `var::`, `matter::`), providing a unified interface regardless of where data lives.
@@ -327,19 +348,6 @@ she.schedule(['dawn', 'dusk'], callback);
 ```
 
 **Available suncalc events:** `sunrise`, `sunriseEnd`, `goldenHourEnd`, `solarNoon`, `goldenHour`, `sunsetStart`, `sunset`, `dusk`, `nauticalDusk`, `night`, `nadir`, `nightEnd`, `nauticalDawn`, `dawn`.
-
----
-
-## she.combineBool(srcs, target)
-
-Publishes `1` to `target` when **any** of the source topics is truthy; publishes `0` otherwise. Evaluates immediately and re-evaluates on every source change.
-
-```js
-she.combineBool(
-    ['home/motion/hall', 'home/motion/kitchen', 'home/motion/living'],
-    'home/motion/any'
-);
-```
 
 ---
 

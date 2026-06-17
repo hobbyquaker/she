@@ -36,25 +36,14 @@ module.exports = function (she) {
         });
     };
 
-    /**
-     * Combine topics through boolean or
-     * @method combineBool
-     * @param {string[]} srcs - array of topics to subscribe
-     * @param {string} targets - topic to publish
-     */
-    she.combineBool = function Sandbox_combineBool(srcs, target) {
-        function combine() {
-            let result = 0;
-            srcs.forEach((src) => {
-                if (she.getValue(src)) {
-                    result = 1;
-                }
-            });
-            she.setValue(target, result);
+    // Route a computed value to a topic string (setValue) or a callback (called as fn(topic, val)).
+    function sink(target, topic, val) {
+        if (typeof target === 'function') {
+            target(topic, val);
+        } else {
+            she.setValue(target, val);
         }
-        combine();
-        she.mqttsub(srcs, { retain: true }, combine);
-    };
+    }
 
     /**
      * Publish maximum of combined topics
@@ -128,6 +117,18 @@ module.exports = function (she) {
         age: (topic) => she.age(topic),
         /** Register a callback for MQTT connection lifecycle events ('connect' or 'disconnect'). */
         on: (event, cb) => she._registerMqttEvent(event, cb),
+        /**
+         * Publish 1 to target when any source is truthy, 0 otherwise.
+         * target may be a topic string or a callback(topic, val).
+         */
+        or: function Sandbox_mqtt_or(srcs, target) {
+            function combine(topic) {
+                const result = srcs.some((src) => she.getValue(src)) ? 1 : 0;
+                sink(target, topic ?? null, result);
+            }
+            combine(null);
+            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
+        },
     };
 
     /**

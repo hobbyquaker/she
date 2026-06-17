@@ -64,36 +64,53 @@ describe('link()', () => {
     });
 });
 
-describe('combineBool()', () => {
+describe('she.mqtt.or()', () => {
     it('publishes 1 when any source is truthy', () => {
         const she = makeShe({ a: { val: 0 }, b: { val: 1 } });
-        she.combineBool(['a', 'b'], 'result');
+        she.mqtt.or(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 1);
     });
 
     it('publishes 0 when all sources are falsy', () => {
         const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
-        she.combineBool(['a', 'b'], 'result');
+        she.mqtt.or(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
     });
 
     it('re-publishes when a subscribed topic changes to truthy', () => {
         const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
-        she.combineBool(['a', 'b'], 'result');
-        // The subscription callback is the third argument to mqttsub
+        she.mqtt.or(['a', 'b'], 'result');
         const cb = she.mqttsub.mock.calls[0][2];
         she._state.a = { val: 1, lc: Date.now() };
-        cb();
+        cb('a');
         expect(she.setValue).toHaveBeenLastCalledWith('result', 1);
     });
 
     it('re-publishes 0 when a subscribed topic changes to falsy', () => {
         const she = makeShe({ a: { val: 1 }, b: { val: 0 } });
-        she.combineBool(['a', 'b'], 'result');
+        she.mqtt.or(['a', 'b'], 'result');
         const cb = she.mqttsub.mock.calls[0][2];
         she._state.a = { val: 0, lc: Date.now() };
-        cb();
+        cb('a');
         expect(she.setValue).toHaveBeenLastCalledWith('result', 0);
+    });
+
+    it('calls callback(null, result) on initial evaluation', () => {
+        const she = makeShe({ a: { val: 1 } });
+        const cb = jest.fn();
+        she.mqtt.or(['a'], cb);
+        expect(cb).toHaveBeenCalledWith(null, 1);
+    });
+
+    it('calls callback(topic, result) when a source changes', () => {
+        const she = makeShe({ a: { val: 0 } });
+        const cb = jest.fn();
+        she.mqtt.or(['a'], cb);
+        cb.mockClear();
+        const subCb = she.mqttsub.mock.calls[0][2];
+        she._state.a = { val: 1 };
+        subCb('a');
+        expect(cb).toHaveBeenCalledWith('a', 1);
     });
 });
 
