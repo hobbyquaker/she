@@ -16,6 +16,8 @@ Your home, your rules - written in plain JavaScript.
 
 ## Quick start
 
+By default she webserver listens on port 8080
+
 **Run manually** (no system service):
 
 ```bash
@@ -35,9 +37,6 @@ sudo systemctl start smart-home-engine
 
 `she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state is kept in `/var/lib/she/`.
 
-> **Tip:** use `journalctl -u smart-home-engine -o cat -f` to follow logs with colours intact.
-
-Then open **http://localhost:8080** and start creating scripts
 
 **Run with Docker:**
 
@@ -46,17 +45,10 @@ docker build -t she .
 docker run -d \
   -p 8080:8080 \
   -v she-data:/var/lib/she \
-  she \
-  --url mqtt://192.168.1.10
+  she
 ```
 
-All state (scripts, config, DB) is kept in the `she-data` volume at `/var/lib/she`. Pass `--url` with your MQTT broker address, or drop a `config.json` into the volume's `config/` subdirectory instead:
-
-```json
-{ "url": "mqtt://192.168.1.10", "latitude": 48.7, "longitude": 9.1 }
-```
-
-Then open **http://localhost:8080** and start creating scripts
+All state is kept in the `she-data` volume at `/var/lib/she`.
 
 ## Docs
 
