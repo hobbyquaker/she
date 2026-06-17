@@ -150,17 +150,27 @@
     let commitAllMsg     = $state('');
     let commitAllBusy    = $state(false);
     let commitAllErr     = $state('');
+    let checkedFiles     = $state<Set<string>>(new Set());
 
     async function commitAllChanges() {
-        if (!commitAllMsg.trim()) return;
+        if (!commitAllMsg.trim() || checkedFiles.size === 0) return;
         commitAllBusy = true;
         commitAllErr  = '';
         try {
-            await commitAll(commitAllMsg.trim());
+            const selected = gitInfo!.changes.filter(c => checkedFiles.has(c.file)).map(c => c.file);
+            if (selected.length === gitInfo!.changes.length) {
+                await commitAll(commitAllMsg.trim());
+            } else {
+                await commitFiles(selected, commitAllMsg.trim());
+            }
             if (gitAutoPush) try { await gitPush(); } catch { /* ignore */ }
             commitAllMsg = '';
-            changesPopupOpen = false;
             await loadGitStatus();
+            if (!gitInfo?.changes.length) {
+                changesPopupOpen = false;
+            } else {
+                checkedFiles = new Set(gitInfo!.changes.map(c => c.file));
+            }
         } catch (e: any) {
             commitAllErr = e.message;
         } finally {
@@ -1241,7 +1251,7 @@ declare const she: {
                             <button
                                 class="git-changes"
                                 title="{gitInfo.changes.length} uncommitted change(s) — click to view"
-                                onclick={() => { changesPopupOpen = !changesPopupOpen; commitAllErr = ''; }}
+                                onclick={() => { if (!changesPopupOpen) checkedFiles = new Set(gitInfo!.changes.map(c => c.file)); changesPopupOpen = !changesPopupOpen; commitAllErr = ''; }}
                             >✎{gitInfo.changes.length}</button>
                             {#if changesPopupOpen}
                             <div class="changes-backdrop" role="presentation" onclick={() => changesPopupOpen = false}></div>
@@ -1250,6 +1260,16 @@ declare const she: {
                                 <ul class="changes-list">
                                     {#each gitInfo.changes as c}
                                         <li class="changes-item">
+                                            <input
+                                                type="checkbox"
+                                                class="changes-check"
+                                                checked={checkedFiles.has(c.file)}
+                                                onchange={() => {
+                                                    const s = new Set(checkedFiles);
+                                                    if (s.has(c.file)) s.delete(c.file); else s.add(c.file);
+                                                    checkedFiles = s;
+                                                }}
+                                            />
                                             <span class="changes-status">{c.status}</span>
                                             <span class="changes-file">{c.file}</span>
                                         </li>
@@ -1266,8 +1286,8 @@ declare const she: {
                                     <button
                                         class="changes-commit-btn"
                                         onclick={commitAllChanges}
-                                        disabled={!commitAllMsg.trim() || commitAllBusy}
-                                    >{commitAllBusy ? '…' : 'Commit all'}</button>
+                                        disabled={!commitAllMsg.trim() || commitAllBusy || checkedFiles.size === 0}
+                                    >{commitAllBusy ? '…' : checkedFiles.size === gitInfo?.changes.length ? 'Commit all' : `Commit ${checkedFiles.size}`}</button>
                                 </div>
                                 {#if commitAllErr}<div class="changes-err">{commitAllErr}</div>{/if}
                             </div>
@@ -1825,6 +1845,7 @@ declare const she: {
         list-style: none; padding: 4px 0; margin: 0; max-height: 180px; overflow-y: auto;
     }
     .changes-item { display: flex; align-items: center; gap: 6px; padding: 3px 10px; }
+    .changes-check { flex-shrink: 0; cursor: pointer; accent-color: var(--accent); }
     .changes-status { font-size: 10px; font-weight: 700; color: var(--fg-warn); flex-shrink: 0; width: 16px; }
     .changes-file { font-size: 11px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .changes-commit-row {
