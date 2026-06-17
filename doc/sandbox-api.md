@@ -219,6 +219,19 @@ she.mqtt.on('disconnect', () => she.warn('broker disconnected'));
 
 ---
 
+### she.mqtt.and(srcs, target)
+
+Publishes `1` to `target` when **all** of the source topics are truthy; publishes `0` otherwise. Evaluates immediately and re-evaluates on every source change.
+
+`target` may be a **topic string** or a **callback function** called as `callback(topic, val)`.
+
+```js
+// only activate if both sensors agree
+she.mqtt.and(['home/presence/ground', 'home/presence/upper'], 'home/presence/all');
+```
+
+---
+
 ### she.mqtt.or(srcs, target)
 
 Publishes `1` to `target` when **any** of the source topics is truthy; publishes `0` otherwise. Evaluates immediately and re-evaluates on every source change.

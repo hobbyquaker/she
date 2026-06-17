@@ -129,6 +129,18 @@ module.exports = function (she) {
             combine(null);
             she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
         },
+        /**
+         * Publish 1 to target when all sources are truthy, 0 otherwise.
+         * target may be a topic string or a callback(topic, val).
+         */
+        and: function Sandbox_mqtt_and(srcs, target) {
+            function combine(topic) {
+                const result = srcs.every((src) => she.getValue(src)) ? 1 : 0;
+                sink(target, topic ?? null, result);
+            }
+            combine(null);
+            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
+        },
     };
 
     /**
