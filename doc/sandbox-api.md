@@ -460,6 +460,30 @@ she.mqtt.set('home/device/response', result.ok);
 
 ---
 
+### she.http.sub(path, callback)
+
+Registers a `POST` endpoint at `/api/<scriptName><path>` that calls `callback` on every incoming request. The endpoint always responds `{ ok: true }` (200) when the callback resolves, or `{ error }` (500) if it throws.
+
+| Param | Type | Description |
+|---|---|---|
+| `path` | `string` | Route path appended to `/api/<scriptName>`, e.g. `'/webhook/doorbell'`. |
+| `callback` | `function` | Called as `callback(body, { params, query, headers })`. |
+
+```js
+// POST /api/myscript/webhook/doorbell
+she.http.sub('/webhook/doorbell', (body) => {
+    she.log('doorbell payload:', body);
+    she.mqtt.pub('home/doorbell', 1);
+});
+
+// async callback is supported
+she.http.sub('/webhook/sensor', async (body) => {
+    await she.mqtt.pub('home/sensor/raw', body);
+});
+```
+
+---
+
 ## she.config
 
 A read-only object exposing daemon configuration values relevant to scripts. Attempting to modify properties throws a `TypeError` (the object is frozen).

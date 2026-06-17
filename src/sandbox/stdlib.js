@@ -171,5 +171,32 @@ module.exports = function (she, ctx = {}) {
                 })
                 .finally(() => clearTimeout(timer));
         },
+        /**
+         * Register a POST webhook endpoint at /api/<scriptName><path>.
+         * The endpoint auto-responds { ok: true } (200) when the callback resolves,
+         * or { error } (500) when it throws. The callback receives:
+         *   callback(body, { params, query, headers })
+         * @param {string} path    - Route path, e.g. '/webhook/mydevice'
+         * @param {function} callback
+         */
+        sub: function Sandbox_http_sub(path, callback) {
+            const { registerRoute } = require('../web/server');
+            const { scriptName } = ctx;
+            if (typeof path !== 'string') throw new TypeError('path must be a string');
+            if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+            const fullPath = '/api/' + (scriptName || 'unknown') + path;
+            registerRoute('post', fullPath, (req, res) => {
+                let result;
+                try {
+                    result = callback(req.body, { params: req.params, query: req.query, headers: req.headers });
+                } catch (err) {
+                    res.status(500).json({ error: err.message });
+                    return;
+                }
+                Promise.resolve(result)
+                    .then(() => res.json({ ok: true }))
+                    .catch((err) => res.status(500).json({ error: err.message }));
+            });
+        },
     };
 };
