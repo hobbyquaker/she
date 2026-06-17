@@ -4,7 +4,7 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## Git Integration
 
-- **per-file commit selection in uncommitted-changes popup** — the popup that lists uncommitted files should show a checkbox next to each file (all checked by default). The user can uncheck files to exclude them from the commit. When multiple files are to be committed, allow entering separate commit messages per file (or per selection group): e.g. a commit-message input per checked file, or a "commit selected" button per row. Enables committing unrelated changes with meaningful, distinct messages in one workflow.
+
 
 ## AI 
 
@@ -24,7 +24,7 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## Scripts Editor
 
-- **running-state indicator** — scripts that are currently active/started should show a small green dot (same style as the red error dot) in the file tree. This gives at-a-glance visibility into which scripts are loaded and running vs. disabled/errored.
+
 
 - **Find & Replace entry point** — add a small **Edit** menu button in the editor toolbar, positioned between the `filename` span and the git-status badges (current layout left-to-right: `filename | [Edit▾] | git-status | Save | Delete | AI`). Clicking it opens a compact dropdown with at minimum: *Find* (`Ctrl+F`) and *Find & Replace* (`Ctrl+H`). Could also include *Go to line* (`Ctrl+G`). Each item calls `editor.getAction('<id>')?.run()` on the Monaco instance. No Monaco context-menu changes; no new route. Frontend-only, ~20 lines + dropdown styling.
 
@@ -48,7 +48,6 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **health check endpoint** — `GET /she/health` returning 200 if the daemon is alive, configured mqtt broker is connected, ..., 503 otherwise. Useful for Docker health checks, nginx upstreams, and monitoring systems.
 
-- **`npm install` async update** — the `POST /she/update` handler uses `spawnSync`, blocking the entire process while npm runs. Switch to async `spawn` and stream output to the client via WebSocket.
 
 ## Security / Robustness
 

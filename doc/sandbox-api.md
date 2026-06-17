@@ -71,7 +71,7 @@ she.mqtt.sub('home/presence', 'val === true', () => {
 
 // delayed execution -- useful for debouncing
 she.mqtt.sub('home/motion/hall', { change: true, shift: 5 }, (topic, val) => {
-    if (!val) she.mqtt.set('home/light/hall', 0);
+    if (!val) she.mqtt.pub('home/light/hall', 0);
 });
 ```
 
@@ -132,17 +132,6 @@ she.mqtt.pub('home/sensor/data', { temp: 21.5, hum: 60 }, { retain: true });
 
 ---
 
-### she.mqtt.set(topic, val)
-
-Convenience wrapper around `pub`. Writes a value to one or more topics.
-
-```js
-she.mqtt.set('home/light/kitchen', 1);
-she.mqtt.set(['home/light/kitchen', 'home/light/hall'], 0);
-```
-
----
-
 ### she.mqtt.get(topic)
 
 Returns the last known value for a topic, or `undefined` if the topic has never been seen.
@@ -197,24 +186,8 @@ Returns the number of **seconds** since the topic's value last changed.
 ```js
 if (she.mqtt.age('home/motion/hall') > 300) {
     she.log('no motion for 5 minutes');
-    she.mqtt.set('home/light/hall', 0);
+    she.mqtt.pub('home/light/hall', 0);
 }
-```
-
----
-
-### she.mqtt.on(event, callback)
-
-Register a callback for MQTT connection lifecycle events.
-
-| `event` | Description |
-|---|---|
-| `'connect'` | Fired when the MQTT connection is established (or re-established). |
-| `'disconnect'` | Fired when the MQTT connection is lost. |
-
-```js
-she.mqtt.on('connect', () => she.log('broker connected'));
-she.mqtt.on('disconnect', () => she.warn('broker disconnected'));
 ```
 
 ---
@@ -309,63 +282,6 @@ she.mqtt.timer('home/motion/hall', 30_000, (topic, val) => {
 
 ---
 
-## Universal key-based API
-
-These methods work across all namespaces (`mqtt::`, `var::`, `matter::`), providing a unified interface regardless of where data lives.
-
-### she.on(key, callback)
-
-Subscribe to value changes for a namespaced key. `mqtt::` and `var::` subscriptions fire immediately with the current value if one exists (retain semantics). `matter::` subscriptions do not fire immediately.
-
-| Namespace | Example key | Description |
-|---|---|---|
-| `mqtt::` | `mqtt::home/sensor/temp` | Subscribes to an MQTT topic |
-| `var::` | `var::myCounter` | Subscribes to a variable |
-| `matter::` | `matter::1/1/onOff/onOff` | Subscribes to a Matter attribute (numeric IDs only) |
-
-Callback receives `(val, obj, prevObj)` for `mqtt::` and `var::` keys. For `matter::` keys the callback receives `(value, oldValue)` — raw attribute values with no state object wrapper. The `matter::` key format is `matter::nodeId/endpointId/clusterName/attrName`; only numeric node ID and endpoint ID are accepted (unlike `she.matter.sub` which also accepts names).
-
-```js
-she.on('mqtt::home/sensor/temp', (val) => she.log('temp:', val));
-she.on('var::nightMode', (val) => she.log('night mode:', val));
-she.on('matter::1/1/onOff/onOff', (val) => she.log('bulb:', val));
-```
-
----
-
-### she.set(key, val)
-
-Write a value to a namespaced key. Supported namespaces: `mqtt::` (publishes) and `var::` (sets variable).
-
-```js
-she.set('mqtt::home/light/hall', 1);
-she.set('var::nightMode', true);
-```
-
----
-
-### she.get(key)
-
-Read the current value for a namespaced key. Returns `undefined` if not set.
-
-```js
-const temp = she.get('mqtt::home/sensor/temp');
-const mode = she.get('var::nightMode');
-```
-
----
-
-### she.getObject(key)
-
-Read the full state object `{ val, ts, lc }` for a namespaced key.
-
-```js
-const state = she.getObject('mqtt::home/sensor/temp');
-// { val: 21.5, ts: 1718000000123, lc: 1718000000123 }
-```
-
----
-
 ## she.now()
 
 Returns the current time in milliseconds since the Unix epoch (equivalent to `Date.now()`).
@@ -401,10 +317,10 @@ she.schedule(new Date(2026, 11, 24, 18, 0, 0), () => she.log('Merry Christmas!')
 she.schedule(['0 8 * * *', '0 20 * * *'], callback);
 
 // raise blinds 27-33 minutes before sunrise
-she.schedule('sunrise', { shift: -1620, random: 360 }, () => she.mqtt.set('home/blinds', 'up'));
+she.schedule('sunrise', { shift: -1620, random: 360 }, () => she.mqtt.pub('home/blinds', 'up'));
 
 // switch outdoor lights on at sunset +/- up to 10 random minutes
-she.schedule('sunset', { random: 600 }, () => she.mqtt.set('home/lights/outdoor', 1));
+she.schedule('sunset', { random: 600 }, () => she.mqtt.pub('home/lights/outdoor', 1));
 
 // fire at both dawn and dusk
 she.schedule(['dawn', 'dusk'], callback);
@@ -455,7 +371,7 @@ const result = await she.http.fetch('https://api.example.com/command', {
 });
 
 // Publish the result to MQTT
-she.mqtt.set('home/device/response', result.ok);
+she.mqtt.pub('home/device/response', result.ok);
 ```
 
 ---
@@ -500,7 +416,7 @@ she.info('location:', she.config.latitude, she.config.longitude);
 const weather = await she.http.fetch(
     `https://api.open-meteo.com/v1/forecast?latitude=${she.config.latitude}&longitude=${she.config.longitude}&current_weather=true`
 );
-she.mqtt.set('home/weather/temperature', weather.current_weather.temperature);
+she.mqtt.pub('home/weather/temperature', weather.current_weather.temperature);
 ```
 
 ---

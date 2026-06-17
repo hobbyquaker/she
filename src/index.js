@@ -898,32 +898,6 @@ function runScript(script, name, _origin) {
         },
 
         /**
-         * Universal read by namespaced key.
-         * @method get
-         * @param {string} key  Namespaced key, e.g. 'mqtt::home/sensor/temp' or 'var::myVar'
-         * @returns {*} current value, or undefined
-         */
-        get: function Sandbox_she_get(key) {
-            if (key.startsWith('var::')) {
-                return store.get('var::' + key.slice(5));
-            }
-            return store.get(key);
-        },
-
-        /**
-         * Universal read (full state object) by namespaced key.
-         * @method getObject
-         * @param {string} key
-         * @returns {{ val:*, ts:number, lc:number } | undefined}
-         */
-        getObject: function Sandbox_she_getObject(key) {
-            if (key.startsWith('var::')) {
-                return store.getObject('var::' + key.slice(5));
-            }
-            return store.getObject(key);
-        },
-
-        /**
          * Universal subscribe by namespaced key.
          * Callback receives (val, obj, prevObj).
          * @method on
@@ -958,34 +932,6 @@ function runScript(script, name, _origin) {
             } else {
                 throw new TypeError('she.on: unknown namespace in key: ' + key);
             }
-        },
-
-        /**
-         * Universal write by namespaced key.
-         * @method set
-         * @param {string} key  Namespaced key: 'mqtt::topic', 'var::name'
-         * @param {*} val
-         */
-        set: function Sandbox_she_set(key, val) {
-            if (typeof key !== 'string') throw new TypeError('she.set: key must be a string');
-
-            if (key.startsWith('mqtt::')) {
-                she.mqttpub(key.slice(6), val);
-            } else if (key.startsWith('var::')) {
-                setVariable(key.slice(5), val);
-            } else if (key.startsWith('matter::')) {
-                throw new Error('she.set: matter:: write not yet implemented');
-            } else {
-                throw new TypeError('she.set: unknown namespace in key: ' + key);
-            }
-        },
-
-        /** @internal Register a callback for MQTT connection lifecycle events. */
-        _registerMqttEvent: function Sandbox_she_registerMqttEvent(event, callback) {
-            if (event !== 'connect' && event !== 'disconnect') {
-                throw new TypeError('she.mqtt.on: unknown event "' + event + '" â€” use "connect" or "disconnect"');
-            }
-            mqttEventCallbacks.push({ event, callback: scriptDomain.bind(callback), _script: name });
         },
     };
 

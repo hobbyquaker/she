@@ -37,17 +37,9 @@ Scripts run in a VM sandbox and receive a `she` object:
 - `she.mqtt.sub(topic, [options], callback)` — subscribe
 - `she.mqtt.pub(topic, payload, [options])` — publish
 - `she.mqtt.get(topic)` → current value
-- `she.mqtt.set(topic, val)` — publish retained value
 - `she.mqtt.link(src, target, [transform])` — forward value changes
 - `she.mqtt.getProp(topic, ...props)` — read state property (`val`, `ts`, `lc`)
 - `she.mqtt.age(topic)` → seconds since last change
-- `she.mqtt.on('connect'|'disconnect', cb)` — lifecycle events
-
-### Universal key-based API
-- `she.on(key, callback)` — subscribe; key namespaces: `mqtt::`, `var::`, `matter::`
-- `she.set(key, val)` — write; supports `mqtt::` and `var::` namespaces
-- `she.get(key)` → current value (any namespace)
-- `she.getObject(key)` → `{ val, ts, lc }` state object
 
 ### Scheduling
 - `she.schedule(pattern, [options], callback)` — cron string, Date, or suncalc event name (e.g. `'sunrise'`, `'sunset'`); options: `shift` (seconds offset), `random` (random delay in seconds)

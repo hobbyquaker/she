@@ -226,11 +226,9 @@ declare const she: {
         sub(topic: string | string[], opts?: any, cb?: (topic: string, val: any, obj: any, prev: any, msg: any) => void): void;
         pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean }): void;
         get(topic: string): any;
-        set(topic: string | string[], val: any): void;
         getProp(topic: string, ...prop: string[]): any;
         link(source: string | string[], target: string | string[], value?: any): void;
         age(topic: string): number;
-        on(event: 'connect' | 'disconnect', cb: () => void): void;
         or(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
         and(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
         max(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;

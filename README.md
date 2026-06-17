@@ -1,8 +1,5 @@
 ﻿# she - smart home engine
 
-> [!WARNING]
-> **This project is under heavy development.** The API is changing frequently and there are no stability guarantees yet.
-
 Your home, your rules - written in plain JavaScript.
 
 **she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl, no opinionated bloated schemata. Just scripts that do exactly what you (if you want: with the help of the integrated AI assisstant) tell them.

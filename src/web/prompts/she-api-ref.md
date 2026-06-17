@@ -13,10 +13,8 @@ she.mqtt.sub(topic, [opts], cb)        Subscribe; wildcards: + (1 level) # (mult
                                          opts.change: true = only fire when value changes
 she.mqtt.pub(topic, payload, [opts])   Publish; opts: { qos, retain }
 she.mqtt.get(topic)                    Current retained value (sync)
-she.mqtt.set(topic, val)               Publish as retained
 she.mqtt.link(src, target, [fn])       Forward src changes to target; optional transform
 she.mqtt.age(topic)                    Seconds since topic last received a message
-she.mqtt.on('connect'|'disconnect', cb) MQTT lifecycle events
 ```
 
 ### Scheduling
@@ -27,14 +25,6 @@ she.schedule(pattern, [opts], cb)
                   'nauticalDawn' 'nauticalDusk' 'solarNoon' 'night'
   opts.shift:  seconds offset (e.g. -1800 = 30 min before event)
   opts.random: max random delay in seconds added to the trigger time
-```
-
-### Universal key-value API
-```
-she.on(key, cb)        Subscribe. Key prefixes: mqtt::  var::  matter::
-she.set(key, val)      Set value (mqtt:: or var:: namespaces)
-she.get(key)           Current value
-she.getObject(key)     Current { val, ts, lc } state object
 ```
 
 ### Variable system (var:: namespace)

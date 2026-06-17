@@ -6,7 +6,7 @@
 she.mqtt.sub('home/remote/button1', { change: true }, (topic, val) => {
     if (val) {
         const current = she.mqtt.get('home/light/kitchen');
-        she.mqtt.set('home/light/kitchen', current ? 0 : 1);
+        she.mqtt.pub('home/light/kitchen', current ? 0 : 1);
     }
 });
 ```
@@ -27,9 +27,9 @@ she.mqtt.link('hm//RC4:4/PRESS_SHORT', 'hue//lights/Hobbyraum/ct', 500);
 
 she.mqtt.sub('hm//RC4:2/PRESS_CONT', () => {
     if (!she.mqtt.get('hue//lights/Hobbyraum')) {
-        she.mqtt.set('hue//lights/Hobbyraum', 1);
+        she.mqtt.pub('hue//lights/Hobbyraum', 1);
     } else {
-        she.mqtt.set('hue//lights/Hobbyraum/bri_inc', 16);
+        she.mqtt.pub('hue//lights/Hobbyraum/bri_inc', 16);
     }
 });
 ```
@@ -41,14 +41,14 @@ she.mqtt.sub('hm//RC4:2/PRESS_CONT', () => {
 ```js
 // Turn on immediately when motion is detected
 she.mqtt.sub('home/motion/hall', { change: true }, (topic, val) => {
-    if (val) she.mqtt.set('home/light/hall', 1);
+    if (val) she.mqtt.pub('home/light/hall', 1);
 });
 
 // Turn off 5 minutes after motion stops
 she.mqtt.sub('home/motion/hall', { change: true, condition: 'val === false', shift: 300 }, () => {
     // only switch off if motion is still absent
     if (!she.mqtt.get('home/motion/hall')) {
-        she.mqtt.set('home/light/hall', 0);
+        she.mqtt.pub('home/light/hall', 0);
     }
 });
 ```
@@ -66,12 +66,12 @@ she.timer('home/motion/hall', 'home/light/hall', 5 * 60 * 1000);
 ```js
 // Open blinds 15 minutes after sunrise
 she.sunSchedule('sunrise', { shift: 900 }, () => {
-    she.mqtt.set('home/blinds/living', 'up');
+    she.mqtt.pub('home/blinds/living', 'up');
 });
 
 // Close blinds at sunset, ± random 10 minutes
 she.sunSchedule('sunset', { random: 600 }, () => {
-    she.mqtt.set('home/blinds/living', 'down');
+    she.mqtt.pub('home/blinds/living', 'down');
 });
 ```
 
@@ -82,14 +82,14 @@ she.sunSchedule('sunset', { random: 600 }, () => {
 ```js
 // Wake-up routine Monday–Friday at 07:00
 she.schedule('0 7 * * 1-5', () => {
-    she.mqtt.set('home/light/bedroom', 50);
+    she.mqtt.pub('home/light/bedroom', 50);
     she.mqtt.pub('home/radio', 'on');
 });
 
 // Goodnight at 23:30 every day
 she.schedule('30 23 * * *', () => {
-    she.mqtt.set('home/lights/all', 0);
-    she.mqtt.set('home/alarm/mode', 'night');
+    she.mqtt.pub('home/lights/all', 0);
+    she.mqtt.pub('home/alarm/mode', 'night');
 });
 ```
 
@@ -103,7 +103,7 @@ const HOME_TEMP = 21;
 
 she.mqtt.sub('home/presence', { change: true }, (topic, val) => {
     const target = val ? HOME_TEMP : AWAY_TEMP;
-    she.mqtt.set('home/thermostat/setpoint', target);
+    she.mqtt.pub('home/thermostat/setpoint', target);
     she.log('presence changed — thermostat set to', target);
 });
 ```

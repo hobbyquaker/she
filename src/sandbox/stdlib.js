@@ -32,8 +32,6 @@ module.exports = function (she, ctx = {}) {
         pub: (...args) => she.mqttpub(...args),
         /** Get the last-known value for a topic. */
         get: (topic) => she.getValue(topic),
-        /** Set a value on one or more topics. */
-        set: (topic, val) => she.setValue(topic, val),
         /** Get a specific property from a topic's state object. */
         getProp: (...args) => she.getProp(...args),
         /** Forward value changes from source topic(s) to target topic(s). */
@@ -51,8 +49,6 @@ module.exports = function (she, ctx = {}) {
         age: function Sandbox_mqtt_age(topic) {
             return Math.round((new Date().getTime() - she.getProp(topic, 'lc')) / 1000);
         },
-        /** Register a callback for MQTT connection lifecycle events ('connect' or 'disconnect'). */
-        on: (event, cb) => she._registerMqttEvent(event, cb),
         /**
          * Publish 1 to target when any source is truthy, 0 otherwise.
          * target may be a topic string or a callback(topic, val).
