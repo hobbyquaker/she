@@ -2,10 +2,23 @@
 
 ## Prerequisites
 
-- Node.js >= 20
+- Node.js >= 20 **or** Docker
 - An MQTT broker (e.g. [Mosquitto](https://mosquitto.org/)) — optional; she also works without MQTT if you only use Matter or sheDB
 
 ## Installation
+
+### Docker (recommended)
+
+```bash
+docker build -t she https://github.com/hobbyquaker/she.git
+docker run -d \
+  --name she \
+  -p 8080:8080 \
+  -v she-data:/var/lib/she \
+  she
+```
+
+All state (scripts, database, config) is stored in the `she-data` volume. Open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL (e.g. `mqtt://192.168.1.10`). Hit **Save** — she will connect to the broker and start loading scripts.
 
 ### Run manually
 
@@ -14,7 +27,7 @@ npm install -g smart-home-engine
 she
 ```
 
-Open **http://localhost:8080**, go to the **Config** tab, and set your MQTT broker URL and any other settings. Everything is configurable from the web UI — no config file editing needed.
+Open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL. Hit **Save** — no config file editing needed.
 
 ### Install as a systemd service (Linux)
 
@@ -24,7 +37,7 @@ sudo she --install
 sudo systemctl start smart-home-engine
 ```
 
-`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state (scripts, database, config) is kept in `/home/she/.she/`. Once the service is running, open **http://localhost:8080** to configure it via the web UI.
+`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL.
 
 ## Web UI
 
