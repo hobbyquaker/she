@@ -14,42 +14,6 @@ Your home, your rules - written in plain JavaScript.
 - Supports **InfluxDB**, **Elasticsearch** and **Redis** — convenience methods for time series, full text indexing, shared states across multiple she instances
 - **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer
 
-## Quick start
-
-By default she webserver listens on port 8080
-
-### Run manually
-
-```bash
-npm install -g smart-home-engine
-she
-```
-
-All state is kept in `~/.she`
-
-### Install as a systemd service
-
-```bash
-sudo npm install -g smart-home-engine
-sudo she --install
-sudo systemctl start smart-home-engine
-```
-
-`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state is kept in `/var/lib/she/`.
-
-
-### Run with Docker
-
-```bash
-docker build -t she .
-docker run -d \
-  -p 8080:8080 \
-  -v she-data:/var/lib/she \
-  she
-```
-
-All state is kept in the `she-data` volume at `/var/lib/she`.
-
 ## Docs
 
 | | |
