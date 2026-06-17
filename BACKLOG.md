@@ -4,21 +4,13 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## Git Integration
 
-- **propagate M markers to parent directories** — done (v0.28.0)
-
-- **clickable uncommitted-changes indicator** — done (v0.28.0)
-
-- **git history: rename tracking** — done (v0.28.0)
+- **per-file commit selection in uncommitted-changes popup** — the popup that lists uncommitted files should show a checkbox next to each file (all checked by default). The user can uncheck files to exclude them from the commit. When multiple files are to be committed, allow entering separate commit messages per file (or per selection group): e.g. a commit-message input per checked file, or a "commit selected" button per row. Enables committing unrelated changes with meaningful, distinct messages in one workflow.
 
 ## AI 
 
 - **AI-generated auto-commit messages** — when auto-commit is enabled and a script is saved (or renamed/deleted), instead of the generic `"update <path>"` message, ask the configured AI to generate a meaningful commit message based on the diff (`git diff --cached`). Should be best-effort: fall back to the generic message if the AI call fails or times out. Needs a budget-conscious prompt (diff only, no extra context) and a short timeout so saves don't feel sluggish.
 
-- **context window usage indicator** — done (v0.28.0, Ollama only)
-
 ## Script Engine
-
-- **configurable timezone** — done (v0.28.0)
 
 - **per-script resource limits** — detect callbacks that take too long, log a warning
 
@@ -32,6 +24,8 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## Scripts Editor
 
+- **running-state indicator** — scripts that are currently active/started should show a small green dot (same style as the red error dot) in the file tree. This gives at-a-glance visibility into which scripts are loaded and running vs. disabled/errored.
+
 - **Find & Replace entry point** — add a small **Edit** menu button in the editor toolbar, positioned between the `filename` span and the git-status badges (current layout left-to-right: `filename | [Edit▾] | git-status | Save | Delete | AI`). Clicking it opens a compact dropdown with at minimum: *Find* (`Ctrl+F`) and *Find & Replace* (`Ctrl+H`). Could also include *Go to line* (`Ctrl+G`). Each item calls `editor.getAction('<id>')?.run()` on the Monaco instance. No Monaco context-menu changes; no new route. Frontend-only, ~20 lines + dropdown styling.
 
 - **Format with Prettier** — `POST /she/scripts/format` backend route that runs Prettier server-side (already a root devDependency, not bundled to browser); frontend adds a toolbar button that calls the endpoint and replaces the editor content with the formatted result. Full spec in VS Code prompt `she-editor-improvements`.
@@ -40,17 +34,11 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 ## MQTT
 
-- **configurable MQTT protocol version** — done (v0.28.0)
-
 - **per-topic value history** — the MQTT tab shows current state only. A configurable ring buffer (e.g. last 20 values with timestamps) per topic would be useful for debugging value changes over time.
 
 ## sheDB
 
 
-
-## Sandbox API
-
-- **`she.http` webhook input** — `she.http.sub('/webhook/mydevice', callback)` that auto-registers a POST endpoint and calls the callback on each request, closing a common "receive a webhook and trigger logic" pattern.
 
 ## Secrets
 
