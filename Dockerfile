@@ -1,18 +1,33 @@
-FROM node as jsbuilder
+FROM node:24-slim AS builder
 
-COPY . /app
 WORKDIR /app
 
-RUN npm install
+# install all dependencies (including devDeps for the web build)
+COPY package*.json ./
+RUN npm ci
+
+COPY web/package*.json ./web/
+RUN cd web && npm ci
+
+COPY . .
+RUN npm run build:web
+
+# strip dev deps
+RUN npm ci --omit=dev
 
 # ---------------------------------------------------------
 
-FROM node:slim
-
-COPY --from=jsbuilder /app /app
+FROM node:24-slim
 
 WORKDIR /app
 
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/dist ./dist
+
 ENV SHE_DATA_DIR=/var/lib/she
+VOLUME /var/lib/she
+
 EXPOSE 8080
-ENTRYPOINT [ "node", "src/index.js" ]
+ENTRYPOINT ["node", "src/index.js"]

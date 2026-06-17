@@ -1,4 +1,6 @@
 /node_modules
+/web/node_modules
+/dist
 /doc
 /testscripts*
 /.nyc_output
