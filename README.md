@@ -18,7 +18,7 @@ Your home, your rules - written in plain JavaScript.
 
 By default she webserver listens on port 8080
 
-**Run manually** (no system service):
+### Run manually
 
 ```bash
 npm install -g smart-home-engine
@@ -27,7 +27,7 @@ she
 
 All state is kept in `~/.she`
 
-**Install as a systemd service** (Debian/Ubuntu/Raspberry Pi OS):
+### Install as a systemd service
 
 ```bash
 sudo npm install -g smart-home-engine
@@ -38,7 +38,7 @@ sudo systemctl start smart-home-engine
 `she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state is kept in `/var/lib/she/`.
 
 
-**Run with Docker:**
+### Run with Docker
 
 ```bash
 docker build -t she .
