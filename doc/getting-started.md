@@ -15,7 +15,7 @@ sudo she --install
 sudo systemctl start smart-home-engine
 ```
 
-`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL.
+`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**
 
 ### Docker 
 
@@ -28,7 +28,7 @@ docker run -d \
   she
 ```
 
-All state (scripts, database, config) is stored in the `she-data` volume. Open **http://localhost:8080**, go to the **Config** tab, and enter your MQTT broker URL (e.g. `mqtt://192.168.1.10`). Hit **Save** — she will connect to the broker and start loading scripts.
+All state (scripts, database, config) is stored in the `she-data` volume. Open **http://localhost:8080**
 
 ## Web UI
 
