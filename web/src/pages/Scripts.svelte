@@ -210,9 +210,6 @@ declare const she: {
      *  or a suncalc event name ('sunrise', 'sunset', 'dawn', 'dusk', …) for solar scheduling.
      *  opts.shift (seconds) offsets solar events; opts.random adds a random delay. */
     schedule(pattern: string | Date | object | (string | Date | object)[], opts?: { shift?: number; random?: number }, cb?: () => void): void;
-    combineBool(srcs: string[], target: string): void;
-    combineMax(srcs: string[], target: string): void;
-    timer(src: string | string[], target: string, time: number): void;
     mqtt: {
         sub(topic: string | string[], opts?: any, cb?: (topic: string, val: any, obj: any, prev: any, msg: any) => void): void;
         pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean }): void;
@@ -221,6 +218,16 @@ declare const she: {
         getProp(topic: string, ...prop: string[]): any;
         link(source: string | string[], target: string | string[], value?: any): void;
         age(topic: string): number;
+        on(event: 'connect' | 'disconnect', cb: () => void): void;
+        or(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
+        and(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
+        max(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
+        min(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
+        timer(src: string | string[], ms: number, target: string | ((topic: string | null, val: 0 | 1) => void)): void;
+    };
+    http: {
+        fetch(url: string, opts?: RequestInit): Promise<any>;
+        sub(path: string, callback: (body: any, req: { params: any; query: any; headers: any }) => any): void;
     };
     api: {
         get(path: string, handler: (req: any) => any): void;

@@ -171,9 +171,9 @@ type CompletionCtx =
  */
 function detectContext(lineUpToCursor: string): CompletionCtx {
     // ── MQTT ──────────────────────────────────────────────────────────────────
-    // she.mqtt.(sub|pub|get|set|link|age|getProp|set)( '...'
-    // Also top-level helpers: she.link, she.age, she.getValue, she.setValue
-    const mqttRe = /(?:she\.mqtt\.(?:sub|pub|get|set|link|age|getProp)|she\.(?:link|age|getValue|setValue|getProp|combineBool|combineMax|timer))\s*\([^)]*?['"]([^'"]*)\s*$/;
+    // she.mqtt.(sub|pub|get|set|link|age|getProp|or|and|max|min|timer)( '...
+    // Also legacy top-level: she.getValue, she.setValue, she.getProp
+    const mqttRe = /(?:she\.mqtt\.(?:sub|pub|get|set|link|age|getProp|or|and|max|min|timer)|she\.(?:getValue|setValue|getProp))\s*\([^)]*?['"]([^'"]*)\s*$/;
     const mqttM = lineUpToCursor.match(mqttRe);
     if (mqttM) return { type: 'mqtt', prefix: mqttM[1] };
 
