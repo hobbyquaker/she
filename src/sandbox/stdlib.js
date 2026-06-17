@@ -136,6 +136,19 @@ module.exports = function (she) {
             combine(null);
             she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
         },
+        /**
+         * Publish the minimum of all source values to target.
+         * target may be a topic string or a callback(topic, val).
+         */
+        min: function Sandbox_mqtt_min(srcs, target) {
+            function combine(topic) {
+                const values = srcs.map((src) => she.getValue(src)).filter((v) => v !== undefined && v !== null);
+                const result = values.length ? Math.min(...values) : 0;
+                sink(target, topic ?? null, result);
+            }
+            combine(null);
+            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
+        },
     };
 
     /**

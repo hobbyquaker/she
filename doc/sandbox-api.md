@@ -268,6 +268,21 @@ she.mqtt.max(
 
 ---
 
+### she.mqtt.min(srcs, target)
+
+Publishes the minimum value across all source topics to `target`. Evaluates immediately and re-evaluates on every source change. Returns `0` if no sources have a value yet.
+
+`target` may be a **topic string** or a **callback function** called as `callback(topic, val)`.
+
+```js
+she.mqtt.min(
+    ['home/light/1/brightness', 'home/light/2/brightness'],
+    'home/light/min-brightness'
+);
+```
+
+---
+
 ## Universal key-based API
 
 These methods work across all namespaces (`mqtt::`, `var::`, `matter::`), providing a unified interface regardless of where data lives.

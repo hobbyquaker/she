@@ -224,3 +224,37 @@ describe('she.mqtt.max()', () => {
         expect(cb).toHaveBeenCalledWith('a', 10);
     });
 });
+
+describe('she.mqtt.min()', () => {
+    it('publishes the minimum value across sources', () => {
+        const she = makeShe({ a: { val: 3 }, b: { val: 7 }, c: { val: 1 } });
+        she.mqtt.min(['a', 'b', 'c'], 'result');
+        expect(she.setValue).toHaveBeenCalledWith('result', 1);
+    });
+
+    it('publishes 0 when all sources are undefined', () => {
+        const she = makeShe({});
+        she.mqtt.min(['a', 'b'], 'result');
+        expect(she.setValue).toHaveBeenCalledWith('result', 0);
+    });
+
+    it('re-publishes the new minimum when a source decreases', () => {
+        const she = makeShe({ a: { val: 3 }, b: { val: 7 } });
+        she.mqtt.min(['a', 'b'], 'result');
+        const cb = she.mqttsub.mock.calls[0][2];
+        she._state.b = { val: 1 };
+        cb('b');
+        expect(she.setValue).toHaveBeenLastCalledWith('result', 1);
+    });
+
+    it('calls callback(topic, result) when a source changes', () => {
+        const she = makeShe({ a: { val: 5 }, b: { val: 8 } });
+        const cb = jest.fn();
+        she.mqtt.min(['a', 'b'], cb);
+        cb.mockClear();
+        const subCb = she.mqttsub.mock.calls[0][2];
+        she._state.a = { val: 2 };
+        subCb('a');
+        expect(cb).toHaveBeenCalledWith('a', 2);
+    });
+});
