@@ -182,34 +182,45 @@ describe('she.mqtt.or()', () => {
     });
 });
 
-describe('combineMax()', () => {
+describe('she.mqtt.max()', () => {
     it('publishes the maximum value across sources', () => {
         const she = makeShe({ a: { val: 3 }, b: { val: 7 }, c: { val: 2 } });
-        she.combineMax(['a', 'b', 'c'], 'result');
+        she.mqtt.max(['a', 'b', 'c'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 7);
     });
 
     it('publishes 0 when all sources are 0', () => {
         const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
-        she.combineMax(['a', 'b'], 'result');
+        she.mqtt.max(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
     });
 
     it('re-publishes when a subscribed topic changes to a new maximum', () => {
         const she = makeShe({ a: { val: 3 }, b: { val: 7 } });
-        she.combineMax(['a', 'b'], 'result');
+        she.mqtt.max(['a', 'b'], 'result');
         const cb = she.mqttsub.mock.calls[0][2];
         she._state.a = { val: 10, lc: Date.now() };
-        cb();
+        cb('a');
         expect(she.setValue).toHaveBeenLastCalledWith('result', 10);
     });
 
     it('re-publishes the remaining max when a top value decreases', () => {
         const she = makeShe({ a: { val: 10 }, b: { val: 7 } });
-        she.combineMax(['a', 'b'], 'result');
+        she.mqtt.max(['a', 'b'], 'result');
         const cb = she.mqttsub.mock.calls[0][2];
         she._state.a = { val: 2, lc: Date.now() };
-        cb();
+        cb('a');
         expect(she.setValue).toHaveBeenLastCalledWith('result', 7);
+    });
+
+    it('calls callback(topic, result) when a source changes', () => {
+        const she = makeShe({ a: { val: 3 }, b: { val: 7 } });
+        const cb = jest.fn();
+        she.mqtt.max(['a', 'b'], cb);
+        cb.mockClear();
+        const subCb = she.mqttsub.mock.calls[0][2];
+        she._state.a = { val: 10 };
+        subCb('a');
+        expect(cb).toHaveBeenCalledWith('a', 10);
     });
 });

@@ -67,7 +67,8 @@ she.matter.send(nodeId, endpointId, cluster, cmd, [args]) → Promise<result>
 she.timer(src, target, ms)           Pulse target=1 for ms after src goes truthy
 she.mqtt.or(srcs[], topicOrCb)       Publish 1 if any source truthy, else 0
 she.mqtt.and(srcs[], topicOrCb)      Publish 1 if all sources truthy, else 0
-she.combineMax(srcs[], target)       Publish maximum of source values to target
+she.mqtt.max(srcs[], topicOrCb)      Publish maximum of source values
+                                         topicOrCb: topic string or callback(topic, val)
 she.link(src, target, [fn])          Alias for she.mqtt.link
 she.age(topic)                       Alias for she.mqtt.age
 she.now()                            Current timestamp in ms

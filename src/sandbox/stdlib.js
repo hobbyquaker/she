@@ -45,27 +45,6 @@ module.exports = function (she) {
         }
     }
 
-    /**
-     * Publish maximum of combined topics
-     * @method combineMax
-     * @param {string[]} srcs - array of topics to subscribe
-     * @param {string} targets - topic to publish
-     */
-    she.combineMax = function (srcs, target) {
-        function combine() {
-            let result = 0;
-            srcs.forEach((src) => {
-                const srcVal = she.getValue(src);
-                if (srcVal > result) {
-                    result = srcVal;
-                }
-            });
-            she.setValue(target, result);
-        }
-        combine();
-        she.mqttsub(srcs, { retain: true }, combine);
-    };
-
     const timeouts = {};
     /**
      * Publishes 1 on target for specific time after src changed to true
@@ -97,7 +76,7 @@ module.exports = function (she) {
     };
 
     /**
-     * Namespaced MQTT API — the primary way to interact with MQTT from scripts.
+     * Namespaced MQTT API - the primary way to interact with MQTT from scripts.
      * @namespace she.mqtt
      */
     she.mqtt = {
@@ -141,6 +120,22 @@ module.exports = function (she) {
             combine(null);
             she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
         },
+        /**
+         * Publish the maximum of all source values to target.
+         * target may be a topic string or a callback(topic, val).
+         */
+        max: function Sandbox_mqtt_max(srcs, target) {
+            function combine(topic) {
+                let result = 0;
+                srcs.forEach((src) => {
+                    const v = she.getValue(src);
+                    if (v > result) result = v;
+                });
+                sink(target, topic ?? null, result);
+            }
+            combine(null);
+            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
+        },
     };
 
     /**
@@ -161,10 +156,12 @@ module.exports = function (she) {
             signal = ac.signal;
             timer = setTimeout(() => ac.abort(new Error(`she.fetch timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS);
         }
-        return fetch(url, { ...options, signal }).then((r) => {
-            if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-            const ct = r.headers.get('content-type') || '';
-            return ct.includes('json') ? r.json() : r.text();
-        }).finally(() => clearTimeout(timer));
+        return fetch(url, { ...options, signal })
+            .then((r) => {
+                if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+                const ct = r.headers.get('content-type') || '';
+                return ct.includes('json') ? r.json() : r.text();
+            })
+            .finally(() => clearTimeout(timer));
     };
 };

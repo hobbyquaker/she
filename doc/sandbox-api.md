@@ -253,6 +253,21 @@ she.mqtt.or(['light/1/on', 'light/2/on'], (topic, val) => {
 
 ---
 
+### she.mqtt.max(srcs, target)
+
+Publishes the maximum value across all source topics to `target`. Evaluates immediately and re-evaluates on every source change.
+
+`target` may be a **topic string** or a **callback function** called as `callback(topic, val)`.
+
+```js
+she.mqtt.max(
+    ['home/light/1/brightness', 'home/light/2/brightness'],
+    'home/light/max-brightness'
+);
+```
+
+---
+
 ## Universal key-based API
 
 These methods work across all namespaces (`mqtt::`, `var::`, `matter::`), providing a unified interface regardless of where data lives.
@@ -361,19 +376,6 @@ she.schedule(['dawn', 'dusk'], callback);
 ```
 
 **Available suncalc events:** `sunrise`, `sunriseEnd`, `goldenHourEnd`, `solarNoon`, `goldenHour`, `sunsetStart`, `sunset`, `dusk`, `nauticalDusk`, `night`, `nadir`, `nightEnd`, `nauticalDawn`, `dawn`.
-
----
-
-## she.combineMax(srcs, target)
-
-Publishes the maximum value across all source topics to `target`. Evaluates immediately and re-evaluates on every source change.
-
-```js
-she.combineMax(
-    ['home/light/1/brightness', 'home/light/2/brightness'],
-    'home/light/max-brightness'
-);
-```
 
 ---
 
