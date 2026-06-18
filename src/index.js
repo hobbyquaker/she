@@ -381,16 +381,15 @@ if (config.url) {
             mqtt.publish(config.name + '/she-sentinel', _sentinelValue, { retain: false });
             log.debug('mqtt: waiting for retained-state sentinel');
             broadcast({ type: 'mqtt:status', ready: false, connected: true });
-        } else {
-            // Reconnect after a previous disconnect: scripts are already running.
-            broadcast({ type: 'mqtt:status', ready: true, connected: true });
-        }
 
             // Fallback: if sentinel never arrives (e.g. abnormal broker behaviour)
             _sentinelTimeout = setTimeout(() => {
                 log.warn('mqtt sentinel timeout — starting scripts without full retained state');
                 startOnce();
             }, _SENTINEL_TIMEOUT_MS);
+        } else {
+            // Reconnect after a previous disconnect: scripts are already running.
+            broadcast({ type: 'mqtt:status', ready: true, connected: true });
         }
     });
 
