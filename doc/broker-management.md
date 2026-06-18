@@ -78,7 +78,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
     "ssh": {
       "host": "192.168.1.10",
       "port": 22,
-      "user": "she",
+      "user": "root",
       "identityFile": "~/.she/ssh/broker_id_ed25519"
     }
   }
@@ -98,7 +98,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
 | `caCertsDir` | `~/.she/broker/ca-certs` | Directory of trusted CA certs for client auth (`capath`) |
 | `ssh.host` | — | Broker host (remote mode only) |
 | `ssh.port` | `22` | SSH port |
-| `ssh.user` | `she` | SSH login user |
+| `ssh.user` | current OS user | SSH login user |
 | `ssh.identityFile` | `<data-dir>/ssh/broker_id_ed25519` | Path to SSH private key |
 
 ---

@@ -37,7 +37,6 @@
             const broker = (fullConfig.broker ?? {}) as Record<string, unknown>;
             cfg = (broker.ssh ?? {}) as SshConfig;
             if (!cfg.port) cfg.port = 22;
-            if (!cfg.user) cfg.user = 'she';
             if (!cfg.identityFile) cfg.identityFile = sshKeyDefault;
         } catch (e: any) {
             loadError = e.message;
@@ -120,7 +119,7 @@
             </label>
             <label>
                 SSH user
-                <input bind:value={cfg.user} />
+                <input bind:value={cfg.user} placeholder="root" />
             </label>
             <label>
                 Identity file (private key)

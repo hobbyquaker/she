@@ -50,7 +50,8 @@ function scpArgs(sshConfig) {
 }
 
 function sshTarget(sshConfig) {
-    return `${sshConfig.user || 'she'}@${sshConfig.host}`;
+    const user = sshConfig.user || os.userInfo().username;
+    return `${user}@${sshConfig.host}`;
 }
 
 /**
