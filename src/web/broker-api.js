@@ -190,8 +190,7 @@ router.post('/config/restore', (req, res) => {
 router.post('/reload', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
-        if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
-            const cmd = bc.reloadCmd || 'sudo systemctl reload mosquitto';
+        if (bc.ssh && bc.ssh.host) {
             const result = await sshDeploy.runCommand(bc.ssh, cmd);
             return res.json({ ok: true, ...result });
         }
@@ -210,8 +209,7 @@ router.post('/reload', async (req, res) => {
 router.post('/restart', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
-        if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
-            const cmd = bc.restartCmd || 'sudo systemctl restart mosquitto';
+        if (bc.ssh && bc.ssh.host) {
             const result = await sshDeploy.runCommand(bc.ssh, cmd);
             return res.json({ ok: true, ...result });
         }
@@ -723,7 +721,7 @@ router.post('/wizard/bootstrap', async (req, res) => {
         const username = req.body.adminUsername || 'she-admin';
         const password = req.body.adminPassword || crypto.randomBytes(18).toString('base64url');
         const configDir = (req.body.configDir || bc.configDir || '/etc/mosquitto').replace(/\\/g, '/');
-        const isRemote = bc.mode === 'remote' && bc.ssh && bc.ssh.host;
+        const isRemote = !!(bc.ssh && bc.ssh.host);
 
         const dynSecPath = `${configDir}/dynamic-security.json`;
         const confFilePath = `${configDir}/mosquitto.conf`;

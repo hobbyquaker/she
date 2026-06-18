@@ -22,10 +22,12 @@ Two subsystems handle different concerns:
 
 ### Deployment modes
 
+Remote mode is activated automatically when `broker.ssh.host` is set. No separate `mode` field is needed.
+
 | Mode | Config files | Users/ACLs |
 |------|-------------|------------|
-| **Local** | Written directly to disk (e.g. `/etc/mosquitto/`) | dynsec over MQTT |
-| **Remote** | Uploaded via SCP, reload/restart via SSH | dynsec over MQTT (no SSH needed for day-to-day operation) |
+| **Local** (no `ssh.host`) | Written directly to disk (e.g. `/etc/mosquitto/`) | dynsec over MQTT |
+| **Remote** (`ssh.host` set) | Uploaded via SCP, reload/restart via SSH | dynsec over MQTT (no SSH needed for day-to-day operation) |
 
 ---
 
@@ -64,7 +66,6 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
 ```json
 {
   "broker": {
-    "mode": "local",
     "configDir": "/etc/mosquitto",
     "reloadCmd": "sudo systemctl reload mosquitto",
     "restartCmd": "sudo systemctl restart mosquitto",
@@ -87,7 +88,6 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `mode` | `local` | `local` or `remote` |
 | `configDir` | `/etc/mosquitto` | Directory containing `mosquitto.conf` |
 | `reloadCmd` | `sudo systemctl reload mosquitto` | Command to send SIGHUP / reload |
 | `restartCmd` | `sudo systemctl restart mosquitto` | Command for a full restart |
@@ -96,7 +96,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
 | `dynsec.adminPassword` | — | Password of the dynsec admin account |
 | `caDir` | `~/.she/broker/ca` | Directory for CA keypair and issued certs |
 | `caCertsDir` | `~/.she/broker/ca-certs` | Directory of trusted CA certs for client auth (`capath`) |
-| `ssh.host` | — | Broker host (remote mode only) |
+| `ssh.host` | — | Broker host. When set, **remote mode is active** — SSH is used for all file operations and service control. |
 | `ssh.port` | `22` | SSH port |
 | `ssh.user` | current OS user | SSH login user |
 | `ssh.identityFile` | `<data-dir>/ssh/broker_id_ed25519` | Path to SSH private key |
@@ -165,7 +165,7 @@ Cert metadata is stored in sheDB under `she/broker/cert/<serial>` for querying f
 
 ### SSH / Remote
 
-Only relevant when `broker.mode` is `remote`.
+Only relevant when `broker.ssh.host` is set (remote mode).
 
 - Configure host, port, user, and identity file.
 - **Generate keypair** — creates `<data-dir>/ssh/broker_id_ed25519` via `ssh-keygen`. Displays the public key and the exact `ssh-copy-id` command to install it on the broker host.

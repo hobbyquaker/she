@@ -149,7 +149,7 @@
             <li>Add the <code>plugin</code> line to <code>mosquitto.conf</code>.</li>
             <li>Ask you to restart mosquitto to activate the plugin.</li>
         </ul>
-        <p class="hint">Requires <code>mosquitto_ctrl</code> to be installed on this machine (comes with <code>mosquitto-clients</code>).</p>
+        <p class="hint">In <strong>remote mode</strong> (SSH host configured), <code>mosquitto_ctrl</code> is invoked on the broker host via SSH. In local mode, it must be installed on this machine. <code>mosquitto_ctrl</code> is part of the <code>mosquitto</code> package.</p>
         <div class="actions">
             <button onclick={() => { step = 'probe'; probe(); }} disabled={loading}>Start</button>
         </div>
