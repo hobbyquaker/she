@@ -22,52 +22,13 @@ Your home, your rules - written in plain JavaScript.
 | [Getting started](doc/getting-started.md) | Install, write your first script, configure |
 | [Sandbox API](doc/sandbox-api.md) | Everything available inside a script |
 | [sheDB](doc/db/README.md) | Embedded document store — script API, views, examples |
+| [Broker management](doc/broker-management.md) | Mosquitto management, dynsec, TLS, certificates |
 | [Examples](doc/examples.md) | Real-world script patterns |
 | [HTTP API](doc/http-api.md) | REST API reference including broker management endpoints |
 
 ## Quick look
 
 ![AI assistant proposing changes to an existing script with inline diff](doc/screenshots/she-ai-2.png) [... more screenshots](doc/screenshots.md) 
-
-## Broker Management
-
-she can optionally manage a local or remote Mosquitto broker. Once configured, the **Broker** tab in the web UI gives you:
-
-- **Status** — dynsec connection state, live `$SYS` stats (clients, messages, uptime, version)
-- **Users & Roles** — create/delete users, set passwords, manage roles, define ACL rules per role, organise users into groups — all applied instantly via the [Dynamic Security plugin](https://mosquitto.org/documentation/dynamic-security/)
-- **Listeners** — add, edit and remove `mosquitto.conf` listener blocks with TLS configuration, applied with a single "Apply & Reload"
-- **Certificates** — local CA management: generate CA keypair, issue server certificates, issue and revoke client certificates (download as `.p12`, `.crt`, `.key`), manage trusted CA certs for client authentication
-- **SSH / Remote** — configure SSH access for remote brokers; generate a dedicated keypair; she deploys config files and certificates via SFTP
-- **Setup Wizard** — guided bootstrap for new dynsec installations, or manual credential entry for existing ones
-
-Scripts can manage broker users and ACLs programmatically via `she.broker.*`:
-
-```js
-// Auto-provision a broker user when a new device announces itself
-she.mqtt.sub('devices/new/+', async (topic, payload) => {
-  const deviceId = topic.split('/')[2]
-  const password = require('crypto').randomBytes(16).toString('hex')
-
-  await she.broker.createUser(deviceId, password)
-  await she.broker.assignRole(deviceId, 'iot-device')
-
-  she.mqtt.pub(`devices/${deviceId}/credentials`, { username: deviceId, password }, { retain: true })
-  she.info(`Provisioned broker user for ${deviceId}`)
-})
-```
-
-Enable broker management by adding `broker.dynsec` credentials to `~/.she/config.json` (or use the Setup Wizard in the UI):
-
-```json
-{
-  "broker": {
-    "dynsec": {
-      "adminUsername": "she-admin",
-      "adminPassword": "..."
-    }
-  }
-}
-```
 
 ## Motivation
 
