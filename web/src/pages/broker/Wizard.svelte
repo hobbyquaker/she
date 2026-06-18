@@ -182,7 +182,7 @@
         <p>The <code>plugin</code> line has been added to <code>{bootstrapResult.confFilePath}</code>.</p>
         <p>Enabling a new plugin requires a <strong>full mosquitto restart</strong> (not just SIGHUP):</p>
         <div class="actions">
-            <button class="btn-danger" onclick={restart} disabled={restarting}>
+            <button class="btn-warn" onclick={restart} disabled={restarting}>
                 {restarting ? 'Restarting…' : 'Restart mosquitto now'}
             </button>
             <button onclick={() => { step = 'done'; }} class="skip-step">Skip (I'll restart manually)</button>
@@ -295,6 +295,7 @@
 
     .btn-primary { background: rgba(86,156,214,0.2) !important; border-color: rgba(86,156,214,0.5) !important; }
     .btn-danger { background: rgba(220,60,60,0.12) !important; border: 1px solid rgba(220,60,60,0.3) !important; color: #e88 !important; }
+    .btn-warn   { background: rgba(220,140,40,0.12) !important; border: 1px solid rgba(220,140,40,0.3) !important; color: #e8a040 !important; }
 
     .skip-step {
         background: none !important;

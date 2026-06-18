@@ -210,6 +210,7 @@ router.post('/restart', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
         if (bc.ssh && bc.ssh.host) {
+            const cmd = bc.restartCmd || 'sudo systemctl restart mosquitto';
             const result = await sshDeploy.runCommand(bc.ssh, cmd);
             return res.json({ ok: true, ...result });
         }
