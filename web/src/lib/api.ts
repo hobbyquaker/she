@@ -602,6 +602,7 @@ export interface BrokerDynsecStatus {
 export interface BrokerStatus {
     dynsec: BrokerDynsecStatus;
     sys: Record<string, { val: unknown; ts: number }>;
+    sshKeyDefault: string;
 }
 
 export interface BrokerListenerTls {

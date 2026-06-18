@@ -34,7 +34,7 @@ function expandHome(p) {
  * @returns {string[]}
  */
 function sshArgs(sshConfig) {
-    const identityFile = expandHome(sshConfig.identityFile || '~/.she/broker_id_ed25519');
+    const identityFile = expandHome(sshConfig.identityFile || '~/.she/ssh/broker_id_ed25519');
     return ['-i', identityFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-p', String(sshConfig.port || 22)];
 }
 
@@ -45,7 +45,7 @@ function sshArgs(sshConfig) {
  * @returns {string[]}
  */
 function scpArgs(sshConfig) {
-    const identityFile = expandHome(sshConfig.identityFile || '~/.she/broker_id_ed25519');
+    const identityFile = expandHome(sshConfig.identityFile || '~/.she/ssh/broker_id_ed25519');
     return ['-i', identityFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-P', String(sshConfig.port || 22)];
 }
 
@@ -133,7 +133,7 @@ async function testConnection(sshConfig) {
  * @returns {Promise<string>} the public key text
  */
 async function generateKeypair(identityFile) {
-    const expandedPath = expandHome(identityFile || '~/.she/broker_id_ed25519');
+    const expandedPath = expandHome(identityFile || '~/.she/ssh/broker_id_ed25519');
     const dir = path.dirname(expandedPath);
     fs.mkdirSync(dir, { recursive: true });
 

@@ -20,6 +20,10 @@ const dynsec = require('../lib/dynsec');
 const mosquittoConf = require('../lib/mosquitto-conf');
 const ca = require('../lib/ca');
 const sshDeploy = require('../lib/ssh-deploy');
+const sheConfig = require('../config');
+
+// Default SSH identity file respects the configured data directory
+const DEFAULT_SSH_KEY = path.join(sheConfig['data-dir'], 'ssh', 'broker_id_ed25519');
 
 const router = express.Router();
 
@@ -70,7 +74,7 @@ router.get('/status', (req, res) => {
         }
     }
 
-    res.json({ dynsec: ds, sys });
+    res.json({ dynsec: ds, sys, sshKeyDefault: DEFAULT_SSH_KEY });
 });
 
 // ── mosquitto.conf ─────────────────────────────────────────────────────────────
@@ -662,7 +666,7 @@ module.exports = { router };
 router.post('/ssh/keygen', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
-        const identityFile = (bc.ssh && bc.ssh.identityFile) || '~/.she/broker_id_ed25519';
+        const identityFile = (bc.ssh && bc.ssh.identityFile) || DEFAULT_SSH_KEY;
         const publicKey = await sshDeploy.generateKeypair(identityFile);
         res.json({ ok: true, publicKey });
     } catch (err) {

@@ -79,7 +79,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
       "host": "192.168.1.10",
       "port": 22,
       "user": "she",
-      "identityFile": "~/.she/broker_id_ed25519"
+      "identityFile": "~/.she/ssh/broker_id_ed25519"
     }
   }
 }
@@ -99,7 +99,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
 | `ssh.host` | — | Broker host (remote mode only) |
 | `ssh.port` | `22` | SSH port |
 | `ssh.user` | `she` | SSH login user |
-| `ssh.identityFile` | `~/.she/broker_id_ed25519` | Path to SSH private key |
+| `ssh.identityFile` | `<data-dir>/ssh/broker_id_ed25519` | Path to SSH private key |
 
 ---
 
@@ -168,7 +168,7 @@ Cert metadata is stored in sheDB under `she/broker/cert/<serial>` for querying f
 Only relevant when `broker.mode` is `remote`.
 
 - Configure host, port, user, and identity file.
-- **Generate keypair** — creates `~/.she/broker_id_ed25519` via `ssh-keygen`. Displays the public key and the exact `ssh-copy-id` command to install it on the broker host.
+- **Generate keypair** — creates `<data-dir>/ssh/broker_id_ed25519` via `ssh-keygen`. Displays the public key and the exact `ssh-copy-id` command to install it on the broker host.
 - **Test SSH connection** — runs a remote `echo ok` to verify the key is accepted.
 
 ---

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig } from '../../lib/api.js';
+    import { getConfig, putConfig, getBrokerStatus } from '../../lib/api.js';
 
     // ── Config ─────────────────────────────────────────────────────────────────
     interface SshConfig {
@@ -15,6 +15,7 @@
     let saving = $state(false);
     let saveOk = $state(false);
     let saveError = $state('');
+    let sshKeyDefault = $state('~/.she/ssh/broker_id_ed25519');
 
     // ── Key generation ─────────────────────────────────────────────────────────
     let pubkey = $state('');
@@ -30,12 +31,14 @@
 
     onMount(async () => {
         try {
-            fullConfig = await getConfig();
+            const [fullCfg, brokerStatus] = await Promise.all([getConfig(), getBrokerStatus()]);
+            fullConfig = fullCfg;
+            if (brokerStatus.sshKeyDefault) sshKeyDefault = brokerStatus.sshKeyDefault;
             const broker = (fullConfig.broker ?? {}) as Record<string, unknown>;
             cfg = (broker.ssh ?? {}) as SshConfig;
             if (!cfg.port) cfg.port = 22;
             if (!cfg.user) cfg.user = 'she';
-            if (!cfg.identityFile) cfg.identityFile = '~/.she/broker_id_ed25519';
+            if (!cfg.identityFile) cfg.identityFile = sshKeyDefault;
         } catch (e: any) {
             loadError = e.message;
         }
@@ -121,7 +124,7 @@
             </label>
             <label>
                 Identity file (private key)
-                <input bind:value={cfg.identityFile} placeholder="~/.she/broker_id_ed25519" />
+                <input bind:value={cfg.identityFile} placeholder={sshKeyDefault} />
             </label>
         </div>
 
@@ -134,7 +137,7 @@
 
     <div class="section">
         <h3>SSH Keypair</h3>
-        <p class="hint">Generate a dedicated Ed25519 keypair for she to authenticate to the broker host. The private key is stored at <code>{cfg.identityFile || '~/.she/broker_id_ed25519'}</code>.</p>
+        <p class="hint">Generate a dedicated Ed25519 keypair for she to authenticate to the broker host. The private key is stored at <code>{cfg.identityFile || sshKeyDefault}</code>.</p>
 
         <div class="row">
             <button onclick={generateKeypair} disabled={genLoading}>{genLoading ? 'Generating…' : 'Generate keypair'}</button>
