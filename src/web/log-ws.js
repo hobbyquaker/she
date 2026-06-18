@@ -4,16 +4,16 @@ const { WebSocketServer } = require('ws');
 
 let _wss = null;
 const _clients = new Set();
-let _welcomeProvider = null;
+const _welcomeProviders = [];
 
 /**
- * Register a function that returns a welcome message to send to each new
- * WebSocket client immediately after it connects.  Useful for pushing
- * current state (e.g. mqtt:status) without waiting for the next broadcast.
- * @param {() => object} fn
+ * Register a function that returns a welcome message (or array of messages)
+ * to send to each new WebSocket client immediately after it connects.
+ * May be called multiple times; all registered providers are invoked in order.
+ * @param {() => object | object[]} fn
  */
 function setWelcomeProvider(fn) {
-    _welcomeProvider = fn;
+    _welcomeProviders.push(fn);
 }
 
 // Ring buffer of recent log entries for the AI tool get_script_logs
@@ -43,9 +43,12 @@ function attachWss(httpServer, authCheck = () => true) {
         ws.on('close', () => _clients.delete(ws));
         ws.on('error', () => _clients.delete(ws));
         // Send current state to this new client immediately
-        if (_welcomeProvider) {
-            const welcome = _welcomeProvider();
-            if (welcome) ws.send(JSON.stringify(welcome));
+        for (const provider of _welcomeProviders) {
+            const msgs = provider();
+            if (!msgs) continue;
+            for (const msg of (Array.isArray(msgs) ? msgs : [msgs])) {
+                ws.send(JSON.stringify(msg));
+            }
         }
     });
 

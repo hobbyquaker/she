@@ -337,6 +337,10 @@ require('./web/server').setStatsProvider(() => {
 // Inform newly-connected WebSocket clients of the current mqtt:status so the
 // UI shows the correct indicator even if the browser opened after the event fired.
 setWelcomeProvider(() => ({ type: 'mqtt:status', ready: _started }));
+// Push current script:running state so the UI green dots survive a browser reload.
+setWelcomeProvider(() =>
+    Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true }))
+);
 
 if (!config.url) {
     log.warn('no MQTT broker URL configured â€” set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
