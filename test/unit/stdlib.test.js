@@ -79,6 +79,24 @@ describe('she.mqtt.and()', () => {
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
     });
 
+    it('treats "off" as falsy', () => {
+        const she = makeShe({ a: { val: 1 }, b: { val: 'off' } });
+        she.mqtt.and(['a', 'b'], 'result');
+        expect(she.setValue).toHaveBeenCalledWith('result', 0);
+    });
+
+    it('treats "OFF" as falsy', () => {
+        const she = makeShe({ a: { val: 1 }, b: { val: 'OFF' } });
+        she.mqtt.and(['a', 'b'], 'result');
+        expect(she.setValue).toHaveBeenCalledWith('result', 0);
+    });
+
+    it('treats "ON" as truthy', () => {
+        const she = makeShe({ a: { val: 'ON' }, b: { val: 'ON' } });
+        she.mqtt.and(['a', 'b'], 'result');
+        expect(she.setValue).toHaveBeenCalledWith('result', 1);
+    });
+
     it('re-publishes when sources change', () => {
         const she = makeShe({ a: { val: 1 }, b: { val: 0 } });
         she.mqtt.and(['a', 'b'], 'result');
@@ -145,6 +163,18 @@ describe('she.mqtt.or()', () => {
         const she = makeShe({ a: { val: 0 }, b: { val: 0 } });
         she.mqtt.or(['a', 'b'], 'result');
         expect(she.setValue).toHaveBeenCalledWith('result', 0);
+    });
+
+    it('treats "off" as falsy', () => {
+        const she = makeShe({ a: { val: 'off' }, b: { val: 'OFF' } });
+        she.mqtt.or(['a', 'b'], 'result');
+        expect(she.setValue).toHaveBeenCalledWith('result', 0);
+    });
+
+    it('treats "ON" as truthy', () => {
+        const she = makeShe({ a: { val: 'off' }, b: { val: 'ON' } });
+        she.mqtt.or(['a', 'b'], 'result');
+        expect(she.setValue).toHaveBeenCalledWith('result', 1);
     });
 
     it('re-publishes when a subscribed topic changes to truthy', () => {
@@ -276,6 +306,24 @@ describe('she.mqtt.timer()', () => {
         she.setValue.mockClear();
         const subCb = she.mqttsub.mock.calls[0][2];
         subCb('home/motion', 0);
+        expect(she.setValue).not.toHaveBeenCalledWith('home/light', 1);
+    });
+
+    it('does not publish 1 when src is "off"', () => {
+        const she = makeShe();
+        she.mqtt.timer('home/motion', 5000, 'home/light');
+        she.setValue.mockClear();
+        const subCb = she.mqttsub.mock.calls[0][2];
+        subCb('home/motion', 'off');
+        expect(she.setValue).not.toHaveBeenCalledWith('home/light', 1);
+    });
+
+    it('does not publish 1 when src is "OFF"', () => {
+        const she = makeShe();
+        she.mqtt.timer('home/motion', 5000, 'home/light');
+        she.setValue.mockClear();
+        const subCb = she.mqttsub.mock.calls[0][2];
+        subCb('home/motion', 'OFF');
         expect(she.setValue).not.toHaveBeenCalledWith('home/light', 1);
     });
 

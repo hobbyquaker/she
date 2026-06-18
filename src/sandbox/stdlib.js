@@ -21,6 +21,13 @@ module.exports = function (she, ctx = {}) {
     // Timeout handles indexed by target (string key or function reference).
     const timerHandles = new Map();
 
+    // Treat common MQTT string payloads as falsy: "off" (any case) matches
+    // devices (Zigbee, Tasmota, etc.) that publish "off"/"OFF" instead of 0.
+    function isTruthy(v) {
+        if (typeof v === 'string') return v.toLowerCase() !== 'off';
+        return !!v;
+    }
+
     /**
      * Namespaced MQTT API - the primary way to interact with MQTT from scripts.
      * @namespace she.mqtt
@@ -55,7 +62,7 @@ module.exports = function (she, ctx = {}) {
          */
         or: function Sandbox_mqtt_or(srcs, target) {
             function combine(topic) {
-                const result = srcs.some((src) => she.getValue(src)) ? 1 : 0;
+                const result = srcs.some((src) => isTruthy(she.getValue(src))) ? 1 : 0;
                 sink(target, topic ?? null, result);
             }
             combine(null);
@@ -67,7 +74,7 @@ module.exports = function (she, ctx = {}) {
          */
         and: function Sandbox_mqtt_and(srcs, target) {
             function combine(topic) {
-                const result = srcs.every((src) => she.getValue(src)) ? 1 : 0;
+                const result = srcs.every((src) => isTruthy(she.getValue(src))) ? 1 : 0;
                 sink(target, topic ?? null, result);
             }
             combine(null);
@@ -112,7 +119,7 @@ module.exports = function (she, ctx = {}) {
         timer: function Sandbox_mqtt_timer(src, ms, target) {
             const key = target;
             she.mqttsub(src, { retain: false }, (topic, val) => {
-                if (val) {
+                if (isTruthy(val)) {
                     she.clearTimeout(timerHandles.get(key));
                     sink(target, topic, 1);
                     timerHandles.set(
