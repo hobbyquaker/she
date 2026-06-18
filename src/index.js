@@ -319,7 +319,7 @@ require('./web/server').setStatsProvider(() => {
     }
     return {
         scripts: Object.keys(scripts).length,
-        runningScripts: Object.keys(scripts).map(f => makeLabel(f).slice(0, -1)),
+        runningScripts: Object.keys(scripts).map((f) => makeLabel(f).slice(0, -1)),
         topics,
         mqttMsgPerSec,
         matterEnabled: !!config.matterStorage,
@@ -335,9 +335,7 @@ require('./web/server').setStatsProvider(() => {
 });
 
 // Push current script:running state so the UI green dots survive a browser reload.
-setWelcomeProvider(() =>
-    Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true }))
-);
+setWelcomeProvider(() => Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true })));
 
 if (!config.url) {
     log.warn('no MQTT broker URL configured â€” set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
