@@ -10,7 +10,17 @@ Scripts run in a sandboxed VM. The `she` object is injected automatically.
 ### MQTT
 ```
 she.mqtt.sub(topic, [opts], cb)        Subscribe; wildcards: + (1 level) # (multi)
-                                         opts.change: true = only fire when value changes
+    opts.change:     only fire when value changes
+    opts.retain:     also fire for retained msgs on connect and script start
+    opts.shift:      delay execution by N seconds
+    opts.random:     additional random delay in seconds
+    opts.condition:  fn(val) or JS string — skip cb if falsy
+    cb(topic, val, obj, objPrev, msg)
+      topic:   the topic that fired
+      val:     new value (parsed)
+      obj:     full new state { val, ts, lc }
+      objPrev: previous state object
+      msg:     raw MQTT.js message object
 she.mqtt.pub(topic, payload, [opts])   Publish; opts: { qos, retain }
 she.mqtt.get(topic)                    Current retained value (sync)
 she.mqtt.link(src, target, [fn])       Forward src changes to target; optional transform
