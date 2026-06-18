@@ -160,4 +160,4 @@ async function generateKeypair(identityFile) {
     return fs.readFileSync(expandedPath + '.pub', 'utf8').trim();
 }
 
-module.exports = { runCommand, readRemoteFile, uploadFile, uploadContent, testConnection, generateKeypair };
+module.exports = { expandHome, runCommand, readRemoteFile, uploadFile, uploadContent, testConnection, generateKeypair };

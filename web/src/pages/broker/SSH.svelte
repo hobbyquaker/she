@@ -31,13 +31,18 @@
 
     onMount(async () => {
         try {
-            const [fullCfg, brokerStatus] = await Promise.all([getConfig(), getBrokerStatus()]);
+            const [fullCfg, brokerStatus, pubkeyRes] = await Promise.all([
+                getConfig(),
+                getBrokerStatus(),
+                fetch('/she/broker/ssh/pubkey').then((r) => r.json()).catch(() => ({ publicKey: null })),
+            ]);
             fullConfig = fullCfg;
             if (brokerStatus.sshKeyDefault) sshKeyDefault = brokerStatus.sshKeyDefault;
             const broker = (fullConfig.broker ?? {}) as Record<string, unknown>;
             cfg = (broker.ssh ?? {}) as SshConfig;
             if (!cfg.port) cfg.port = 22;
             if (!cfg.identityFile) cfg.identityFile = sshKeyDefault;
+            if (pubkeyRes.publicKey) pubkey = pubkeyRes.publicKey;
         } catch (e: any) {
             loadError = e.message;
         }
@@ -138,12 +143,6 @@
         <h3>SSH Keypair</h3>
         <p class="hint">Generate a dedicated Ed25519 keypair for she to authenticate to the broker host. The private key is stored at <code>{cfg.identityFile || sshKeyDefault}</code>.</p>
 
-        <div class="row">
-            <button onclick={generateKeypair} disabled={genLoading}>{genLoading ? 'Generating…' : 'Generate keypair'}</button>
-        </div>
-
-        {#if genError}<div class="err">{genError}</div>{/if}
-
         {#if pubkey}
         <label>
             Public key (copy and install on the broker host)
@@ -152,8 +151,6 @@
                 <button class="copy-btn" onclick={() => copyToClipboard(pubkey)}>Copy</button>
             </div>
         </label>
-        {/if}
-
         {#if installCmd}
         <label>
             Install command (run on your local machine)
@@ -163,6 +160,16 @@
             </div>
         </label>
         {/if}
+        <div class="row">
+            <button onclick={generateKeypair} disabled={genLoading}>{genLoading ? 'Generating…' : 'Regenerate keypair'}</button>
+        </div>
+        {:else}
+        <div class="row">
+            <button onclick={generateKeypair} disabled={genLoading}>{genLoading ? 'Generating…' : 'Generate keypair'}</button>
+        </div>
+        {/if}
+
+        {#if genError}<div class="err">{genError}</div>{/if}
     </div>
 
     <div class="section">

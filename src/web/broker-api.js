@@ -660,6 +660,20 @@ module.exports = { router };
 // Note: these routes are mounted on the same router but defined after module.exports
 // because they add to `router` (which is already exported by reference).
 
+/** GET /she/broker/ssh/pubkey — Read existing public key (if any) */
+router.get('/ssh/pubkey', (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const identityFile = sshDeploy.expandHome((bc.ssh && bc.ssh.identityFile) || DEFAULT_SSH_KEY);
+        const pubPath = identityFile + '.pub';
+        if (!fs.existsSync(pubPath)) return res.json({ publicKey: null });
+        const publicKey = fs.readFileSync(pubPath, 'utf8').trim();
+        res.json({ publicKey });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
 /** POST /she/broker/ssh/keygen — Generate SSH keypair */
 router.post('/ssh/keygen', async (req, res) => {
     try {
