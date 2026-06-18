@@ -17,8 +17,8 @@
  *       client.crt
  *       client.p12
  *
- * CA cert metadata is stored in sheDB at broker::ca.
- * Issued cert metadata is stored in sheDB at broker::cert::<serial>.
+ * CA cert metadata is stored in sheDB at she/broker/ca.
+ * Issued cert metadata is stored in sheDB at she/broker/cert/<serial>.
  */
 
 const { execFile } = require('child_process');

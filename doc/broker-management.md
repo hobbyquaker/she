@@ -161,7 +161,7 @@ Four sections:
 4. Download `.p12`, `.crt`, `.key`, and `ca.crt` individually.
 5. Revoke a cert at any time — she regenerates `crl.pem` automatically.
 
-Cert metadata is stored in sheDB under `broker::cert::<serial>` for querying from scripts.
+Cert metadata is stored in sheDB under `she/broker/cert/<serial>` for querying from scripts.
 
 ### SSH / Remote
 
@@ -298,7 +298,7 @@ she.schedule('0 3 * * *', async () => {
 she.schedule('0 8 * * *', () => {
     const soon = Date.now() + 30 * 86400_000
     const expiring = she.db.query(
-        (doc) => doc._id && doc._id.startsWith('broker::cert::') && !doc.revoked && new Date(doc.expires).getTime() < soon,
+        (doc) => doc._id && doc._id.startsWith('she/broker/cert/') && !doc.revoked && new Date(doc.expires).getTime() < soon,
         (doc) => doc,
     )
     for (const cert of expiring) {
@@ -401,8 +401,8 @@ All endpoints are mounted at `/she/broker/*` and require Bearer token authentica
 
 | Key pattern | Content |
 |-------------|---------|
-| `broker::ca` | CA metadata: CN, fingerprint, expiry, generated-at |
-| `broker::cert::<serial>` | Issued cert: `{ cn, serial, fingerprint, issued, expires, revoked, revokedAt }` |
+| `she/broker/ca` | CA metadata: CN, fingerprint, expiry, generated-at |
+| `she/broker/cert/<serial>` | Issued cert: `{ cn, serial, fingerprint, issued, expires, revoked, revokedAt }` |
 
 ---
 

@@ -481,7 +481,7 @@ router.get('/ca/certs', async (req, res) => {
         const db = req.app.locals.db;
         if (!db) return res.json({ certs: [] });
         const certs = db.query(
-            (doc) => doc._id && doc._id.startsWith('broker::cert::'),
+            (doc) => doc._id && doc._id.startsWith('she/broker/cert/'),
             (doc) => doc,
         );
         res.json({ certs });
@@ -500,7 +500,7 @@ router.post('/ca/certs', async (req, res) => {
         // Store metadata in sheDB
         const db = req.app.locals.db;
         if (db) {
-            db.set(`broker::cert::${result.serial}`, {
+            db.set(`she/broker/cert/${result.serial}`, {
                 cn: result.cn,
                 serial: result.serial,
                 fingerprint: result.fingerprint,
@@ -534,7 +534,7 @@ router.delete('/ca/certs/:serial', async (req, res) => {
         const bc = getBrokerConfig(req);
         const { serial } = req.params;
         const db = req.app.locals.db;
-        const meta = db ? db.get(`broker::cert::${serial}`) : null;
+        const meta = db ? db.get(`she/broker/cert/${serial}`) : null;
         if (!meta) return res.status(404).json({ error: 'cert not found' });
 
         // Find the cert file
@@ -546,7 +546,7 @@ router.delete('/ca/certs/:serial', async (req, res) => {
         // Collect all other revoked certs
         if (db) {
             const allCerts = db.query(
-                (doc) => doc._id && doc._id.startsWith('broker::cert::') && doc.revoked && doc._id !== `broker::cert::${serial}`,
+                (doc) => doc._id && doc._id.startsWith('she/broker/cert/') && doc.revoked && doc._id !== `she/broker/cert/${serial}`,
                 (doc) => doc,
             );
             for (const c of allCerts) {
@@ -559,7 +559,7 @@ router.delete('/ca/certs/:serial', async (req, res) => {
 
         // Mark revoked in sheDB
         if (db) {
-            db.extend(`broker::cert::${serial}`, { revoked: true, revokedAt: new Date().toISOString() });
+            db.extend(`she/broker/cert/${serial}`, { revoked: true, revokedAt: new Date().toISOString() });
         }
 
         res.json({ ok: true });
@@ -575,7 +575,7 @@ router.get('/ca/certs/:serial/download', async (req, res) => {
         const { serial } = req.params;
         const { type = 'p12' } = req.query;
         const db = req.app.locals.db;
-        const meta = db ? db.get(`broker::cert::${serial}`) : null;
+        const meta = db ? db.get(`she/broker/cert/${serial}`) : null;
         if (!meta) return res.status(404).json({ error: 'cert not found' });
 
         const paths = ca.clientCertPaths(bc, meta.cn);
