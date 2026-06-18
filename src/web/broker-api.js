@@ -28,10 +28,16 @@ const DEFAULT_SSH_KEY = path.join(sheConfig['data-dir'], 'ssh', 'broker_id_ed255
 const router = express.Router();
 
 let _log = null;
+let _store = null;
 
 /** Must be called once from index.js so broker-api can emit debug-level log lines. */
 function setLogger(log) {
     _log = log;
+}
+
+/** Must be called once from index.js to give broker-api access to the MQTT state store. */
+function setStore(store) {
+    _store = store;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -71,13 +77,14 @@ function handleError(res, err) {
  */
 router.get('/status', (req, res) => {
     const ds = dynsec.getStatus();
-    const mqttState = req.app.locals.mqttState || {};
 
-    const sysPrefixes = ['$SYS/broker/version', '$SYS/broker/clients/', '$SYS/broker/uptime'];
     const sys = {};
-    for (const [topic, entry] of Object.entries(mqttState)) {
-        if (sysPrefixes.some((p) => topic.startsWith(p))) {
-            sys[topic] = entry;
+    if (_store) {
+        const sysPrefixes = ['$SYS/broker/version', '$SYS/broker/uptime', '$SYS/broker/clients/', '$SYS/broker/messages/'];
+        for (const [topic, entry] of _store.mqttEntries()) {
+            if (sysPrefixes.some((p) => topic.startsWith(p))) {
+                sys[topic] = entry;
+            }
         }
     }
 
@@ -673,7 +680,7 @@ router.delete('/ca/trusted/:fingerprint', async (req, res) => {
     }
 });
 
-module.exports = { router, setLogger };
+module.exports = { router, setLogger, setStore };
 
 // ── SSH routes ─────────────────────────────────────────────────────────────────
 // Note: these routes are mounted on the same router but defined after module.exports

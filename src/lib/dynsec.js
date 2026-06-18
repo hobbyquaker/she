@@ -122,11 +122,15 @@ function init(config, log) {
     _client = mqtt.connect(config.url, opts);
 
     _client.on('connect', () => {
-        _connected = true;
-        _log.info('dynsec: connected as', dynsecCfg.adminUsername);
+        _log.info('dynsec: MQTT connect event, subscribing to response topic');
         _client.subscribe(RESPONSE_TOPIC, (err) => {
-            if (err) _log.error('dynsec: failed to subscribe to response topic:', err.message);
-            else _drain(); // flush any requests queued before connection
+            if (err) {
+                _log.error('dynsec: failed to subscribe to response topic:', err.message);
+            } else {
+                _connected = true;
+                _log.info('dynsec: ready — subscribed as', dynsecCfg.adminUsername);
+                _drain(); // flush any requests queued before connection
+            }
         });
     });
 

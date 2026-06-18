@@ -120,6 +120,7 @@ if (typeof config.port !== 'undefined') {
             process.exit(1);
         });
     require('./web/broker-api').setLogger(log);
+    require('./web/broker-api').setStore(store);
 }
 
 const chokidar = require('chokidar');
@@ -361,6 +362,7 @@ if (config.url) {
         log.info('mqtt connected ' + config.url);
         log.debug('mqtt subscribe #');
         mqtt.subscribe('#');
+        mqtt.subscribe('$SYS/#');
         mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => c.callback());
 
         if (!_started) {
