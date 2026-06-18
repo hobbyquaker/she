@@ -7,9 +7,9 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
-    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
+    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
-    import { subscribeWs } from './lib/ws.js';
+    import { subscribeWs, subscribeLog, getLogBuffer } from './lib/ws.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'db', 'logs', 'config', 'packages'];
@@ -63,6 +63,23 @@
     let restarting = $state(false);
     let mqttConnecting = $state(false); // true while waiting for retained-state sentinel
     let mqttConnected  = $state(false); // true once broker is fully ready
+    let mqttError      = $state(false); // true when broker configured but not connected
+
+    // packages dot
+    let outdatedDepsCount = $state(0);
+
+    // matter dot
+    let matterDevices = $state<{ nodeId: string; online?: boolean }[]>([]);
+    const matterOnlineCount = $derived(matterDevices.filter(d => d.online).length);
+    const matterStatus = $derived<'none' | 'all' | 'some' | 'offline'>(
+        matterDevices.length === 0 ? 'none' :
+        matterOnlineCount === matterDevices.length ? 'all' :
+        matterOnlineCount > 0 ? 'some' : 'offline'
+    );
+
+    // logs dot
+    let logHasError = $state(false);
+    let logHasWarn  = $state(false);
 
     async function restart() {
         if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
@@ -151,23 +168,53 @@
         }
         authReady = true;
 
-        // Poll daemon status every 5s (latestVersion is included in status by the backend)
+        // Poll daemon status every 5s and fetch cached outdated deps count
         async function pollStatus() {
             try { stats = await getDaemonStatus(); } catch { /* daemon may be restarting */ }
+            try { const o = await getOutdatedDeps(); outdatedDepsCount = Object.keys(o).length; } catch { /* best effort */ }
         }
         pollStatus();
         const statusInterval = setInterval(pollStatus, 5000);
 
-        // Subscribe to mqtt:status events — shows/hides the connecting dot on the MQTT tab
+        // Subscribe to mqtt:status events — drives the MQTT tab dots
         const unsubMqttStatus = subscribeWs('mqtt:status', (msg) => {
-            mqttConnecting = msg.ready === false;
-            mqttConnected  = msg.ready === true;
+            if (msg.connected === false) {
+                mqttError = true; mqttConnecting = false; mqttConnected = false;
+            } else {
+                mqttError      = false;
+                mqttConnecting = msg.ready === false;
+                mqttConnected  = msg.ready === true;
+            }
+        });
+
+        // Matter device list and status — drives the Matter tab dot
+        const unsubMatterList = subscribeWs('matter:deviceList', (msg) => {
+            if (!Array.isArray(msg.devices)) return;
+            matterDevices = (msg.devices as any[]).map(d => ({ nodeId: String(d.nodeId), online: Boolean(d.online) }));
+        });
+        const unsubMatterStatus = subscribeWs('matter:deviceStatus', (msg) => {
+            if (msg.nodeId === undefined) return;
+            const nodeId = String(msg.nodeId);
+            const online = Boolean(msg.online);
+            matterDevices = matterDevices.map(d => d.nodeId === nodeId ? { ...d, online } : d);
+        });
+
+        // Log level indicator — drives the Logs tab dot
+        const buf = getLogBuffer();
+        logHasError = buf.some(e => e.level === 'error');
+        logHasWarn  = !logHasError && buf.some(e => e.level === 'warn');
+        const unsubLog = subscribeLog((entry) => {
+            if (entry.level === 'error') { logHasError = true; logHasWarn = false; }
+            else if (entry.level === 'warn' && !logHasError) logHasWarn = true;
         });
 
         return () => {
             window.removeEventListener('hashchange', onHashChange);
             clearInterval(statusInterval);
             unsubMqttStatus();
+            unsubMatterList();
+            unsubMatterStatus();
+            unsubLog();
         };
     });
 </script>
@@ -198,6 +245,7 @@
                 <line x1="12.5" y1="5" x2="12.5" y2="11"/>
             </svg>
             Packages
+            {#if outdatedDepsCount > 0}<span class="nav-dot nav-dot--warn" title="{outdatedDepsCount} package update{outdatedDepsCount === 1 ? '' : 's'} available"></span>{/if}
         </button>
         <button class:active={page === 'mqtt'} onclick={() => navigate('mqtt')}>
             <!-- MQTT logo: square badge with three arc-band cutouts from bottom-left corner (mqtt.org geometry) -->
@@ -205,8 +253,10 @@
                 <path fill-rule="evenodd" d="M2,0 H14 A2,2 0 0,1 16,2 V14 A2,2 0 0,1 14,16 H0 V2 A2,2 0 0,1 2,0 Z M0,16 L0,12 A4,4 0 0,1 4,16 Z M0,10.5 A5.5,5.5 0 0,1 5.5,16 L9,16 A9,9 0 0,0 0,7 Z M0,5.5 A10.5,10.5 0 0,1 10.5,16 L13.5,16 A13.5,13.5 0 0,0 0,2.5 Z"/>
             </svg>
             MQTT
-            {#if mqttConnecting}<span class="mqtt-dot" title="Waiting for retained MQTT state"></span>{/if}
-            {#if mqttConnected && !mqttConnecting}<span class="mqtt-dot mqtt-dot--connected" title="MQTT connected"></span>{/if}
+            {#if mqttError}<span class="nav-dot nav-dot--err" title="MQTT broker not connected"></span>
+            {:else if mqttConnecting}<span class="nav-dot nav-dot--warn nav-dot--blink" title="Waiting for retained MQTT state"></span>
+            {:else if mqttConnected}<span class="nav-dot nav-dot--ok" title="MQTT connected"></span>
+            {/if}
         </button>
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
@@ -219,6 +269,10 @@
                 <path d="M9.8,12.8 L10,10 L12.8,10.2"/>
             </svg>
             Matter
+            {#if matterStatus === 'all'}<span class="nav-dot nav-dot--ok" title="All Matter devices online"></span>
+            {:else if matterStatus === 'some'}<span class="nav-dot nav-dot--warn" title="Some Matter devices offline"></span>
+            {:else if matterStatus === 'offline'}<span class="nav-dot nav-dot--err" title="No Matter devices online"></span>
+            {/if}
         </button>
         <button class:active={page === 'db'} onclick={() => navigate('db')}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -228,13 +282,16 @@
             </svg>
             DB
         </button>
-        <button class:active={page === 'logs'} onclick={() => navigate('logs')}>
+        <button class:active={page === 'logs'} onclick={() => { navigate('logs'); logHasError = false; logHasWarn = false; }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
                 <line x1="2" y1="5" x2="14" y2="5"/>
                 <line x1="2" y1="8" x2="14" y2="8"/>
                 <line x1="2" y1="11" x2="9" y2="11"/>
             </svg>
             Logs
+            {#if logHasError}<span class="nav-dot nav-dot--err" title="Errors in recent logs"></span>
+            {:else if logHasWarn}<span class="nav-dot nav-dot--warn" title="Warnings in recent logs"></span>
+            {/if}
         </button>
 
         <!-- right side: github · version · stats · config -->
@@ -535,20 +592,19 @@
         flex-shrink: 0;
     }
 
-    .mqtt-dot {
+    /* Unified nav status dot — used on MQTT, Packages, Matter, Logs tab buttons */
+    .nav-dot {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: #f90;
         display: inline-block;
         flex-shrink: 0;
-        animation: mqttBlink 0.9s ease-in-out infinite;
     }
-    .mqtt-dot--connected {
-        background: var(--fg-ok);
-        animation: none;
-    }
-    @keyframes mqttBlink {
+    .nav-dot--ok   { background: var(--fg-ok); }
+    .nav-dot--warn { background: #f90; }
+    .nav-dot--err  { background: var(--fg-err); }
+    .nav-dot--blink { animation: navDotBlink 0.9s ease-in-out infinite; }
+    @keyframes navDotBlink {
         0%, 100% { opacity: 1; }
         50%       { opacity: 0.1; }
     }

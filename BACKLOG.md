@@ -28,15 +28,24 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 
 
+
+
+
+
 - **Find & Replace entry point** — add a small **Edit** menu button in the editor toolbar, positioned between the `filename` span and the git-status badges (current layout left-to-right: `filename | [Edit▾] | git-status | Save | Delete | AI`). Clicking it opens a compact dropdown with at minimum: *Find* (`Ctrl+F`) and *Find & Replace* (`Ctrl+H`). Could also include *Go to line* (`Ctrl+G`). Each item calls `editor.getAction('<id>')?.run()` on the Monaco instance. No Monaco context-menu changes; no new route. Frontend-only, ~20 lines + dropdown styling.
 
-- **Format with Prettier** — `POST /she/scripts/format` backend route that runs Prettier server-side (already a root devDependency, not bundled to browser); frontend adds a toolbar button that calls the endpoint and replaces the editor content with the formatted result. Full spec in VS Code prompt `she-editor-improvements`.
 
 - **file tree virtualization** — the tree re-renders entirely on any change; with hundreds of scripts this becomes slow. Use a virtual list (`svelte-virtual-list` or similar) to only render visible rows.
 
+- **`beforeunload` guard for dirty editor tabs** — if the user reloads or closes the browser tab while one or more editor tabs have unsaved changes (`tab.dirty === true`), no warning is shown and the edits are silently lost. The dirty state is already tracked per-tab in `Scripts.svelte`. Fix: register a `beforeunload` event listener in `onMount` (and clean it up in `onDestroy`) that calls `e.preventDefault()` when `tabs.some(t => t.dirty)` — this triggers the browser's native "Leave site? Changes you made may not be saved." dialog. The handler must be a named function (not an arrow function stored in a `let`) so `removeEventListener` can reference the same instance. No new UI needed; browser handles the prompt natively. ~10 lines, frontend-only in `Scripts.svelte`.
+
 ## MQTT
 
+  **Recommendation**: implement *Option B* first (low risk, immediate fix for the stdlib functions). Follow up with *Option A* in a minor bump with a migration note, since normalising `"on"`/`"off"` in `parsePayload` is the right long-term convention. Use `v.toLowerCase() === 'off'` in the helper to handle `"Off"`, `"oFF"` etc. without enumerating every variant. New unit tests in `stdlib.test.js` for `or`/`and`/`timer` with `"off"` and `"ON"` source values.
+
 - **per-topic value history** — the MQTT tab shows current state only. A configurable ring buffer (e.g. last 20 values with timestamps) per topic would be useful for debugging value changes over time.
+
+- **configurable MQTT sentinel timeout** — the time the daemon waits for the retained-state sentinel after connecting to the broker is currently hard-coded to `_SENTINEL_TIMEOUT_MS = 5000` ms in `src/index.js`. On slow or high-traffic brokers with large retained-state sets, 5 s may not be enough and scripts start without the full retained state. Expose this as a config option (`sentinelTimeout`, in ms) settable via `config.json` / the Config UI. Read it in `src/config.js` (add a `--sentinel-timeout` yargs option with a 5000 ms default) and replace the constant in `index.js` with `config.sentinelTimeout`.
 
 ## sheDB
 

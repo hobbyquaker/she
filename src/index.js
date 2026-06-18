@@ -267,7 +267,7 @@ function startOnce(reason) {
         _sentinelTimeout = null;
     }
     if (reason) log.info(reason);
-    broadcast({ type: 'mqtt:status', ready: true });
+    broadcast({ type: 'mqtt:status', ready: true, connected });
     start();
 }
 
@@ -334,9 +334,6 @@ require('./web/server').setStatsProvider(() => {
     };
 });
 
-// Inform newly-connected WebSocket clients of the current mqtt:status so the
-// UI shows the correct indicator even if the browser opened after the event fired.
-setWelcomeProvider(() => ({ type: 'mqtt:status', ready: _started }));
 // Push current script:running state so the UI green dots survive a browser reload.
 setWelcomeProvider(() =>
     Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true }))
@@ -347,6 +344,9 @@ if (!config.url) {
 }
 
 if (config.url) {
+    // Inform newly-connected WS clients of the current MQTT broker connection state.
+    setWelcomeProvider(() => ({ type: 'mqtt:status', ready: _started, connected }));
+
     const _mqttOpts = { will: { topic: config.name + '/connected', payload: '0', retain: true } };
     if (config.mqttUsername) _mqttOpts.username = config.mqttUsername;
     if (config.mqttPassword) _mqttOpts.password = config.mqttPassword;
@@ -380,7 +380,11 @@ if (config.url) {
             _sentinelValue = String(Date.now());
             mqtt.publish(config.name + '/she-sentinel', _sentinelValue, { retain: false });
             log.debug('mqtt: waiting for retained-state sentinel');
-            broadcast({ type: 'mqtt:status', ready: false });
+            broadcast({ type: 'mqtt:status', ready: false, connected: true });
+        } else {
+            // Reconnect after a previous disconnect: scripts are already running.
+            broadcast({ type: 'mqtt:status', ready: true, connected: true });
+        }
 
             // Fallback: if sentinel never arrives (e.g. abnormal broker behaviour)
             _sentinelTimeout = setTimeout(() => {
@@ -396,6 +400,7 @@ if (config.url) {
             log.info('mqtt closed ' + config.url);
             mqttEventCallbacks.filter((c) => c.event === 'disconnect').forEach((c) => c.callback());
         }
+        broadcast({ type: 'mqtt:status', ready: _started, connected: false });
     });
 
     mqtt.on('error', () => {
