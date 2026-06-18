@@ -47,6 +47,10 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **configurable MQTT sentinel timeout** — the time the daemon waits for the retained-state sentinel after connecting to the broker is currently hard-coded to `_SENTINEL_TIMEOUT_MS = 5000` ms in `src/index.js`. On slow or high-traffic brokers with large retained-state sets, 5 s may not be enough and scripts start without the full retained state. Expose this as a config option (`sentinelTimeout`, in ms) settable via `config.json` / the Config UI. Read it in `src/config.js` (add a `--sentinel-timeout` yargs option with a 5000 ms default) and replace the constant in `index.js` with `config.sentinelTimeout`.
 
+## Packages
+
+- **pinned packages** — allow the user to pin individual npm packages so they are excluded from the outdated count and do not trigger the orange dot on the Packages nav tab. UI: a small pin icon next to the installed version column; clicking it toggles the pin. When a package is pinned and a newer version is available, still show the version arrow but render it in grey instead of orange/yellow — so the update is visible but clearly deprioritised. Pinned package IDs stored in `config.json` (e.g. `pinnedPackages: ["some-package"]`). The `getOutdatedDeps` helper in `web/src/lib/api.ts` (or the backend endpoint) should filter out pinned packages when computing the count used for the dot, while still returning them in the full list so the UI can show them greyed.
+
 ## sheDB
 
 
