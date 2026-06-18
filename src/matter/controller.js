@@ -519,9 +519,14 @@ function getDeviceSubtitle(nodeId) {
     }
 }
 
+function isStarted() {
+    return _server !== null;
+}
+
 module.exports = {
     init,
     close,
+    isStarted,
     listPaired,
     commission,
     unpair,

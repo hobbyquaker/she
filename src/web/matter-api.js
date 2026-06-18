@@ -27,8 +27,7 @@ function notReady(res) {
 
 function isReady() {
     try {
-        const c = getController();
-        return typeof c.listPaired === 'function';
+        return getController().isStarted();
     } catch {
         return false;
     }

@@ -65,7 +65,7 @@ describe('GET /she/matter/devices — controller not ready', () => {
 
     beforeEach(async () => {
         jest.resetModules();
-        // controller with no listPaired function → isReady() returns false
+        // controller with no isStarted function → isReady() returns false
         jest.doMock('../../src/matter/controller', () => ({}));
         const { router } = require('../../src/web/matter-api');
         const app = express();
@@ -87,6 +87,7 @@ describe('GET /she/matter/devices — controller ready', () => {
     let srv, port;
 
     const mockController = {
+        isStarted: jest.fn(() => true),
         listPaired: jest.fn(() => [{ nodeId: '42', online: true }]),
         commission: jest.fn(),
         getEndpoints: jest.fn(),
@@ -118,6 +119,7 @@ describe('POST /she/matter/commission', () => {
     let srv, port;
 
     const mockController = {
+        isStarted: jest.fn(() => true),
         listPaired: jest.fn(() => []),
         commission: jest.fn().mockResolvedValue('123'),
     };
@@ -152,6 +154,7 @@ describe('DELETE /she/matter/devices/:nodeId', () => {
     let srv, port;
 
     const mockController = {
+        isStarted: jest.fn(() => true),
         listPaired: jest.fn(() => []),
         unpair: jest.fn().mockResolvedValue(undefined),
     };
@@ -187,6 +190,7 @@ describe('POST /she/matter/devices/:nodeId/command', () => {
     let srv, port;
 
     const mockController = {
+        isStarted: jest.fn(() => true),
         listPaired: jest.fn(() => []),
         sendCommand: jest.fn().mockResolvedValue(null),
     };
