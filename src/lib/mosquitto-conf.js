@@ -29,20 +29,12 @@ const execFileAsync = promisify(execFile);
 const MANAGED_SINGLE_KEYS = new Set(['allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_dynsec_config_file']);
 
 /**
- * Parse a mosquitto.conf file into a structured object.
+ * Parse mosquitto.conf text into a structured object.
  *
- * @param {string} filePath
+ * @param {string} raw - raw mosquitto.conf content
  * @returns {{ listeners: object[], managed: object, passthrough: string[], raw: string }}
  */
-function parse(filePath) {
-    let raw = '';
-    try {
-        raw = fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-        if (err.code !== 'ENOENT') throw err;
-        return { listeners: [], managed: {}, passthrough: [], raw: '' };
-    }
-
+function parseText(raw) {
     const lines = raw.split('\n');
     const managed = {};
     const listeners = [];
@@ -79,7 +71,6 @@ function parse(filePath) {
             applyListenerKey(currentListener, key, value);
         } else if (MANAGED_SINGLE_KEYS.has(key)) {
             if (managed[key] !== undefined) {
-                // multi-value key (e.g. log_type) — convert to array
                 managed[key] = [].concat(managed[key]).concat(value);
             } else {
                 managed[key] = value;
@@ -92,6 +83,23 @@ function parse(filePath) {
     }
 
     return { listeners, managed, passthrough, raw };
+}
+
+/**
+ * Parse a mosquitto.conf file into a structured object.
+ *
+ * @param {string} filePath
+ * @returns {{ listeners: object[], managed: object, passthrough: string[], raw: string }}
+ */
+function parse(filePath) {
+    let raw = '';
+    try {
+        raw = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+        return { listeners: [], managed: {}, passthrough: [], raw: '' };
+    }
+    return parseText(raw);
 }
 
 /** Keys that belong to a listener block */
@@ -284,4 +292,4 @@ async function restart(brokerConfig) {
     return result;
 }
 
-module.exports = { parse, serialise, checksum, write, listBackups, restoreBackup, reload, restart };
+module.exports = { parse, parseText, serialise, checksum, write, listBackups, restoreBackup, reload, restart };

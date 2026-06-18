@@ -181,10 +181,16 @@ router.post('/config/restore', (req, res) => {
 /**
  * POST /she/broker/reload
  * Send SIGHUP / systemctl reload to mosquitto.
+ * In remote mode, the command is executed on the broker host via SSH.
  */
 router.post('/reload', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
+        if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
+            const cmd = bc.reloadCmd || 'sudo systemctl reload mosquitto';
+            const result = await sshDeploy.runCommand(bc.ssh, cmd);
+            return res.json({ ok: true, ...result });
+        }
         const result = await mosquittoConf.reload(bc);
         res.json({ ok: true, stdout: result.stdout, stderr: result.stderr });
     } catch (err) {
@@ -195,10 +201,16 @@ router.post('/reload', async (req, res) => {
 /**
  * POST /she/broker/restart
  * Full mosquitto service restart.
+ * In remote mode, the command is executed on the broker host via SSH.
  */
 router.post('/restart', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
+        if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
+            const cmd = bc.restartCmd || 'sudo systemctl restart mosquitto';
+            const result = await sshDeploy.runCommand(bc.ssh, cmd);
+            return res.json({ ok: true, ...result });
+        }
         const result = await mosquittoConf.restart(bc);
         res.json({ ok: true, stdout: result.stdout, stderr: result.stderr });
     } catch (err) {
@@ -684,13 +696,17 @@ router.post('/wizard/probe', (req, res) => {
 /**
  * POST /she/broker/wizard/bootstrap
  * Full bootstrap flow:
- *   1. Generate dynamic-security.json with she-admin credentials
- *   2. Write the file to configDir (or upload via SSH for remote mode)
- *   3. Ensure plugin line exists in mosquitto.conf
- *   4. Return instructions for the next step (restart)
+ *   1. Generate dynamic-security.json via mosquitto_ctrl
+ *      - Remote mode: run mosquitto_ctrl on the broker host via SSH
+ *      - Local mode:  run mosquitto_ctrl locally
+ *   2. Ensure plugin line exists in mosquitto.conf
+ *   3. Return credentials (store in config.json via /she/config)
+ *
+ * Note: mosquitto_ctrl is part of the mosquitto package and must be installed
+ * on the same host as the broker. It cannot be used to manage a remote broker,
+ * which is why we invoke it via SSH in remote mode.
  *
  * Body: { adminUsername?, adminPassword?, configDir? }
- * The generated password is returned in the response (store in config.json via /she/config).
  */
 router.post('/wizard/bootstrap', async (req, res) => {
     try {
@@ -702,47 +718,53 @@ router.post('/wizard/bootstrap', async (req, res) => {
 
         const username = req.body.adminUsername || 'she-admin';
         const password = req.body.adminPassword || crypto.randomBytes(18).toString('base64url');
-        const configDir = req.body.configDir || bc.configDir || '/etc/mosquitto';
+        const configDir = (req.body.configDir || bc.configDir || '/etc/mosquitto').replace(/\\/g, '/');
+        const isRemote = bc.mode === 'remote' && bc.ssh && bc.ssh.host;
 
-        // Generate dynamic-security.json using mosquitto_ctrl
-        const dynSecPath = path.join(configDir, 'dynamic-security.json');
-        const tmpJson = path.join(require('os').tmpdir(), `she-dynsec-${Date.now()}.json`);
+        const dynSecPath = `${configDir}/dynamic-security.json`;
+        const confFilePath = `${configDir}/mosquitto.conf`;
 
-        try {
-            await execFileAsync('mosquitto_ctrl', ['dynsec', 'init', tmpJson, username, password], { timeout: 10000 });
-        } catch (err) {
-            return res.status(500).json({ error: `mosquitto_ctrl failed: ${err.message}. Ensure mosquitto-clients is installed.` });
-        }
+        if (isRemote) {
+            // mosquitto_ctrl must run on the broker host — invoke it via SSH.
+            try {
+                await sshDeploy.runCommand(bc.ssh, `mosquitto_ctrl dynsec init "${dynSecPath}" "${username}" "${password}"`);
+            } catch (err) {
+                return res.status(500).json({
+                    error: `mosquitto_ctrl failed on remote host: ${err.message}. Ensure mosquitto is installed on the remote broker host.`,
+                });
+            }
 
-        const jsonContent = fs.readFileSync(tmpJson, 'utf8');
-        try {
-            fs.unlinkSync(tmpJson);
-        } catch {
-            /* ok */
-        }
-
-        // Write dynamic-security.json (locally or via SSH)
-        if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
-            await sshDeploy.uploadContent(bc.ssh, jsonContent, dynSecPath);
-        } else {
-            fs.mkdirSync(configDir, { recursive: true });
-            fs.writeFileSync(dynSecPath, jsonContent, 'utf8');
-        }
-
-        // Ensure plugin line exists in mosquitto.conf
-        const confFilePath = path.join(configDir, 'mosquitto.conf');
-        const parsed = mosquittoConf.parse(confFilePath);
-
-        const pluginLine = 'mosquitto_dynamic_security.so';
-        const pluginOptLine = dynSecPath;
-
-        if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes(pluginLine)) {
-            parsed.managed.plugin = pluginLine;
-            parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
-            const content = mosquittoConf.serialise(parsed);
-            if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
+            // Read the remote mosquitto.conf, parse, and add the plugin line if missing.
+            let remoteConfRaw = '';
+            try {
+                remoteConfRaw = await sshDeploy.readRemoteFile(bc.ssh, confFilePath);
+            } catch {
+                // File may not exist yet — start from an empty config
+            }
+            const parsed = mosquittoConf.parseText(remoteConfRaw);
+            if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes('mosquitto_dynamic_security')) {
+                parsed.managed.plugin = 'mosquitto_dynamic_security.so';
+                parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
+                const content = mosquittoConf.serialise(parsed);
                 await sshDeploy.uploadContent(bc.ssh, content, confFilePath);
-            } else {
+            }
+        } else {
+            // Local mode: run mosquitto_ctrl on this host.
+            fs.mkdirSync(configDir, { recursive: true });
+            try {
+                await execFileAsync('mosquitto_ctrl', ['dynsec', 'init', dynSecPath, username, password], { timeout: 10000 });
+            } catch (err) {
+                return res.status(500).json({
+                    error: `mosquitto_ctrl failed: ${err.message}. Ensure mosquitto is installed on this host.`,
+                });
+            }
+
+            // Ensure plugin line exists in local mosquitto.conf
+            const parsed = mosquittoConf.parse(confFilePath);
+            if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes('mosquitto_dynamic_security')) {
+                parsed.managed.plugin = 'mosquitto_dynamic_security.so';
+                parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
+                const content = mosquittoConf.serialise(parsed);
                 mosquittoConf.write(confFilePath, content);
             }
         }

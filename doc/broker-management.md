@@ -4,9 +4,9 @@ she can optionally manage a local or remote [Mosquitto](https://mosquitto.org/) 
 
 > **Prerequisites**
 > - Mosquitto must already be installed and running. she does not install Mosquitto for you.
-> - `mosquitto_ctrl` must be available on the machine running she (comes with the `mosquitto-clients` package) for the Setup Wizard. Manual setup does not require it.
+> - For the Setup Wizard in **local mode**: `mosquitto_ctrl` must be installed on the she host. In **remote mode**: `mosquitto_ctrl` must be installed on the remote broker host — she invokes it via SSH. `mosquitto_ctrl` is part of the `mosquitto` package (not `mosquitto-clients`).
 > - For CA and certificate operations: `openssl` CLI (standard on Linux/macOS).
-> - For SSH/remote mode: `ssh-keygen` CLI and the `ssh2` npm package (`npm install ssh2 --prefix ~/.she`).
+> - For SSH/remote mode: `ssh` and `scp` must be available in PATH on the she host, plus `ssh-keygen` for keypair generation.
 
 ---
 
@@ -25,7 +25,7 @@ Two subsystems handle different concerns:
 | Mode | Config files | Users/ACLs |
 |------|-------------|------------|
 | **Local** | Written directly to disk (e.g. `/etc/mosquitto/`) | dynsec over MQTT |
-| **Remote** | Uploaded via SFTP, reload via SSH | dynsec over MQTT (no SSH needed for day-to-day operation) |
+| **Remote** | Uploaded via SCP, reload/restart via SSH | dynsec over MQTT (no SSH needed for day-to-day operation) |
 
 ---
 
@@ -411,6 +411,6 @@ All endpoints are mounted at `/she/broker/*` and require Bearer token authentica
 - [Mosquitto documentation](https://mosquitto.org/documentation/)
 - [Mosquitto Dynamic Security plugin](https://mosquitto.org/documentation/dynamic-security/) — full command reference, role/ACL semantics, default ACL behaviour
 - [mosquitto.conf man page](https://mosquitto.org/man/mosquitto-conf-5.html) — all configuration directives
-- [`mosquitto_ctrl` man page](https://mosquitto.org/man/mosquitto_ctrl-1.html) — CLI tool used for dynsec bootstrap
+- [`mosquitto_ctrl` man page](https://mosquitto.org/man/mosquitto_ctrl-1.html) — CLI tool used for dynsec bootstrap (part of the `mosquitto` package; in remote mode she invokes it on the broker host via SSH)
 - [openssl genpkey](https://www.openssl.org/docs/man1.1.1/man1/genpkey.html), [openssl req](https://www.openssl.org/docs/man1.1.1/man1/req.html), [openssl x509](https://www.openssl.org/docs/man1.1.1/man1/x509.html) — used for CA operations
-- [ssh2 npm package](https://www.npmjs.com/package/ssh2) — SFTP/SSH library used for remote mode
+- [OpenSSH](https://www.openssh.com/) — SSH client (`ssh`, `scp`) used for remote mode; must be available in PATH on the she host
