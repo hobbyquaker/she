@@ -152,8 +152,9 @@ Server → client message types:
 
 ## Versioning Policy
 
-- Use **semantic versioning** (`MAJOR.MINOR.PATCH`), major stays at `0` for now
-- **Patch** (`0.x.y+1`): bug fixes, minor non-breaking changes
-- **Minor** (`0.x+1.0`): new features
+- Use **semantic versioning** (`MAJOR.MINOR.PATCH`)
+- **Patch** (`x.y.Z+1`): bug fixes, minor non-breaking changes
+- **Minor** (`x.Y+1.0`): new features
+- **Major** (`X+1.0.0`): only when introducing a breaking change that has no automatic migration strategy
 - **Keep `she` (root `package.json`) and `she-her` (`web/package.json`) versions in sync**
 - **After bumping** the version: create a git tag for the new version (`git tag v{new}`, `git push origin v{new}`)
