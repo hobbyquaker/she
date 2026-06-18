@@ -504,6 +504,10 @@ if (config.matterStorage) {
     log.warn('matter controller disabled â€” set matterStorage in config.json to enable');
 }
 
+// dynsec broker admin client - only init when broker.dynsec credentials are configured
+if (config.broker && config.broker.dynsec && config.url) {
+    require('./lib/dynsec').init(config, log);
+}
 // If no broker is configured, start scripts immediately.
 // If a broker is configured, startOnce() fires from the quiet-period timer inside
 // mqtt.on('connect') once the retained-message burst settles, or from the

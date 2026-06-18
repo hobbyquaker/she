@@ -1,0 +1,295 @@
+'use strict';
+
+/**
+ * dynsec — Dynamic Security plugin client for Mosquitto.
+ *
+ * Creates a dedicated MQTT connection using the she-admin credentials from
+ * config.broker.dynsec.{adminUsername, adminPassword}. All dynsec commands
+ * are serialised through a single-inflight request queue so concurrent calls
+ * do not confuse the response-correlation logic (the dynsec protocol has no
+ * request IDs).
+ *
+ * Usage:
+ *   const dynsec = require('./dynsec');
+ *   dynsec.init(config, log);
+ *
+ *   const { connected } = dynsec.getStatus();
+ *   const users = await dynsec.listClients(true);
+ */
+
+const mqtt = require('mqtt');
+
+const CONTROL_TOPIC = '$CONTROL/dynamic-security/v1';
+const RESPONSE_TOPIC = '$CONTROL/dynamic-security/v1/response';
+
+let _client = null;
+let _connected = false;
+let _configured = false;
+let _timeout = 5000;
+let _log = null;
+
+// Serial request queue — one in-flight request at a time
+const _queue = [];
+let _inflight = false;
+let _inflightResolve = null;
+
+function _drain() {
+    if (_inflight || _queue.length === 0 || !_connected) return;
+
+    const { command, payload, resolve, reject } = _queue.shift();
+    _inflight = true;
+
+    const timer = setTimeout(() => {
+        _inflight = false;
+        _inflightResolve = null;
+        reject(new Error(`dynsec timeout waiting for response to "${command}"`));
+        _drain();
+    }, _timeout);
+
+    _inflightResolve = (responses) => {
+        clearTimeout(timer);
+        _inflight = false;
+        _inflightResolve = null;
+        const r = responses.find((resp) => resp.command === command);
+        if (r && r.error) {
+            reject(new Error(r.error));
+        } else {
+            resolve(r || {});
+        }
+        _drain();
+    };
+
+    _client.publish(CONTROL_TOPIC, JSON.stringify({ commands: [{ command, ...payload }] }));
+}
+
+function _request(command, payload = {}) {
+    if (!_configured) {
+        return Promise.reject(new Error('she.broker: dynsec not configured — set broker.dynsec in config.json'));
+    }
+    if (!_connected) {
+        return Promise.reject(new Error('she.broker: dynsec not connected'));
+    }
+    return new Promise((resolve, reject) => {
+        _queue.push({ command, payload, resolve, reject });
+        _drain();
+    });
+}
+
+/**
+ * Initialise the dynsec client. No-op if broker.dynsec is not set in config.
+ * @param {object} config   - she config object
+ * @param {object} log      - she log object
+ */
+function init(config, log) {
+    _log = log;
+    _timeout = (config.broker && config.broker.apiTimeout) || 5000;
+
+    const dynsecCfg = config.broker && config.broker.dynsec;
+    if (!dynsecCfg || !dynsecCfg.adminUsername || !dynsecCfg.adminPassword) {
+        _log.debug('dynsec: not configured, she.broker API disabled');
+        return;
+    }
+    if (!config.url) {
+        _log.warn('dynsec: no broker URL configured, she.broker API disabled');
+        return;
+    }
+
+    _configured = true;
+
+    const opts = {
+        username: dynsecCfg.adminUsername,
+        password: dynsecCfg.adminPassword,
+        clientId: 'she-dynsec-' + Math.random().toString(16).slice(2, 10),
+        clean: true,
+    };
+    // Inherit TLS options from main config so dynsec works over TLS-secured brokers
+    if (config.mqttCa) opts.ca = config.mqttCa;
+    if (config.mqttCert) opts.cert = config.mqttCert;
+    if (config.mqttKey) opts.key = config.mqttKey;
+    if (config.mqttVersion === '5') opts.protocolVersion = 5;
+
+    _client = mqtt.connect(config.url, opts);
+
+    _client.on('connect', () => {
+        _connected = true;
+        _log.info('dynsec: connected as', dynsecCfg.adminUsername);
+        _client.subscribe(RESPONSE_TOPIC, (err) => {
+            if (err) _log.error('dynsec: failed to subscribe to response topic:', err.message);
+            else _drain(); // flush any requests queued before connection
+        });
+    });
+
+    _client.on('close', () => {
+        if (_connected) {
+            _connected = false;
+            _log.warn('dynsec: disconnected');
+        }
+    });
+
+    _client.on('error', (err) => {
+        _log.error('dynsec: MQTT error:', err.message);
+    });
+
+    _client.on('message', (topic, payload) => {
+        if (topic !== RESPONSE_TOPIC) return;
+        let msg;
+        try {
+            msg = JSON.parse(payload.toString());
+        } catch {
+            _log.error('dynsec: invalid JSON on response topic');
+            return;
+        }
+        if (_inflightResolve && Array.isArray(msg.responses)) {
+            _inflightResolve(msg.responses);
+        }
+    });
+}
+
+/** @returns {{ connected: boolean, configured: boolean }} */
+function getStatus() {
+    return { connected: _connected, configured: _configured };
+}
+
+// ── User management ────────────────────────────────────────────────────────────
+
+function createClient(username, password, options = {}) {
+    return _request('createClient', { username, password, ...options });
+}
+
+function deleteClient(username) {
+    return _request('deleteClient', { username });
+}
+
+function setClientPassword(username, password) {
+    return _request('modifyClient', { username, password });
+}
+
+function listClients(verbose = false) {
+    return _request('listClients', { verbose }).then((r) => r.clients || []);
+}
+
+function getClient(username) {
+    return _request('getClient', { username }).then((r) => r.client);
+}
+
+// ── Role management ────────────────────────────────────────────────────────────
+
+function createRole(rolename, options = {}) {
+    return _request('createRole', { rolename, ...options });
+}
+
+function deleteRole(rolename) {
+    return _request('deleteRole', { rolename });
+}
+
+function listRoles(verbose = false) {
+    return _request('listRoles', { verbose }).then((r) => r.roles || []);
+}
+
+function getRole(rolename) {
+    return _request('getRole', { rolename }).then((r) => r.role);
+}
+
+/**
+ * @param {string} rolename
+ * @param {string} acltype  'publishClientSend'|'publishClientReceive'|
+ *                          'subscribeLiteral'|'subscribePattern'|
+ *                          'unsubscribeLiteral'|'unsubscribePattern'
+ * @param {string}  topic
+ * @param {boolean} allow
+ * @param {number}  [priority=-1]
+ */
+function addRoleACL(rolename, acltype, topic, allow, priority = -1) {
+    return _request('addRoleACL', { rolename, acltype, topic, allow, priority });
+}
+
+function removeRoleACL(rolename, acltype, topic) {
+    return _request('removeRoleACL', { rolename, acltype, topic });
+}
+
+// ── Role ↔ client assignment ───────────────────────────────────────────────────
+
+function addClientRole(username, rolename, priority = -1) {
+    return _request('addClientRole', { username, rolename, priority });
+}
+
+function removeClientRole(username, rolename) {
+    return _request('removeClientRole', { username, rolename });
+}
+
+// ── Group management ───────────────────────────────────────────────────────────
+
+function createGroup(groupname) {
+    return _request('createGroup', { groupname });
+}
+
+function deleteGroup(groupname) {
+    return _request('deleteGroup', { groupname });
+}
+
+function listGroups(verbose = false) {
+    return _request('listGroups', { verbose }).then((r) => r.groups || []);
+}
+
+function getGroup(groupname) {
+    return _request('getGroup', { groupname }).then((r) => r.group);
+}
+
+function addGroupClient(groupname, username, priority = -1) {
+    return _request('addGroupClient', { groupname, username, priority });
+}
+
+function removeGroupClient(groupname, username) {
+    return _request('removeGroupClient', { groupname, username });
+}
+
+function addGroupRole(groupname, rolename, priority = -1) {
+    return _request('addGroupRole', { groupname, rolename, priority });
+}
+
+function removeGroupRole(groupname, rolename) {
+    return _request('removeGroupRole', { groupname, rolename });
+}
+
+// ── Default ACL access ─────────────────────────────────────────────────────────
+
+function getDefaultACLAccess() {
+    return _request('getDefaultACLAccess').then((r) => r.acls || []);
+}
+
+function setDefaultACLAccess(acls) {
+    return _request('setDefaultACLAccess', { acls });
+}
+
+module.exports = {
+    init,
+    getStatus,
+    // Users
+    createClient,
+    deleteClient,
+    setClientPassword,
+    listClients,
+    getClient,
+    // Roles
+    createRole,
+    deleteRole,
+    listRoles,
+    getRole,
+    addRoleACL,
+    removeRoleACL,
+    // Role assignments
+    addClientRole,
+    removeClientRole,
+    // Groups
+    createGroup,
+    deleteGroup,
+    listGroups,
+    getGroup,
+    addGroupClient,
+    removeGroupClient,
+    addGroupRole,
+    removeGroupRole,
+    // Default ACLs
+    getDefaultACLAccess,
+    setDefaultACLAccess,
+};
