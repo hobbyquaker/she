@@ -38,9 +38,15 @@ async function maybeAutoCommit(req, message) {
         await git(['add', scriptDirRel + '/'], gitRoot);
         await git(['commit', '-m', message], gitRoot);
         if (autoPush) {
-            try { await git(['push', 'origin'], gitRoot, 60000); } catch { /* ignore push errors */ }
+            try {
+                await git(['push', 'origin'], gitRoot, 60000);
+            } catch {
+                /* ignore push errors */
+            }
         }
-    } catch { /* nothing to commit or other transient error — ignore */ }
+    } catch {
+        /* nothing to commit or other transient error — ignore */
+    }
 }
 
 /**

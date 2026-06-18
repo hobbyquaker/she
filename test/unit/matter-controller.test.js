@@ -185,14 +185,13 @@ describe('matter controller', () => {
         await controller.init('/tmp/matter', fakeLog);
 
         const endpoints = controller.getEndpoints('7');
-        expect(endpoints).toEqual([{
-            endpointId: 1,
-            name: null,
-            clusters: expect.arrayContaining([
-                expect.objectContaining({ name: 'onOff' }),
-                expect.objectContaining({ name: 'levelControl' }),
-            ]),
-        }]);
+        expect(endpoints).toEqual([
+            {
+                endpointId: 1,
+                name: null,
+                clusters: expect.arrayContaining([expect.objectContaining({ name: 'onOff' }), expect.objectContaining({ name: 'levelControl' })]),
+            },
+        ]);
     });
 
     // ── subscribeAttribute / unsubscribe / cleanup ────────────────────────────

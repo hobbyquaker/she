@@ -30,7 +30,11 @@ router.put('/', (req, res) => {
     const configPath = req.app.locals.configPath || DEFAULT_CONFIG_PATH;
     try {
         let oldConfig = {};
-        try { oldConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch { /* ok — file may not exist yet */ }
+        try {
+            oldConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        } catch {
+            /* ok — file may not exist yet */
+        }
 
         fs.mkdirSync(path.dirname(configPath), { recursive: true });
         fs.writeFileSync(configPath, JSON.stringify(req.body, null, 2), 'utf8');
@@ -38,9 +42,7 @@ router.put('/', (req, res) => {
         // Restart is only required when a daemon-critical key changed.
         const newConfig = req.body || {};
         const allKeys = new Set([...Object.keys(oldConfig), ...Object.keys(newConfig)]);
-        const restartRequired = [...allKeys].some(
-            (k) => !FRONTEND_ONLY_KEYS.has(k) && JSON.stringify(oldConfig[k]) !== JSON.stringify(newConfig[k]),
-        );
+        const restartRequired = [...allKeys].some((k) => !FRONTEND_ONLY_KEYS.has(k) && JSON.stringify(oldConfig[k]) !== JSON.stringify(newConfig[k]));
 
         res.json({ ok: true, restartRequired, configPath });
     } catch (err) {

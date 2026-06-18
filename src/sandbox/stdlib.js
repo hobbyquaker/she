@@ -161,10 +161,7 @@ module.exports = function (she, ctx = {}) {
             if (!signal) {
                 const ac = new AbortController();
                 signal = ac.signal;
-                timer = setTimeout(
-                    () => ac.abort(new Error(`she.http.fetch timed out after ${TIMEOUT_MS / 1000}s`)),
-                    TIMEOUT_MS,
-                );
+                timer = setTimeout(() => ac.abort(new Error(`she.http.fetch timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS);
             }
             return fetch(url, { ...options, signal })
                 .then((r) => {

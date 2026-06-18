@@ -46,7 +46,7 @@ function attachWss(httpServer, authCheck = () => true) {
         for (const provider of _welcomeProviders) {
             const msgs = provider();
             if (!msgs) continue;
-            for (const msg of (Array.isArray(msgs) ? msgs : [msgs])) {
+            for (const msg of Array.isArray(msgs) ? msgs : [msgs]) {
                 ws.send(JSON.stringify(msg));
             }
         }

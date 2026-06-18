@@ -33,7 +33,9 @@ function _checkOutdated() {
                 for (const [name, info] of Object.entries(data)) {
                     _outdated[name] = { current: info.current, latest: info.latest };
                 }
-            } catch { /* ignore parse errors */ }
+            } catch {
+                /* ignore parse errors */
+            }
             resolve(_outdated ?? {});
         });
     });
@@ -164,10 +166,7 @@ router.get('/search', (req, res) => {
                         obj.package.links?.homepage ||
                         obj.package.links?.npm ||
                         `https://www.npmjs.com/package/${encodeURIComponent(obj.package.name)}`,
-                    author:
-                        obj.package.publisher?.username ||
-                        obj.package.author?.name ||
-                        (obj.package.maintainers?.[0]?.username ?? null),
+                    author: obj.package.publisher?.username || obj.package.author?.name || (obj.package.maintainers?.[0]?.username ?? null),
                     date: obj.package.date ?? null,
                 }));
                 res.json(results);

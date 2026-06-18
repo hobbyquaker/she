@@ -219,10 +219,7 @@ router.get('/log', async (req, res) => {
     const relToRoot = path.relative(gitRoot, abs).replace(/\\/g, '/');
 
     try {
-        const { stdout } = await git(
-            ['log', '--follow', '--format=%H%x1f%s%x1f%an%x1f%ai', `-n`, String(limit), '--', relToRoot],
-            gitRoot,
-        );
+        const { stdout } = await git(['log', '--follow', '--format=%H%x1f%s%x1f%an%x1f%ai', `-n`, String(limit), '--', relToRoot], gitRoot);
         const commits = stdout
             .split('\n')
             .filter(Boolean)
@@ -242,10 +239,7 @@ router.get('/log', async (req, res) => {
  */
 async function getHistoricPath(gitRoot, relToRoot, hash) {
     try {
-        const { stdout } = await git(
-            ['log', '--follow', '--format=COMMIT:%H', '--name-only', '--', relToRoot],
-            gitRoot,
-        );
+        const { stdout } = await git(['log', '--follow', '--format=COMMIT:%H', '--name-only', '--', relToRoot], gitRoot);
         let currentHash = null;
         for (const line of stdout.split('\n')) {
             const trimmed = line.trim();

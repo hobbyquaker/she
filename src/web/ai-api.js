@@ -449,7 +449,7 @@ router.post('/prompt', (req, res) => {
 router.post('/chat', async (req, res) => {
     const ai = readAiConfig(req.app.locals.configPath);
     const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
-    const effectiveModel = (modelOverride && typeof modelOverride === 'string') ? modelOverride : ai?.model;
+    const effectiveModel = modelOverride && typeof modelOverride === 'string' ? modelOverride : ai?.model;
     if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
@@ -480,7 +480,7 @@ router.post('/chat', async (req, res) => {
 router.post('/chat/stream', async (req, res) => {
     const ai = readAiConfig(req.app.locals.configPath);
     const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
-    const effectiveModel = (modelOverride && typeof modelOverride === 'string') ? modelOverride : ai?.model;
+    const effectiveModel = modelOverride && typeof modelOverride === 'string' ? modelOverride : ai?.model;
     if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
     }
@@ -553,15 +553,21 @@ router.get('/conversations', (req, res) => {
     ensureAiDir();
     let list = [];
     try {
-        const files = fs.readdirSync(AI_DIR).filter(f => f.endsWith('.json'));
-        list = files.map(f => {
-            try {
-                const data = JSON.parse(fs.readFileSync(path.join(AI_DIR, f), 'utf8'));
-                return { id: data.id, title: data.title || data.id, updatedAt: data.updatedAt || 0 };
-            } catch { return null; }
-        }).filter(Boolean);
+        const files = fs.readdirSync(AI_DIR).filter((f) => f.endsWith('.json'));
+        list = files
+            .map((f) => {
+                try {
+                    const data = JSON.parse(fs.readFileSync(path.join(AI_DIR, f), 'utf8'));
+                    return { id: data.id, title: data.title || data.id, updatedAt: data.updatedAt || 0 };
+                } catch {
+                    return null;
+                }
+            })
+            .filter(Boolean);
         list.sort((a, b) => b.updatedAt - a.updatedAt);
-    } catch { /* empty dir */ }
+    } catch {
+        /* empty dir */
+    }
     res.json(list);
 });
 
@@ -593,7 +599,11 @@ router.put('/conversations/:id', (req, res) => {
 router.delete('/conversations/:id', (req, res) => {
     const p = convPath(req.params.id);
     if (!p) return res.status(400).json({ error: 'invalid id' });
-    try { fs.unlinkSync(p); } catch { /* already gone */ }
+    try {
+        fs.unlinkSync(p);
+    } catch {
+        /* already gone */
+    }
     res.json({ ok: true });
 });
 

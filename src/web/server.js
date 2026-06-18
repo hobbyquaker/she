@@ -13,6 +13,7 @@ const { router: mqttRouter } = require('./mqtt-api');
 const { router: depsRouter } = require('./deps-api');
 const { router: gitRouter } = require('./git-api');
 const { router: aiRouter } = require('./ai-api');
+const { router: brokerRouter } = require('./broker-api');
 const { attachWss, closeWss } = require('./log-ws');
 const { init: initAuth, authMiddleware, checkAuth, router: authRouter } = require('./auth');
 
@@ -57,6 +58,9 @@ app.use('/she/git', gitRouter);
 // AI assistant proxy: /she/ai/*
 app.use('/she/ai', aiRouter);
 
+// Broker management: /she/broker/*
+app.use('/she/broker', brokerRouter);
+
 // Graceful daemon restart
 // When running under systemd, delegate to `sudo systemctl restart` so the
 // service actually comes back up. Otherwise fall back to exit(0) and let
@@ -80,8 +84,10 @@ async function _checkNpmVersion() {
     try {
         const res = await fetch('https://registry.npmjs.org/smart-home-engine/latest');
         const data = await res.json();
-        _latestNpmVersion = (data.version && semverCompare(pkg.version, data.version) < 0) ? data.version : null;
-    } catch { /* best-effort */ }
+        _latestNpmVersion = data.version && semverCompare(pkg.version, data.version) < 0 ? data.version : null;
+    } catch {
+        /* best-effort */
+    }
 }
 _checkNpmVersion();
 setInterval(_checkNpmVersion, 24 * 60 * 60 * 1000);

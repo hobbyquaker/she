@@ -283,7 +283,7 @@ export function deleteView(id: string): Promise<{ ok: boolean }> {
 
 export interface DepEntry {
     name: string;
-    version: string;           // specifier from package.json (e.g. "^1.0.0")
+    version: string; // specifier from package.json (e.g. "^1.0.0")
     installedVersion?: string; // actual version in node_modules
     url?: string;
 }
@@ -590,4 +590,260 @@ export async function streamChatWithAI(body: AiChatRequest, onToken: (token: str
     } finally {
         reader.releaseLock();
     }
+}
+
+// ---- Broker API ----
+
+export interface BrokerDynsecStatus {
+    connected: boolean;
+    configured: boolean;
+}
+
+export interface BrokerStatus {
+    dynsec: BrokerDynsecStatus;
+    sys: Record<string, { val: unknown; ts: number }>;
+}
+
+export interface BrokerListenerTls {
+    certfile?: string;
+    keyfile?: string;
+    cafile?: string;
+    capath?: string;
+    crlfile?: string;
+    tls_version?: string;
+    require_certificate?: boolean;
+    use_identity_as_username?: boolean;
+}
+
+export interface BrokerListener {
+    port: number;
+    bindAddress?: string;
+    protocol?: string;
+    tls: BrokerListenerTls;
+}
+
+export interface BrokerConf {
+    listeners: BrokerListener[];
+    managed: Record<string, string | string[]>;
+    passthrough: string[];
+    raw?: string;
+    checksum: string | null;
+    backups: string[];
+}
+
+export interface DynsecAcl {
+    acltype: string;
+    topic: string;
+    allow: boolean;
+    priority?: number;
+}
+
+export interface DynsecRole {
+    rolename: string;
+    acls?: DynsecAcl[];
+}
+
+export interface DynsecUser {
+    username: string;
+    roles?: { rolename: string }[];
+    groups?: { groupname: string }[];
+}
+
+export interface DynsecGroup {
+    groupname: string;
+    roles?: { rolename: string }[];
+    clients?: { username: string }[];
+}
+
+export function getBrokerStatus(): Promise<BrokerStatus> {
+    return request('GET', '/she/broker/status');
+}
+
+export function getBrokerConf(): Promise<BrokerConf> {
+    return request('GET', '/she/broker/config');
+}
+
+export function putBrokerConf(conf: Pick<BrokerConf, 'listeners' | 'managed' | 'passthrough'> & { checksum?: string | null }): Promise<{ ok: boolean; backupPath: string | null }> {
+    return request('PUT', '/she/broker/config', conf);
+}
+
+export function putBrokerConfRaw(content: string, checksum?: string | null): Promise<{ ok: boolean; backupPath: string | null }> {
+    return request('PUT', '/she/broker/config/raw', { content, checksum });
+}
+
+export function getBrokerBackups(): Promise<{ backups: string[] }> {
+    return request('GET', '/she/broker/config/backups');
+}
+
+export function restoreBrokerBackup(backup: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/broker/config/restore', { backup });
+}
+
+export function brokerReload(): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    return request('POST', '/she/broker/reload');
+}
+
+export function brokerRestart(): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    return request('POST', '/she/broker/restart');
+}
+
+// dynsec — users
+export function listBrokerUsers(): Promise<{ users: DynsecUser[] }> {
+    return request('GET', '/she/broker/users');
+}
+
+export function createBrokerUser(username: string, password: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/broker/users', { username, password });
+}
+
+export function deleteBrokerUser(username: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/users/${encodeURIComponent(username)}`);
+}
+
+export function setBrokerUserPassword(username: string, password: string): Promise<{ ok: boolean }> {
+    return request('PUT', `/she/broker/users/${encodeURIComponent(username)}/password`, { password });
+}
+
+export function assignBrokerUserRole(username: string, rolename: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/broker/users/${encodeURIComponent(username)}/roles`, { rolename });
+}
+
+export function removeBrokerUserRole(username: string, rolename: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/users/${encodeURIComponent(username)}/roles/${encodeURIComponent(rolename)}`);
+}
+
+// dynsec — roles
+export function listBrokerRoles(): Promise<{ roles: DynsecRole[] }> {
+    return request('GET', '/she/broker/roles');
+}
+
+export function createBrokerRole(rolename: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/broker/roles', { rolename });
+}
+
+export function deleteBrokerRole(rolename: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/roles/${encodeURIComponent(rolename)}`);
+}
+
+export function addBrokerRoleAcl(rolename: string, acl: { acltype: string; topic: string; allow: boolean; priority?: number }): Promise<{ ok: boolean }> {
+    return request('POST', `/she/broker/roles/${encodeURIComponent(rolename)}/acls`, acl);
+}
+
+export function removeBrokerRoleAcl(rolename: string, acltype: string, topic: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/roles/${encodeURIComponent(rolename)}/acls`, { acltype, topic });
+}
+
+// dynsec — groups
+export function listBrokerGroups(): Promise<{ groups: DynsecGroup[] }> {
+    return request('GET', '/she/broker/groups');
+}
+
+export function createBrokerGroup(groupname: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/broker/groups', { groupname });
+}
+
+export function deleteBrokerGroup(groupname: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/groups/${encodeURIComponent(groupname)}`);
+}
+
+export function addBrokerGroupClient(groupname: string, username: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/broker/groups/${encodeURIComponent(groupname)}/clients`, { username });
+}
+
+export function removeBrokerGroupClient(groupname: string, username: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/groups/${encodeURIComponent(groupname)}/clients/${encodeURIComponent(username)}`);
+}
+
+export function addBrokerGroupRole(groupname: string, rolename: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/broker/groups/${encodeURIComponent(groupname)}/roles`, { rolename });
+}
+
+export function removeBrokerGroupRole(groupname: string, rolename: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/groups/${encodeURIComponent(groupname)}/roles/${encodeURIComponent(rolename)}`);
+}
+
+// broker — CA
+export interface CaInfo {
+    crt: string;
+    fingerprint: string;
+    expires: string;
+    cn: string;
+}
+
+export interface ServerCertInfo {
+    fingerprint: string;
+    expires: string;
+    cn: string;
+}
+
+export interface TrustedCert {
+    filename: string;
+    cn: string;
+    fingerprint: string;
+    expires: string;
+}
+
+export interface IssuedCert {
+    _id?: string;
+    cn: string;
+    serial: string;
+    fingerprint: string;
+    issued: string;
+    expires: string;
+    revoked: boolean;
+    revokedAt?: string | null;
+}
+
+export interface IssuedCertResult extends IssuedCert {
+    passphrase: string;
+    crt: string;
+    key: string;
+}
+
+export function getBrokerCA(): Promise<{ ca: CaInfo | null }> {
+    return request('GET', '/she/broker/ca');
+}
+
+export function generateBrokerCA(opts?: { cn?: string; days?: number }): Promise<{ ok: boolean } & CaInfo> {
+    return request('POST', '/she/broker/ca/generate', opts ?? {});
+}
+
+export function getBrokerServerCert(): Promise<{ server: ServerCertInfo | null }> {
+    return request('GET', '/she/broker/ca/server');
+}
+
+export function generateBrokerServerCert(opts: {
+    cn: string;
+    san?: string[];
+    days?: number;
+}): Promise<{ ok: boolean; fingerprint: string; expires: string; certPath: string; keyPath: string }> {
+    return request('POST', '/she/broker/ca/server/generate', opts);
+}
+
+export function listIssuedCerts(): Promise<{ certs: IssuedCert[] }> {
+    return request('GET', '/she/broker/ca/certs');
+}
+
+export function issueClientCert(opts: { cn: string; days?: number }): Promise<{ ok: boolean } & IssuedCertResult> {
+    return request('POST', '/she/broker/ca/certs', opts);
+}
+
+export function revokeClientCert(serial: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/ca/certs/${encodeURIComponent(serial)}`);
+}
+
+export function downloadCertUrl(serial: string, type: 'p12' | 'crt' | 'key' | 'ca'): string {
+    return `/she/broker/ca/certs/${encodeURIComponent(serial)}/download?type=${type}`;
+}
+
+export function listTrustedCerts(): Promise<{ certs: TrustedCert[] }> {
+    return request('GET', '/she/broker/ca/trusted');
+}
+
+export function addTrustedCert(pem: string): Promise<{ ok: boolean; filename: string; fingerprint: string }> {
+    return request('POST', '/she/broker/ca/trusted', { pem });
+}
+
+export function removeTrustedCert(fingerprint: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/ca/trusted/${encodeURIComponent(fingerprint)}`);
 }
