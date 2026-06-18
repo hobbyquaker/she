@@ -39,9 +39,14 @@ function _drain() {
     const { command, payload, resolve, reject } = _queue.shift();
     _inflight = true;
 
+    const safePayload = { ...payload };
+    if ('password' in safePayload) safePayload.password = '***';
+    if (_log) _log.debug(`dynsec: → sending "${command}"`, JSON.stringify(safePayload));
+
     const timer = setTimeout(() => {
         _inflight = false;
         _inflightResolve = null;
+        if (_log) _log.debug(`dynsec: timeout waiting for response to "${command}" (${_timeout}ms)`);
         reject(new Error(`dynsec timeout waiting for response to "${command}"`));
         _drain();
     }, _timeout);
@@ -52,8 +57,10 @@ function _drain() {
         _inflightResolve = null;
         const r = responses.find((resp) => resp.command === command);
         if (r && r.error) {
+            if (_log) _log.debug(`dynsec: ✕ "${command}" error: ${r.error}`);
             reject(new Error(r.error));
         } else {
+            if (_log) _log.debug(`dynsec: ✓ "${command}" ok`);
             resolve(r || {});
         }
         _drain();
@@ -67,8 +74,12 @@ function _request(command, payload = {}) {
         return Promise.reject(new Error('she.broker: dynsec not configured — set broker.dynsec in config.json'));
     }
     if (!_connected) {
+        if (_log) _log.debug(`dynsec: request "${command}" rejected — not connected (queue length: ${_queue.length})`);
         return Promise.reject(new Error('she.broker: dynsec not connected'));
     }
+    const safePayload = { ...payload };
+    if ('password' in safePayload) safePayload.password = '***';
+    if (_log) _log.debug(`dynsec: queuing "${command}" (queue length: ${_queue.length}, inflight: ${_inflight})`, JSON.stringify(safePayload));
     return new Promise((resolve, reject) => {
         _queue.push({ command, payload, resolve, reject });
         _drain();
@@ -139,8 +150,12 @@ function init(config, log) {
             _log.error('dynsec: invalid JSON on response topic');
             return;
         }
+        const cmds = Array.isArray(msg.responses) ? msg.responses.map((r) => r.command).join(', ') : 'none';
+        if (_log) _log.debug(`dynsec: ← response received, commands: [${cmds}]`);
         if (_inflightResolve && Array.isArray(msg.responses)) {
             _inflightResolve(msg.responses);
+        } else if (!_inflightResolve) {
+            if (_log) _log.debug(`dynsec: unexpected response (no inflight request), commands: [${cmds}]`);
         }
     });
 }

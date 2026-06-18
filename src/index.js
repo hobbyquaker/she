@@ -119,6 +119,7 @@ if (typeof config.port !== 'undefined') {
             log.error('http server start failed:', err.message);
             process.exit(1);
         });
+    require('./web/broker-api').setLogger(log);
 }
 
 const chokidar = require('chokidar');

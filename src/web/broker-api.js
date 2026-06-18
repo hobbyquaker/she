@@ -27,6 +27,13 @@ const DEFAULT_SSH_KEY = path.join(sheConfig['data-dir'], 'ssh', 'broker_id_ed255
 
 const router = express.Router();
 
+let _log = null;
+
+/** Must be called once from index.js so broker-api can emit debug-level log lines. */
+function setLogger(log) {
+    _log = log;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /** Get broker config from live config.json */
@@ -191,12 +198,18 @@ router.post('/reload', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
         if (bc.ssh && bc.ssh.host) {
+            const cmd = bc.reloadCmd || 'sudo systemctl reload mosquitto';
+            _log?.debug(`broker: remote reload on ${bc.ssh.host}: ${cmd}`);
             const result = await sshDeploy.runCommand(bc.ssh, cmd);
+            _log?.debug(`broker: remote reload stdout=${result.stdout} stderr=${result.stderr}`);
             return res.json({ ok: true, ...result });
         }
+        _log?.debug('broker: local reload mosquitto');
         const result = await mosquittoConf.reload(bc);
+        _log?.debug(`broker: local reload stdout=${result.stdout} stderr=${result.stderr}`);
         res.json({ ok: true, stdout: result.stdout, stderr: result.stderr });
     } catch (err) {
+        _log?.debug(`broker: reload error: ${err.message}`);
         handleError(res, err);
     }
 });
@@ -211,12 +224,17 @@ router.post('/restart', async (req, res) => {
         const bc = getBrokerConfig(req);
         if (bc.ssh && bc.ssh.host) {
             const cmd = bc.restartCmd || 'sudo systemctl restart mosquitto';
+            _log?.debug(`broker: remote restart on ${bc.ssh.host}: ${cmd}`);
             const result = await sshDeploy.runCommand(bc.ssh, cmd);
+            _log?.debug(`broker: remote restart stdout=${result.stdout} stderr=${result.stderr}`);
             return res.json({ ok: true, ...result });
         }
+        _log?.debug('broker: local restart mosquitto');
         const result = await mosquittoConf.restart(bc);
+        _log?.debug(`broker: local restart stdout=${result.stdout} stderr=${result.stderr}`);
         res.json({ ok: true, stdout: result.stdout, stderr: result.stderr });
     } catch (err) {
+        _log?.debug(`broker: restart error: ${err.message}`);
         handleError(res, err);
     }
 });
@@ -655,7 +673,7 @@ router.delete('/ca/trusted/:fingerprint', async (req, res) => {
     }
 });
 
-module.exports = { router };
+module.exports = { router, setLogger };
 
 // ── SSH routes ─────────────────────────────────────────────────────────────────
 // Note: these routes are mounted on the same router but defined after module.exports
@@ -680,9 +698,12 @@ router.post('/ssh/keygen', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
         const identityFile = (bc.ssh && bc.ssh.identityFile) || DEFAULT_SSH_KEY;
+        _log?.debug(`broker: generating SSH keypair at ${identityFile}`);
         const publicKey = await sshDeploy.generateKeypair(identityFile);
+        _log?.debug('broker: SSH keypair generated ok');
         res.json({ ok: true, publicKey });
     } catch (err) {
+        _log?.debug(`broker: SSH keygen error: ${err.message}`);
         handleError(res, err);
     }
 });
@@ -692,9 +713,14 @@ router.post('/ssh/test', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
         if (!bc.ssh || !bc.ssh.host) return res.status(400).json({ error: 'broker.ssh.host not configured' });
+        const user = (bc.ssh && bc.ssh.user) || require('os').userInfo().username;
+        const key = sshDeploy.expandHome((bc.ssh && bc.ssh.identityFile) || DEFAULT_SSH_KEY);
+        _log?.debug(`broker: testing SSH to ${user}@${bc.ssh.host}:${bc.ssh.port || 22} key=${key}`);
         await sshDeploy.testConnection(bc.ssh);
+        _log?.debug(`broker: SSH connection to ${bc.ssh.host} ok`);
         res.json({ ok: true });
     } catch (err) {
+        _log?.debug(`broker: SSH test to ${bc.ssh && bc.ssh.host} failed: ${err.message}`);
         res.json({ ok: false, error: err.message });
     }
 });
@@ -741,11 +767,17 @@ router.post('/wizard/bootstrap', async (req, res) => {
         const dynSecPath = `${configDir}/dynamic-security.json`;
         const confFilePath = `${configDir}/mosquitto.conf`;
 
+        _log?.debug(`broker: wizard bootstrap mode=${isRemote ? 'remote' : 'local'} configDir=${configDir} adminUser=${username}`);
+
         if (isRemote) {
             // mosquitto_ctrl must run on the broker host — invoke it via SSH.
+            const ctrlCmd = `mosquitto_ctrl dynsec init "${dynSecPath}" "${username}" "${password}"`;
+            _log?.debug(`broker: SSH mosquitto_ctrl on ${bc.ssh.host}: mosquitto_ctrl dynsec init "${dynSecPath}" "${username}" ***`);
             try {
-                await sshDeploy.runCommand(bc.ssh, `mosquitto_ctrl dynsec init "${dynSecPath}" "${username}" "${password}"`);
+                const r = await sshDeploy.runCommand(bc.ssh, ctrlCmd);
+                _log?.debug(`broker: mosquitto_ctrl ok stdout=${r.stdout} stderr=${r.stderr}`);
             } catch (err) {
+                _log?.debug(`broker: mosquitto_ctrl SSH failed: ${err.message}`);
                 return res.status(500).json({
                     error: `mosquitto_ctrl failed on remote host: ${err.message}. Ensure mosquitto is installed on the remote broker host.`,
                 });
@@ -754,23 +786,32 @@ router.post('/wizard/bootstrap', async (req, res) => {
             // Read the remote mosquitto.conf, parse, and add the plugin line if missing.
             let remoteConfRaw = '';
             try {
+                _log?.debug(`broker: reading remote conf ${bc.ssh.host}:${confFilePath}`);
                 remoteConfRaw = await sshDeploy.readRemoteFile(bc.ssh, confFilePath);
-            } catch {
-                // File may not exist yet — start from an empty config
+                _log?.debug(`broker: remote conf read ok (${remoteConfRaw.length} bytes)`);
+            } catch (e) {
+                _log?.debug(`broker: remote conf read failed (${e.message}), starting from empty config`);
             }
             const parsed = mosquittoConf.parseText(remoteConfRaw);
             if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes('mosquitto_dynamic_security')) {
                 parsed.managed.plugin = 'mosquitto_dynamic_security.so';
                 parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
                 const content = mosquittoConf.serialise(parsed);
+                _log?.debug(`broker: uploading updated conf to ${bc.ssh.host}:${confFilePath}`);
                 await sshDeploy.uploadContent(bc.ssh, content, confFilePath);
+                _log?.debug('broker: conf upload ok');
+            } else {
+                _log?.debug('broker: plugin line already present in remote conf, skipping upload');
             }
         } else {
             // Local mode: run mosquitto_ctrl on this host.
             fs.mkdirSync(configDir, { recursive: true });
+            _log?.debug(`broker: local mosquitto_ctrl dynsec init ${dynSecPath} ${username} ***`);
             try {
-                await execFileAsync('mosquitto_ctrl', ['dynsec', 'init', dynSecPath, username, password], { timeout: 10000 });
+                const r = await execFileAsync('mosquitto_ctrl', ['dynsec', 'init', dynSecPath, username, password], { timeout: 10000 });
+                _log?.debug(`broker: mosquitto_ctrl ok stdout=${r.stdout} stderr=${r.stderr}`);
             } catch (err) {
+                _log?.debug(`broker: local mosquitto_ctrl failed: ${err.message}`);
                 return res.status(500).json({
                     error: `mosquitto_ctrl failed: ${err.message}. Ensure mosquitto is installed on this host.`,
                 });
@@ -782,7 +823,11 @@ router.post('/wizard/bootstrap', async (req, res) => {
                 parsed.managed.plugin = 'mosquitto_dynamic_security.so';
                 parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
                 const content = mosquittoConf.serialise(parsed);
+                _log?.debug(`broker: writing updated local conf to ${confFilePath}`);
                 mosquittoConf.write(confFilePath, content);
+                _log?.debug('broker: local conf write ok');
+            } else {
+                _log?.debug('broker: plugin line already present in local conf, skipping write');
             }
         }
 
