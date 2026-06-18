@@ -99,7 +99,7 @@ she manages a local CA at `~/.she/broker/ca/`:
 ```
 
 **Generate CA** button in UI:
-- Prompts for: CA Common Name (default `she-broker-ca`), validity in years (default 10).
+- Prompts for: CA Common Name (default `she-broker-ca`), validity in years (default 1).
 - Shells out: `openssl req -x509 -newkey ed25519 -out ca.crt -keyout ca.key -days <days> -nodes -subj "/CN=<name>"`
 - Stores metadata in sheDB at `broker::ca`.
 
