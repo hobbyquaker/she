@@ -93,14 +93,14 @@
                 </dl>
             </div>
         </div>
+
+        {#if showWizard && !status.dynsec.configured}
+        <div style="margin-top: 20px;">
+            <Wizard onDone={() => { showWizard = false; loadStatus(); }} />
+        </div>
+        {/if}
         {/if}
     </div>
-
-    {#if showWizard && status && !status.dynsec.configured}
-    <div class="tab-content" style="padding-top:0">
-        <Wizard onDone={() => { showWizard = false; loadStatus(); }} />
-    </div>
-    {/if}
 
     {:else if tab === 'users'}
     <Users />
