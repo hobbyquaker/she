@@ -669,3 +669,93 @@ router.post('/ssh/test', async (req, res) => {
         res.json({ ok: false, error: err.message });
     }
 });
+
+// ── Bootstrap wizard ───────────────────────────────────────────────────────────
+
+/**
+ * POST /she/broker/wizard/probe
+ * Check if dynsec is already active by looking at the dynsec client status.
+ */
+router.post('/wizard/probe', (req, res) => {
+    const status = dynsec.getStatus();
+    res.json({ active: status.connected, configured: status.configured });
+});
+
+/**
+ * POST /she/broker/wizard/bootstrap
+ * Full bootstrap flow:
+ *   1. Generate dynamic-security.json with she-admin credentials
+ *   2. Write the file to configDir (or upload via SSH for remote mode)
+ *   3. Ensure plugin line exists in mosquitto.conf
+ *   4. Return instructions for the next step (restart)
+ *
+ * Body: { adminUsername?, adminPassword?, configDir? }
+ * The generated password is returned in the response (store in config.json via /she/config).
+ */
+router.post('/wizard/bootstrap', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const crypto = require('crypto');
+        const { execFile } = require('child_process');
+        const { promisify } = require('util');
+        const execFileAsync = promisify(execFile);
+
+        const username = req.body.adminUsername || 'she-admin';
+        const password = req.body.adminPassword || crypto.randomBytes(18).toString('base64url');
+        const configDir = req.body.configDir || bc.configDir || '/etc/mosquitto';
+
+        // Generate dynamic-security.json using mosquitto_ctrl
+        const dynSecPath = path.join(configDir, 'dynamic-security.json');
+        const tmpJson = path.join(require('os').tmpdir(), `she-dynsec-${Date.now()}.json`);
+
+        try {
+            await execFileAsync('mosquitto_ctrl', ['dynsec', 'init', tmpJson, username, password], { timeout: 10000 });
+        } catch (err) {
+            return res.status(500).json({ error: `mosquitto_ctrl failed: ${err.message}. Ensure mosquitto-clients is installed.` });
+        }
+
+        const jsonContent = fs.readFileSync(tmpJson, 'utf8');
+        try {
+            fs.unlinkSync(tmpJson);
+        } catch {
+            /* ok */
+        }
+
+        // Write dynamic-security.json (locally or via SSH)
+        if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
+            await sshDeploy.uploadContent(bc.ssh, jsonContent, dynSecPath);
+        } else {
+            fs.mkdirSync(configDir, { recursive: true });
+            fs.writeFileSync(dynSecPath, jsonContent, 'utf8');
+        }
+
+        // Ensure plugin line exists in mosquitto.conf
+        const confFilePath = path.join(configDir, 'mosquitto.conf');
+        const parsed = mosquittoConf.parse(confFilePath);
+
+        const pluginLine = 'mosquitto_dynamic_security.so';
+        const pluginOptLine = dynSecPath;
+
+        if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes(pluginLine)) {
+            parsed.managed.plugin = pluginLine;
+            parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
+            const content = mosquittoConf.serialise(parsed);
+            if (bc.mode === 'remote' && bc.ssh && bc.ssh.host) {
+                await sshDeploy.uploadContent(bc.ssh, content, confFilePath);
+            } else {
+                mosquittoConf.write(confFilePath, content);
+            }
+        }
+
+        res.json({
+            ok: true,
+            adminUsername: username,
+            adminPassword: password,
+            dynSecPath,
+            confFilePath,
+            message: `Bootstrap complete. Save these credentials to config.json under broker.dynsec, then restart mosquitto (POST /she/broker/restart).`,
+        });
+    } catch (err) {
+        handleError(res, err);
+    }
+});

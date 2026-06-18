@@ -5,6 +5,9 @@
     import Listeners from './broker/Listeners.svelte';
     import Certificates from './broker/Certificates.svelte';
     import SSH from './broker/SSH.svelte';
+    import Wizard from './broker/Wizard.svelte';
+
+    let showWizard = $state(false);
 
     type SubTab = 'status' | 'users' | 'listeners' | 'certs' | 'ssh';
     let tab = $state<SubTab>('status');
@@ -66,6 +69,9 @@
                 {:else}
                 <div class="status-badge warn">Not configured</div>
                 <p class="hint">Set <code>broker.dynsec.adminUsername</code> and <code>broker.dynsec.adminPassword</code> in Config to enable dynsec management.</p>
+                {#if !showWizard}
+                <button class="wizard-btn" onclick={() => (showWizard = true)}>Run Setup Wizard</button>
+                {/if}
                 {/if}
             </div>
 
@@ -89,6 +95,12 @@
         </div>
         {/if}
     </div>
+
+    {#if showWizard && status && !status.dynsec.configured}
+    <div class="tab-content" style="padding-top:0">
+        <Wizard onDone={() => { showWizard = false; loadStatus(); }} />
+    </div>
+    {/if}
 
     {:else if tab === 'users'}
     <Users />
@@ -214,5 +226,17 @@
         border-radius: 3px;
         font-size: 11px;
         padding: 1px 4px;
+    }
+
+    .wizard-btn {
+        margin-top: 6px;
+        background: var(--accent-dim, rgba(86,156,214,0.12));
+        border: 1px solid rgba(86,156,214,0.3);
+        border-radius: 4px;
+        color: var(--accent, #569cd6);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 4px 12px;
+        align-self: flex-start;
     }
 </style>
