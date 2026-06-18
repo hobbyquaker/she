@@ -62,6 +62,7 @@
 
     let restarting = $state(false);
     let mqttConnecting = $state(false); // true while waiting for retained-state sentinel
+    let mqttConnected  = $state(false); // true once broker is fully ready
 
     async function restart() {
         if (!(await dialog.show('Restart the she daemon? The page will reload after a moment.', { confirm: 'Restart' }))) return;
@@ -160,6 +161,7 @@
         // Subscribe to mqtt:status events — shows/hides the connecting dot on the MQTT tab
         const unsubMqttStatus = subscribeWs('mqtt:status', (msg) => {
             mqttConnecting = msg.ready === false;
+            mqttConnected  = msg.ready === true;
         });
 
         return () => {
@@ -204,6 +206,7 @@
             </svg>
             MQTT
             {#if mqttConnecting}<span class="mqtt-dot" title="Waiting for retained MQTT state"></span>{/if}
+            {#if mqttConnected && !mqttConnecting}<span class="mqtt-dot mqtt-dot--connected" title="MQTT connected"></span>{/if}
         </button>
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
@@ -540,6 +543,10 @@
         display: inline-block;
         flex-shrink: 0;
         animation: mqttBlink 0.9s ease-in-out infinite;
+    }
+    .mqtt-dot--connected {
+        background: var(--fg-ok);
+        animation: none;
     }
     @keyframes mqttBlink {
         0%, 100% { opacity: 1; }

@@ -277,7 +277,12 @@ declare const she: {
 };
 `;
 
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+        if (tabs.some(t => t.dirty)) e.preventDefault();
+    }
+
     onMount(async () => {
+        window.addEventListener('beforeunload', onBeforeUnload);
         logPanelOpen = localStorage.getItem(LOG_KEY) !== 'false';
         chatOpen     = localStorage.getItem(CHAT_KEY) === 'true';
 
@@ -378,6 +383,7 @@ declare const she: {
     });
 
     onDestroy(() => {
+        window.removeEventListener('beforeunload', onBeforeUnload);
         if (syntaxCheckTimer) clearTimeout(syntaxCheckTimer);
         unsubLog?.();
         unsubRunning?.();
