@@ -11,7 +11,7 @@ const DEFAULT_CONFIG_PATH = getConfigPath();
  * Config keys that are consumed only by the frontend (no daemon restart needed).
  * All other keys require a daemon restart when changed.
  */
-const FRONTEND_ONLY_KEYS = new Set(['gitAutoCommit', 'gitAutoPush']);
+const FRONTEND_ONLY_KEYS = new Set(['gitAutoCommit', 'gitAutoPush', 'pinnedPackages']);
 
 const router = express.Router();
 

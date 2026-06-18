@@ -9,6 +9,8 @@
         getOutdatedDeps,
         checkOutdatedDeps,
         restartDaemon,
+        getConfig,
+        putConfig,
         type DepEntry,
         type DepOutdatedEntry,
         type NpmSearchResult,
@@ -18,6 +20,7 @@
     let installed = $state<DepEntry[]>([]);
     let installedFilter = $state('');
     let outdated = $state<Record<string, DepOutdatedEntry>>({});
+    let pinnedPackages = $state<string[]>([]);
     let checkingOutdated = $state(false);
     let searchQuery = $state('');
     let searchResults = $state<NpmSearchResult[]>([]);
@@ -34,9 +37,10 @@
             : installed
     );
     const outdatedCount = $derived(Object.keys(outdated).length);
+    const unpinnedOutdatedCount = $derived(Object.keys(outdated).filter(n => !pinnedPackages.includes(n)).length);
 
     onMount(async () => {
-        await Promise.all([loadInstalled(), loadOutdated()]);
+        await Promise.all([loadInstalled(), loadOutdated(), loadPinned()]);
     });
 
     async function loadInstalled() {
@@ -51,6 +55,24 @@
     async function loadOutdated() {
         try {
             outdated = await getOutdatedDeps();
+        } catch { /* best-effort */ }
+    }
+
+    async function loadPinned() {
+        try {
+            const cfg = await getConfig();
+            pinnedPackages = Array.isArray(cfg.pinnedPackages) ? (cfg.pinnedPackages as string[]) : [];
+        } catch { /* best-effort */ }
+    }
+
+    async function togglePin(name: string) {
+        const newPinned = pinnedPackages.includes(name)
+            ? pinnedPackages.filter(n => n !== name)
+            : [...pinnedPackages, name];
+        pinnedPackages = newPinned;
+        try {
+            const cfg = await getConfig();
+            await putConfig({ ...cfg, pinnedPackages: newPinned });
         } catch { /* best-effort */ }
     }
 
@@ -170,8 +192,8 @@
             <div class="pane-hdr">
                 <span class="pane-title">Installed</span>
                 <span class="pane-count">{installed.length}</span>
-                {#if outdatedCount > 0}
-                    <span class="pane-count pane-count--warn">{outdatedCount} outdated</span>
+                {#if unpinnedOutdatedCount > 0}
+                    <span class="pane-count pane-count--warn">{unpinnedOutdatedCount} outdated</span>
                 {/if}
                 <button
                     class="icon-btn check-outdated-btn"
@@ -202,13 +224,25 @@
                                 <a class="dep-name" href={dep.url ?? `https://www.npmjs.com/package/${dep.name}`} target="_blank" rel="noopener noreferrer">{dep.name}</a>
                                 <span class="dep-ver">{dep.installedVersion ?? dep.version}</span>
                                 {#if outdated[dep.name]}
-                                    <span class="dep-latest">→ v{outdated[dep.name].latest}</span>
+                                    <span class="dep-latest" class:dep-latest--pinned={pinnedPackages.includes(dep.name)}>→ v{outdated[dep.name].latest}</span>
                                 {/if}
                             </div>
                             <div class="dep-btns">
                                 <button
                                     class="icon-btn"
-                                    class:icon-btn--update={!!outdated[dep.name]}
+                                    class:icon-btn--pinned={pinnedPackages.includes(dep.name)}
+                                    onclick={() => togglePin(dep.name)}
+                                    title={pinnedPackages.includes(dep.name) ? 'Unpin package' : 'Pin package (suppress update dot)'}
+                                >
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M15 4.5l-4 4l-4 1.5l-1.5 1.5l7 7l1.5 -1.5l1.5 -4l4 -4"/>
+                                        <line x1="9" y1="15" x2="4.5" y2="19.5"/>
+                                        <line x1="14.5" y1="4" x2="20" y2="9.5"/>
+                                    </svg>
+                                </button>
+                                <button
+                                    class="icon-btn"
+                                    class:icon-btn--update={!!outdated[dep.name] && !pinnedPackages.includes(dep.name)}
                                     onclick={() => update(dep.name)}
                                     disabled={!!busy[dep.name]}
                                     title={outdated[dep.name] ? `Update to v${outdated[dep.name].latest}` : 'Update to latest'}
@@ -446,6 +480,9 @@
         font-size: 10px;
         color: var(--fg-warn-subtle);
     }
+    .dep-latest--pinned {
+        color: var(--fg-dim);
+    }
     .dep-btns {
         display: flex;
         gap: 2px;
@@ -467,6 +504,8 @@
     .icon-btn--danger:hover:not(:disabled) { color: var(--fg-err); background: var(--bg-err-subtle); }
     .icon-btn--update { color: var(--fg-warn-subtle); }
     .icon-btn--update:hover:not(:disabled) { background: var(--bg-warn-subtle); color: var(--fg-warn-subtle); }
+    .icon-btn--pinned { color: var(--fg-brand); }
+    .icon-btn--pinned:hover:not(:disabled) { background: var(--bg-active); color: var(--fg-brand); }
 
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinning { animation: spin 0.8s linear infinite; }

@@ -61,6 +61,11 @@ const config = require('yargs')
         timezone: '',
         mqttVersion: '',
     })
+    .option('sentinel-timeout', {
+        describe: 'ms to wait for the retained-state sentinel after connecting to MQTT (default: 5000)',
+        default: 5000,
+        type: 'number',
+    })
     .option('install', {
         describe: 'create system user and install systemd service, then exit (run as root)',
         type: 'boolean',

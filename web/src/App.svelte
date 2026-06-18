@@ -7,7 +7,7 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
-    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
+    import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getConfig, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
     import { subscribeWs, subscribeLog, getLogBuffer } from './lib/ws.js';
 
@@ -66,6 +66,7 @@
     let mqttError      = $state(false); // true when broker configured but not connected
 
     // packages dot
+    let pinnedPackages = $state<string[]>([]);
     let outdatedDepsCount = $state(0);
 
     // matter dot
@@ -171,7 +172,11 @@
         // Poll daemon status every 5s and fetch cached outdated deps count
         async function pollStatus() {
             try { stats = await getDaemonStatus(); } catch { /* daemon may be restarting */ }
-            try { const o = await getOutdatedDeps(); outdatedDepsCount = Object.keys(o).length; } catch { /* best effort */ }
+            try {
+                const [o, cfg] = await Promise.all([getOutdatedDeps(), getConfig()]);
+                pinnedPackages = Array.isArray(cfg.pinnedPackages) ? (cfg.pinnedPackages as string[]) : [];
+                outdatedDepsCount = Object.keys(o).filter(n => !pinnedPackages.includes(n)).length;
+            } catch { /* best effort */ }
         }
         pollStatus();
         const statusInterval = setInterval(pollStatus, 5000);
