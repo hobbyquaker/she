@@ -25,6 +25,7 @@ const RESPONSE_TOPIC = '$CONTROL/dynamic-security/v1/response';
 let _client = null;
 let _connected = false;
 let _configured = false;
+let _dynsecReady = false;
 let _timeout = 5000;
 let _log = null;
 
@@ -134,6 +135,14 @@ function init(config, log) {
                 _connected = true;
                 _log.info('dynsec: ready — subscribed as', dynsecCfg.adminUsername);
                 _drain(); // flush any requests queued before connection
+                // Probe whether the plugin is actually loaded and responding
+                _request('getDefaultACLAccess').then(() => {
+                    _dynsecReady = true;
+                    _log.info('dynsec: plugin confirmed active');
+                }).catch((err) => {
+                    _dynsecReady = false;
+                    _log.warn('dynsec: plugin probe failed — is the dynamic-security plugin loaded in mosquitto.conf?', err.message);
+                });
             }
         });
     });
@@ -141,6 +150,7 @@ function init(config, log) {
     _client.on('close', () => {
         if (_connected) {
             _connected = false;
+            _dynsecReady = false;
             _log.warn('dynsec: disconnected');
         }
     });
@@ -168,9 +178,9 @@ function init(config, log) {
     });
 }
 
-/** @returns {{ connected: boolean, configured: boolean }} */
+/** @returns {{ connected: boolean, configured: boolean, dynsecReady: boolean }} */
 function getStatus() {
-    return { connected: _connected, configured: _configured };
+    return { connected: _connected, configured: _configured, dynsecReady: _dynsecReady };
 }
 
 // ── User management ────────────────────────────────────────────────────────────

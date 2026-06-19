@@ -11,6 +11,8 @@
     } from '../../lib/api.js';
 
     // ── State ──────────────────────────────────────────────────────────────────
+    let { dynsecReady = false }: { dynsecReady?: boolean } = $props();
+
     let users = $state<DynsecUser[]>([]);
     let roles = $state<DynsecRole[]>([]);
     let groups = $state<DynsecGroup[]>([]);
@@ -218,6 +220,11 @@
 </script>
 
 <div class="users-page">
+    {#if !dynsecReady}
+    <div class="plugin-warning">
+        ⚠ The dynamic-security plugin is not responding. Add <code>plugin …/mosquitto_dynamic_security.so</code> and <code>plugin_opt_config_file …/dynamic-security.json</code> to your mosquitto.conf and restart mosquitto. Operations below will time out until the plugin is active.
+    </div>
+    {/if}
     <!-- Panel selector -->
     <div class="panel-tabs">
         <button class:active={panel === 'users'}   onclick={() => (panel = 'users')}>Users</button>
@@ -443,6 +450,17 @@
         height: 100%;
         overflow: hidden;
     }
+
+    .plugin-warning {
+        flex-shrink: 0;
+        padding: 8px 14px;
+        background: rgba(200, 140, 0, 0.15);
+        border-bottom: 1px solid rgba(200, 140, 0, 0.4);
+        font-size: 12px;
+        color: #e2a84b;
+        line-height: 1.5;
+    }
+    .plugin-warning code { font-size: 11px; opacity: 0.9; }
 
     .panel-tabs {
         display: flex;

@@ -597,6 +597,7 @@ export async function streamChatWithAI(body: AiChatRequest, onToken: (token: str
 export interface BrokerDynsecStatus {
     connected: boolean;
     configured: boolean;
+    dynsecReady: boolean;
 }
 
 export interface BrokerStatus {

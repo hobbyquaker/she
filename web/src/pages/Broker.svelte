@@ -64,7 +64,16 @@
                 <h3>Dynamic Security</h3>
                 {#if status.dynsec.configured}
                     {#if status.dynsec.connected}
-                    <div class="status-badge ok">Connected</div>
+                        {#if status.dynsec.dynsecReady}
+                        <div class="status-badge ok">Connected</div>
+                        {:else}
+                        <div class="status-badge warn">Connected — plugin not responding</div>
+                        <p class="hint">The MQTT connection is up but the dynamic-security plugin is not responding. Add the following to your mosquitto.conf and restart mosquitto:</p>
+                        <pre class="hint-code">plugin /usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so
+plugin_opt_config_file /var/lib/mosquitto/dynamic-security.json
+per_listener_settings false</pre>
+                        <p class="hint">The path to the .so file varies by distribution and architecture. The <code>dynamic-security.json</code> file will be auto-generated on first start (Mosquitto 2.1+).</p>
+                        {/if}
                     {:else}
                     <div class="status-badge err">Disconnected</div>
                     {/if}
@@ -105,7 +114,7 @@
     </div>
 
     {:else if tab === 'users'}
-    <Users />
+    <Users dynsecReady={status?.dynsec.dynsecReady ?? false} />
 
     {:else if tab === 'listeners'}
     <Listeners />
@@ -221,6 +230,18 @@
         font-size: 12px;
         margin: 8px 0 0;
         line-height: 1.5;
+    }
+
+    .hint-code {
+        background: var(--bg-input, #1e1e1e);
+        border: 1px solid var(--border-sub, #333);
+        border-radius: 4px;
+        padding: 8px 10px;
+        font-size: 11px;
+        color: var(--fg, #ccc);
+        margin: 6px 0 0;
+        white-space: pre-wrap;
+        line-height: 1.6;
     }
 
     .hint code {
