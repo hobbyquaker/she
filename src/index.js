@@ -120,7 +120,6 @@ if (typeof config.port !== 'undefined') {
             process.exit(1);
         });
     require('./web/broker-api').setLogger(log);
-    require('./web/broker-api').setStore(store);
 }
 
 const chokidar = require('chokidar');
@@ -147,6 +146,7 @@ const scheduler = modules['node-schedule'];
 const StateStore = require('./lib/state-store');
 const sandboxModules = [];
 const store = new StateStore();
+if (typeof config.port !== 'undefined') require('./web/broker-api').setStore(store);
 const scripts = {};
 const scriptOrigins = new Map(); // file â†’ 'builtin' | 'user'
 const subscriptions = [];
