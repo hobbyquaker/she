@@ -10,7 +10,9 @@
     let showWizard = $state(false);
 
     type SubTab = 'status' | 'users' | 'listeners' | 'certs' | 'ssh';
-    let tab = $state<SubTab>('status');
+    const TAB_KEY = 'she-broker-tab';
+    let tab = $state<SubTab>((localStorage.getItem(TAB_KEY) as SubTab) ?? 'status');
+    $effect(() => { localStorage.setItem(TAB_KEY, tab); });
 
     let status = $state<BrokerStatus | null>(null);
     let statusError = $state('');
