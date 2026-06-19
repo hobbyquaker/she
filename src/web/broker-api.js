@@ -103,16 +103,16 @@ router.get('/config', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
         const fp = confPath(bc);
-        const backups = mosquittoConf.listBackups(fp).map((b) => path.basename(b));
         if (bc.ssh && bc.ssh.host) {
             _log?.debug(`broker: reading remote config from ${bc.ssh.host}:${fp}`);
             const raw = await sshDeploy.readRemoteFile(bc.ssh, fp);
             const parsed = mosquittoConf.parseText(raw);
             const cs = crypto.createHash('sha256').update(raw).digest('hex');
-            return res.json({ ...parsed, checksum: cs, backups });
+            return res.json({ ...parsed, checksum: cs, backups: [] });
         }
         const parsed = mosquittoConf.parse(fp);
         const cs = mosquittoConf.checksum(fp);
+        const backups = mosquittoConf.listBackups(fp).map((b) => path.basename(b));
         res.json({ ...parsed, checksum: cs, backups });
     } catch (err) {
         handleError(res, err);
@@ -123,7 +123,7 @@ router.get('/config', async (req, res) => {
  * PUT /she/broker/config
  * Write structured config (body: { listeners, managed, passthrough, checksum? }).
  * body.checksum is the client's last-known checksum for external-modify detection.
- * In remote mode, the file is also deployed to the broker host via SCP.
+ * In remote mode, uploads directly to the broker host via SCP — no local fs access.
  */
 router.put('/config', async (req, res) => {
     try {
@@ -131,16 +131,15 @@ router.put('/config', async (req, res) => {
         const fp = confPath(bc);
         const { listeners, managed, passthrough, checksum: clientChecksum } = req.body;
         const content = mosquittoConf.serialise({ listeners, managed, passthrough });
-        const remote = bc.ssh && bc.ssh.host;
-        _log?.info(`broker: writing config to ${remote ? `remote ${bc.ssh.host}:${fp}` : `local ${fp}`}`);
-        // In remote mode skip local conflict check — remote is the source of truth
-        const result = mosquittoConf.write(fp, content, remote ? null : (clientChecksum ?? null));
+        if (bc.ssh && bc.ssh.host) {
+            _log?.info(`broker: uploading config to remote ${bc.ssh.host}:${fp}`);
+            await sshDeploy.uploadContent(bc.ssh, content, fp);
+            return res.json({ ok: true, backupPath: null });
+        }
+        _log?.info(`broker: writing config to local ${fp}`);
+        const result = mosquittoConf.write(fp, content, clientChecksum ?? null);
         if (!result.ok) {
             return res.status(409).json({ error: 'external_modify', message: 'mosquitto.conf was modified externally since last read' });
-        }
-        if (remote) {
-            _log?.debug(`broker: uploading config to ${bc.ssh.host}:${fp}`);
-            await sshDeploy.uploadContent(bc.ssh, content, fp);
         }
         _lastWriteChecksum.set(fp, mosquittoConf.checksum(fp));
         res.json({ ok: true, backupPath: result.backupPath ? path.basename(result.backupPath) : null });
@@ -152,7 +151,7 @@ router.put('/config', async (req, res) => {
 /**
  * PUT /she/broker/config/raw
  * Write raw mosquitto.conf text directly (used by the Advanced editor).
- * In remote mode, the file is also deployed to the broker host via SCP.
+ * In remote mode, uploads directly to the broker host via SCP — no local fs access.
  */
 router.put('/config/raw', async (req, res) => {
     try {
@@ -162,16 +161,15 @@ router.put('/config/raw', async (req, res) => {
         if (typeof content !== 'string') {
             return res.status(400).json({ error: 'content must be a string' });
         }
-        const remote = bc.ssh && bc.ssh.host;
-        _log?.info(`broker: writing raw config to ${remote ? `remote ${bc.ssh.host}:${fp}` : `local ${fp}`}`);
-        // In remote mode skip local conflict check — remote is the source of truth
-        const result = mosquittoConf.write(fp, content, remote ? null : (clientChecksum ?? null));
+        if (bc.ssh && bc.ssh.host) {
+            _log?.info(`broker: uploading raw config to remote ${bc.ssh.host}:${fp}`);
+            await sshDeploy.uploadContent(bc.ssh, content, fp);
+            return res.json({ ok: true, backupPath: null });
+        }
+        _log?.info(`broker: writing raw config to local ${fp}`);
+        const result = mosquittoConf.write(fp, content, clientChecksum ?? null);
         if (!result.ok) {
             return res.status(409).json({ error: 'external_modify', message: 'mosquitto.conf was modified externally since last read' });
-        }
-        if (remote) {
-            _log?.debug(`broker: uploading raw config to ${bc.ssh.host}:${fp}`);
-            await sshDeploy.uploadContent(bc.ssh, content, fp);
         }
         _lastWriteChecksum.set(fp, mosquittoConf.checksum(fp));
         res.json({ ok: true, backupPath: result.backupPath ? path.basename(result.backupPath) : null });
