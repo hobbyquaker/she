@@ -46,9 +46,13 @@ function _drain() {
     const timer = setTimeout(() => {
         _inflight = false;
         _inflightResolve = null;
-        if (_log) _log.debug(`dynsec: timeout waiting for response to "${command}" (${_timeout}ms)`);
+        if (_log) _log.warn(`dynsec: timeout waiting for response to "${command}" (${_timeout}ms) — is the dynsec plugin loaded and the admin user configured?`);
         reject(new Error(`dynsec timeout waiting for response to "${command}"`));
-        _drain();
+        // Fail-fast: reject all remaining queued commands since the broker is not responding
+        while (_queue.length > 0) {
+            const queued = _queue.shift();
+            queued.reject(new Error(`dynsec: aborting "${queued.command}" — previous command timed out`));
+        }
     }, _timeout);
 
     _inflightResolve = (responses) => {
