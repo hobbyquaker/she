@@ -388,13 +388,13 @@
             {#each users as user}
             <tr>
                 <td class="mono">{user.username}</td>
-                <td class="tags">{#each user.roles ?? [] as r}<span class="tag">{r.rolename}</span>{/each}</td>
-                <td class="tags">{#each user.groups ?? [] as g}<span class="tag tag--group">{g.groupname}</span>{/each}</td>
-                <td class="actions">
+                <td><div class="tags">{#each user.roles ?? [] as r}<span class="tag">{r.rolename}</span>{/each}</div></td>
+                <td><div class="tags">{#each user.groups ?? [] as g}<span class="tag tag--group">{g.groupname}</span>{/each}</div></td>
+                <td class="cell-actions"><div class="actions">
                     <button onclick={() => openMemberEditor('user-roles', user.username)} title="Edit roles">Roles</button>
                     <button onclick={() => openSetPassword(user.username)} title="Set password">🔑</button>
                     <button class="danger" onclick={() => doDeleteUser(user.username)} title="Delete">✕</button>
-                </td>
+                </div></td>
             </tr>
             {/each}
             </tbody>
@@ -421,10 +421,10 @@
             <tr>
                 <td class="mono">{role.rolename}</td>
                 <td>{role.acls?.length ?? 0}</td>
-                <td class="actions">
+                <td class="cell-actions"><div class="actions">
                     <button onclick={() => openAclEditor(role)} title="Edit ACLs">Edit ACLs</button>
                     <button class="danger" onclick={() => doDeleteRole(role.rolename)} title="Delete">✕</button>
-                </td>
+                </div></td>
             </tr>
             {/each}
             </tbody>
@@ -450,13 +450,13 @@
             {#each groups as group}
             <tr>
                 <td class="mono">{group.groupname}</td>
-                <td class="tags">{#each group.clients ?? [] as c}<span class="tag">{c.username}</span>{/each}</td>
-                <td class="tags">{#each group.roles ?? [] as r}<span class="tag tag--group">{r.rolename}</span>{/each}</td>
-                <td class="actions">
+                <td><div class="tags">{#each group.clients ?? [] as c}<span class="tag">{c.username}</span>{/each}</div></td>
+                <td><div class="tags">{#each group.roles ?? [] as r}<span class="tag tag--group">{r.rolename}</span>{/each}</div></td>
+                <td class="cell-actions"><div class="actions">
                     <button onclick={() => openMemberEditor('group-members', group.groupname)} title="Edit members">Members</button>
                     <button onclick={() => openMemberEditor('group-roles', group.groupname)} title="Edit roles">Roles</button>
                     <button class="danger" onclick={() => doDeleteGroup(group.groupname)} title="Delete">✕</button>
-                </td>
+                </div></td>
             </tr>
             {/each}
             </tbody>
@@ -748,7 +748,8 @@
     .tag { background: rgba(86,156,214,0.12); border: 1px solid rgba(86,156,214,0.25); border-radius: 3px; color: #7ab; font-family: monospace; font-size: 10px; padding: 1px 5px; }
     .tag--group { background: rgba(180,130,40,0.12); border-color: rgba(180,130,40,0.25); color: #ca8; }
 
-    .actions { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+    .cell-actions { width: 1%; white-space: nowrap; }
+    .actions { display: flex; gap: 4px; justify-content: flex-end; }
     .actions button { background: none; border: 1px solid var(--border, #333); border-radius: 3px; color: var(--text-muted, #888); cursor: pointer; font-size: 11px; padding: 2px 6px; }
     .actions button:hover { background: rgba(255,255,255,0.06); color: var(--text, #eee); }
     .actions button.danger:hover { background: rgba(220,60,60,0.15); border-color: rgba(220,60,60,0.4); color: #e66; }
