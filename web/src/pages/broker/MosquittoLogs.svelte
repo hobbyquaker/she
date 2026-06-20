@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from 'svelte';
     import { subscribeWs } from '../../lib/ws.js';
+    import { getBrokerConf } from '../../lib/api.js';
 
     type Level = 'D' | 'I' | 'N' | 'W' | 'E';
 
@@ -28,6 +29,7 @@
     let filterLevels = $state<Set<Level>>(new Set(['D', 'I', 'N', 'W', 'E']));
     let logContainer = $state<HTMLElement | undefined>(undefined);
     let hasReceived = $state(false);
+    let topicEnabled = $state<boolean | null>(null); // null = unknown (still loading)
 
     const MAX = 500;
 
@@ -42,6 +44,12 @@
             entries = [...entries.slice(-(MAX - 1)), { ts: msg.ts, level, msg: msg.val }];
             if (autoScroll) tick().then(scrollToBottom);
         });
+        // Check if log_dest includes 'topic'
+        getBrokerConf().then(conf => {
+            const v = conf.managed['log_dest'];
+            const dests = Array.isArray(v) ? v : (v ? [v] : []);
+            topicEnabled = dests.includes('topic');
+        }).catch(() => { topicEnabled = null; });
     });
 
     onDestroy(() => { unsub?.(); });
@@ -90,8 +98,16 @@
         {#if filtered.length === 0}
             <div class="empty">
                 {#if !hasReceived}
-                    No log messages received yet.<br />
-                    <span class="hint">Make sure <code>log_dest topic</code> is set in <code>mosquitto.conf</code>, then restart or reload mosquitto.</span>
+                    {#if topicEnabled === false}
+                        <code>log_dest topic</code> is not enabled in mosquitto.conf.<br />
+                        <span class="hint">Enable it in the <strong>Config</strong> tab, then click <em>Apply &amp; Reload</em>.</span>
+                    {:else if topicEnabled === true}
+                        <code>log_dest topic</code> is configured — waiting for messages&hellip;<br />
+                        <span class="hint">If nothing appears, mosquitto may need a full restart for the change to take effect.</span>
+                    {:else}
+                        Waiting for log messages&hellip;<br />
+                        <span class="hint">Make sure <code>log_dest topic</code> is set in mosquitto.conf.</span>
+                    {/if}
                 {:else}
                     No messages match the current filter.
                 {/if}

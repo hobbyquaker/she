@@ -23,10 +23,23 @@
     let tcpNodelay         = $state('');   // 'true' | 'false' | ''
     let connectionMessages = $state('');   // 'true' | 'false' | ''
 
+    // log_dest / log_type — multi-value (stored as Set for UI)
+    const LOG_DEST_OPTIONS = ['file', 'stdout', 'stderr', 'syslog', 'topic', 'none'] as const;
+    const LOG_TYPE_OPTIONS = ['debug', 'error', 'warning', 'notice', 'information', 'subscribe', 'unsubscribe', 'websockets', 'connect', 'disconnect', 'publish', 'receive', 'all'] as const;
+    let logDest = $state<Set<string>>(new Set());
+    let logType = $state<Set<string>>(new Set());
+
     function m(key: string): string {
         if (!conf) return '';
         const v = conf.managed[key];
         return Array.isArray(v) ? v[0] : (v ?? '');
+    }
+
+    function mSet(key: string): Set<string> {
+        if (!conf) return new Set();
+        const v = conf.managed[key];
+        if (!v) return new Set();
+        return new Set(Array.isArray(v) ? v : [v]);
     }
 
     onMount(() => load());
@@ -45,6 +58,8 @@
             retainAvailable    = m('retain_available');
             tcpNodelay         = m('set_tcp_nodelay');
             connectionMessages = m('connection_messages');
+            logDest = mSet('log_dest');
+            logType = mSet('log_type');
             loadError = '';
         } catch (e: any) {
             loadError = e.message ?? 'Failed to load config';
@@ -71,6 +86,11 @@
             set('retain_available',            retainAvailable);
             set('set_tcp_nodelay',             tcpNodelay);
             set('connection_messages',         connectionMessages);
+            // multi-value keys
+            if (logDest.size > 0) managed['log_dest'] = logDest.size === 1 ? [...logDest][0] : [...logDest];
+            else delete managed['log_dest'];
+            if (logType.size > 0) managed['log_type'] = logType.size === 1 ? [...logType][0] : [...logType];
+            else delete managed['log_type'];
             await putBrokerConf({ listeners: conf.listeners, managed, passthrough: conf.passthrough, checksum });
             saveOk = true;
             setTimeout(() => (saveOk = false), 3000);
@@ -192,9 +212,42 @@
         </div>
     </div>
 
-    <!-- ── Performance & logging ─────────────────────────────────────────── -->
+    <!-- ── Logging ──────────────────────────────────────────────────────── -->
     <div class="section">
-        <h4>Performance &amp; logging</h4>
+        <h4>Logging</h4>
+        <div class="field">
+            <span class="field-key">log_dest</span>
+            <div class="checkbox-group">
+                {#each LOG_DEST_OPTIONS as opt}
+                <label class="check-label">
+                    <input type="checkbox"
+                        checked={logDest.has(opt)}
+                        onchange={() => { const s = new Set(logDest); s.has(opt) ? s.delete(opt) : s.add(opt); logDest = s; }} />
+                    {opt}
+                </label>
+                {/each}
+            </div>
+            <p class="hint">Log destinations. Enable <code>topic</code> to stream logs to <code>$SYS/broker/log/*</code> and view them in the Logs tab.</p>
+        </div>
+        <div class="field">
+            <span class="field-key">log_type</span>
+            <div class="checkbox-group">
+                {#each LOG_TYPE_OPTIONS as opt}
+                <label class="check-label">
+                    <input type="checkbox"
+                        checked={logType.has(opt)}
+                        onchange={() => { const s = new Set(logType); s.has(opt) ? s.delete(opt) : s.add(opt); logType = s; }} />
+                    {opt}
+                </label>
+                {/each}
+            </div>
+            <p class="hint">Types of messages to log. Leave empty to use the broker default.</p>
+        </div>
+    </div>
+
+    <!-- ── Performance ───────────────────────────────────────────────────── -->
+    <div class="section">
+        <h4>Performance</h4>
         <div class="field-grid">
             <div class="field">
                 <label>
@@ -269,6 +322,12 @@
 
     .hint { margin: 0; font-size: 10.5px; color: var(--text-muted, #777); line-height: 1.4; }
     .hint code { font-size: 10px; background: rgba(255,255,255,0.06); border-radius: 2px; padding: 0 3px; }
+
+    .field-key { font-size: 11px; color: var(--text-muted, #999); font-family: monospace; display: block; margin-bottom: 5px; }
+
+    .checkbox-group { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 4px; }
+    .check-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text, #ddd); cursor: pointer; font-family: monospace; user-select: none; }
+    .check-label input { cursor: pointer; }
 
     .err  { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.3); border-radius: 4px; color: #e88; font-size: 12px; padding: 6px 10px; }
     .ok   { background: rgba(70,180,70,0.1); border: 1px solid rgba(70,180,70,0.25); border-radius: 4px; color: #8c8; font-size: 12px; padding: 6px 10px; }
