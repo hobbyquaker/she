@@ -801,6 +801,15 @@ router.post('/wizard/bootstrap', async (req, res) => {
 
         if (isRemote) {
             // mosquitto_ctrl must run on the broker host — invoke it via SSH.
+            // Delete any existing file first: mosquitto_ctrl init refuses to overwrite
+            // an existing file, which would leave the old credentials in place while
+            // config.json now holds new ones, causing "not authorised" on reconnect.
+            try {
+                await sshDeploy.runCommand(bc.ssh, `sudo rm -f "${dynSecPath}"`);
+                _log?.debug(`broker: removed existing ${dynSecPath} on remote (if any)`);
+            } catch (e) {
+                _log?.warn(`broker: could not remove existing ${dynSecPath} on remote: ${e.message}`);
+            }
             const ctrlCmd = `mosquitto_ctrl dynsec init "${dynSecPath}" "${username}" "${password}"`;
             _log?.debug(`broker: SSH mosquitto_ctrl on ${bc.ssh.host}: mosquitto_ctrl dynsec init "${dynSecPath}" "${username}" ***`);
             try {
@@ -876,6 +885,13 @@ router.post('/wizard/bootstrap', async (req, res) => {
         } else {
             // Local mode: run mosquitto_ctrl on this host.
             fs.mkdirSync(configDir, { recursive: true });
+            // Delete any existing file first so mosquitto_ctrl always writes fresh credentials.
+            try {
+                fs.rmSync(dynSecPath, { force: true });
+                _log?.debug(`broker: removed existing ${dynSecPath} on local host (if any)`);
+            } catch (e) {
+                _log?.warn(`broker: could not remove existing ${dynSecPath}: ${e.message}`);
+            }
             _log?.debug(`broker: local mosquitto_ctrl dynsec init ${dynSecPath} ${username} ***`);
             try {
                 const r = await execFileAsync('mosquitto_ctrl', ['dynsec', 'init', dynSecPath, username, password], { timeout: 10000 });
