@@ -158,3 +158,50 @@ Server → client message types:
 - **Major** (`X+1.0.0`): only when introducing a breaking change that has no automatic migration strategy
 - **Keep `she` (root `package.json`) and `she-her` (`web/package.json`) versions in sync**
 - **After bumping** the version: create a git tag for the new version (`git tag v{new}`, `git push origin v{new}`)
+
+## Broker Management — Mosquitto & Dynamic Security
+
+### Reference documentation
+- **Dynamic Security plugin**: https://mosquitto.org/documentation/dynamic-security/
+- **mosquitto.conf(5)**: https://mosquitto.org/man/mosquitto-conf-5.html
+- **mosquitto_ctrl(1)**: https://mosquitto.org/man/mosquitto_ctrl-1.html
+
+### Key architecture facts
+
+**Two separate MQTT connections in the daemon**
+- **Main client** (`src/index.js`): uses `config.url` credentials; subscribes to `#` and `$SYS/#`; drives all script callbacks and the state store.
+- **Dynsec client** (`src/lib/dynsec.js`): dedicated connection using `config.broker.dynsec.{adminUsername,adminPassword}`; serialises all `$CONTROL/dynamic-security/v1` commands through a single-inflight queue.
+
+**Dynsec topic protocol**
+- Commands are published to `$CONTROL/dynamic-security/v1` as `{ commands: [{ command, ...payload }] }`.
+- Responses arrive on `$CONTROL/dynamic-security/v1/response` as `{ responses: [{ command, data: { ... } }] }`.
+- **Critical**: list/get responses wrap their payload in a `data` field — e.g. `listClients` returns `{ command, data: { clients: [...], totalCount: N } }`. Accessing `r.clients` directly returns `undefined`; the correct path is `r.data?.clients`.
+- Simple mutating commands (`createClient`, `deleteClient`, etc.) return `{ command }` on success or `{ command, error: "..." }` on failure — no `data` wrapper.
+
+**Default ACLs after `mosquitto_ctrl dynsec init`**
+- `publishClientSend`: **deny** — clients cannot publish unless explicitly allowed by a role ACL.
+- `publishClientReceive`: **allow** — clients receive matching messages by default.
+- `subscribe`: **deny** — clients cannot subscribe unless explicitly allowed.
+- `unsubscribe`: **allow**
+- Consequence: the main she MQTT client (if it lacks a dynsec role) cannot publish the retained-state sentinel → sentinel times out; and `$SYS/#` messages are never delivered even though the subscription appears to succeed.
+
+**Admin role ACLs (created by `mosquitto_ctrl init`)**
+The `admin` role grants:
+- `publishClientSend` + `publishClientReceive` + `subscribePattern` for `$CONTROL/dynamic-security/#`
+- `publishClientReceive` + `subscribePattern` for `$SYS/#`
+- `publishClientReceive` + `subscribePattern` + `unsubscribePattern` for `#`
+- The admin user intentionally has **no `publishClientSend` for `#`** — it cannot publish to normal topics. Keep the admin user purely for plugin administration.
+
+**$SYS data in the broker status endpoint**
+Because the main client may lack subscribe ACLs, the dynsec client subscribes to `$SYS/#` on connect (admin role allows it) and caches values in `_sysData`. `GET /she/broker/status` reads from `dynsec.getSysData()` first, with the main client's state store as fallback when dynsec is not configured.
+
+**`mosquitto_ctrl init` behaviour**
+- Refuses to overwrite an existing `dynamic-security.json` — exits 0 but writes a warning to stderr: _"Unable to open '…' for writing (File exists)"_. Always `sudo rm -f` the file before running init to guarantee fresh credentials.
+- Creates the file owned by the calling user (e.g. the SSH user), not by the `mosquitto` system user. Follow init immediately with `sudo chown mosquitto:mosquitto` and `sudo chmod 644` so mosquitto can read it.
+
+**mosquitto.conf plugin keys**
+- Correct key: `plugin_opt_config_file` (not `plugin_opt_dynsec_config_file`).
+- `plugin` line must point to the full `.so` path, e.g. `/usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so`.
+- Use `per_listener_settings false` so all listeners share the same auth plugin.
+
+**`mosquitto_ctrl` exits 0 on silent failure** — always verify the `dynamic-security.json` file contents after init rather than relying solely on the exit code.
