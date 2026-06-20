@@ -50,6 +50,10 @@ Items that are intentionally deferred. Pick up when the time is right.
 
   *Optional follow-up — cross-broker references:* allow `'brokerName##topic'` as a topic string in `link()` and stdlib helpers to reference a topic on a different broker. `##` is chosen as separator because a double hash can never appear in a valid MQTT topic (the `#` wildcard is only legal as a standalone final segment and publishing to a topic containing `#` is forbidden by spec), making it unambiguous to parse.
 
+## Matter
+
+- **QR code scanning for pairing** — the commission flow currently requires the user to manually enter a pairing code or passcode + discriminator. Add support for scanning a Matter QR code (`MT:…`) via (a) the device camera (`getUserMedia` + canvas frame sampling + a JS QR decoder such as `jsQR` or `zxing-js`) or (b) an image file upload (same decoder, fed a decoded canvas). Either path extracts the pairing code and pre-fills the commissioning form. Camera path should show a live preview with a targeting reticle; file-upload path is the fallback for environments without camera access. Frontend-only change; no backend modifications needed.
+
 ## sheDB
 
 
