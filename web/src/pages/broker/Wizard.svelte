@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { getConfig, putConfig, brokerRestart } from '../../lib/api.js';
+    import { getConfig, putConfig, brokerRestart, brokerDynsecReinit } from '../../lib/api.js';
 
     // ── Props ──────────────────────────────────────────────────────────────────
     interface Props {
@@ -78,6 +78,10 @@
                     },
                 },
             });
+            // Re-initialise the dynsec MQTT client in the running daemon so the
+            // status badge reflects the new credentials immediately (without a
+            // full she restart). Non-fatal — the status will update on next poll.
+            await brokerDynsecReinit().catch(() => {});
             step = 'restart';
         } catch (e: any) {
             error = e.message;

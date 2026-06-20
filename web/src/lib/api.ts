@@ -693,6 +693,10 @@ export function brokerDynsecDeactivate(): Promise<{ ok: boolean }> {
     return request('POST', '/she/broker/wizard/deactivate');
 }
 
+export function brokerDynsecReinit(): Promise<{ ok: boolean }> {
+    return request('POST', '/she/broker/wizard/reinit');
+}
+
 // dynsec — users
 export function listBrokerUsers(): Promise<{ users: DynsecUser[] }> {
     return request('GET', '/she/broker/users');

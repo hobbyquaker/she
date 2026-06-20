@@ -951,3 +951,31 @@ router.post('/wizard/deactivate', async (req, res) => {
         handleError(res, err);
     }
 });
+
+/**
+ * POST /she/broker/wizard/reinit
+ * Re-initialise the dynsec MQTT client with the credentials that were just
+ * saved to config.json by the wizard. Called immediately after saving
+ * credentials so the daemon picks them up without requiring a full she restart.
+ *
+ * Uses the startup config (URL, TLS, etc.) merged with the fresh broker
+ * section from config.json.
+ */
+router.post('/wizard/reinit', (req, res) => {
+    try {
+        const configPath = req.app.locals.configPath;
+        if (!configPath) return res.status(500).json({ error: 'no configPath in app.locals' });
+        const freshCfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (!freshCfg.broker?.dynsec?.adminUsername || !freshCfg.broker?.dynsec?.adminPassword) {
+            return res.status(400).json({ error: 'broker.dynsec credentials not set in config.json' });
+        }
+        // Merge startup config (URL, TLS, etc.) with fresh broker section from config.json
+        const reInitConfig = { ...sheConfig, broker: freshCfg.broker };
+        dynsec.stop(); // clean up any existing client first
+        dynsec.init(reInitConfig, _log);
+        _log?.info('broker: dynsec client re-initialised with updated credentials');
+        res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
