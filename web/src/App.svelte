@@ -430,7 +430,7 @@
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT /></div>
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
-        <div class="page-wrap" class:hidden={page !== 'security'}><Security /></div></div>
+        <div class="page-wrap" class:hidden={page !== 'security'}><Security /></div>
         <div class="page-wrap" class:hidden={page !== 'db'}><DB /></div>
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
         <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>

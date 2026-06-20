@@ -790,6 +790,16 @@ export function removeBrokerGroupRole(groupname: string, rolename: string): Prom
     return request('DELETE', `/she/broker/groups/${encodeURIComponent(groupname)}/roles/${encodeURIComponent(rolename)}`);
 }
 
+// dynsec — default ACL access
+export interface DefaultAclEntry {
+    acltype: string;
+    allow: boolean;
+}
+
+export function getDefaultAclAccess(): Promise<{ acls: DefaultAclEntry[] }> {
+    return request('GET', '/she/broker/acl-defaults');
+}
+
 // broker — CA
 export interface CaInfo {
     crt: string;

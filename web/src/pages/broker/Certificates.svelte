@@ -5,6 +5,7 @@
         getBrokerServerCert, generateBrokerServerCert,
         listIssuedCerts, issueClientCert, revokeClientCert, downloadCertUrl,
         listTrustedCerts, addTrustedCert, removeTrustedCert,
+        getBrokerStatus, createBrokerUser, listBrokerUsers,
         type CaInfo, type ServerCertInfo, type IssuedCert, type IssuedCertResult, type TrustedCert,
     } from '../../lib/api.js';
 
@@ -40,6 +41,11 @@
     let issueLoading = $state(false);
     let issueError = $state('');
     let issueResult = $state<IssuedCertResult | null>(null);
+    let issueCreateUser = $state(false);
+
+    // Dynsec user linkage
+    let dynsecReady = $state(false);
+    let allUsernames = $state<string[]>([]);
 
     // Trusted cert paste
     let showAddTrusted = $state(false);
@@ -51,16 +57,24 @@
 
     async function load() {
         try {
-            const [caR, srvR, issuedR, trustedR] = await Promise.allSettled([
+            const [caR, srvR, issuedR, trustedR, statusR] = await Promise.allSettled([
                 getBrokerCA(),
                 getBrokerServerCert(),
                 listIssuedCerts(),
                 listTrustedCerts(),
+                getBrokerStatus(),
             ]);
             if (caR.status === 'fulfilled') caInfo = caR.value.ca;
             if (srvR.status === 'fulfilled') serverInfo = srvR.value.server;
             if (issuedR.status === 'fulfilled') issuedCerts = issuedR.value.certs;
             if (trustedR.status === 'fulfilled') trustedCerts = trustedR.value.certs;
+            if (statusR.status === 'fulfilled') dynsecReady = statusR.value.dynsec.dynsecReady;
+            if (dynsecReady) {
+                try {
+                    const { users } = await listBrokerUsers();
+                    allUsernames = users.map((u) => u.username);
+                } catch { allUsernames = []; }
+            }
             loadError = '';
         } catch (e: any) {
             loadError = e.message;
@@ -109,6 +123,11 @@
         try {
             const result = await issueClientCert({ cn: issueCn, days: issueDays });
             issueResult = result;
+            if (issueCreateUser && dynsecReady && !allUsernames.includes(issueCn)) {
+                const pw = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                    .map((b) => b.toString(16).padStart(2, '0')).join('');
+                try { await createBrokerUser(issueCn, pw); } catch { /* user may already exist */ }
+            }
             issueCn = '';
             await load();
         } catch (e: any) {
@@ -257,13 +276,13 @@
     <div class="section">
         <div class="section-header">
             <h3>Issued Client Certificates</h3>
-            <button onclick={() => { showIssue = true; issueError = ''; issueResult = null; issueCn = ''; issueDays = 365; }}>+ Issue cert</button>
+            <button onclick={() => { showIssue = true; issueError = ''; issueResult = null; issueCn = ''; issueDays = 365; issueCreateUser = false; }}>+ Issue cert</button>
         </div>
         {#if issuedCerts.length === 0}
         <div class="empty">No client certificates issued yet.</div>
         {:else}
         <table>
-            <thead><tr><th>CN</th><th>Serial</th><th>Issued</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>CN</th><th>Serial</th><th>Issued</th><th>Expires</th><th>Status</th>{#if dynsecReady}<th>User</th>{/if}<th></th></tr></thead>
             <tbody>
             {#each issuedCerts as c}
             <tr>
@@ -282,6 +301,15 @@
                     <span class="badge-ok">Valid</span>
                     {/if}
                 </td>
+                {#if dynsecReady}
+                <td>
+                    {#if allUsernames.includes(c.cn)}
+                    <span class="badge-user-linked" title="dynsec user exists with matching username">linked</span>
+                    {:else}
+                    <span class="badge-user-none" title="No dynsec user with this CN">—</span>
+                    {/if}
+                </td>
+                {/if}
                 <td class="actions">
                     {#if !c.revoked}
                     <a class="btn-dl" href={downloadCertUrl(c.serial, 'p12')} download="{c.cn}.p12">.p12</a>
@@ -355,7 +383,20 @@
     <div class="modal modal--wide">
         <h3>Issue Client Certificate</h3>
         {#if !issueResult}
-        <label>Common Name (device ID)<input bind:value={issueCn} placeholder="esp32-bedroom" /></label>
+        <label>
+            Common Name (device ID)
+            <input bind:value={issueCn} placeholder="esp32-bedroom" list="issue-cn-list" autocomplete="off" />
+        </label>
+        {#if dynsecReady}
+        <datalist id="issue-cn-list">
+            {#each allUsernames as u}<option value={u}></option>{/each}
+        </datalist>
+        <div class="mtls-hint">ℹ For mTLS auth the CN must match a dynsec username. Enable <em>use_identity_as_username</em> in the Listeners tab.</div>
+        <label class="toggle-label">
+            <input type="checkbox" bind:checked={issueCreateUser} />
+            Also create dynsec user "{issueCn || '…'}"{allUsernames.includes(issueCn) ? ' (already exists)' : ''}
+        </label>
+        {/if}
         <label>Validity (days)<input type="number" bind:value={issueDays} min="1" max="3650" /></label>
         {#if issueError}<div class="err">{issueError}</div>{/if}
         <div class="modal-actions">
@@ -528,4 +569,23 @@
     .passphrase { background: rgba(0,0,0,0.3); border: 1px solid var(--border, #444); border-radius: 3px; font-family: monospace; font-size: 13px; padding: 2px 6px; user-select: all; }
     .download-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .hint { color: var(--text-muted, #888); font-size: 11px; margin: 6px 0 0; }
+
+    .mtls-hint {
+        background: rgba(86,156,214,0.08);
+        border: 1px solid rgba(86,156,214,0.2);
+        border-radius: 4px;
+        color: var(--text-muted, #aaa);
+        font-size: 11px;
+        padding: 5px 9px;
+    }
+    .toggle-label {
+        display: flex !important;
+        align-items: center;
+        flex-direction: row !important;
+        gap: 7px;
+        cursor: pointer;
+    }
+    .toggle-label input[type='checkbox'] { width: auto; cursor: pointer; }
+    .badge-user-linked { background: rgba(70,180,70,0.1); border: 1px solid rgba(70,180,70,0.25); border-radius: 3px; color: #8c8; font-size: 10px; padding: 1px 6px; }
+    .badge-user-none { color: var(--text-muted, #666); font-size: 12px; }
 </style>

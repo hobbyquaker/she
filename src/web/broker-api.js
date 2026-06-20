@@ -478,6 +478,18 @@ router.delete('/groups/:group/roles/:role', async (req, res) => {
     }
 });
 
+// ── dynsec: Default ACL access ────────────────────────────────────────────────
+
+/** GET /she/broker/acl-defaults */
+router.get('/acl-defaults', async (req, res) => {
+    try {
+        const acls = await dynsec.getDefaultACLAccess();
+        res.json({ acls });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
 // ── CA routes ─────────────────────────────────────────────────────────────────
 
 /** GET /she/broker/ca — CA cert info */

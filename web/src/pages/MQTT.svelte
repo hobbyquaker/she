@@ -1,7 +1,11 @@
 <script lang="ts">
     import { onMount, onDestroy, untrack } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
-    import { fetchMqttState, publishMqtt } from '../lib/api.js';
+    import {
+        fetchMqttState, publishMqtt,
+        getBrokerStatus, listBrokerRoles, listBrokerUsers, listBrokerGroups, getDefaultAclAccess,
+        type DynsecRole, type DynsecUser, type DynsecGroup, type DefaultAclEntry,
+    } from '../lib/api.js';
 
     /* ── Non-reactive data store ──────────────────────────────────────────────
      * topicMap holds all known topic values. It is intentionally NOT $state —
@@ -282,7 +286,115 @@
 
     let totalCount = $derived.by(() => { void version; return topicMap.size; });
 
-    onMount(load);
+    /* ── ACL overlay ──────────────────────────────────────────────────────────── */
+    interface AclData {
+        roles: DynsecRole[];
+        users: DynsecUser[];
+        groups: DynsecGroup[];
+        defaults: DefaultAclEntry[];
+    }
+
+    const SEND_TYPES = new Set(['publishClientSend']);
+    const SUBSCRIBE_TYPES = new Set(['subscribePattern', 'subscribeLiteral']);
+    const RECEIVE_TYPES = new Set(['publishClientReceive']);
+
+    let dynsecAvail = $state(false);
+    let aclMode    = $state(false);
+    let aclLoading = $state(false);
+    let aclData    = $state<AclData | null>(null);
+    let aclInspect = $state<string | null>(null);
+
+    function aclTopicMatches(acltype: string, aclTopic: string, topic: string): 'match' | 'no-match' | 'dynamic' {
+        if (aclTopic.includes('%u') || aclTopic.includes('%c')) return 'dynamic';
+        if (acltype === 'subscribeLiteral' || acltype === 'unsubscribeLiteral') {
+            return aclTopic === topic ? 'match' : 'no-match';
+        }
+        return mqttMatch(aclTopic, topic) ? 'match' : 'no-match';
+    }
+
+    function hasAcl(topic: string): boolean {
+        if (!aclData) return false;
+        for (const role of aclData.roles) {
+            if (!role.acls) continue;
+            for (const acl of role.acls) {
+                if (aclTopicMatches(acl.acltype, acl.topic, topic) !== 'no-match') return true;
+            }
+        }
+        return false;
+    }
+
+    interface MatchedRole { rolename: string; allow: boolean; dynamic: boolean; }
+
+    function matchingRoles(topic: string, aclTypeSet: Set<string>): MatchedRole[] {
+        if (!aclData) return [];
+        const result: MatchedRole[] = [];
+        for (const role of aclData.roles) {
+            if (!role.acls) continue;
+            for (const acl of role.acls) {
+                if (!aclTypeSet.has(acl.acltype)) continue;
+                const m = aclTopicMatches(acl.acltype, acl.topic, topic);
+                if (m !== 'no-match') {
+                    result.push({ rolename: role.rolename, allow: acl.allow, dynamic: m === 'dynamic' });
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+
+    function roleHolders(rolename: string) {
+        if (!aclData) return { direct: [] as string[], viaGroup: [] as { groupname: string; members: string[] }[] };
+        const direct = aclData.users
+            .filter((u) => u.roles?.some((r) => r.rolename === rolename))
+            .map((u) => u.username);
+        const viaGroup = aclData.groups
+            .filter((g) => g.roles?.some((r) => r.rolename === rolename))
+            .map((g) => ({ groupname: g.groupname, members: (g.clients ?? []).map((c) => c.username) }));
+        return { direct, viaGroup };
+    }
+
+    function defaultFor(acltype: string): boolean {
+        if (!aclData) return false;
+        const d = aclData.defaults.find((a) => a.acltype === acltype);
+        return d?.allow ?? false;
+    }
+
+    async function loadAclData() {
+        aclLoading = true;
+        try {
+            const [rolesR, usersR, groupsR, defaultsR] = await Promise.all([
+                listBrokerRoles(),
+                listBrokerUsers(),
+                listBrokerGroups(),
+                getDefaultAclAccess(),
+            ]);
+            aclData = { roles: rolesR.roles, users: usersR.users, groups: groupsR.groups, defaults: defaultsR.acls };
+        } catch {
+            aclData = null;
+            aclMode = false;
+        } finally {
+            aclLoading = false;
+        }
+    }
+
+    async function toggleAclMode() {
+        if (!aclMode) {
+            aclMode = true;
+            aclInspect = null;
+            if (!aclData) await loadAclData();
+        } else {
+            aclMode = false;
+            aclInspect = null;
+        }
+    }
+
+    onMount(async () => {
+        load();
+        try {
+            const status = await getBrokerStatus();
+            dynsecAvail = status.dynsec.dynsecReady;
+        } catch { dynsecAvail = false; }
+    });
     onDestroy(() => { unsubWs(); if (rafId !== null) cancelAnimationFrame(rafId); });
 </script>
 
@@ -316,7 +428,40 @@
                 <span class="tv" title={fmtVal(liveEntry(n.path)?.val)}>{fmtVal(liveEntry(n.path)?.val)}</span>
                 <span class="tt">{liveEntry(n.path)?.ts != null ? fmtTime(liveEntry(n.path)!.ts) : ''}</span>
             {/if}
+            {#if aclMode && n.isLeaf}
+                {@const matched = !!aclData && hasAcl(n.path)}
+                <button class="acl-badge" class:matched onclick={(e) => { e.stopPropagation(); aclInspect = aclInspect === n.path ? null : n.path; }} title={matched ? 'Has explicit ACL — click to inspect' : 'No explicit ACL — uses defaults'}>🔒</button>
+            {/if}
         </div>
+        {#if aclMode && n.isLeaf && aclInspect === n.path && aclData}
+            {@const sendRoles = matchingRoles(n.path, SEND_TYPES)}
+            {@const subRoles  = matchingRoles(n.path, SUBSCRIBE_TYPES)}
+            {@const recvRoles = matchingRoles(n.path, RECEIVE_TYPES)}
+            <div class="acl-panel">
+                {#each [
+                    { label: 'Send',      roles: sendRoles, defType: 'publishClientSend' },
+                    { label: 'Subscribe', roles: subRoles,  defType: 'subscribePattern' },
+                    { label: 'Receive',   roles: recvRoles, defType: 'publishClientReceive' },
+                ] as sec}
+                <div class="acl-sec">
+                    <span class="acl-sec-hdr">{sec.label}</span>
+                    {#if sec.roles.length === 0}
+                        <span class="acl-def" class:allow={defaultFor(sec.defType)} class:deny={!defaultFor(sec.defType)}>{defaultFor(sec.defType) ? 'allow' : 'deny'} (default)</span>
+                    {:else}
+                        {#each sec.roles as mr}
+                            {@const h = roleHolders(mr.rolename)}
+                            <span class="acl-role" class:allow={mr.allow} class:deny={!mr.allow}>
+                                {mr.allow ? '✓' : '✗'} <strong>{mr.rolename}</strong>
+                                {#if mr.dynamic}<span class="acl-dyn" title="per-user/client pattern — cannot evaluate statically">⚠%u/%c</span>{/if}
+                                {#if h.direct.length > 0}<span class="acl-members">{h.direct.join(', ')}</span>{/if}
+                                {#each h.viaGroup as g}<span class="acl-group">{g.groupname}</span>{/each}
+                            </span>
+                        {/each}
+                    {/if}
+                </div>
+                {/each}
+            </div>
+        {/if}
         {#if hasKids && isOpen}
             <div class="tc">
                 {#each [...n.children.values()].sort((a, b) => a.seg.localeCompare(b.seg)) as child (child.path)}
@@ -331,6 +476,15 @@
     <!-- Toolbar -->
     <div class="toolbar">
         <h2>MQTT</h2>
+        {#if dynsecAvail}
+        <button class="acl-btn" class:active={aclMode} onclick={toggleAclMode} disabled={aclLoading} title="Show ACL coverage for topics">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+            ACL{#if aclLoading}…{/if}
+        </button>
+        {#if aclMode}
+        <button class="acl-refresh" onclick={loadAclData} disabled={aclLoading} title="Refresh ACL data">↺</button>
+        {/if}
+        {/if}
     </div>
 
     <!-- Grouped panel: publish + filter + tree -->
@@ -931,4 +1085,59 @@
     .btn-cancel:hover { background: var(--bg-hover); }
     .btn-confirm { background: var(--accent); color: #fff; border-color: var(--accent); }
     .btn-confirm:hover { opacity: 0.85; }
+
+    /* ── ACL overlay ── */
+    .acl-btn {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--fg-muted);
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 11px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: auto;
+    }
+    .acl-btn:hover { color: var(--fg); border-color: var(--fg-muted); }
+    .acl-btn.active { background: rgba(86,156,214,0.12); border-color: rgba(86,156,214,0.35); color: var(--accent, #569cd6); }
+    .acl-btn:disabled { opacity: 0.5; cursor: default; }
+    .acl-refresh { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 13px; padding: 0 4px; }
+    .acl-refresh:hover { color: var(--fg); }
+    .acl-badge {
+        background: none;
+        border: none;
+        color: var(--fg-dim);
+        cursor: pointer;
+        font-size: 10px;
+        line-height: 1;
+        padding: 0 3px;
+        margin-left: auto;
+        opacity: 0.35;
+        flex-shrink: 0;
+    }
+    .acl-badge.matched { opacity: 1; color: var(--accent, #569cd6); }
+    .acl-badge:hover { opacity: 1; }
+    .acl-panel {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px 16px;
+        padding: 4px 8px 5px 38px;
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+    }
+    .acl-sec { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+    .acl-sec-hdr { color: var(--fg-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; min-width: 52px; flex-shrink: 0; }
+    .acl-def { font-size: 11px; padding: 0 5px; border-radius: 2px; }
+    .acl-def.allow { color: #8c8; background: rgba(70,180,70,0.08); }
+    .acl-def.deny  { color: #e88; background: rgba(220,60,60,0.08); }
+    .acl-role { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+    .acl-role.allow strong { color: #8c8; }
+    .acl-role.deny  strong { color: #e88; }
+    .acl-dyn { color: #cc9; font-size: 10px; }
+    .acl-members { color: var(--fg-muted); font-style: italic; font-size: 10px; }
+    .acl-group { background: rgba(86,156,214,0.08); border: 1px solid rgba(86,156,214,0.2); border-radius: 2px; color: var(--accent, #569cd6); font-size: 10px; padding: 0 4px; }
 </style>
