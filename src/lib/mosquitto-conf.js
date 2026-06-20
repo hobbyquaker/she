@@ -191,10 +191,24 @@ function serialise(conf) {
         lines.push('');
     }
 
-    // Passthrough (comments, blanks, unmanaged keys)
-    for (const l of passthrough) lines.push(l);
+    // Passthrough (comments, blanks, unmanaged keys) — strip leading blank lines
+    // to avoid a double-blank at the managed/passthrough boundary.
+    const trimmedPassthrough = [...passthrough];
+    while (trimmedPassthrough.length > 0 && trimmedPassthrough[0].trim() === '') {
+        trimmedPassthrough.shift();
+    }
+    for (const l of trimmedPassthrough) lines.push(l);
 
-    return lines.join('\n');
+    // Collapse runs of more than one consecutive blank line into a single blank line.
+    const result = [];
+    let prevBlank = false;
+    for (const line of lines) {
+        const isBlank = line.trim() === '';
+        if (isBlank && prevBlank) continue;
+        result.push(line);
+        prevBlank = isBlank;
+    }
+    return result.join('\n');
 }
 
 /**

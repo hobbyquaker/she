@@ -831,6 +831,16 @@ router.post('/wizard/bootstrap', async (req, res) => {
                 _log?.warn(`broker: could not verify dynamic-security.json after init: ${e.message}`);
             }
 
+            // Fix ownership and permissions: mosquitto_ctrl creates the file owned by the
+            // SSH user (typically mode 600). Mosquitto runs as the 'mosquitto' system user
+            // and must be able to read it. Chown to mosquitto:mosquitto and set 644.
+            try {
+                await sshDeploy.runCommand(bc.ssh, `sudo chown mosquitto:mosquitto "${dynSecPath}" && sudo chmod 644 "${dynSecPath}"`);
+                _log?.debug(`broker: fixed ownership and permissions on remote ${dynSecPath}`);
+            } catch (e) {
+                _log?.warn(`broker: could not chown/chmod remote ${dynSecPath}: ${e.message} — mosquitto may fail with 'File is not readable'`);
+            }
+
             // Discover the full path to the .so on the remote host.
             let soPath = 'mosquitto_dynamic_security.so'; // fallback: rely on LD_LIBRARY_PATH
             try {
@@ -892,6 +902,22 @@ router.post('/wizard/bootstrap', async (req, res) => {
             } catch (e) {
                 _log?.warn(`broker: could not verify dynamic-security.json after init: ${e.message}`);
             }
+
+            // Fix ownership and permissions: mosquitto_ctrl creates the file owned by the
+            // current user. Mosquitto runs as the 'mosquitto' system user and needs read access.
+            try {
+                await execFileAsync('sudo', ['chown', 'mosquitto:mosquitto', dynSecPath], { timeout: 5000 });
+                _log?.debug(`broker: fixed ownership on local ${dynSecPath}`);
+            } catch (e) {
+                _log?.warn(`broker: could not chown local ${dynSecPath}: ${e.message}`);
+            }
+            try {
+                fs.chmodSync(dynSecPath, 0o644);
+                _log?.debug(`broker: fixed permissions on local ${dynSecPath}`);
+            } catch (e) {
+                _log?.warn(`broker: could not chmod local ${dynSecPath}: ${e.message}`);
+            }
+
             let soPath = 'mosquitto_dynamic_security.so'; // fallback: rely on LD_LIBRARY_PATH
             try {
                 const r2 = await execFileAsync('find', ['/usr', '/lib', '-maxdepth', '8', '-name', 'mosquitto_dynamic_security.so'], { timeout: 8000 });
