@@ -664,6 +664,15 @@ export function getBrokerStatus(): Promise<BrokerStatus> {
     return request('GET', '/she/broker/status');
 }
 
+export interface BrokerLocalCheck {
+    mosquittoCtrl: boolean;
+    mosquitto: boolean;
+}
+
+export function getBrokerLocalCheck(): Promise<BrokerLocalCheck> {
+    return request('GET', '/she/broker/local/check');
+}
+
 export function getBrokerConf(): Promise<BrokerConf> {
     return request('GET', '/she/broker/config');
 }

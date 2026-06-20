@@ -101,10 +101,10 @@
 <div class="broker-page">
     <div class="sub-nav">
         <button class:active={tab === 'status'} onclick={() => (tab = 'status')}>Status</button>
-        <button class:active={tab === 'users'} onclick={() => (tab = 'users')}>Users & Roles</button>
+        <button class:active={tab === 'users'} onclick={() => (tab = 'users')}>Directory</button>
         <button class:active={tab === 'listeners'} onclick={() => (tab = 'listeners')}>Listeners</button>
         <button class:active={tab === 'certs'} onclick={() => (tab = 'certs')}>Certificates</button>
-        <button class:active={tab === 'ssh'} onclick={() => (tab = 'ssh')}>SSH / Remote</button>
+        <button class:active={tab === 'ssh'} onclick={() => (tab = 'ssh')}>Mosquitto</button>
     </div>
 
     {#if tab === 'status'}

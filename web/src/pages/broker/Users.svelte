@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
+    import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import {
         listBrokerUsers, createBrokerUser, deleteBrokerUser, setBrokerUserPassword,
         assignBrokerUserRole, removeBrokerUserRole,
@@ -14,6 +15,8 @@
     // ── State ──────────────────────────────────────────────────────────────────
     let { dynsecReady = false }: { dynsecReady?: boolean } = $props();
 
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
+
     let users = $state<DynsecUser[]>([]);
     let roles = $state<DynsecRole[]>([]);
     let groups = $state<DynsecGroup[]>([]);
@@ -23,6 +26,67 @@
     let groupsError = $state('');
 
     let panel = $state<'users' | 'roles' | 'groups' | 'settings'>('users');
+
+    // ── Inline badge editor ─────────────────────────────────────────────────────
+    type InlineAdd = { kind: 'user-roles' | 'user-groups' | 'group-members' | 'group-roles'; target: string };
+    let inlineAdd = $state<InlineAdd | null>(null);
+    let inlineAddVal = $state('');
+    let inlineAddErr = $state('');
+    let inlineAddLoading = $state(false);
+
+    const inlineOptions = $derived(
+        !inlineAdd ? [] :
+        inlineAdd.kind === 'user-roles'
+            ? roles.map(r => r.rolename).filter(r => !users.find(u => u.username === inlineAdd!.target)?.roles?.some(ur => ur.rolename === r))
+        : inlineAdd.kind === 'user-groups'
+            ? groups.map(g => g.groupname).filter(g => !users.find(u => u.username === inlineAdd!.target)?.groups?.some(ug => ug.groupname === g))
+        : inlineAdd.kind === 'group-members'
+            ? users.map(u => u.username).filter(u => !groups.find(g => g.groupname === inlineAdd!.target)?.clients?.some(c => c.username === u))
+            : roles.map(r => r.rolename).filter(r => !groups.find(g => g.groupname === inlineAdd!.target)?.roles?.some(gr => gr.rolename === r))
+    );
+
+    function openInline(kind: InlineAdd['kind'], target: string) {
+        inlineAdd = { kind, target };
+        inlineAddVal = '';
+        inlineAddErr = '';
+    }
+
+    async function doInlineAdd() {
+        if (!inlineAdd || !inlineAddVal) return;
+        inlineAddLoading = true;
+        inlineAddErr = '';
+        try {
+            const { kind, target } = inlineAdd;
+            if (kind === 'user-roles')    await assignBrokerUserRole(target, inlineAddVal);
+            else if (kind === 'user-groups')   await addBrokerGroupClient(inlineAddVal, target);
+            else if (kind === 'group-members') await addBrokerGroupClient(target, inlineAddVal);
+            else                               await addBrokerGroupRole(target, inlineAddVal);
+            inlineAdd = null;
+            inlineAddVal = '';
+            await load();
+        } catch (e: any) {
+            inlineAddErr = e.message;
+        } finally {
+            inlineAddLoading = false;
+        }
+    }
+
+    async function doRemoveUserRole(username: string, rolename: string) {
+        try { await removeBrokerUserRole(username, rolename); await load(); }
+        catch (e: any) { usersError = e.message; }
+    }
+    async function doRemoveUserGroup(username: string, groupname: string) {
+        try { await removeBrokerGroupClient(groupname, username); await load(); }
+        catch (e: any) { usersError = e.message; }
+    }
+    async function doRemoveGroupMember(groupname: string, username: string) {
+        try { await removeBrokerGroupClient(groupname, username); await load(); }
+        catch (e: any) { groupsError = e.message; }
+    }
+    async function doRemoveGroupRole(groupname: string, rolename: string) {
+        try { await removeBrokerGroupRole(groupname, rolename); await load(); }
+        catch (e: any) { groupsError = e.message; }
+    }
 
     // ── Add user modal ─────────────────────────────────────────────────────────
     let showAddUser = $state(false);
@@ -131,34 +195,6 @@
             anonymousGroupSaving = false;
         }
     }
-    let memberEditor = $state<{ type: 'user-roles' | 'group-members' | 'group-roles'; target: string } | null>(null);
-    let memberEditorAdd = $state('');
-    let memberEditorError = $state('');
-
-    const memberEditorCurrent = $derived(
-        !memberEditor ? [] :
-        memberEditor.type === 'user-roles'
-            ? (users.find(u => u.username === memberEditor!.target)?.roles?.map(r => r.rolename) ?? [])
-            : memberEditor.type === 'group-members'
-            ? (groups.find(g => g.groupname === memberEditor!.target)?.clients?.map(c => c.username) ?? [])
-            : (groups.find(g => g.groupname === memberEditor!.target)?.roles?.map(r => r.rolename) ?? [])
-    );
-
-    const memberEditorOptions = $derived(
-        !memberEditor ? [] :
-        (memberEditor.type === 'user-roles' || memberEditor.type === 'group-roles'
-            ? roles.map(r => r.rolename)
-            : users.map(u => u.username)
-        ).filter(item => !memberEditorCurrent.includes(item))
-    );
-
-    const memberEditorTitle = $derived(
-        !memberEditor ? '' :
-        memberEditor.type === 'user-roles' ? `Roles for user "${memberEditor.target}"` :
-        memberEditor.type === 'group-members' ? `Members of group "${memberEditor.target}"` :
-        `Roles for group "${memberEditor.target}"`
-    );
-
     const ACL_TYPES = [
         'publishClientSend',
         'publishClientReceive',
@@ -205,7 +241,7 @@
     }
 
     async function doDeleteUser(username: string) {
-        if (!confirm(`Delete user "${username}"?`)) return;
+        if (!await dialog.show(`Delete user “${username}”?`, { confirm: 'Delete', danger: true })) return;
         try {
             await deleteBrokerUser(username);
             await load();
@@ -251,7 +287,7 @@
     }
 
     async function doDeleteRole(rolename: string) {
-        if (!confirm(`Delete role "${rolename}"?`)) return;
+        if (!await dialog.show(`Delete role “${rolename}”?`, { confirm: 'Delete', danger: true })) return;
         try {
             await deleteBrokerRole(rolename);
             if (aclRole?.rolename === rolename) { aclRole = null; showAclEditor = false; }
@@ -310,7 +346,7 @@
     }
 
     async function doDeleteGroup(groupname: string) {
-        if (!confirm(`Delete group "${groupname}"?`)) return;
+        if (!await dialog.show(`Delete group “${groupname}”?`, { confirm: 'Delete', danger: true })) return;
         try {
             await deleteBrokerGroup(groupname);
             await load();
@@ -319,41 +355,7 @@
         }
     }
 
-    // ── Member editor actions ─────────────────────────────────────────────────
-    function openMemberEditor(type: 'user-roles' | 'group-members' | 'group-roles', target: string) {
-        memberEditor = { type, target };
-        memberEditorAdd = '';
-        memberEditorError = '';
-    }
-
-    async function doMemberEditorAdd() {
-        if (!memberEditor || !memberEditorAdd) return;
-        memberEditorError = '';
-        try {
-            const { type, target } = memberEditor;
-            if (type === 'user-roles') await assignBrokerUserRole(target, memberEditorAdd);
-            else if (type === 'group-members') await addBrokerGroupClient(target, memberEditorAdd);
-            else await addBrokerGroupRole(target, memberEditorAdd);
-            memberEditorAdd = '';
-            await load();
-        } catch (e: any) {
-            memberEditorError = e.message;
-        }
-    }
-
-    async function doMemberEditorRemove(item: string) {
-        if (!memberEditor) return;
-        memberEditorError = '';
-        try {
-            const { type, target } = memberEditor;
-            if (type === 'user-roles') await removeBrokerUserRole(target, item);
-            else if (type === 'group-members') await removeBrokerGroupClient(target, item);
-            else await removeBrokerGroupRole(target, item);
-            await load();
-        } catch (e: any) {
-            memberEditorError = e.message;
-        }
-    }
+    async function doMemberEditorRemove(_item: string) { /* superseded by inline remove */ }
 </script>
 
 <div class="users-page">
@@ -388,10 +390,49 @@
             {#each users as user}
             <tr>
                 <td class="mono">{user.username}</td>
-                <td><div class="tags">{#each user.roles ?? [] as r}<span class="tag">{r.rolename}</span>{/each}</div></td>
-                <td><div class="tags">{#each user.groups ?? [] as g}<span class="tag tag--group">{g.groupname}</span>{/each}</div></td>
+                <td>
+                    <div class="tags-cell">
+                        <div class="tags">
+                            {#each user.roles ?? [] as r}
+                            <span class="tag">{r.rolename}<button class="tag-x" onclick={() => doRemoveUserRole(user.username, r.rolename)} title="Remove role">×</button></span>
+                            {/each}
+                            <button class="tag-plus" onclick={() => openInline('user-roles', user.username)} title="Add role">+</button>
+                        </div>
+                        {#if inlineAdd?.kind === 'user-roles' && inlineAdd.target === user.username}
+                        <div class="inline-add">
+                            <select bind:value={inlineAddVal}>
+                                <option value="">— role —</option>
+                                {#each inlineOptions as opt}<option value={opt}>{opt}</option>{/each}
+                            </select>
+                            <button class="inline-confirm" onclick={doInlineAdd} disabled={!inlineAddVal || inlineAddLoading}>Add</button>
+                            <button class="inline-cancel" onclick={() => (inlineAdd = null)}>×</button>
+                        </div>
+                        {#if inlineAddErr}<div class="inline-err">{inlineAddErr}</div>{/if}
+                        {/if}
+                    </div>
+                </td>
+                <td>
+                    <div class="tags-cell">
+                        <div class="tags">
+                            {#each user.groups ?? [] as g}
+                            <span class="tag tag--group">{g.groupname}<button class="tag-x" onclick={() => doRemoveUserGroup(user.username, g.groupname)} title="Remove from group">×</button></span>
+                            {/each}
+                            <button class="tag-plus tag-plus--group" onclick={() => openInline('user-groups', user.username)} title="Add to group">+</button>
+                        </div>
+                        {#if inlineAdd?.kind === 'user-groups' && inlineAdd.target === user.username}
+                        <div class="inline-add">
+                            <select bind:value={inlineAddVal}>
+                                <option value="">— group —</option>
+                                {#each inlineOptions as opt}<option value={opt}>{opt}</option>{/each}
+                            </select>
+                            <button class="inline-confirm" onclick={doInlineAdd} disabled={!inlineAddVal || inlineAddLoading}>Add</button>
+                            <button class="inline-cancel" onclick={() => (inlineAdd = null)}>×</button>
+                        </div>
+                        {#if inlineAddErr}<div class="inline-err">{inlineAddErr}</div>{/if}
+                        {/if}
+                    </div>
+                </td>
                 <td class="cell-actions"><div class="actions">
-                    <button onclick={() => openMemberEditor('user-roles', user.username)} title="Edit roles">Roles</button>
                     <button onclick={() => openSetPassword(user.username)} title="Set password">🔑</button>
                     <button class="danger" onclick={() => doDeleteUser(user.username)} title="Delete">✕</button>
                 </div></td>
@@ -450,11 +491,49 @@
             {#each groups as group}
             <tr>
                 <td class="mono">{group.groupname}</td>
-                <td><div class="tags">{#each group.clients ?? [] as c}<span class="tag">{c.username}</span>{/each}</div></td>
-                <td><div class="tags">{#each group.roles ?? [] as r}<span class="tag tag--group">{r.rolename}</span>{/each}</div></td>
+                <td>
+                    <div class="tags-cell">
+                        <div class="tags">
+                            {#each group.clients ?? [] as c}
+                            <span class="tag">{c.username}<button class="tag-x" onclick={() => doRemoveGroupMember(group.groupname, c.username)} title="Remove member">×</button></span>
+                            {/each}
+                            <button class="tag-plus" onclick={() => openInline('group-members', group.groupname)} title="Add member">+</button>
+                        </div>
+                        {#if inlineAdd?.kind === 'group-members' && inlineAdd.target === group.groupname}
+                        <div class="inline-add">
+                            <select bind:value={inlineAddVal}>
+                                <option value="">— user —</option>
+                                {#each inlineOptions as opt}<option value={opt}>{opt}</option>{/each}
+                            </select>
+                            <button class="inline-confirm" onclick={doInlineAdd} disabled={!inlineAddVal || inlineAddLoading}>Add</button>
+                            <button class="inline-cancel" onclick={() => (inlineAdd = null)}>×</button>
+                        </div>
+                        {#if inlineAddErr}<div class="inline-err">{inlineAddErr}</div>{/if}
+                        {/if}
+                    </div>
+                </td>
+                <td>
+                    <div class="tags-cell">
+                        <div class="tags">
+                            {#each group.roles ?? [] as r}
+                            <span class="tag tag--group">{r.rolename}<button class="tag-x" onclick={() => doRemoveGroupRole(group.groupname, r.rolename)} title="Remove role">×</button></span>
+                            {/each}
+                            <button class="tag-plus tag-plus--group" onclick={() => openInline('group-roles', group.groupname)} title="Add role">+</button>
+                        </div>
+                        {#if inlineAdd?.kind === 'group-roles' && inlineAdd.target === group.groupname}
+                        <div class="inline-add">
+                            <select bind:value={inlineAddVal}>
+                                <option value="">— role —</option>
+                                {#each inlineOptions as opt}<option value={opt}>{opt}</option>{/each}
+                            </select>
+                            <button class="inline-confirm" onclick={doInlineAdd} disabled={!inlineAddVal || inlineAddLoading}>Add</button>
+                            <button class="inline-cancel" onclick={() => (inlineAdd = null)}>×</button>
+                        </div>
+                        {#if inlineAddErr}<div class="inline-err">{inlineAddErr}</div>{/if}
+                        {/if}
+                    </div>
+                </td>
                 <td class="cell-actions"><div class="actions">
-                    <button onclick={() => openMemberEditor('group-members', group.groupname)} title="Edit members">Members</button>
-                    <button onclick={() => openMemberEditor('group-roles', group.groupname)} title="Edit roles">Roles</button>
                     <button class="danger" onclick={() => doDeleteGroup(group.groupname)} title="Delete">✕</button>
                 </div></td>
             </tr>
@@ -639,43 +718,7 @@
 </div>
 {/if}
 
-<!-- ── Member editor modal ───────────────────────────────────────────────── -->
-{#if memberEditor}
-<div class="modal-backdrop" role="dialog" aria-modal="true">
-    <div class="modal modal--wide">
-        <h3>{memberEditorTitle}</h3>
-        {#if memberEditorCurrent.length > 0}
-        <ul class="member-list">
-            {#each memberEditorCurrent as item}
-            <li>
-                <span class="mono">{item}</span>
-                <button class="danger" onclick={() => doMemberEditorRemove(item)}>✕</button>
-            </li>
-            {/each}
-        </ul>
-        {:else}
-        <div class="empty">None assigned yet.</div>
-        {/if}
-        {#if memberEditorOptions.length > 0}
-        <div class="member-add-row">
-            <select bind:value={memberEditorAdd}>
-                <option value="">— select —</option>
-                {#each memberEditorOptions as opt}
-                <option value={opt}>{opt}</option>
-                {/each}
-            </select>
-            <button onclick={doMemberEditorAdd} disabled={!memberEditorAdd}>Add</button>
-        </div>
-        {:else}
-        <div class="empty">No more items to add.</div>
-        {/if}
-        {#if memberEditorError}<div class="err">{memberEditorError}</div>{/if}
-        <div class="modal-actions">
-            <button onclick={() => (memberEditor = null)}>Close</button>
-        </div>
-    </div>
-</div>
-{/if}
+<ConfirmDialog bind:this={dialog} />
 
 <style>
     .users-page {
@@ -744,9 +787,29 @@
     .mono { font-family: monospace; font-size: 11px; }
     .small { font-size: 10px; }
 
-    .tags { display: flex; flex-wrap: wrap; gap: 3px; }
-    .tag { background: rgba(86,156,214,0.12); border: 1px solid rgba(86,156,214,0.25); border-radius: 3px; color: #7ab; font-family: monospace; font-size: 10px; padding: 1px 5px; }
+    .tags { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+    .tag { background: rgba(86,156,214,0.12); border: 1px solid rgba(86,156,214,0.25); border-radius: 3px; color: #7ab; display: inline-flex; align-items: center; font-family: monospace; font-size: 10px; gap: 2px; padding: 1px 3px 1px 5px; }
     .tag--group { background: rgba(180,130,40,0.12); border-color: rgba(180,130,40,0.25); color: #ca8; }
+
+    /* Inline badge × button */
+    .tag-x { background: none; border: none; color: inherit; cursor: pointer; font-size: 10px; line-height: 1; opacity: 0.55; padding: 0 1px; }
+    .tag-x:hover { opacity: 1; color: #e88; }
+
+    /* Inline + button */
+    .tag-plus { background: none; border: 1px dashed rgba(86,156,214,0.3); border-radius: 3px; color: rgba(86,156,214,0.5); cursor: pointer; font-size: 11px; line-height: 1; padding: 0px 4px; }
+    .tag-plus:hover { border-color: rgba(86,156,214,0.6); color: var(--accent, #569cd6); }
+    .tag-plus--group { border-color: rgba(180,130,40,0.3); color: rgba(180,130,40,0.5); }
+    .tag-plus--group:hover { border-color: rgba(180,130,40,0.6); color: #ca8; }
+
+    /* Inline add row (appears below tags in cell) */
+    .tags-cell { display: flex; flex-direction: column; gap: 4px; }
+    .inline-add { display: flex; gap: 4px; align-items: center; }
+    .inline-add select { background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 3px; color: var(--text, #eee); font-size: 10px; padding: 2px 4px; max-width: 160px; }
+    .inline-confirm { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid rgba(86,156,214,0.3); border-radius: 3px; color: var(--accent, #569cd6); cursor: pointer; font-size: 10px; padding: 2px 7px; }
+    .inline-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+    .inline-cancel { background: none; border: none; color: var(--text-muted, #666); cursor: pointer; font-size: 11px; padding: 0 2px; }
+    .inline-cancel:hover { color: #e88; }
+    .inline-err { color: #e88; font-size: 10px; }
 
     .cell-actions { width: 1%; white-space: nowrap; }
     .actions { display: flex; gap: 4px; justify-content: flex-end; }
@@ -792,15 +855,6 @@
     .acl-add-row input { flex: 1; background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 11px; padding: 4px 6px; }
     .acl-add-row button { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid var(--accent-border, rgba(86,156,214,0.3)); border-radius: 4px; color: var(--accent, #569cd6); cursor: pointer; font-size: 11px; padding: 4px 10px; }
     .allow-toggle { flex-direction: row; align-items: center; gap: 4px; color: var(--text, #eee); cursor: pointer; }
-
-    .member-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-    .member-list li { display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); border: 1px solid var(--border, #333); border-radius: 3px; padding: 4px 8px; font-size: 12px; }
-    .member-list button { background: none; border: none; color: var(--text-muted, #666); cursor: pointer; font-size: 11px; padding: 0 2px; }
-    .member-list button:hover { color: #e66; }
-    .member-add-row { display: flex; gap: 6px; align-items: center; }
-    .member-add-row select { flex: 1; background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 11px; padding: 4px 6px; }
-    .member-add-row button { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid var(--accent-border, rgba(86,156,214,0.3)); border-radius: 4px; color: var(--accent, #569cd6); cursor: pointer; font-size: 11px; padding: 4px 10px; }
-    .member-add-row button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* Settings panel */
     .settings-section { border-bottom: 1px solid var(--border, #333); padding: 14px 0; }

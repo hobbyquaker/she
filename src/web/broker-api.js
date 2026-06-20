@@ -937,6 +937,29 @@ router.post('/ca/trusted/addpath', async (req, res) => {
 
 module.exports = { router, setLogger, setStore };
 
+// ── Local tool check ──────────────────────────────────────────────────────────
+
+/**
+ * GET /she/broker/local/check
+ * Check whether local mosquitto tools are available in PATH.
+ * Resolves by spawning each tool; ENOENT = not found, any other outcome = found.
+ */
+router.get('/local/check', async (req, res) => {
+    function probe(cmd) {
+        return new Promise((resolve) => {
+            const cp = require('child_process').spawn(cmd, ['--help'], { stdio: 'ignore' });
+            cp.on('error', (e) => resolve(e.code !== 'ENOENT'));
+            cp.on('close', () => resolve(true));
+        });
+    }
+    try {
+        const [mosquittoCtrl, mosquitto] = await Promise.all([probe('mosquitto_ctrl'), probe('mosquitto')]);
+        res.json({ mosquittoCtrl, mosquitto });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
 // ── SSH routes ─────────────────────────────────────────────────────────────────
 // Note: these routes are mounted on the same router but defined after module.exports
 // because they add to `router` (which is already exported by reference).
