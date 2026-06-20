@@ -12,7 +12,7 @@ Your home, your rules - written in plain JavaScript.
 - **Script HTTP routes** — scripts can register their own REST endpoints under `/api/<scriptName>/`
 - **`require()`** — load npm packages from `~/.she/node_modules/` or relative files inside scripts
 - Supports **InfluxDB**, **Elasticsearch** and **Redis** — convenience methods for time series, full text indexing, shared states across multiple she instances
-- **Broker management** — optional Mosquitto management: dynamic user/ACL management via the dynsec plugin (`she.broker.*` script API), listener and TLS configuration, local CA with client certificate issuance, SSH-based remote file deployment
+- **Broker management** — optional Mosquitto management: dynamic user/ACL management via the dynsec plugin (`she.broker.*` script API), listener and TLS configuration, TLS certificate management (server cert self-signed / CSR / import, trusted CA store), SSH-based remote file deployment
 - **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer, broker manager
 
 ## Docs

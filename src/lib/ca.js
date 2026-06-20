@@ -228,7 +228,10 @@ async function generateServerCert(config, { cn, san = [], days = 365 } = {}) {
     const caCrtPath = path.join(dir, 'ca.crt');
     const srlPath = path.join(dir, 'ca.srl');
 
-    if (!fs.existsSync(caCrtPath)) throw new Error('No CA found — generate CA first');
+    // Auto-generate an internal CA if none exists (used for self-signed server certs)
+    if (!fs.existsSync(caCrtPath)) {
+        await generateCA(config, { cn: 'she-internal-ca', days: 3650 });
+    }
 
     const serverDir = path.join(dir, 'server');
     fs.mkdirSync(serverDir, { recursive: true });
@@ -287,6 +290,97 @@ async function generateServerCert(config, { cn, san = [], days = 365 } = {}) {
 }
 
 // ── Client certificate issuance ────────────────────────────────────────────────
+
+/**
+ * Generate a server private key and CSR without signing it.
+ * The key is stored on disk as server/server.key; the CSR is returned as PEM.
+ * The user takes the CSR to an external CA to get it signed, then calls
+ * importServerCert() to install the resulting certificate.
+ *
+ * @param {object} config
+ * @param {{ cn?: string, san?: string[], days?: number }} options  (days ignored — for future use)
+ * @returns {Promise<{ csrPem: string }>}
+ */
+async function generateServerCSR(config, { cn, san = [] } = {}) {
+    const dir = caDir(config);
+    const serverDir = path.join(dir, 'server');
+    fs.mkdirSync(serverDir, { recursive: true });
+
+    const keyPath = path.join(serverDir, 'server.key');
+    const csrPath = path.join(serverDir, 'server.csr');
+
+    // Generate key
+    await openssl(['genpkey', '-algorithm', 'ed25519', '-out', keyPath]);
+    try { fs.chmodSync(keyPath, 0o600); } catch { /* ignore */ }
+
+    // Build subject and optional SAN extension for the CSR
+    const sanEntries = [cn, ...san].filter(Boolean).map((s, i) => {
+        return /^\d+\.\d+\.\d+\.\d+$/.test(s) ? `IP.${i + 1}:${s}` : `DNS.${i + 1}:${s}`;
+    });
+    const subjArgs = ['-subj', `/CN=${cn || 'mosquitto'}`];
+    let reqArgs = ['req', '-new', '-key', keyPath, '-out', csrPath, ...subjArgs];
+    if (sanEntries.length) {
+        const extPath = path.join(serverDir, 'server-csr.conf');
+        fs.writeFileSync(extPath, `[req]\ndistinguished_name=dn\nreq_extensions=SAN\n[dn]\n[SAN]\nsubjectAltName=${sanEntries.join(',')}\n`, 'utf8');
+        reqArgs = ['req', '-new', '-key', keyPath, '-out', csrPath, ...subjArgs, '-config', extPath];
+    }
+    await openssl(reqArgs);
+
+    const csrPem = fs.readFileSync(csrPath, 'utf8');
+    return { csrPem };
+}
+
+/**
+ * Install an externally-signed certificate as the server certificate.
+ * If keyPem is provided it is written as server.key; otherwise the existing
+ * server.key on disk (e.g. from a prior generateServerCSR call) is used.
+ *
+ * @param {object} config
+ * @param {{ certPem: string, keyPem?: string|null }} options
+ * @returns {Promise<{ fingerprint: string, expires: string, cn: string }>}
+ */
+async function importServerCert(config, { certPem, keyPem = null } = {}) {
+    const dir = caDir(config);
+    const serverDir = path.join(dir, 'server');
+    fs.mkdirSync(serverDir, { recursive: true });
+
+    const crtPath = path.join(serverDir, 'server.crt');
+    const keyPath = path.join(serverDir, 'server.key');
+
+    // Validate cert
+    const tmpCrt = crtPath + '.tmp';
+    fs.writeFileSync(tmpCrt, certPem.trim() + '\n', 'utf8');
+    try {
+        await openssl(['x509', '-in', tmpCrt, '-noout']);
+    } catch (e) {
+        try { fs.unlinkSync(tmpCrt); } catch { /* ignore */ }
+        throw new Error(`Invalid certificate: ${e.message}`);
+    }
+
+    if (keyPem) {
+        const tmpKey = keyPath + '.tmp';
+        fs.writeFileSync(tmpKey, keyPem.trim() + '\n', 'utf8');
+        try {
+            await openssl(['pkey', '-in', tmpKey, '-noout']);
+        } catch (e) {
+            try { fs.unlinkSync(tmpCrt); } catch { /* ignore */ }
+            try { fs.unlinkSync(tmpKey); } catch { /* ignore */ }
+            throw new Error(`Invalid private key: ${e.message}`);
+        }
+        fs.renameSync(tmpKey, keyPath);
+        try { fs.chmodSync(keyPath, 0o600); } catch { /* ignore */ }
+    } else if (!fs.existsSync(keyPath)) {
+        try { fs.unlinkSync(tmpCrt); } catch { /* ignore */ }
+        throw new Error('No private key provided and no existing server.key on disk');
+    }
+
+    fs.renameSync(tmpCrt, crtPath);
+
+    const fingerprint = await certFingerprint(crtPath);
+    const expires = await certExpiry(crtPath);
+    const cn = await certCN(crtPath);
+    return { fingerprint, expires, cn };
+}
 
 /**
  * Issue a client certificate signed by the local CA.
@@ -570,6 +664,8 @@ module.exports = {
     importCA,
     extractFromP12,
     generateServerCert,
+    generateServerCSR,
+    importServerCert,
     issueClientCert,
     generateCRL,
     listTrustedCerts,

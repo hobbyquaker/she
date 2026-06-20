@@ -879,6 +879,19 @@ export function generateBrokerServerCert(opts: {
     return request('POST', '/she/broker/ca/server/generate', opts);
 }
 
+export function generateBrokerServerCSR(opts: {
+    cn: string;
+    san?: string[];
+}): Promise<{ ok: boolean; csrPem: string }> {
+    return request('POST', '/she/broker/ca/server/csr', opts);
+}
+
+export function importBrokerServerCert(
+    body: { cert: string; key?: string } | { p12base64: string; passphrase?: string },
+): Promise<{ ok: boolean; server: ServerCertInfo }> {
+    return request('POST', '/she/broker/ca/server/import', body);
+}
+
 export function listIssuedCerts(): Promise<{ certs: IssuedCert[] }> {
     return request('GET', '/she/broker/ca/certs');
 }

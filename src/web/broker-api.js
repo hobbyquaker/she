@@ -593,13 +593,57 @@ router.get('/ca/server', async (req, res) => {
     }
 });
 
-/** POST /she/broker/ca/server/generate — Generate server cert */
+/** POST /she/broker/ca/server/generate — Generate self-signed server cert (auto-creates internal CA) */
 router.post('/ca/server/generate', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
         const { cn, san, days } = req.body;
         const result = await ca.generateServerCert(bc, { cn, san, days });
         res.json({ ok: true, fingerprint: result.fingerprint, expires: result.expires, certPath: result.certPath, keyPath: result.keyPath });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * POST /she/broker/ca/server/csr
+ * Generate a private key + CSR for the server cert.
+ * The CSR PEM is returned for external signing; the key is kept on disk.
+ * Body: { cn?, san?: string[], days?: number }
+ */
+router.post('/ca/server/csr', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { cn, san, days } = req.body;
+        const result = await ca.generateServerCSR(bc, { cn, san, days });
+        res.json({ ok: true, csrPem: result.csrPem });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * POST /she/broker/ca/server/import
+ * Install an externally-signed server certificate (PEM or PKCS#12).
+ * Body (PEM):  { cert: string, key?: string }
+ *   key is optional when a key already exists on disk (e.g. from /csr).
+ * Body (P12):  { p12base64: string, passphrase?: string }
+ */
+router.post('/ca/server/import', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { cert, key, p12base64, passphrase } = req.body;
+        let certPem, keyPem;
+        if (p12base64 !== undefined) {
+            const p12Buffer = Buffer.from(p12base64, 'base64');
+            ({ certPem, keyPem } = await ca.extractFromP12(p12Buffer, passphrase ?? ''));
+        } else {
+            if (!cert) return res.status(400).json({ error: 'cert is required' });
+            certPem = cert;
+            keyPem = key || null;
+        }
+        const result = await ca.importServerCert(bc, { certPem, keyPem });
+        res.json({ ok: true, server: result });
     } catch (err) {
         handleError(res, err);
     }
