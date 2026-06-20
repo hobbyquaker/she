@@ -919,3 +919,18 @@ export function addTrustedCert(pem: string): Promise<{ ok: boolean; filename: st
 export function removeTrustedCert(fingerprint: string): Promise<{ ok: boolean }> {
     return request('DELETE', `/she/broker/ca/trusted/${encodeURIComponent(fingerprint)}`);
 }
+
+export function brokerFsComplete(inputPath: string): Promise<{ suggestions: string[] }> {
+    return request('GET', `/she/broker/fs/complete?path=${encodeURIComponent(inputPath)}`);
+}
+
+export function setBrokerServerCertPath(body: {
+    certPath: string;
+    keyPath: string;
+}): Promise<{ ok: boolean; server: ServerCertInfo }> {
+    return request('POST', '/she/broker/ca/server/pathlink', body);
+}
+
+export function addTrustedCertFromPath(filePath: string): Promise<{ ok: boolean; filename: string; fingerprint: string }> {
+    return request('POST', '/she/broker/ca/trusted/addpath', { path: filePath });
+}

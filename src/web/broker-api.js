@@ -577,6 +577,51 @@ router.post('/ca/import', async (req, res) => {
     }
 });
 
+/**
+ * GET /she/broker/fs/complete?path=<prefix>
+ * Returns filesystem path completions for a partial absolute path.
+ * Works locally or via SSH when broker.ssh is configured.
+ */
+router.get('/fs/complete', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const inputPath = String(req.query.path || '').trim();
+        if (!inputPath.startsWith('/')) return res.json({ suggestions: [] });
+
+        const endsWithSlash = inputPath.endsWith('/');
+        const posix = require('path').posix;
+        const dir = endsWithSlash ? inputPath : posix.dirname(inputPath);
+        const prefix = endsWithSlash ? '' : posix.basename(inputPath);
+
+        let entries = [];
+        if (bc.ssh && bc.ssh.host) {
+            try {
+                const { stdout } = await sshDeploy.runCommand(bc.ssh, `ls -1p -- "${dir}" 2>/dev/null`);
+                entries = stdout.split('\n').filter(Boolean);
+            } catch {
+                entries = [];
+            }
+        } else {
+            try {
+                const items = fs.readdirSync(dir, { withFileTypes: true });
+                entries = items.map((d) => d.name + (d.isDirectory() ? '/' : ''));
+            } catch {
+                entries = [];
+            }
+        }
+
+        const base = dir.endsWith('/') ? dir : dir + '/';
+        const suggestions = entries
+            .filter((e) => e.startsWith(prefix))
+            .map((e) => base + e)
+            .slice(0, 25);
+
+        res.json({ suggestions });
+    } catch {
+        res.json({ suggestions: [] });
+    }
+});
+
 /** GET /she/broker/ca/server — Server cert info */
 router.get('/ca/server', async (req, res) => {
     try {
@@ -642,6 +687,35 @@ router.post('/ca/server/import', async (req, res) => {
             certPem = cert;
             keyPem = key || null;
         }
+        const result = await ca.importServerCert(bc, { certPem, keyPem });
+        res.json({ ok: true, server: result });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * POST /she/broker/ca/server/pathlink
+ * Install a server cert+key from existing file paths on the broker host.
+ * Reads via SSH if broker.ssh is configured, otherwise reads local files.
+ * Body: { certPath: string, keyPath: string }
+ */
+router.post('/ca/server/pathlink', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { certPath, keyPath } = req.body;
+        if (!certPath || !keyPath) return res.status(400).json({ error: 'certPath and keyPath are required' });
+        if (!certPath.startsWith('/') || !keyPath.startsWith('/')) return res.status(400).json({ error: 'Absolute paths required' });
+
+        let certPem, keyPem;
+        if (bc.ssh && bc.ssh.host) {
+            certPem = await sshDeploy.readRemoteFile(bc.ssh, certPath);
+            keyPem = await sshDeploy.readRemoteFile(bc.ssh, keyPath);
+        } else {
+            certPem = fs.readFileSync(certPath, 'utf8');
+            keyPem = fs.readFileSync(keyPath, 'utf8');
+        }
+
         const result = await ca.importServerCert(bc, { certPem, keyPem });
         res.json({ ok: true, server: result });
     } catch (err) {
@@ -821,6 +895,33 @@ router.delete('/ca/trusted/:fingerprint', async (req, res) => {
         const fingerprint = decodeURIComponent(req.params.fingerprint);
         await ca.removeTrustedCert(bc, fingerprint);
         res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * POST /she/broker/ca/trusted/addpath
+ * Add a trusted CA cert from an existing file path on the broker host.
+ * Reads via SSH if broker.ssh is configured, otherwise reads local file.
+ * Body: { path: string }
+ */
+router.post('/ca/trusted/addpath', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { path: filePath } = req.body;
+        if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'path required' });
+        if (!filePath.startsWith('/')) return res.status(400).json({ error: 'Absolute path required' });
+
+        let pemContent;
+        if (bc.ssh && bc.ssh.host) {
+            pemContent = await sshDeploy.readRemoteFile(bc.ssh, filePath);
+        } else {
+            pemContent = fs.readFileSync(filePath, 'utf8');
+        }
+
+        const result = await ca.addTrustedCert(bc, pemContent);
+        res.json({ ok: true, ...result });
     } catch (err) {
         handleError(res, err);
     }

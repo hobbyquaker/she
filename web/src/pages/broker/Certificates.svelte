@@ -3,6 +3,7 @@
     import {
         getBrokerServerCert, generateBrokerServerCert, generateBrokerServerCSR, importBrokerServerCert,
         listTrustedCerts, addTrustedCert, removeTrustedCert,
+        brokerFsComplete, setBrokerServerCertPath, addTrustedCertFromPath,
         type ServerCertInfo, type TrustedCert,
     } from '../../lib/api.js';
 
@@ -45,11 +46,25 @@
     let importServerLoading = $state(false);
     let importServerError = $state('');
 
+    // ── Use cert path ───────────────────────────────────────────────────────────
+    let showSetCertPath = $state(false);
+    let setCertPathCert = $state('');
+    let setCertPathKey = $state('');
+    let setCertPathLoading = $state(false);
+    let setCertPathError = $state('');
+    let setCertPathCertSugg = $state<string[]>([]);
+    let setCertPathKeySugg = $state<string[]>([]);
+
     // ── Trusted CAs ────────────────────────────────────────────────────────────
     let showAddTrusted = $state(false);
+    let addTrustedTab = $state<'pem' | 'path'>('pem');
     let trustedPem = $state('');
     let addTrustedLoading = $state(false);
     let addTrustedError = $state('');
+    let trustedCaPath = $state('');
+    let trustedCaPathSugg = $state<string[]>([]);
+    let addTrustedPathLoading = $state(false);
+    let addTrustedPathError = $state('');
 
     // ── load ───────────────────────────────────────────────────────────────────
     async function load() {
@@ -154,6 +169,37 @@
         }
     }
 
+    // ── Path completion ─────────────────────────────────────────────────────────
+    function makeCompleter(setter: (s: string[]) => void) {
+        let t: ReturnType<typeof setTimeout> | undefined;
+        return (e: Event) => {
+            const val = (e.target as HTMLInputElement).value;
+            clearTimeout(t);
+            t = setTimeout(async () => {
+                if (!val.startsWith('/') || val.length < 2) { setter([]); return; }
+                try { setter((await brokerFsComplete(val)).suggestions); } catch { setter([]); }
+            }, 280);
+        };
+    }
+    const onCertPathInput = makeCompleter((s) => { setCertPathCertSugg = s; });
+    const onKeyPathInput  = makeCompleter((s) => { setCertPathKeySugg  = s; });
+    const onTrustedPathInput = makeCompleter((s) => { trustedCaPathSugg = s; });
+
+    // ── Use cert path ───────────────────────────────────────────────────────────
+    async function submitSetCertPath() {
+        setCertPathError = '';
+        setCertPathLoading = true;
+        try {
+            await setBrokerServerCertPath({ certPath: setCertPathCert, keyPath: setCertPathKey });
+            showSetCertPath = false;
+            await load();
+        } catch (e: any) {
+            setCertPathError = e.message;
+        } finally {
+            setCertPathLoading = false;
+        }
+    }
+
     // ── Trusted CAs ────────────────────────────────────────────────────────────
     async function submitAddTrusted() {
         addTrustedError = '';
@@ -167,6 +213,21 @@
             addTrustedError = e.message;
         } finally {
             addTrustedLoading = false;
+        }
+    }
+
+    async function submitAddTrustedFromPath() {
+        addTrustedPathError = '';
+        addTrustedPathLoading = true;
+        try {
+            await addTrustedCertFromPath(trustedCaPath);
+            trustedCaPath = '';
+            showAddTrusted = false;
+            await load();
+        } catch (e: any) {
+            addTrustedPathError = e.message;
+        } finally {
+            addTrustedPathLoading = false;
         }
     }
 
@@ -207,6 +268,7 @@
             <button onclick={() => { showGenServer = true; genServerError = ''; genServerResult = null; }}>Self-signed</button>
             <button onclick={() => { showGenCSR = true; csrError = ''; csrPem = ''; uploadCertPem = ''; uploadDone = false; uploadError = ''; }}>Generate CSR</button>
             <button onclick={() => { showImportServer = true; importServerError = ''; importServerMode = 'pem'; importServerCertPem = ''; importServerKeyPem = ''; importServerP12B64 = ''; importServerP12Name = ''; importServerPassphrase = ''; showImportServerPassphrase = false; }}>Import cert</button>
+            <button onclick={() => { showSetCertPath = true; setCertPathError = ''; setCertPathCert = ''; setCertPathKey = ''; setCertPathCertSugg = []; setCertPathKeySugg = []; }}>Use path</button>
         </div>
         {#if serverInfo}
         <div class="info-card">
@@ -224,8 +286,8 @@
     <!-- ── Trusted CAs ─────────────────────────────────────────────────────── -->
     <div class="section">
         <div class="section-header">
-            <h3>Trusted CA Certificates (capath)</h3>
-            <button onclick={() => { showAddTrusted = true; addTrustedError = ''; trustedPem = ''; }}>+ Add CA cert</button>
+            <h3>Trusted CA Certificates</h3>
+            <button onclick={() => { showAddTrusted = true; addTrustedError = ''; trustedPem = ''; addTrustedTab = 'pem'; addTrustedPathError = ''; trustedCaPath = ''; trustedCaPathSugg = []; }}>+ Add CA cert</button>
         </div>
         {#if trustedCerts.length === 0}
         <div class="empty">No trusted CA certs. Add one to enable client certificate authentication.</div>
@@ -339,17 +401,69 @@
 </div>
 {/if}
 
-<!-- ── Add Trusted CA modal ────────────────────────────────────────────────── -->
+<!-- ── Use cert path modal ─────────────────────────────────────────────────────────── -->
+{#if showSetCertPath}
+<div class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal modal--wide">
+        <h3>Use existing certificate files</h3>
+        <p class="hint">Enter absolute paths on the broker host. Tab-completion is available for paths starting with /.</p>
+        <label>Certificate file path
+            <input list="set-cert-path-list" bind:value={setCertPathCert} oninput={onCertPathInput}
+                placeholder="/etc/letsencrypt/live/mqtt.example.com/fullchain.pem" />
+            <datalist id="set-cert-path-list">
+                {#each setCertPathCertSugg as s}<option value={s}></option>{/each}
+            </datalist>
+        </label>
+        <label>Private key file path
+            <input list="set-key-path-list" bind:value={setCertPathKey} oninput={onKeyPathInput}
+                placeholder="/etc/letsencrypt/live/mqtt.example.com/privkey.pem" />
+            <datalist id="set-key-path-list">
+                {#each setCertPathKeySugg as s}<option value={s}></option>{/each}
+            </datalist>
+        </label>
+        {#if setCertPathError}<div class="err">{setCertPathError}</div>{/if}
+        <div class="modal-actions">
+            <button onclick={() => (showSetCertPath = false)}>Cancel</button>
+            <button class="btn-primary" onclick={submitSetCertPath}
+                disabled={setCertPathLoading || !setCertPathCert.trim() || !setCertPathKey.trim()}>
+                {setCertPathLoading ? 'Installing…' : 'Install'}
+            </button>
+        </div>
+    </div>
+</div>
+{/if}
+
+<!-- ── Add Trusted CA modal ──────────────────────────────────────────────────────── -->
 {#if showAddTrusted}
 <div class="modal-backdrop" role="dialog" aria-modal="true">
     <div class="modal modal--wide">
         <h3>Add trusted CA certificate</h3>
+        <div class="import-mode-tabs">
+            <button class:active={addTrustedTab === 'pem'} onclick={() => (addTrustedTab = 'pem')}>Paste PEM</button>
+            <button class:active={addTrustedTab === 'path'} onclick={() => (addTrustedTab = 'path')}>From path</button>
+        </div>
+        {#if addTrustedTab === 'pem'}
         <label>CA certificate (PEM)<textarea bind:value={trustedPem} rows="8" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"></textarea></label>
         {#if addTrustedError}<div class="err">{addTrustedError}</div>{/if}
         <div class="modal-actions">
             <button onclick={() => (showAddTrusted = false)}>Cancel</button>
             <button class="btn-primary" onclick={submitAddTrusted} disabled={addTrustedLoading || !trustedPem.trim()}>{addTrustedLoading ? 'Adding…' : 'Add CA cert'}</button>
         </div>
+        {:else}
+        <p class="hint">Enter the absolute path to the CA certificate file on the broker host.</p>
+        <label>CA certificate path
+            <input list="trusted-path-list" bind:value={trustedCaPath} oninput={onTrustedPathInput}
+                placeholder="/etc/ssl/certs/my-ca.pem" />
+            <datalist id="trusted-path-list">
+                {#each trustedCaPathSugg as s}<option value={s}></option>{/each}
+            </datalist>
+        </label>
+        {#if addTrustedPathError}<div class="err">{addTrustedPathError}</div>{/if}
+        <div class="modal-actions">
+            <button onclick={() => (showAddTrusted = false)}>Cancel</button>
+            <button class="btn-primary" onclick={submitAddTrustedFromPath} disabled={addTrustedPathLoading || !trustedCaPath.trim()}>{addTrustedPathLoading ? 'Adding…' : 'Add CA cert'}</button>
+        </div>
+        {/if}
     </div>
 </div>
 {/if}
