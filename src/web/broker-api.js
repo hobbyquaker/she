@@ -490,6 +490,42 @@ router.get('/acl-defaults', async (req, res) => {
     }
 });
 
+/** PUT /she/broker/acl-defaults */
+router.put('/acl-defaults', async (req, res) => {
+    try {
+        const { acls } = req.body;
+        if (!Array.isArray(acls)) return res.status(400).json({ error: 'acls array required' });
+        await dynsec.setDefaultACLAccess(acls);
+        res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+// ── dynsec: Anonymous group ───────────────────────────────────────────────────
+
+/** GET /she/broker/anonymous-group */
+router.get('/anonymous-group', async (req, res) => {
+    try {
+        const group = await dynsec.getAnonymousGroup();
+        res.json({ group });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/** PUT /she/broker/anonymous-group */
+router.put('/anonymous-group', async (req, res) => {
+    try {
+        const { groupname } = req.body;
+        if (typeof groupname !== 'string' && groupname !== null) return res.status(400).json({ error: 'groupname string or null required' });
+        await dynsec.setAnonymousGroup(groupname);
+        res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
 // ── CA routes ─────────────────────────────────────────────────────────────────
 
 /** GET /she/broker/ca — CA cert info */

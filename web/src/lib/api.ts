@@ -800,6 +800,19 @@ export function getDefaultAclAccess(): Promise<{ acls: DefaultAclEntry[] }> {
     return request('GET', '/she/broker/acl-defaults');
 }
 
+export function setDefaultAclAccess(acls: DefaultAclEntry[]): Promise<{ ok: boolean }> {
+    return request('PUT', '/she/broker/acl-defaults', { acls });
+}
+
+// dynsec — anonymous group
+export function getAnonymousGroup(): Promise<{ group: string | null }> {
+    return request('GET', '/she/broker/anonymous-group');
+}
+
+export function setAnonymousGroup(groupname: string | null): Promise<{ ok: boolean }> {
+    return request('PUT', '/she/broker/anonymous-group', { groupname });
+}
+
 // broker — CA
 export interface CaInfo {
     crt: string;

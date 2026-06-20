@@ -7,7 +7,8 @@
         addBrokerRoleAcl, removeBrokerRoleAcl,
         listBrokerGroups, createBrokerGroup, deleteBrokerGroup,
         addBrokerGroupClient, removeBrokerGroupClient, addBrokerGroupRole, removeBrokerGroupRole,
-        type DynsecUser, type DynsecRole, type DynsecGroup,
+        getDefaultAclAccess, setDefaultAclAccess, getAnonymousGroup, setAnonymousGroup,
+        type DynsecUser, type DynsecRole, type DynsecGroup, type DefaultAclEntry,
     } from '../../lib/api.js';
 
     // ── State ──────────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@
     let rolesError = $state('');
     let groupsError = $state('');
 
-    let panel = $state<'users' | 'roles' | 'groups'>('users');
+    let panel = $state<'users' | 'roles' | 'groups' | 'settings'>('users');
 
     // ── Add user modal ─────────────────────────────────────────────────────────
     let showAddUser = $state(false);
@@ -58,7 +59,78 @@
     let addGroupError = $state('');
     let addGroupLoading = $state(false);
 
-    // ── Member editor modal (user←→role, group←→member, group←→role) ─────────
+    // ── Settings state ───────────────────────────────────────────────────────────────
+    let defaultAcls = $state<DefaultAclEntry[]>([]);
+    let defaultAclsError = $state('');
+    let defaultAclsSaving = $state(false);
+    let anonymousGroup = $state<string | null>(null);
+    let anonymousGroupPending = $state<string>('');
+    let anonymousGroupError = $state('');
+    let anonymousGroupSaving = $state(false);
+    let settingsLoaded = $state(false);
+
+    const DEFAULT_ACL_TYPES = [
+        { acltype: 'publishClientSend',    label: 'Publish (send)' },
+        { acltype: 'publishClientReceive', label: 'Publish (receive)' },
+        { acltype: 'subscribe',            label: 'Subscribe' },
+        { acltype: 'unsubscribe',          label: 'Unsubscribe' },
+    ];
+
+    async function loadSettings() {
+        settingsLoaded = false;
+        defaultAclsError = '';
+        anonymousGroupError = '';
+        try {
+            const [aclRes, anonRes] = await Promise.allSettled([
+                getDefaultAclAccess(),
+                getAnonymousGroup(),
+            ]);
+            if (aclRes.status === 'fulfilled') {
+                // Ensure all 4 types are present, filling in broker defaults when missing
+                const map = Object.fromEntries(aclRes.value.acls.map(a => [a.acltype, a.allow]));
+                defaultAcls = DEFAULT_ACL_TYPES.map(({ acltype }) => ({
+                    acltype,
+                    allow: map[acltype] ?? (acltype === 'publishClientReceive' || acltype === 'unsubscribe'),
+                }));
+            } else {
+                defaultAclsError = aclRes.reason?.message ?? 'Failed to load default ACLs';
+            }
+            if (anonRes.status === 'fulfilled') {
+                anonymousGroup = anonRes.value.group;
+                anonymousGroupPending = anonRes.value.group ?? '';
+            } else {
+                anonymousGroupError = anonRes.reason?.message ?? 'Failed to load anonymous group';
+            }
+        } finally {
+            settingsLoaded = true;
+        }
+    }
+
+    async function saveDefaultAcl(acltype: string, allow: boolean) {
+        defaultAcls = defaultAcls.map(a => a.acltype === acltype ? { ...a, allow } : a);
+        defaultAclsSaving = true;
+        defaultAclsError = '';
+        try {
+            await setDefaultAclAccess(defaultAcls);
+        } catch (e: any) {
+            defaultAclsError = e.message;
+        } finally {
+            defaultAclsSaving = false;
+        }
+    }
+
+    async function saveAnonymousGroup() {
+        anonymousGroupSaving = true;
+        anonymousGroupError = '';
+        try {
+            await setAnonymousGroup(anonymousGroupPending || null);
+            anonymousGroup = anonymousGroupPending || null;
+        } catch (e: any) {
+            anonymousGroupError = e.message;
+        } finally {
+            anonymousGroupSaving = false;
+        }
+    }
     let memberEditor = $state<{ type: 'user-roles' | 'group-members' | 'group-roles'; target: string } | null>(null);
     let memberEditorAdd = $state('');
     let memberEditorError = $state('');
@@ -295,6 +367,7 @@
         <button class:active={panel === 'users'}   onclick={() => (panel = 'users')}>Users</button>
         <button class:active={panel === 'roles'}   onclick={() => (panel = 'roles')}>Roles</button>
         <button class:active={panel === 'groups'}  onclick={() => (panel = 'groups')}>Groups</button>
+        <button class:active={panel === 'settings'} onclick={() => { panel = 'settings'; if (!settingsLoaded) loadSettings(); }}>Settings</button>
         <button class="reload-btn" onclick={load} title="Refresh">↺</button>
     </div>
 
@@ -391,6 +464,61 @@
         {/if}
     </div>
     {/if}
+
+    <!-- ── Settings panel ─────────────────────────────────────────────────── -->
+    {#if panel === 'settings'}
+    <div class="panel">
+        <div class="settings-section">
+            <h3 class="settings-heading">Default ACL Access</h3>
+            <p class="settings-hint">Broker-wide defaults applied when no role ACL matches. Role ACLs always take precedence over these defaults.</p>
+            {#if defaultAclsError}<div class="err">{defaultAclsError}</div>{/if}
+            {#if !settingsLoaded}
+            <div class="empty">Loading…</div>
+            {:else}
+            <table class="acl-defaults-table">
+                <thead><tr><th>Operation</th><th>Allow</th><th>Deny</th></tr></thead>
+                <tbody>
+                {#each DEFAULT_ACL_TYPES as { acltype, label }}
+                {@const entry = defaultAcls.find(a => a.acltype === acltype)}
+                <tr class:saving={defaultAclsSaving}>
+                    <td class="mono small">{label}</td>
+                    <td class="acl-radio"><input type="radio" name={acltype} value="allow" checked={entry?.allow === true}  onchange={() => saveDefaultAcl(acltype, true)}  /></td>
+                    <td class="acl-radio"><input type="radio" name={acltype} value="deny"  checked={entry?.allow === false} onchange={() => saveDefaultAcl(acltype, false)} /></td>
+                </tr>
+                {/each}
+                </tbody>
+            </table>
+            {/if}
+        </div>
+
+        <div class="settings-section">
+            <h3 class="settings-heading">Anonymous Group</h3>
+            <p class="settings-hint">Clients connecting without credentials are treated as members of this group. Requires <code>allow_anonymous true</code> in mosquitto.conf.</p>
+            {#if anonymousGroupError}<div class="err">{anonymousGroupError}</div>{/if}
+            {#if !settingsLoaded}
+            <div class="empty">Loading…</div>
+            {:else}
+            <div class="anon-row">
+                <select bind:value={anonymousGroupPending}>
+                    <option value="">— none —</option>
+                    {#each groups as g}
+                    <option value={g.groupname}>{g.groupname}</option>
+                    {/each}
+                </select>
+                <button onclick={saveAnonymousGroup} disabled={anonymousGroupSaving || anonymousGroupPending === (anonymousGroup ?? '')}>
+                    {anonymousGroupSaving ? 'Saving…' : 'Save'}
+                </button>
+            </div>
+            {#if anonymousGroup}
+            <div class="anon-current">Current: <span class="mono">{anonymousGroup}</span></div>
+            {:else}
+            <div class="anon-current muted">No anonymous group configured.</div>
+            {/if}
+            {/if}
+        </div>
+    </div>
+    {/if}
+
 </div>
 
 <!-- ── Add user modal ─────────────────────────────────────────────────────── -->
@@ -672,4 +800,22 @@
     .member-add-row select { flex: 1; background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 11px; padding: 4px 6px; }
     .member-add-row button { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid var(--accent-border, rgba(86,156,214,0.3)); border-radius: 4px; color: var(--accent, #569cd6); cursor: pointer; font-size: 11px; padding: 4px 10px; }
     .member-add-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Settings panel */
+    .settings-section { border-bottom: 1px solid var(--border, #333); padding: 14px 0; }
+    .settings-section:last-child { border-bottom: none; }
+    .settings-heading { font-size: 12px; color: var(--text-muted, #aaa); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 4px; }
+    .settings-hint { font-size: 11px; color: var(--text-muted, #777); margin: 0 0 10px; line-height: 1.5; }
+    .settings-hint code { font-size: 10.5px; opacity: 0.9; }
+    .acl-defaults-table { border-collapse: collapse; font-size: 12px; width: auto; }
+    .acl-defaults-table th { color: var(--text-muted, #888); font-weight: 500; padding: 3px 12px 3px 0; text-align: left; border-bottom: 1px solid var(--border, #333); }
+    .acl-defaults-table td { padding: 5px 12px 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .acl-defaults-table tr.saving { opacity: 0.6; pointer-events: none; }
+    .acl-radio { text-align: center; padding-right: 16px !important; }
+    .anon-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .anon-row select { background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 12px; padding: 5px 8px; min-width: 180px; }
+    .anon-row button { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid var(--accent-border, rgba(86,156,214,0.3)); border-radius: 4px; color: var(--accent, #569cd6); cursor: pointer; font-size: 12px; padding: 5px 12px; }
+    .anon-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .anon-current { font-size: 11px; color: var(--text-muted, #888); }
+    .anon-current.muted { opacity: 0.6; }
 </style>

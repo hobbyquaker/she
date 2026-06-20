@@ -343,6 +343,16 @@ function setDefaultACLAccess(acls) {
     return _request('setDefaultACLAccess', { acls });
 }
 
+// ── Anonymous group ────────────────────────────────────────────────────────────
+
+function getAnonymousGroup() {
+    return _request('getAnonymousGroup').then((r) => r.data?.group ?? r.group ?? null);
+}
+
+function setAnonymousGroup(groupname) {
+    return _request('setAnonymousGroup', { groupname });
+}
+
 module.exports = {
     init,
     getStatus,
@@ -376,4 +386,7 @@ module.exports = {
     // Default ACLs
     getDefaultACLAccess,
     setDefaultACLAccess,
+    // Anonymous group
+    getAnonymousGroup,
+    setAnonymousGroup,
 };
