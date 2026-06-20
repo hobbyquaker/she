@@ -346,7 +346,10 @@ function setDefaultACLAccess(acls) {
 // ── Anonymous group ────────────────────────────────────────────────────────────
 
 function getAnonymousGroup() {
-    return _request('getAnonymousGroup').then((r) => r.data?.group ?? r.group ?? null);
+    return _request('getAnonymousGroup').then((r) => {
+        const g = r.data?.group ?? r.group ?? null;
+        return g?.groupname ?? g ?? null;
+    });
 }
 
 function setAnonymousGroup(groupname) {
