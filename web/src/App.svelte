@@ -7,13 +7,13 @@
     import Matter from './pages/Matter.svelte';
     import MQTT from './pages/MQTT.svelte';
     import Packages from './pages/Packages.svelte';
-    import Broker from './pages/Broker.svelte';
+    import Security from './pages/Security.svelte';
     import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getConfig, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
     import { subscribeWs, subscribeLog, getLogBuffer } from './lib/ws.js';
 
-    type Page = 'scripts' | 'mqtt' | 'matter' | 'broker' | 'db' | 'logs' | 'config' | 'packages';
-    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'broker', 'db', 'logs', 'config', 'packages'];
+    type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'db' | 'logs' | 'config' | 'packages';
+    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'db', 'logs', 'config', 'packages'];
 
     function pageFromHash(): Page {
         const hash = location.hash.slice(1) as Page;
@@ -264,6 +264,15 @@
             {:else if mqttConnected}<span class="nav-dot nav-dot--ok" title="MQTT connected"></span>
             {/if}
         </button>
+        <button class:active={page === 'security'} onclick={() => navigate('security')}>
+            <!-- Security icon: padlock -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="7" width="11" height="8" rx="1.5"/>
+                <path d="M5.5,7 V5 A2.5,2.5 0,0,1 10.5,5 V7"/>
+                <circle cx="8" cy="11.5" r="1" fill="currentColor" stroke="none"/>
+            </svg>
+            Security
+        </button>
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -279,17 +288,6 @@
             {:else if matterStatus === 'some'}<span class="nav-dot nav-dot--warn" title="Some Matter devices offline"></span>
             {:else if matterStatus === 'offline'}<span class="nav-dot nav-dot--err" title="No Matter devices online"></span>
             {/if}
-        </button>
-        <button class:active={page === 'broker'} onclick={() => navigate('broker')}>
-            <!-- Broker icon: server stack with antenna -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="1" y="2" width="14" height="4" rx="1"/>
-                <rect x="1" y="8" width="14" height="4" rx="1"/>
-                <line x1="4" y1="4" x2="4" y2="4"/>
-                <circle cx="4" cy="4" r="0.8" fill="currentColor" stroke="none"/>
-                <circle cx="4" cy="10" r="0.8" fill="currentColor" stroke="none"/>
-            </svg>
-            Broker
         </button>
         <button class:active={page === 'db'} onclick={() => navigate('db')}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -432,7 +430,7 @@
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT /></div>
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
-        <div class="page-wrap" class:hidden={page !== 'broker'}><Broker /></div>
+        <div class="page-wrap" class:hidden={page !== 'security'}><Security /></div></div>
         <div class="page-wrap" class:hidden={page !== 'db'}><DB /></div>
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
         <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>
