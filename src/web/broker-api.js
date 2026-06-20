@@ -813,6 +813,24 @@ router.post('/wizard/bootstrap', async (req, res) => {
                 });
             }
 
+            // Verify mosquitto_ctrl actually wrote the json and contains our admin user.
+            // mosquitto_ctrl 2.0 silently exits 0 even when it cannot overwrite an existing
+            // file (e.g. owned by root). Reading it back catches this class of silent failure.
+            try {
+                const jsonRaw = await sshDeploy.readRemoteFile(bc.ssh, dynSecPath);
+                const dynSecJson = JSON.parse(jsonRaw);
+                const clients = Array.isArray(dynSecJson.clients) ? dynSecJson.clients : [];
+                if (!clients.some((c) => c.username === username)) {
+                    _log?.warn(`broker: dynamic-security.json does not contain user "${username}" — mosquitto_ctrl may have silently skipped an existing file`);
+                    return res.status(500).json({
+                        error: `dynamic-security.json was not updated: user "${username}" not found. The file may be owned by root and not writable by the SSH user. Delete ${dynSecPath} on the broker host and run the wizard again, or use the Manual setup option.`,
+                    });
+                }
+                _log?.debug(`broker: dynamic-security.json verified — user "${username}" present`);
+            } catch (e) {
+                _log?.warn(`broker: could not verify dynamic-security.json after init: ${e.message}`);
+            }
+
             // Discover the full path to the .so on the remote host.
             let soPath = 'mosquitto_dynamic_security.so'; // fallback: rely on LD_LIBRARY_PATH
             try {
@@ -859,7 +877,21 @@ router.post('/wizard/bootstrap', async (req, res) => {
                 });
             }
 
-            // Discover the full path to the .so on this host.
+            // Verify mosquitto_ctrl actually wrote the json and contains our admin user.
+            try {
+                const jsonRaw = fs.readFileSync(dynSecPath, 'utf8');
+                const dynSecJson = JSON.parse(jsonRaw);
+                const clients = Array.isArray(dynSecJson.clients) ? dynSecJson.clients : [];
+                if (!clients.some((c) => c.username === username)) {
+                    _log?.warn(`broker: dynamic-security.json does not contain user "${username}" — mosquitto_ctrl may have silently skipped an existing file`);
+                    return res.status(500).json({
+                        error: `dynamic-security.json was not updated: user "${username}" not found. Delete ${dynSecPath} and run the wizard again.`,
+                    });
+                }
+                _log?.debug(`broker: dynamic-security.json verified — user "${username}" present`);
+            } catch (e) {
+                _log?.warn(`broker: could not verify dynamic-security.json after init: ${e.message}`);
+            }
             let soPath = 'mosquitto_dynamic_security.so'; // fallback: rely on LD_LIBRARY_PATH
             try {
                 const r2 = await execFileAsync('find', ['/usr', '/lib', '-maxdepth', '8', '-name', 'mosquitto_dynamic_security.so'], { timeout: 8000 });
@@ -975,6 +1007,86 @@ router.post('/wizard/reinit', (req, res) => {
         dynsec.init(reInitConfig, _log);
         _log?.info('broker: dynsec client re-initialised with updated credentials');
         res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * GET /she/broker/wizard/diagnose
+ * Reads dynamic-security.json (remote or local) and analyses whether the
+ * admin user exists, has the admin role, and whether that role contains the
+ * required publishClientSend ACL for $CONTROL/dynamic-security/#.
+ * Returns a structured diagnostic report to help debug probe timeouts.
+ */
+router.get('/wizard/diagnose', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const configPath = req.app.locals.configPath;
+        const adminUsername = bc.dynsec && bc.dynsec.adminUsername;
+        const configDir = bc.configDir || '/etc/mosquitto';
+        const dynSecPath = `${configDir}/dynamic-security.json`;
+
+        let jsonRaw = null;
+        let readError = null;
+
+        if (bc.ssh && bc.ssh.host) {
+            try {
+                jsonRaw = await sshDeploy.readRemoteFile(bc.ssh, dynSecPath);
+            } catch (e) {
+                readError = `Cannot read ${dynSecPath} on ${bc.ssh.host}: ${e.message}`;
+            }
+        } else {
+            try {
+                jsonRaw = fs.readFileSync(dynSecPath, 'utf8');
+            } catch (e) {
+                readError = `Cannot read ${dynSecPath}: ${e.message}`;
+            }
+        }
+
+        if (readError) {
+            return res.json({ ok: false, error: readError, dynSecPath });
+        }
+
+        let dynSecJson;
+        try {
+            dynSecJson = JSON.parse(jsonRaw);
+        } catch (e) {
+            return res.json({ ok: false, error: `dynamic-security.json is not valid JSON: ${e.message}`, dynSecPath });
+        }
+
+        const clients = Array.isArray(dynSecJson.clients) ? dynSecJson.clients : [];
+        const roles = Array.isArray(dynSecJson.roles) ? dynSecJson.roles : [];
+
+        const adminClient = adminUsername ? clients.find((c) => c.username === adminUsername) : null;
+        const adminClientExists = !!adminClient;
+        const adminRoles = adminClient ? (adminClient.roles || []).map((r) => r.rolename || r) : [];
+        const hasAdminRole = adminRoles.includes('admin');
+
+        const adminRoleDef = roles.find((r) => r.rolename === 'admin');
+        const adminRoleAcls = adminRoleDef ? (adminRoleDef.acls || []) : [];
+        const hasControlSendAcl = adminRoleAcls.some(
+            (a) => a.acltype === 'publishClientSend' && (a.topic || '').includes('$CONTROL/dynamic-security')
+        );
+
+        const issues = [];
+        if (!adminUsername) issues.push('broker.dynsec.adminUsername not set in config.json');
+        if (adminUsername && !adminClientExists) issues.push(`User "${adminUsername}" not found in dynamic-security.json — mosquitto_ctrl init may have silently failed (file exists and is not writable by the SSH user). Delete ${dynSecPath} on the broker and re-run the wizard.`);
+        if (adminClientExists && !hasAdminRole) issues.push(`User "${adminUsername}" exists but does not have the "admin" role — ACL for $CONTROL/dynamic-security/# may be missing.`);
+        if (hasAdminRole && !hasControlSendAcl) issues.push(`The "admin" role exists but is missing a publishClientSend ACL for $CONTROL/dynamic-security/#. Re-run mosquitto_ctrl dynsec init to regenerate the file.`);
+
+        res.json({
+            ok: issues.length === 0,
+            dynSecPath,
+            adminUsername,
+            adminClientExists,
+            adminRoles,
+            hasAdminRole,
+            hasControlSendAcl,
+            clientCount: clients.length,
+            roleCount: roles.length,
+            issues,
+        });
     } catch (err) {
         handleError(res, err);
     }

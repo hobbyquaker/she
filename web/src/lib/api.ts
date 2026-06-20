@@ -697,6 +697,24 @@ export function brokerDynsecReinit(): Promise<{ ok: boolean }> {
     return request('POST', '/she/broker/wizard/reinit');
 }
 
+export interface DynsecDiagnosis {
+    ok: boolean;
+    dynSecPath: string;
+    adminUsername?: string;
+    adminClientExists?: boolean;
+    adminRoles?: string[];
+    hasAdminRole?: boolean;
+    hasControlSendAcl?: boolean;
+    clientCount?: number;
+    roleCount?: number;
+    issues: string[];
+    error?: string;
+}
+
+export function brokerDynsecDiagnose(): Promise<DynsecDiagnosis> {
+    return request('GET', '/she/broker/wizard/diagnose');
+}
+
 // dynsec — users
 export function listBrokerUsers(): Promise<{ users: DynsecUser[] }> {
     return request('GET', '/she/broker/users');

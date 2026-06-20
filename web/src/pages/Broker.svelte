@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getBrokerStatus, brokerDynsecDeactivate, type BrokerStatus } from '../lib/api.js';
+    import { getBrokerStatus, brokerDynsecDeactivate, brokerDynsecDiagnose, type BrokerStatus, type DynsecDiagnosis } from '../lib/api.js';
     import Users from './broker/Users.svelte';
     import Listeners from './broker/Listeners.svelte';
     import Certificates from './broker/Certificates.svelte';
@@ -10,6 +10,8 @@
     let showWizard = $state(false);
     let deactivating = $state(false);
     let deactivateError = $state('');
+    let diagnosing = $state(false);
+    let diagnosis = $state<DynsecDiagnosis | null>(null);
 
     type SubTab = 'status' | 'users' | 'listeners' | 'certs' | 'ssh';
     const TAB_KEY = 'she-broker-tab';
@@ -36,6 +38,18 @@
         const interval = setInterval(loadStatus, 10000);
         return () => clearInterval(interval);
     });
+
+    async function runDiagnosis() {
+        diagnosing = true;
+        diagnosis = null;
+        try {
+            diagnosis = await brokerDynsecDiagnose();
+        } catch (e: any) {
+            diagnosis = { ok: false, dynSecPath: '', issues: [e.message ?? 'Diagnose request failed'] };
+        } finally {
+            diagnosing = false;
+        }
+    }
 
     async function deactivateDynsec() {
         if (!confirm('Remove dynsec plugin lines from mosquitto.conf and clear credentials? You will need to restart mosquitto afterwards.')) return;
@@ -92,11 +106,30 @@
                         <div class="status-badge ok">Connected</div>
                         {:else}
                         <div class="status-badge warn">Connected — plugin not responding</div>
-                        <p class="hint">The MQTT connection is up but the dynamic-security plugin is not responding. Add the following to your mosquitto.conf and restart mosquitto:</p>
-                        <pre class="hint-code">plugin /path/to/mosquitto_dynamic_security.so
-plugin_opt_config_file /etc/mosquitto/dynamic-security.json
-per_listener_settings false</pre>
-                        <p class="hint">The .so path varies by distribution — use the <strong>Setup Wizard</strong> to auto-discover it. <code>dynamic-security.json</code> is auto-generated on first mosquitto start (v2.1+).</p>
+                        <p class="hint">The MQTT connection is up but the dynamic-security plugin is not responding.</p>
+                        {#if !diagnosis}
+                        <button class="diag-btn" onclick={runDiagnosis} disabled={diagnosing}>
+                            {diagnosing ? 'Running diagnostics…' : 'Run diagnostics'}
+                        </button>
+                        {:else}
+                        <div class="diag-card" class:diag-ok={diagnosis.ok} class:diag-fail={!diagnosis.ok}>
+                            {#if diagnosis.error}
+                            <p class="diag-issue">⚠ {diagnosis.error}</p>
+                            {:else}
+                            <p class="diag-row"><span>File</span><code>{diagnosis.dynSecPath}</code></p>
+                            <p class="diag-row"><span>Admin user exists</span><span class={diagnosis.adminClientExists ? 'ok' : 'fail'}>{diagnosis.adminClientExists ? '✓ yes' : '✗ no'}</span></p>
+                            <p class="diag-row"><span>Has admin role</span><span class={diagnosis.hasAdminRole ? 'ok' : 'fail'}>{diagnosis.hasAdminRole ? '✓ yes' : '✗ no'}</span></p>
+                            <p class="diag-row"><span>$CONTROL publish ACL</span><span class={diagnosis.hasControlSendAcl ? 'ok' : 'fail'}>{diagnosis.hasControlSendAcl ? '✓ present' : '✗ missing'}</span></p>
+                            {#each diagnosis.issues as issue}
+                            <p class="diag-issue">⚠ {issue}</p>
+                            {/each}
+                            {#if diagnosis.ok}<p class="diag-ok-msg">✓ dynamic-security.json looks correct. Verify mosquitto restarted with the plugin loaded.</p>{/if}
+                            {/if}
+                        </div>
+                        <button class="diag-btn" onclick={runDiagnosis} disabled={diagnosing} style="margin-top:6px">
+                            {diagnosing ? 'Running…' : 'Re-run'}
+                        </button>
+                        {/if}
                         {#if !showWizard}
                         <button class="wizard-btn" onclick={() => (showWizard = true)}>Run Setup Wizard</button>
                         {/if}
@@ -313,6 +346,59 @@ per_listener_settings false</pre>
         white-space: pre-wrap;
         line-height: 1.6;
     }
+
+    .hint-code {
+        background: var(--bg-input, #1e1e1e);
+        border: 1px solid var(--border-sub, #333);
+        border-radius: 4px;
+        padding: 8px 10px;
+        font-size: 11px;
+        color: var(--fg, #ccc);
+        margin: 6px 0 0;
+        white-space: pre-wrap;
+        line-height: 1.6;
+    }
+
+    .diag-btn {
+        margin-top: 8px;
+        background: var(--accent-dim, rgba(86,156,214,0.1));
+        border: 1px solid rgba(86,156,214,0.35);
+        border-radius: 3px;
+        color: var(--accent, #569cd6);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+    .diag-btn:hover:not(:disabled) { background: rgba(86,156,214,0.18); }
+    .diag-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .diag-card {
+        margin-top: 8px;
+        background: rgba(0,0,0,0.2);
+        border: 1px solid var(--border, #333);
+        border-radius: 4px;
+        padding: 8px 10px;
+        font-size: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .diag-card.diag-fail { border-color: rgba(200,80,80,0.4); }
+    .diag-card.diag-ok   { border-color: rgba(80,180,80,0.4); }
+
+    .diag-row { display: flex; gap: 8px; align-items: baseline; margin: 0; }
+    .diag-row span:first-child { color: var(--text-muted, #888); width: 160px; flex-shrink: 0; }
+    .diag-row code { font-size: 11px; word-break: break-all; }
+    .diag-row .ok  { color: #6bce6b; }
+    .diag-row .fail { color: #e88; }
+
+    .diag-issue {
+        color: #e2a84b;
+        font-size: 11px;
+        line-height: 1.5;
+        margin: 2px 0 0;
+    }
+    .diag-ok-msg { color: #6bce6b; font-size: 11px; margin: 2px 0 0; }
 
     .hint code {
         background: var(--code-bg, #2a2a2a);
