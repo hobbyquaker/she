@@ -278,19 +278,32 @@
             {/if}
 
             {#if perListenerSettings}
-            <div class="per-listener-anon">
-                <span class="field-label"><code>allow_anonymous</code></span>
-                <select
-                    value={l.allow_anonymous === undefined ? '' : l.allow_anonymous ? 'true' : 'false'}
-                    onchange={(e) => {
-                        const v = (e.target as HTMLSelectElement).value;
-                        l.allow_anonymous = v === '' ? undefined : v === 'true';
-                        listeners = [...listeners];
-                    }}>
-                    <option value="">auto (broker default)</option>
-                    <option value="true">true — allow unauthenticated</option>
-                    <option value="false">false — require auth</option>
-                </select>
+            <div class="auth-section">
+                <div class="auth-section-title">Authentication</div>
+                <div class="field-row">
+                    <label>
+                        allow_anonymous
+                        <select
+                            value={l.allow_anonymous === undefined ? '' : l.allow_anonymous ? 'true' : 'false'}
+                            onchange={(e) => {
+                                const v = (e.target as HTMLSelectElement).value;
+                                l.allow_anonymous = v === '' ? undefined : v === 'true';
+                                listeners = [...listeners];
+                            }}>
+                            <option value="">auto (broker default)</option>
+                            <option value="true">true — allow unauthenticated</option>
+                            <option value="false">false — require auth</option>
+                        </select>
+                    </label>
+                    <label>
+                        password_file
+                        <input bind:value={l.password_file} placeholder="/etc/mosquitto/passwd" />
+                    </label>
+                    <label>
+                        acl_file
+                        <input bind:value={l.acl_file} placeholder="/etc/mosquitto/acl" />
+                    </label>
+                </div>
             </div>
             {/if}
         </div>
@@ -389,7 +402,7 @@
         margin-bottom: 8px;
     }
 
-    .field-row label {
+    .field-row label:not(.toggle-label) {
         display: flex;
         flex-direction: column;
         font-size: 11px;
@@ -411,20 +424,19 @@
     .tls-inline {
         flex: 0 0 auto;
         min-width: unset;
-        flex-direction: row !important;
-        justify-content: center;
         align-self: flex-end;
         padding-bottom: 6px;
     }
 
     .toggle-label {
-        display: flex !important;
-        flex-direction: row !important;
+        display: flex;
+        flex-direction: row;
         align-items: center;
         gap: 6px;
-        color: var(--text, #ddd) !important;
+        color: var(--text, #ddd);
         cursor: pointer;
         font-size: 12px;
+        user-select: none;
     }
 
     .advanced-btn {
@@ -472,6 +484,21 @@
         display: flex;
         align-items: center;
         gap: 10px;
+    }
+
+    .auth-section {
+        border-top: 1px solid var(--border, #333);
+        padding-top: 10px;
+        margin-top: 6px;
+    }
+
+    .auth-section-title {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-muted, #888);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 8px;
     }
 
     .per-listener-anon {

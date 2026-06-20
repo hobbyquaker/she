@@ -629,6 +629,8 @@ export interface BrokerListener {
     max_qos?: number;
     tls: BrokerListenerTls;
     allow_anonymous?: boolean;
+    password_file?: string;
+    acl_file?: string;
 }
 
 export interface BrokerConf {

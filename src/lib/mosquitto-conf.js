@@ -138,6 +138,8 @@ function isListenerSubkey(key) {
         'tls_version',
         'websockets_log_level',
         'allow_anonymous',
+        'password_file',
+        'acl_file',
     ].includes(key);
 }
 
@@ -174,6 +176,12 @@ function applyListenerKey(listener, key, value) {
             break;
         case 'allow_anonymous':
             listener.allow_anonymous = value === 'true';
+            break;
+        case 'password_file':
+            listener.password_file = value;
+            break;
+        case 'acl_file':
+            listener.acl_file = value;
             break;
         default:
             break;
@@ -238,6 +246,8 @@ function serialise(conf) {
         if (l.allow_anonymous !== undefined) {
             lines.push(`allow_anonymous ${l.allow_anonymous ? 'true' : 'false'}`);
         }
+        if (l.password_file) lines.push(`password_file ${l.password_file}`);
+        if (l.acl_file) lines.push(`acl_file ${l.acl_file}`);
         lines.push('');
     }
 
