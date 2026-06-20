@@ -689,6 +689,10 @@ export function brokerRestart(): Promise<{ ok: boolean; stdout: string; stderr: 
     return request('POST', '/she/broker/restart');
 }
 
+export function brokerDynsecDeactivate(): Promise<{ ok: boolean }> {
+    return request('POST', '/she/broker/wizard/deactivate');
+}
+
 // dynsec — users
 export function listBrokerUsers(): Promise<{ users: DynsecUser[] }> {
     return request('GET', '/she/broker/users');

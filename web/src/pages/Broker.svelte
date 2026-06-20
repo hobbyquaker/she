@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getBrokerStatus, type BrokerStatus } from '../lib/api.js';
+    import { getBrokerStatus, getConfig, putConfig, brokerDynsecDeactivate, type BrokerStatus } from '../lib/api.js';
     import Users from './broker/Users.svelte';
     import Listeners from './broker/Listeners.svelte';
     import Certificates from './broker/Certificates.svelte';
@@ -8,6 +8,8 @@
     import Wizard from './broker/Wizard.svelte';
 
     let showWizard = $state(false);
+    let deactivating = $state(false);
+    let deactivateError = $state('');
 
     type SubTab = 'status' | 'users' | 'listeners' | 'certs' | 'ssh';
     const TAB_KEY = 'she-broker-tab';
@@ -35,6 +37,24 @@
         return () => clearInterval(interval);
     });
 
+    async function deactivateDynsec() {
+        if (!confirm('Remove dynsec plugin lines from mosquitto.conf and clear credentials? You will need to restart mosquitto afterwards.')) return;
+        deactivating = true;
+        deactivateError = '';
+        try {
+            await brokerDynsecDeactivate();
+            const cfg = await getConfig();
+            const broker = (cfg.broker ?? {}) as Record<string, unknown>;
+            delete broker.dynsec;
+            await putConfig({ ...cfg, broker });
+            await loadStatus();
+        } catch (e: any) {
+            deactivateError = e.message ?? 'Deactivate failed';
+        } finally {
+            deactivating = false;
+        }
+    }
+
     function sysVal(key: string): string {
         if (!status?.sys) return '—';
         const entry = status.sys[key];
@@ -61,7 +81,15 @@
         {:else if status}
         <div class="status-grid">
             <div class="status-card">
-                <h3>Dynamic Security</h3>
+                <div class="card-header">
+                    <h3>Dynamic Security</h3>
+                    {#if status.dynsec.configured}
+                    <button class="deactivate-btn" onclick={deactivateDynsec} disabled={deactivating}>
+                        {deactivating ? 'Deactivating…' : 'Deactivate'}
+                    </button>
+                    {/if}
+                </div>
+                {#if deactivateError}<div class="error-inline">{deactivateError}</div>{/if}
                 {#if status.dynsec.configured}
                     {#if status.dynsec.connected}
                         {#if status.dynsec.dynsecReady}
@@ -69,10 +97,13 @@
                         {:else}
                         <div class="status-badge warn">Connected — plugin not responding</div>
                         <p class="hint">The MQTT connection is up but the dynamic-security plugin is not responding. Add the following to your mosquitto.conf and restart mosquitto:</p>
-                        <pre class="hint-code">plugin /usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so
-plugin_opt_config_file /var/lib/mosquitto/dynamic-security.json
+                        <pre class="hint-code">plugin /path/to/mosquitto_dynamic_security.so
+plugin_opt_config_file /etc/mosquitto/dynamic-security.json
 per_listener_settings false</pre>
-                        <p class="hint">The path to the .so file varies by distribution and architecture. The <code>dynamic-security.json</code> file will be auto-generated on first start (Mosquitto 2.1+).</p>
+                        <p class="hint">The .so path varies by distribution — use the <strong>Setup Wizard</strong> to auto-discover it. <code>dynamic-security.json</code> is auto-generated on first mosquitto start (v2.1+).</p>
+                        {#if !showWizard}
+                        <button class="wizard-btn" onclick={() => (showWizard = true)}>Run Setup Wizard</button>
+                        {/if}
                         {/if}
                     {:else}
                     <div class="status-badge err">Disconnected</div>
@@ -105,7 +136,7 @@ per_listener_settings false</pre>
             </div>
         </div>
 
-        {#if showWizard && !status.dynsec.configured}
+        {#if showWizard && (!status.dynsec.configured || !status.dynsec.dynsecReady)}
         <div style="margin-top: 20px;">
             <Wizard onDone={() => { showWizard = false; loadStatus(); }} />
         </div>
@@ -191,6 +222,49 @@ per_listener_settings false</pre>
         border-radius: 6px;
         padding: 14px 18px;
         min-width: 240px;
+    }
+
+    .card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .card-header h3 {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 0;
+        flex: 1;
+    }
+
+    .deactivate-btn {
+        background: none;
+        border: 1px solid rgba(200, 80, 80, 0.5);
+        border-radius: 3px;
+        color: #c85050;
+        cursor: pointer;
+        font-size: 11px;
+        padding: 2px 8px;
+    }
+
+    .deactivate-btn:hover:not(:disabled) {
+        background: rgba(200, 80, 80, 0.12);
+    }
+
+    .deactivate-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .error-inline {
+        background: rgba(220, 60, 60, 0.12);
+        border: 1px solid rgba(220, 60, 60, 0.35);
+        border-radius: 3px;
+        color: #e88;
+        font-size: 12px;
+        padding: 4px 8px;
+        margin-bottom: 8px;
     }
 
     .status-card h3 {

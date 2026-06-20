@@ -813,6 +813,18 @@ router.post('/wizard/bootstrap', async (req, res) => {
                 });
             }
 
+            // Discover the full path to the .so on the remote host.
+            let soPath = 'mosquitto_dynamic_security.so'; // fallback: rely on LD_LIBRARY_PATH
+            try {
+                const found = await sshDeploy.runCommand(bc.ssh, "find /usr /lib -maxdepth 8 -name 'mosquitto_dynamic_security.so' 2>/dev/null | head -1");
+                if (found.stdout) {
+                    soPath = found.stdout;
+                    _log?.debug(`broker: discovered .so on remote at ${soPath}`);
+                }
+            } catch (e) {
+                _log?.debug(`broker: remote .so discovery failed (${e.message}), using bare filename`);
+            }
+
             // Read the remote mosquitto.conf, parse, and add the plugin line if missing.
             let remoteConfRaw = '';
             try {
@@ -824,7 +836,7 @@ router.post('/wizard/bootstrap', async (req, res) => {
             }
             const parsed = mosquittoConf.parseText(remoteConfRaw);
             if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes('mosquitto_dynamic_security')) {
-                parsed.managed.plugin = 'mosquitto_dynamic_security.so';
+                parsed.managed.plugin = soPath;
                 parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
                 const content = mosquittoConf.serialise(parsed);
                 _log?.debug(`broker: uploading updated conf to ${bc.ssh.host}:${confFilePath}`);
@@ -847,10 +859,23 @@ router.post('/wizard/bootstrap', async (req, res) => {
                 });
             }
 
+            // Discover the full path to the .so on this host.
+            let soPath = 'mosquitto_dynamic_security.so'; // fallback: rely on LD_LIBRARY_PATH
+            try {
+                const r2 = await execFileAsync('find', ['/usr', '/lib', '-maxdepth', '8', '-name', 'mosquitto_dynamic_security.so'], { timeout: 8000 });
+                const lines = r2.stdout.trim().split('\n').filter(Boolean);
+                if (lines.length > 0) {
+                    soPath = lines[0];
+                    _log?.debug(`broker: discovered .so at ${soPath}`);
+                }
+            } catch (e) {
+                _log?.debug(`broker: local .so discovery failed (${e.message}), using bare filename`);
+            }
+
             // Ensure plugin line exists in local mosquitto.conf
             const parsed = mosquittoConf.parse(confFilePath);
             if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes('mosquitto_dynamic_security')) {
-                parsed.managed.plugin = 'mosquitto_dynamic_security.so';
+                parsed.managed.plugin = soPath;
                 parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
                 const content = mosquittoConf.serialise(parsed);
                 _log?.debug(`broker: writing updated local conf to ${confFilePath}`);
@@ -869,6 +894,36 @@ router.post('/wizard/bootstrap', async (req, res) => {
             confFilePath,
             message: `Bootstrap complete. Save these credentials to config.json under broker.dynsec, then restart mosquitto (POST /she/broker/restart).`,
         });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * POST /she/broker/wizard/deactivate
+ * Remove dynsec plugin lines from mosquitto.conf (remote or local).
+ * The caller is responsible for also clearing broker.dynsec credentials from
+ * config.json and restarting mosquitto afterwards.
+ */
+router.post('/wizard/deactivate', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const fp = confPath(bc);
+        if (bc.ssh && bc.ssh.host) {
+            const raw = await sshDeploy.readRemoteFile(bc.ssh, fp);
+            const parsed = mosquittoConf.parseText(raw);
+            delete parsed.managed.plugin;
+            delete parsed.managed.plugin_opt_dynsec_config_file;
+            const content = mosquittoConf.serialise(parsed);
+            await sshDeploy.uploadContent(bc.ssh, content, fp);
+        } else {
+            const parsed = mosquittoConf.parse(fp);
+            delete parsed.managed.plugin;
+            delete parsed.managed.plugin_opt_dynsec_config_file;
+            const content = mosquittoConf.serialise(parsed);
+            mosquittoConf.write(fp, content);
+        }
+        res.json({ ok: true });
     } catch (err) {
         handleError(res, err);
     }
