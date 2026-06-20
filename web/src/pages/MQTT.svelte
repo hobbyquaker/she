@@ -388,11 +388,11 @@
         }
     }
 
+    onMount(load);
     onMount(async () => {
-        load();
         try {
             const status = await getBrokerStatus();
-            dynsecAvail = status.dynsec.dynsecReady;
+            dynsecAvail = Boolean(status.dynsec?.dynsecReady);
         } catch { dynsecAvail = false; }
     });
     onDestroy(() => { unsubWs(); if (rafId !== null) cancelAnimationFrame(rafId); });

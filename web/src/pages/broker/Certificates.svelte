@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import {
-        getBrokerCA, generateBrokerCA,
+        getBrokerCA, generateBrokerCA, importBrokerCA,
         getBrokerServerCert, generateBrokerServerCert,
         listIssuedCerts, issueClientCert, revokeClientCert, downloadCertUrl,
         listTrustedCerts, addTrustedCert, removeTrustedCert,
@@ -54,6 +54,53 @@
     let addTrustedError = $state('');
 
     let actionError = $state('');
+
+    // ── Import CA ──────────────────────────────────────────────────────────────
+    let showImportCA = $state(false);
+    let importMode = $state<'pem' | 'p12'>('pem');
+    let importCertPem = $state('');
+    let importKeyPem = $state('');
+    let importChainPem = $state('');
+    let showChainField = $state(false);
+    let importP12B64 = $state('');
+    let importP12Name = $state('');
+    let importPassphrase = $state('');
+    let showImportPassphrase = $state(false);
+    let importLoading = $state(false);
+    let importError = $state('');
+
+    function handleP12FileChange(e: Event) {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        importP12Name = file.name;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const ab = reader.result as ArrayBuffer;
+            importP12B64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    async function submitImportCA() {
+        importError = '';
+        importLoading = true;
+        try {
+            const chain = showChainField && importChainPem.trim() ? importChainPem : undefined;
+            if (importMode === 'p12') {
+                if (!importP12B64) throw new Error('Select a .p12 / .pfx file');
+                await importBrokerCA({ p12base64: importP12B64, passphrase: importPassphrase, chain });
+            } else {
+                if (!importCertPem.trim() || !importKeyPem.trim()) throw new Error('Certificate and key are required');
+                await importBrokerCA({ cert: importCertPem, key: importKeyPem, chain });
+            }
+            showImportCA = false;
+            await load();
+        } catch (e: any) {
+            importError = e.message;
+        } finally {
+            importLoading = false;
+        }
+    }
 
     async function load() {
         try {
@@ -203,6 +250,12 @@
     <div class="section">
         <div class="section-header">
             <h3>Local Certificate Authority</h3>
+            <button class="btn-secondary" onclick={() => {
+                showImportCA = true; importError = ''; importMode = 'pem';
+                importCertPem = ''; importKeyPem = ''; importChainPem = '';
+                importP12B64 = ''; importP12Name = ''; importPassphrase = '';
+                showChainField = false; showImportPassphrase = false;
+            }}>Import CA</button>
             <button onclick={() => { showGenCA = true; genCAError = ''; }}>{caInfo ? 'Regenerate CA' : 'Generate CA'}</button>
         </div>
         {#if caInfo}
@@ -211,6 +264,9 @@
                 <dt>CN</dt><dd>{caInfo.cn}</dd>
                 <dt>Fingerprint (SHA-256)</dt><dd class="mono small">{caInfo.fingerprint}</dd>
                 <dt>Expires</dt><dd class={expiryClass(caInfo.expires)}>{fmtExpiry(caInfo.expires)}</dd>
+                {#if caInfo.hasChain}
+                <dt>Chain</dt><dd class="mono small">{caInfo.chainCn ?? 'present'} <span class="badge-chain">chain</span></dd>
+                {/if}
             </dl>
             <div class="card-actions">
                 <a class="btn-download" href="data:application/x-pem-file;charset=utf-8,{encodeURIComponent(caInfo.crt)}" download="ca.crt">Download ca.crt</a>
@@ -306,7 +362,10 @@
                     {#if allUsernames.includes(c.cn)}
                     <span class="badge-user-linked" title="dynsec user exists with matching username">linked</span>
                     {:else}
-                    <span class="badge-user-none" title="No dynsec user with this CN">—</span>
+                    <button class="btn-link-user" title="Create dynsec user with CN as username" onclick={async () => {
+                        const pw = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2,'0')).join('');
+                        try { await createBrokerUser(c.cn, pw); allUsernames = [...allUsernames, c.cn]; } catch (e: any) { actionError = e.message; }
+                    }}>+ Link</button>
                     {/if}
                 </td>
                 {/if}
@@ -326,6 +385,59 @@
     </div>
     {/if}
 </div>
+
+<!-- ── Import CA modal ───────────────────────────────────────────────────── -->
+{#if showImportCA}
+<div class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal modal--wide">
+        <h3>Import existing CA</h3>
+        <div class="import-mode-tabs">
+            <button class:active={importMode === 'pem'} onclick={() => (importMode = 'pem')}>PEM files</button>
+            <button class:active={importMode === 'p12'} onclick={() => (importMode = 'p12')}>PKCS#12 (.p12 / .pfx)</button>
+        </div>
+        {#if importMode === 'pem'}
+        <label>CA certificate (PEM)
+            <textarea bind:value={importCertPem} rows="5" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"></textarea>
+        </label>
+        <label>CA private key (PEM)
+            <textarea bind:value={importKeyPem} rows="5" placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----"></textarea>
+        </label>
+        {:else}
+        <label>PKCS#12 file
+            <div class="file-row">
+                <input type="file" accept=".p12,.pfx" onchange={handleP12FileChange} />
+                {#if importP12Name}<span class="file-name mono small">{importP12Name}</span>{/if}
+            </div>
+        </label>
+        <label>Passphrase
+            <div class="pw-row">
+                <input type={showImportPassphrase ? 'text' : 'password'} bind:value={importPassphrase} autocomplete="off" />
+                <button class="toggle-pw" onclick={() => (showImportPassphrase = !showImportPassphrase)}>{showImportPassphrase ? 'Hide' : 'Show'}</button>
+            </div>
+        </label>
+        {/if}
+        <div class="chain-toggle">
+            <button class="btn-text" onclick={() => (showChainField = !showChainField)}>
+                {showChainField ? '▾' : '▸'} {showChainField ? 'Hide chain field' : 'This CA is signed by an intermediate / root — add chain'}
+            </button>
+        </div>
+        {#if showChainField}
+        <label>Signing chain (PEM — intermediate and/or root CA certs)
+            <textarea bind:value={importChainPem} rows="5" placeholder="Paste the certificate(s) that signed this CA, from intermediate to root."></textarea>
+            <span class="field-hint">The chain is bundled into issued client .p12 files so clients can verify the full trust path.</span>
+        </label>
+        {/if}
+        {#if caInfo}<div class="import-warning">⚠ This will overwrite the existing local CA keypair. All previously issued certificates remain valid.</div>{/if}
+        {#if importError}<div class="err">{importError}</div>{/if}
+        <div class="modal-actions">
+            <button onclick={() => (showImportCA = false)}>Cancel</button>
+            <button class="btn-primary" onclick={submitImportCA} disabled={importLoading}>
+                {importLoading ? 'Importing…' : 'Import CA'}
+            </button>
+        </div>
+    </div>
+</div>
+{/if}
 
 <!-- ── Generate CA modal ──────────────────────────────────────────────────── -->
 {#if showGenCA}
@@ -588,4 +700,20 @@
     .toggle-label input[type='checkbox'] { width: auto; cursor: pointer; }
     .badge-user-linked { background: rgba(70,180,70,0.1); border: 1px solid rgba(70,180,70,0.25); border-radius: 3px; color: #8c8; font-size: 10px; padding: 1px 6px; }
     .badge-user-none { color: var(--text-muted, #666); font-size: 12px; }
+    .badge-chain { background: rgba(86,156,214,0.12); border: 1px solid rgba(86,156,214,0.25); border-radius: 3px; color: #7ab; font-size: 10px; padding: 1px 5px; }
+    .btn-link-user { background: none; border: 1px solid rgba(86,156,214,0.3); border-radius: 3px; color: var(--accent, #569cd6); cursor: pointer; font-size: 10px; padding: 1px 6px; }
+    .btn-link-user:hover { background: rgba(86,156,214,0.1); }
+    .btn-secondary { background: none; border: 1px solid var(--border, #444); border-radius: 4px; color: var(--text-muted, #aaa); cursor: pointer; font-size: 12px; padding: 3px 10px; }
+    .import-mode-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border, #333); margin-bottom: 4px; }
+    .import-mode-tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted, #888); cursor: pointer; font-size: 12px; padding: 4px 10px 5px; margin-bottom: -1px; }
+    .import-mode-tabs button.active { color: var(--text, #eee); border-bottom-color: var(--accent, #569cd6); }
+    .chain-toggle { margin: 2px 0; }
+    .btn-text { background: none; border: none; color: var(--accent, #569cd6); cursor: pointer; font-size: 11px; padding: 0; }
+    .field-hint { color: var(--text-muted, #777); font-size: 10.5px; margin-top: 3px; display: block; }
+    .file-row { display: flex; align-items: center; gap: 8px; }
+    .file-name { color: var(--text-muted, #aaa); }
+    .pw-row { display: flex; gap: 4px; }
+    .pw-row input { flex: 1; }
+    .toggle-pw { background: none; border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text-muted, #aaa); cursor: pointer; font-size: 11px; padding: 4px 8px; }
+    .import-warning { background: rgba(200,140,40,0.1); border: 1px solid rgba(200,140,40,0.3); border-radius: 4px; color: #ca8; font-size: 11px; padding: 6px 9px; }
 </style>

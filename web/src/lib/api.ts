@@ -819,6 +819,14 @@ export interface CaInfo {
     fingerprint: string;
     expires: string;
     cn: string;
+    hasChain?: boolean;
+    chainCn?: string | null;
+}
+
+export function importBrokerCA(
+    body: { cert: string; key: string; chain?: string } | { p12base64: string; passphrase: string; chain?: string },
+): Promise<{ ok: boolean; ca: CaInfo }> {
+    return request('POST', '/she/broker/ca/import', body);
 }
 
 export interface ServerCertInfo {

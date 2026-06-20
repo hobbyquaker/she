@@ -551,6 +551,32 @@ router.post('/ca/generate', async (req, res) => {
     }
 });
 
+/**
+ * POST /she/broker/ca/import
+ * Import an existing CA from PEM text or a PKCS#12 file.
+ * Body (PEM mode):  { cert: string, key: string, chain?: string }
+ * Body (P12 mode):  { p12base64: string, passphrase: string, chain?: string }
+ */
+router.post('/ca/import', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { cert, key, chain, p12base64, passphrase } = req.body;
+        let certPem, keyPem;
+        if (p12base64 !== undefined) {
+            const p12Buffer = Buffer.from(p12base64, 'base64');
+            ({ certPem, keyPem } = await ca.extractFromP12(p12Buffer, passphrase ?? ''));
+        } else {
+            if (!cert || !key) return res.status(400).json({ error: 'cert and key are required' });
+            certPem = cert;
+            keyPem = key;
+        }
+        const result = await ca.importCA(bc, { certPem, keyPem, chainPem: chain || null });
+        res.json({ ok: true, ca: result });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
 /** GET /she/broker/ca/server — Server cert info */
 router.get('/ca/server', async (req, res) => {
     try {

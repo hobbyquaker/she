@@ -104,15 +104,113 @@ async function generateCA(config, { cn = 'she-broker-ca', days = 365 } = {}) {
 async function getCA(config) {
     const dir = caDir(config);
     const crtPath = path.join(dir, 'ca.crt');
+    const chainPath = path.join(dir, 'ca-chain.crt');
     if (!fs.existsSync(crtPath)) return null;
     try {
         const fingerprint = await certFingerprint(crtPath);
         const expires = await certExpiry(crtPath);
         const cn = await certCN(crtPath);
         const crt = fs.readFileSync(crtPath, 'utf8');
-        return { crt, fingerprint, expires, cn };
+        const hasChain = fs.existsSync(chainPath);
+        const chainCn = hasChain ? await certCN(chainPath).catch(() => null) : null;
+        return { crt, fingerprint, expires, cn, hasChain, chainCn };
     } catch {
         return null;
+    }
+}
+
+/**
+ * Import an existing CA keypair (PEM format) into the CA directory.
+ * Overwrites any existing ca.crt / ca.key.
+ * Optionally accepts a PEM chain (intermediate/root certs above this CA) stored
+ * as ca-chain.crt; used to build complete certificate chains in issued P12 bundles.
+ *
+ * @param {object} config
+ * @param {{ certPem: string, keyPem: string, chainPem?: string|null }} options
+ */
+async function importCA(config, { certPem, keyPem, chainPem = null }) {
+    const dir = caDir(config);
+    fs.mkdirSync(dir, { recursive: true });
+
+    const tmpCert = path.join(dir, '_import_cert.tmp');
+    const tmpKey = path.join(dir, '_import_key.tmp');
+    fs.writeFileSync(tmpCert, certPem.trim() + '\n', 'utf8');
+    fs.writeFileSync(tmpKey, keyPem.trim() + '\n', 'utf8');
+
+    try {
+        await openssl(['x509', '-in', tmpCert, '-noout']);
+        await openssl(['pkey', '-in', tmpKey, '-noout']);
+    } catch (e) {
+        try { fs.unlinkSync(tmpCert); } catch { /* ignore */ }
+        try { fs.unlinkSync(tmpKey); } catch { /* ignore */ }
+        throw new Error(`Invalid certificate or key: ${e.message}`);
+    }
+
+    const keyPath = path.join(dir, 'ca.key');
+    const crtPath = path.join(dir, 'ca.crt');
+    const srlPath = path.join(dir, 'ca.srl');
+    const chainPath = path.join(dir, 'ca-chain.crt');
+
+    fs.renameSync(tmpCert, crtPath);
+    fs.renameSync(tmpKey, keyPath);
+    try { fs.chmodSync(keyPath, 0o600); } catch { /* ignore */ }
+
+    if (!fs.existsSync(srlPath)) {
+        fs.writeFileSync(srlPath, '01\n', 'utf8');
+    }
+
+    if (chainPem && chainPem.trim()) {
+        const tmpChain = path.join(dir, '_import_chain.tmp');
+        fs.writeFileSync(tmpChain, chainPem.trim() + '\n', 'utf8');
+        try {
+            await openssl(['x509', '-in', tmpChain, '-noout']);
+        } catch (e) {
+            try { fs.unlinkSync(tmpChain); } catch { /* ignore */ }
+            throw new Error(`Invalid chain certificate: ${e.message}`);
+        }
+        fs.renameSync(tmpChain, chainPath);
+    } else if (fs.existsSync(chainPath)) {
+        fs.unlinkSync(chainPath);
+    }
+
+    const fingerprint = await certFingerprint(crtPath);
+    const expires = await certExpiry(crtPath);
+    const cn = await certCN(crtPath);
+    const crt = fs.readFileSync(crtPath, 'utf8');
+    return { crt, fingerprint, expires, cn };
+}
+
+/**
+ * Extract certificate and private key PEM strings from a PKCS#12 file.
+ * Tries OpenSSL 3 defaults first, falls back to -legacy for older P12 files.
+ *
+ * @param {Buffer} p12Buffer  raw .p12/.pfx file bytes
+ * @param {string} passphrase decryption passphrase (may be empty string)
+ * @returns {Promise<{ certPem: string, keyPem: string }>}
+ */
+async function extractFromP12(p12Buffer, passphrase) {
+    const tmpP12 = path.join(os.tmpdir(), `she_p12_${Date.now()}.tmp`);
+    fs.writeFileSync(tmpP12, p12Buffer);
+    try {
+        const passArg = `pass:${passphrase}`;
+        const tryExtract = async (extraFlags = []) => {
+            const { stdout: certOut } = await openssl(['pkcs12', '-in', tmpP12, '-clcerts', '-nokeys', '-passin', passArg, '-nodes', ...extraFlags]);
+            const { stdout: keyOut }  = await openssl(['pkcs12', '-in', tmpP12, '-nocerts',  '-nodes', '-passin', passArg, ...extraFlags]);
+            return { certOut, keyOut };
+        };
+        let certOut, keyOut;
+        try {
+            ({ certOut, keyOut } = await tryExtract());
+        } catch {
+            ({ certOut, keyOut } = await tryExtract(['-legacy']));
+        }
+        const certMatch = certOut.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/);
+        const keyMatch  = keyOut.match(/-----BEGIN [\w ]+ KEY-----[\s\S]+?-----END [\w ]+ KEY-----/);
+        if (!certMatch) throw new Error('No certificate found in P12 file');
+        if (!keyMatch)  throw new Error('No private key found in P12 file');
+        return { certPem: certMatch[0] + '\n', keyPem: keyMatch[0] + '\n' };
+    } finally {
+        try { fs.unlinkSync(tmpP12); } catch { /* ignore */ }
     }
 }
 
@@ -235,9 +333,18 @@ async function issueClientCert(config, { cn, days = 365 } = {}) {
     // Read serial from the signed cert
     const serial = await certSerial(crtPath);
 
-    // Bundle to .p12
+    // Bundle to .p12 — include signing chain if ca-chain.crt exists
     const passphrase = crypto.randomBytes(10).toString('hex');
-    await openssl(['pkcs12', '-export', '-in', crtPath, '-inkey', keyPath, '-certfile', caCrtPath, '-out', p12Path, '-passout', `pass:${passphrase}`, '-legacy']);
+    const chainPath = path.join(dir, 'ca-chain.crt');
+    let p12CertfileArg = caCrtPath;
+    let combinedChainTmp = null;
+    if (fs.existsSync(chainPath)) {
+        combinedChainTmp = path.join(dir, '.combined-chain-tmp.crt');
+        fs.writeFileSync(combinedChainTmp, fs.readFileSync(caCrtPath, 'utf8') + fs.readFileSync(chainPath, 'utf8'));
+        p12CertfileArg = combinedChainTmp;
+    }
+    await openssl(['pkcs12', '-export', '-in', crtPath, '-inkey', keyPath, '-certfile', p12CertfileArg, '-out', p12Path, '-passout', `pass:${passphrase}`, '-legacy']);
+    if (combinedChainTmp) try { fs.unlinkSync(combinedChainTmp); } catch { /* ignore */ }
 
     const fingerprint = await certFingerprint(crtPath);
     const expires = await certExpiry(crtPath);
@@ -460,6 +567,8 @@ module.exports = {
     caCertsDir,
     generateCA,
     getCA,
+    importCA,
+    extractFromP12,
     generateServerCert,
     issueClientCert,
     generateCRL,
