@@ -79,11 +79,16 @@ function handleError(res, err) {
 router.get('/status', (req, res) => {
     const ds = dynsec.getStatus();
 
-    const sys = {};
+    // Prefer $SYS data from the she-admin MQTT client: it has admin role ACLs
+    // that explicitly allow $SYS/# even when the main client is denied by
+    // default-deny subscribe ACLs.
+    const sys = dynsec.getSysData();
+    // Fall back to the main MQTT client's state store for any topics not yet
+    // received by the dynsec client (e.g. when dynsec is not configured).
     if (_store) {
         const sysPrefixes = ['$SYS/broker/version', '$SYS/broker/uptime', '$SYS/broker/clients/', '$SYS/broker/messages/'];
         for (const [topic, entry] of _store.mqttEntries()) {
-            if (sysPrefixes.some((p) => topic.startsWith(p))) {
+            if (!sys[topic] && sysPrefixes.some((p) => topic.startsWith(p))) {
                 sys[topic] = entry;
             }
         }

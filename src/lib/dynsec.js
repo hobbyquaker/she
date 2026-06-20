@@ -34,6 +34,10 @@ const _queue = [];
 let _inflight = false;
 let _inflightResolve = null;
 
+// $SYS topic cache — populated by the she-admin MQTT connection which has
+// the admin role and therefore $SYS/# subscribe + publishClientReceive ACLs.
+const _sysData = {};
+
 function _drain() {
     if (_inflight || _queue.length === 0 || !_connected) return;
 
@@ -145,6 +149,12 @@ function init(config, log) {
                 });
             }
         });
+        // The admin role has subscribePattern + publishClientReceive for $SYS/#.
+        // Subscribe here so the broker status endpoint always has fresh $SYS data
+        // even when the main MQTT client lacks the necessary ACL permissions.
+        _client.subscribe('$SYS/#', (err) => {
+            if (err) _log.debug('dynsec: $SYS/# subscription failed (not critical):', err.message);
+        });
     });
 
     _client.on('close', () => {
@@ -160,6 +170,13 @@ function init(config, log) {
     });
 
     _client.on('message', (topic, payload) => {
+        if (topic.startsWith('$SYS/')) {
+            const val = payload.toString();
+            const now = Date.now();
+            const prev = _sysData[topic];
+            _sysData[topic] = { val, ts: now, lc: prev && prev.val !== val ? now : (prev ? prev.lc : now) };
+            return;
+        }
         if (topic !== RESPONSE_TOPIC) return;
         let msg;
         try {
@@ -192,6 +209,8 @@ function stop() {
     _configured = false;
     _connected = false;
     _dynsecReady = false;
+    // Clear $SYS cache
+    Object.keys(_sysData).forEach((k) => delete _sysData[k]);
     // Reject any in-flight / queued requests
     if (_inflight && _inflightResolve) {
         _inflightResolve = null;
@@ -223,11 +242,11 @@ function setClientPassword(username, password) {
 }
 
 function listClients(verbose = false) {
-    return _request('listClients', { verbose }).then((r) => r.clients || []);
+    return _request('listClients', { verbose }).then((r) => r.data?.clients ?? r.clients ?? []);
 }
 
 function getClient(username) {
-    return _request('getClient', { username }).then((r) => r.client);
+    return _request('getClient', { username }).then((r) => r.data?.client ?? r.client);
 }
 
 // ── Role management ────────────────────────────────────────────────────────────
@@ -241,11 +260,11 @@ function deleteRole(rolename) {
 }
 
 function listRoles(verbose = false) {
-    return _request('listRoles', { verbose }).then((r) => r.roles || []);
+    return _request('listRoles', { verbose }).then((r) => r.data?.roles ?? r.roles ?? []);
 }
 
 function getRole(rolename) {
-    return _request('getRole', { rolename }).then((r) => r.role);
+    return _request('getRole', { rolename }).then((r) => r.data?.role ?? r.role);
 }
 
 /**
@@ -286,11 +305,11 @@ function deleteGroup(groupname) {
 }
 
 function listGroups(verbose = false) {
-    return _request('listGroups', { verbose }).then((r) => r.groups || []);
+    return _request('listGroups', { verbose }).then((r) => r.data?.groups ?? r.groups ?? []);
 }
 
 function getGroup(groupname) {
-    return _request('getGroup', { groupname }).then((r) => r.group);
+    return _request('getGroup', { groupname }).then((r) => r.data?.group ?? r.group);
 }
 
 function addGroupClient(groupname, username, priority = -1) {
@@ -312,7 +331,12 @@ function removeGroupRole(groupname, rolename) {
 // ── Default ACL access ─────────────────────────────────────────────────────────
 
 function getDefaultACLAccess() {
-    return _request('getDefaultACLAccess').then((r) => r.acls || []);
+    return _request('getDefaultACLAccess').then((r) => r.data?.acls ?? r.acls ?? []);
+}
+
+/** Returns the $SYS topic cache collected by the she-admin MQTT client. */
+function getSysData() {
+    return { ..._sysData };
 }
 
 function setDefaultACLAccess(acls) {
@@ -322,6 +346,7 @@ function setDefaultACLAccess(acls) {
 module.exports = {
     init,
     getStatus,
+    getSysData,
     stop,
     // Users
     createClient,
