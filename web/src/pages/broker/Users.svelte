@@ -58,6 +58,35 @@
     let addGroupError = $state('');
     let addGroupLoading = $state(false);
 
+    // ── Member editor modal (user←→role, group←→member, group←→role) ─────────
+    let memberEditor = $state<{ type: 'user-roles' | 'group-members' | 'group-roles'; target: string } | null>(null);
+    let memberEditorAdd = $state('');
+    let memberEditorError = $state('');
+
+    const memberEditorCurrent = $derived(
+        !memberEditor ? [] :
+        memberEditor.type === 'user-roles'
+            ? (users.find(u => u.username === memberEditor!.target)?.roles?.map(r => r.rolename) ?? [])
+            : memberEditor.type === 'group-members'
+            ? (groups.find(g => g.groupname === memberEditor!.target)?.clients?.map(c => c.username) ?? [])
+            : (groups.find(g => g.groupname === memberEditor!.target)?.roles?.map(r => r.rolename) ?? [])
+    );
+
+    const memberEditorOptions = $derived(
+        !memberEditor ? [] :
+        (memberEditor.type === 'user-roles' || memberEditor.type === 'group-roles'
+            ? roles.map(r => r.rolename)
+            : users.map(u => u.username)
+        ).filter(item => !memberEditorCurrent.includes(item))
+    );
+
+    const memberEditorTitle = $derived(
+        !memberEditor ? '' :
+        memberEditor.type === 'user-roles' ? `Roles for user "${memberEditor.target}"` :
+        memberEditor.type === 'group-members' ? `Members of group "${memberEditor.target}"` :
+        `Roles for group "${memberEditor.target}"`
+    );
+
     const ACL_TYPES = [
         'publishClientSend',
         'publishClientReceive',
@@ -217,6 +246,42 @@
             groupsError = e.message;
         }
     }
+
+    // ── Member editor actions ─────────────────────────────────────────────────
+    function openMemberEditor(type: 'user-roles' | 'group-members' | 'group-roles', target: string) {
+        memberEditor = { type, target };
+        memberEditorAdd = '';
+        memberEditorError = '';
+    }
+
+    async function doMemberEditorAdd() {
+        if (!memberEditor || !memberEditorAdd) return;
+        memberEditorError = '';
+        try {
+            const { type, target } = memberEditor;
+            if (type === 'user-roles') await assignBrokerUserRole(target, memberEditorAdd);
+            else if (type === 'group-members') await addBrokerGroupClient(target, memberEditorAdd);
+            else await addBrokerGroupRole(target, memberEditorAdd);
+            memberEditorAdd = '';
+            await load();
+        } catch (e: any) {
+            memberEditorError = e.message;
+        }
+    }
+
+    async function doMemberEditorRemove(item: string) {
+        if (!memberEditor) return;
+        memberEditorError = '';
+        try {
+            const { type, target } = memberEditor;
+            if (type === 'user-roles') await removeBrokerUserRole(target, item);
+            else if (type === 'group-members') await removeBrokerGroupClient(target, item);
+            else await removeBrokerGroupRole(target, item);
+            await load();
+        } catch (e: any) {
+            memberEditorError = e.message;
+        }
+    }
 </script>
 
 <div class="users-page">
@@ -253,6 +318,7 @@
                 <td class="tags">{#each user.roles ?? [] as r}<span class="tag">{r.rolename}</span>{/each}</td>
                 <td class="tags">{#each user.groups ?? [] as g}<span class="tag tag--group">{g.groupname}</span>{/each}</td>
                 <td class="actions">
+                    <button onclick={() => openMemberEditor('user-roles', user.username)} title="Edit roles">Roles</button>
                     <button onclick={() => openSetPassword(user.username)} title="Set password">🔑</button>
                     <button class="danger" onclick={() => doDeleteUser(user.username)} title="Delete">✕</button>
                 </td>
@@ -314,6 +380,8 @@
                 <td class="tags">{#each group.clients ?? [] as c}<span class="tag">{c.username}</span>{/each}</td>
                 <td class="tags">{#each group.roles ?? [] as r}<span class="tag tag--group">{r.rolename}</span>{/each}</td>
                 <td class="actions">
+                    <button onclick={() => openMemberEditor('group-members', group.groupname)} title="Edit members">Members</button>
+                    <button onclick={() => openMemberEditor('group-roles', group.groupname)} title="Edit roles">Roles</button>
                     <button class="danger" onclick={() => doDeleteGroup(group.groupname)} title="Delete">✕</button>
                 </td>
             </tr>
@@ -443,6 +511,44 @@
 </div>
 {/if}
 
+<!-- ── Member editor modal ───────────────────────────────────────────────── -->
+{#if memberEditor}
+<div class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal modal--wide">
+        <h3>{memberEditorTitle}</h3>
+        {#if memberEditorCurrent.length > 0}
+        <ul class="member-list">
+            {#each memberEditorCurrent as item}
+            <li>
+                <span class="mono">{item}</span>
+                <button class="danger" onclick={() => doMemberEditorRemove(item)}>✕</button>
+            </li>
+            {/each}
+        </ul>
+        {:else}
+        <div class="empty">None assigned yet.</div>
+        {/if}
+        {#if memberEditorOptions.length > 0}
+        <div class="member-add-row">
+            <select bind:value={memberEditorAdd}>
+                <option value="">— select —</option>
+                {#each memberEditorOptions as opt}
+                <option value={opt}>{opt}</option>
+                {/each}
+            </select>
+            <button onclick={doMemberEditorAdd} disabled={!memberEditorAdd}>Add</button>
+        </div>
+        {:else}
+        <div class="empty">No more items to add.</div>
+        {/if}
+        {#if memberEditorError}<div class="err">{memberEditorError}</div>{/if}
+        <div class="modal-actions">
+            <button onclick={() => (memberEditor = null)}>Close</button>
+        </div>
+    </div>
+</div>
+{/if}
+
 <style>
     .users-page {
         display: flex;
@@ -557,4 +663,13 @@
     .acl-add-row input { flex: 1; background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 11px; padding: 4px 6px; }
     .acl-add-row button { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid var(--accent-border, rgba(86,156,214,0.3)); border-radius: 4px; color: var(--accent, #569cd6); cursor: pointer; font-size: 11px; padding: 4px 10px; }
     .allow-toggle { flex-direction: row; align-items: center; gap: 4px; color: var(--text, #eee); cursor: pointer; }
+
+    .member-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .member-list li { display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.03); border: 1px solid var(--border, #333); border-radius: 3px; padding: 4px 8px; font-size: 12px; }
+    .member-list button { background: none; border: none; color: var(--text-muted, #666); cursor: pointer; font-size: 11px; padding: 0 2px; }
+    .member-list button:hover { color: #e66; }
+    .member-add-row { display: flex; gap: 6px; align-items: center; }
+    .member-add-row select { flex: 1; background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 11px; padding: 4px 6px; }
+    .member-add-row button { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid var(--accent-border, rgba(86,156,214,0.3)); border-radius: 4px; color: var(--accent, #569cd6); cursor: pointer; font-size: 11px; padding: 4px 10px; }
+    .member-add-row button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
