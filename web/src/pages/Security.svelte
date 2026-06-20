@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { getBrokerStatus, brokerDynsecDeactivate, brokerDynsecDiagnose, type BrokerStatus, type DynsecDiagnosis } from '../lib/api.js';
+    import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import Users from './broker/Users.svelte';
     import Listeners from './broker/Listeners.svelte';
     import Certificates from './broker/Certificates.svelte';
@@ -8,6 +9,7 @@
     import Wizard from './broker/Wizard.svelte';
 
     let showWizard = $state(false);
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
     let deactivating = $state(false);
     let deactivateError = $state('');
     let diagnosing = $state(false);
@@ -52,7 +54,7 @@
     }
 
     async function deactivateDynsec() {
-        if (!confirm('Remove dynsec plugin lines from mosquitto.conf and clear credentials? You will need to restart mosquitto afterwards.')) return;
+        if (!await dialog.show('Remove dynsec plugin lines from mosquitto.conf and clear credentials? You will need to restart mosquitto afterwards.', { confirm: 'Deactivate', danger: true })) return;
         deactivating = true;
         deactivateError = '';
         try {
@@ -186,6 +188,8 @@
     <SSH />
     {/if}
 </div>
+
+<ConfirmDialog bind:this={dialog} />
 
 <style>
     .broker-page {
