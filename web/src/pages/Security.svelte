@@ -141,7 +141,6 @@
                     {/if}
                 {:else}
                 <div class="status-badge warn">Not configured</div>
-                <p class="hint">Set <code>broker.dynsec.adminUsername</code> and <code>broker.dynsec.adminPassword</code> in Config to enable dynsec management.</p>
                 {#if !showWizard}
                 <button class="wizard-btn" onclick={() => (showWizard = true)}>Run Setup Wizard</button>
                 {/if}
