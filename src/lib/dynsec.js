@@ -64,6 +64,11 @@ function _drain() {
         clearTimeout(timer);
         _inflight = false;
         _inflightResolve = null;
+        // Any response from the plugin proves it is active, regardless of the startup probe result.
+        if (!_dynsecReady) {
+            _dynsecReady = true;
+            if (_log) _log.info('dynsec: plugin confirmed active (via response)');
+        }
         const r = responses.find((resp) => resp.command === command);
         if (r && r.error) {
             if (_log) _log.debug(`dynsec: ✕ "${command}" error: ${r.error}`);
