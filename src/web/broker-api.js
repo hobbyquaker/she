@@ -855,7 +855,7 @@ router.post('/wizard/bootstrap', async (req, res) => {
             const parsed = mosquittoConf.parseText(remoteConfRaw);
             if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes('mosquitto_dynamic_security')) {
                 parsed.managed.plugin = soPath;
-                parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
+                parsed.managed.plugin_opt_config_file = dynSecPath;
                 const content = mosquittoConf.serialise(parsed);
                 _log?.debug(`broker: uploading updated conf to ${bc.ssh.host}:${confFilePath}`);
                 await sshDeploy.uploadContent(bc.ssh, content, confFilePath);
@@ -908,7 +908,7 @@ router.post('/wizard/bootstrap', async (req, res) => {
             const parsed = mosquittoConf.parse(confFilePath);
             if (!parsed.managed.plugin || !String(parsed.managed.plugin).includes('mosquitto_dynamic_security')) {
                 parsed.managed.plugin = soPath;
-                parsed.managed.plugin_opt_dynsec_config_file = dynSecPath;
+                parsed.managed.plugin_opt_config_file = dynSecPath;
                 const content = mosquittoConf.serialise(parsed);
                 _log?.debug(`broker: writing updated local conf to ${confFilePath}`);
                 mosquittoConf.write(confFilePath, content);
@@ -946,12 +946,16 @@ router.post('/wizard/deactivate', async (req, res) => {
             const raw = await sshDeploy.readRemoteFile(bc.ssh, fp);
             const parsed = mosquittoConf.parseText(raw);
             delete parsed.managed.plugin;
+            delete parsed.managed.plugin_opt_config_file;
+            // Also remove old key name in case conf was written by an earlier she version
             delete parsed.managed.plugin_opt_dynsec_config_file;
             const content = mosquittoConf.serialise(parsed);
             await sshDeploy.uploadContent(bc.ssh, content, fp);
         } else {
             const parsed = mosquittoConf.parse(fp);
             delete parsed.managed.plugin;
+            delete parsed.managed.plugin_opt_config_file;
+            // Also remove old key name in case conf was written by an earlier she version
             delete parsed.managed.plugin_opt_dynsec_config_file;
             const content = mosquittoConf.serialise(parsed);
             mosquittoConf.write(fp, content);

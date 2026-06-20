@@ -26,7 +26,10 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
 // Keys that she manages — all others are treated as passthrough
-const MANAGED_SINGLE_KEYS = new Set(['allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_dynsec_config_file']);
+// NOTE: 'plugin_opt_dynsec_config_file' is kept here only for migration —
+// when read from an old conf it is normalised to 'plugin_opt_config_file' on
+// the same line that recognises it (see parseText below).
+const MANAGED_SINGLE_KEYS = new Set(['allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file', 'plugin_opt_dynsec_config_file']);
 
 /**
  * Parse mosquitto.conf text into a structured object.
@@ -70,10 +73,12 @@ function parseText(raw) {
         } else if (currentListener && isListenerSubkey(key)) {
             applyListenerKey(currentListener, key, value);
         } else if (MANAGED_SINGLE_KEYS.has(key)) {
-            if (managed[key] !== undefined) {
-                managed[key] = [].concat(managed[key]).concat(value);
+            // Normalise the old (incorrect) key name written by earlier she versions
+            const managedKey = key === 'plugin_opt_dynsec_config_file' ? 'plugin_opt_config_file' : key;
+            if (managed[managedKey] !== undefined) {
+                managed[managedKey] = [].concat(managed[managedKey]).concat(value);
             } else {
-                managed[key] = value;
+                managed[managedKey] = value;
             }
             currentListener = null;
         } else {
@@ -155,7 +160,7 @@ function serialise(conf) {
     // Managed single-key entries first
     const { managed = {}, listeners = [], passthrough = [] } = conf;
 
-    const keyOrder = ['allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_dynsec_config_file'];
+    const keyOrder = ['allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file'];
     for (const key of keyOrder) {
         if (managed[key] === undefined) continue;
         const val = managed[key];
