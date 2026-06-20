@@ -901,9 +901,10 @@ router.post('/wizard/bootstrap', async (req, res) => {
 
 /**
  * POST /she/broker/wizard/deactivate
- * Remove dynsec plugin lines from mosquitto.conf (remote or local).
- * The caller is responsible for also clearing broker.dynsec credentials from
- * config.json and restarting mosquitto afterwards.
+ * Remove dynsec plugin lines from mosquitto.conf (remote or local),
+ * stop the dynsec MQTT client immediately, and clear broker.dynsec credentials
+ * from config.json so she does not try to reconnect on next restart.
+ * Caller must still restart mosquitto to fully remove the plugin.
  */
 router.post('/wizard/deactivate', async (req, res) => {
     try {
@@ -923,6 +924,28 @@ router.post('/wizard/deactivate', async (req, res) => {
             const content = mosquittoConf.serialise(parsed);
             mosquittoConf.write(fp, content);
         }
+
+        // Stop the dynsec client immediately — prevents log flooding from
+        // repeated reconnect attempts against a broker that no longer has
+        // the dynamic-security plugin loaded.
+        dynsec.stop();
+
+        // Clear broker.dynsec credentials from config.json so the dynsec
+        // client is not re-initialised if she is restarted.
+        const configPath = req.app.locals.configPath;
+        if (configPath) {
+            try {
+                const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                if (cfg.broker && cfg.broker.dynsec) {
+                    delete cfg.broker.dynsec;
+                    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 4) + '\n', 'utf8');
+                    _log?.info('broker: cleared broker.dynsec credentials from config.json');
+                }
+            } catch (e) {
+                _log?.warn(`broker: failed to clear dynsec credentials from config.json: ${e.message}`);
+            }
+        }
+
         res.json({ ok: true });
     } catch (err) {
         handleError(res, err);

@@ -183,6 +183,31 @@ function getStatus() {
     return { connected: _connected, configured: _configured, dynsecReady: _dynsecReady };
 }
 
+/**
+ * Permanently stop the dynsec client (called when dynsec is deactivated).
+ * Ends the MQTT connection without reconnect, rejects all pending requests,
+ * and marks the client as unconfigured so it will not try to reconnect.
+ */
+function stop() {
+    _configured = false;
+    _connected = false;
+    _dynsecReady = false;
+    // Reject any in-flight / queued requests
+    if (_inflight && _inflightResolve) {
+        _inflightResolve = null;
+        _inflight = false;
+    }
+    while (_queue.length > 0) {
+        const { reject } = _queue.shift();
+        reject(new Error('dynsec stopped'));
+    }
+    if (_client) {
+        _client.end(true); // force=true — skip DISCONNECT, prevent auto-reconnect
+        _client = null;
+    }
+    if (_log) _log.info('dynsec: stopped');
+}
+
 // ── User management ────────────────────────────────────────────────────────────
 
 function createClient(username, password, options = {}) {
@@ -297,6 +322,7 @@ function setDefaultACLAccess(acls) {
 module.exports = {
     init,
     getStatus,
+    stop,
     // Users
     createClient,
     deleteClient,

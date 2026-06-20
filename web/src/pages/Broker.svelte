@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getBrokerStatus, getConfig, putConfig, brokerDynsecDeactivate, type BrokerStatus } from '../lib/api.js';
+    import { getBrokerStatus, brokerDynsecDeactivate, type BrokerStatus } from '../lib/api.js';
     import Users from './broker/Users.svelte';
     import Listeners from './broker/Listeners.svelte';
     import Certificates from './broker/Certificates.svelte';
@@ -43,10 +43,6 @@
         deactivateError = '';
         try {
             await brokerDynsecDeactivate();
-            const cfg = await getConfig();
-            const broker = (cfg.broker ?? {}) as Record<string, unknown>;
-            delete broker.dynsec;
-            await putConfig({ ...cfg, broker });
             await loadStatus();
         } catch (e: any) {
             deactivateError = e.message ?? 'Deactivate failed';
