@@ -265,13 +265,14 @@
             {/if}
         </button>
         <button class:active={page === 'security'} onclick={() => navigate('security')}>
-            <!-- Security icon: padlock -->
+            <!-- Broker icon: antenna / broadcast -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2.5" y="7" width="11" height="8" rx="1.5"/>
-                <path d="M5.5,7 V5 A2.5,2.5 0,0,1 10.5,5 V7"/>
-                <circle cx="8" cy="11.5" r="1" fill="currentColor" stroke="none"/>
+                <circle cx="8" cy="10" r="2"/>
+                <path d="M5,7 A4,4 0,0,1 11,7"/>
+                <path d="M3,5 A6.5,6.5 0,0,1 13,5"/>
+                <line x1="8" y1="12" x2="8" y2="15"/>
             </svg>
-            Security
+            Broker
         </button>
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->

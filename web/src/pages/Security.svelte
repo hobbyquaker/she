@@ -107,7 +107,7 @@
         <button class:active={tab === 'brokerconfig'} onclick={() => (tab = 'brokerconfig')}>Config</button>
         <button class:active={tab === 'listeners'} onclick={() => (tab = 'listeners')}>Listeners</button>
         <button class:active={tab === 'certs'} onclick={() => (tab = 'certs')}>Certificates</button>
-        <button class:active={tab === 'ssh'} onclick={() => (tab = 'ssh')}>Mosquitto</button>
+        <button class:active={tab === 'ssh'} onclick={() => (tab = 'ssh')}>Connection</button>
         <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
     </div>
 
