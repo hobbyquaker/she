@@ -29,7 +29,19 @@ const execFileAsync = promisify(execFile);
 // NOTE: 'plugin_opt_dynsec_config_file' is kept here only for migration —
 // when read from an old conf it is normalised to 'plugin_opt_config_file' on
 // the same line that recognises it (see parseText below).
-const MANAGED_SINGLE_KEYS = new Set(['per_listener_settings', 'allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file', 'plugin_opt_dynsec_config_file']);
+const MANAGED_SINGLE_KEYS = new Set([
+    'per_listener_settings', 'allow_anonymous',
+    'persistence', 'persistence_location',
+    'log_dest', 'log_type',
+    'plugin', 'plugin_opt_config_file', 'plugin_opt_dynsec_config_file',
+    // Connection limits
+    'max_connections', 'max_inflight_messages', 'max_queued_messages',
+    'max_packet_size', 'message_size_limit', 'max_keepalive',
+    // Sessions
+    'persistent_client_expiration', 'retain_available',
+    // Performance / misc
+    'set_tcp_nodelay', 'connection_messages',
+]);
 
 /**
  * Parse mosquitto.conf text into a structured object.
@@ -112,6 +124,9 @@ function isListenerSubkey(key) {
     return [
         'protocol',
         'socket_domain',
+        'mount_point',
+        'max_connections',
+        'max_qos',
         'certfile',
         'keyfile',
         'cafile',
@@ -119,6 +134,7 @@ function isListenerSubkey(key) {
         'crlfile',
         'require_certificate',
         'use_identity_as_username',
+        'use_subject_as_username',
         'tls_version',
         'websockets_log_level',
         'allow_anonymous',
@@ -129,6 +145,15 @@ function applyListenerKey(listener, key, value) {
     switch (key) {
         case 'protocol':
             listener.protocol = value;
+            break;
+        case 'mount_point':
+            listener.mount_point = value;
+            break;
+        case 'max_connections':
+            listener.max_connections = parseInt(value, 10);
+            break;
+        case 'max_qos':
+            listener.max_qos = parseInt(value, 10);
             break;
         case 'certfile':
         case 'keyfile':
@@ -143,6 +168,9 @@ function applyListenerKey(listener, key, value) {
             break;
         case 'use_identity_as_username':
             listener.tls.use_identity_as_username = value === 'true';
+            break;
+        case 'use_subject_as_username':
+            listener.tls.use_subject_as_username = value === 'true';
             break;
         case 'allow_anonymous':
             listener.allow_anonymous = value === 'true';
@@ -164,7 +192,16 @@ function serialise(conf) {
     // Managed single-key entries first
     const { managed = {}, listeners = [], passthrough = [] } = conf;
 
-    const keyOrder = ['per_listener_settings', 'allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file'];
+    const keyOrder = [
+        'per_listener_settings', 'allow_anonymous',
+        'persistence', 'persistence_location',
+        'max_connections', 'max_inflight_messages', 'max_queued_messages',
+        'max_packet_size', 'message_size_limit', 'max_keepalive',
+        'persistent_client_expiration', 'retain_available',
+        'set_tcp_nodelay', 'connection_messages',
+        'log_dest', 'log_type',
+        'plugin', 'plugin_opt_config_file',
+    ];
     for (const key of keyOrder) {
         if (managed[key] === undefined) continue;
         const val = managed[key];
@@ -182,6 +219,9 @@ function serialise(conf) {
         const addr = l.bindAddress ? ` ${l.bindAddress}` : '';
         lines.push(`listener ${l.port}${addr}`);
         if (l.protocol && l.protocol !== 'mqtt') lines.push(`protocol ${l.protocol}`);
+        if (l.mount_point) lines.push(`mount_point ${l.mount_point}`);
+        if (l.max_connections !== undefined && l.max_connections !== null) lines.push(`max_connections ${l.max_connections}`);
+        if (l.max_qos !== undefined && l.max_qos !== null) lines.push(`max_qos ${l.max_qos}`);
         const tls = l.tls || {};
         for (const tlsKey of ['certfile', 'keyfile', 'cafile', 'capath', 'crlfile', 'tls_version']) {
             if (tls[tlsKey]) lines.push(`${tlsKey} ${tls[tlsKey]}`);
@@ -191,6 +231,9 @@ function serialise(conf) {
         }
         if (tls.use_identity_as_username !== undefined) {
             lines.push(`use_identity_as_username ${tls.use_identity_as_username ? 'true' : 'false'}`);
+        }
+        if (tls.use_subject_as_username !== undefined) {
+            lines.push(`use_subject_as_username ${tls.use_subject_as_username ? 'true' : 'false'}`);
         }
         if (l.allow_anonymous !== undefined) {
             lines.push(`allow_anonymous ${l.allow_anonymous ? 'true' : 'false'}`);

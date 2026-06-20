@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import {
         getBrokerConf, putBrokerConf, brokerReload,
+        getBrokerIpAddresses,
         type BrokerConf, type BrokerListener,
     } from '../../lib/api.js';
 
@@ -21,7 +22,16 @@
     let perListenerSettings = $state(false);
     let globalAllowAnon = $state<'' | 'true' | 'false'>('')
 
-    onMount(() => { load(); });
+    // Bind-address autocomplete
+    let ipAddresses = $state<string[]>([]);
+
+    // Advanced section open state per listener card index
+    let advancedOpen = $state<Set<number>>(new Set());
+
+    onMount(() => {
+        load();
+        getBrokerIpAddresses().then(r => { ipAddresses = r.addresses; }).catch(() => {});
+    });
 
     async function load() {
         try {
@@ -39,6 +49,13 @@
 
     function addListener() {
         listeners = [...listeners, { port: 1883, bindAddress: '', protocol: 'mqtt', tls: {} }];
+        advancedOpen = new Set(advancedOpen); // keep existing state
+    }
+
+    function toggleAdvanced(idx: number) {
+        const s = new Set(advancedOpen);
+        if (s.has(idx)) s.delete(idx); else s.add(idx);
+        advancedOpen = s;
     }
 
     function removeListener(idx: number) {
@@ -120,6 +137,7 @@
         <label class="toggle-label">
             <input type="checkbox" bind:checked={perListenerSettings} />
             <span><code>per_listener_settings</code> — independent auth per listener</span>
+            <span class="info-icon" title="Not recommended when using the dynamic-security plugin — dynsec credentials only apply to the default listener. See mosquitto documentation.">ℹ</span>
         </label>
         {#if !perListenerSettings}
         <div class="anon-row">
@@ -154,16 +172,18 @@
                 </label>
                 <label>
                     Bind address
-                    <input bind:value={l.bindAddress} placeholder="(all interfaces)" />
+                    <input bind:value={l.bindAddress} placeholder="(all interfaces)" list="bind-addr-list-{idx}" />
                 </label>
-            </div>
-
-            <div class="tls-toggle-row">
-                <label class="toggle-label">
+                <label class="toggle-label tls-inline">
                     <input type="checkbox" checked={isTlsEnabled(l)} onchange={(e) => setTlsEnabled(l, (e.target as HTMLInputElement).checked)} />
                     TLS
                 </label>
             </div>
+            <datalist id="bind-addr-list-{idx}">
+                {#each ipAddresses as addr}
+                <option value={addr}></option>
+                {/each}
+            </datalist>
 
             {#if isTlsEnabled(l)}
             <div class="tls-section">
@@ -211,6 +231,49 @@
                         Use cert CN as username (use_identity_as_username)
                     </label>
                 </div>
+            </div>
+            {/if}
+
+            <!-- Advanced toggle -->
+            <button class="advanced-btn" onclick={() => toggleAdvanced(idx)}>
+                {advancedOpen.has(idx) ? '▾' : '▸'} Advanced
+            </button>
+
+            {#if advancedOpen.has(idx)}
+            <div class="advanced-section">
+                <div class="field-row">
+                    <label>
+                        Mount point
+                        <input bind:value={l.mount_point} placeholder="(none)" />
+                    </label>
+                    <label>
+                        Max connections
+                        <input type="number" bind:value={l.max_connections} min="-1" placeholder="-1 (unlimited)" />
+                    </label>
+                    <label>
+                        Max QoS
+                        <select
+                            value={l.max_qos !== undefined ? String(l.max_qos) : ''}
+                            onchange={(e) => {
+                                const v = (e.target as HTMLSelectElement).value;
+                                l.max_qos = v === '' ? undefined : Number(v) as 0|1|2;
+                                listeners = [...listeners];
+                            }}>
+                            <option value="">default</option>
+                            <option value="0">0 — fire and forget</option>
+                            <option value="1">1 — at least once</option>
+                            <option value="2">2 — exactly once</option>
+                        </select>
+                    </label>
+                </div>
+                {#if isTlsEnabled(l)}
+                <div class="field-row">
+                    <label class="toggle-label">
+                        <input type="checkbox" bind:checked={l.tls.use_subject_as_username} />
+                        Use cert Subject as username (use_subject_as_username)
+                    </label>
+                </div>
+                {/if}
             </div>
             {/if}
 
@@ -345,7 +408,14 @@
         padding: 4px 7px;
     }
 
-    .tls-toggle-row { margin-bottom: 8px; }
+    .tls-inline {
+        flex: 0 0 auto;
+        min-width: unset;
+        flex-direction: row !important;
+        justify-content: center;
+        align-self: flex-end;
+        padding-bottom: 6px;
+    }
 
     .toggle-label {
         display: flex !important;
@@ -355,6 +425,30 @@
         color: var(--text, #ddd) !important;
         cursor: pointer;
         font-size: 12px;
+    }
+
+    .advanced-btn {
+        background: none;
+        border: none;
+        color: var(--text-muted, #888);
+        cursor: pointer;
+        font-size: 11px;
+        padding: 2px 0;
+        margin-top: 4px;
+    }
+    .advanced-btn:hover { color: var(--text, #ddd); }
+
+    .advanced-section {
+        border-top: 1px solid var(--border, #333);
+        padding-top: 10px;
+        margin-top: 6px;
+    }
+
+    .info-icon {
+        cursor: help;
+        color: var(--text-muted, #888);
+        font-size: 11px;
+        margin-left: 2px;
     }
 
     .tls-section {

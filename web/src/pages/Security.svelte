@@ -4,8 +4,10 @@
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import Users from './broker/Users.svelte';
     import Listeners from './broker/Listeners.svelte';
+    import BrokerConfig from './broker/BrokerConfig.svelte';
     import Certificates from './broker/Certificates.svelte';
     import SSH from './broker/SSH.svelte';
+    import MosquittoLogs from './broker/MosquittoLogs.svelte';
     import Wizard from './broker/Wizard.svelte';
 
     let showWizard = $state(false);
@@ -15,7 +17,7 @@
     let diagnosing = $state(false);
     let diagnosis = $state<DynsecDiagnosis | null>(null);
 
-    type SubTab = 'status' | 'users' | 'listeners' | 'certs' | 'ssh';
+    type SubTab = 'status' | 'users' | 'brokerconfig' | 'listeners' | 'certs' | 'ssh' | 'logs';
     const TAB_KEY = 'she-broker-tab';
     let tab = $state<SubTab>((localStorage.getItem(TAB_KEY) as SubTab) ?? 'status');
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
@@ -102,9 +104,11 @@
     <div class="sub-nav">
         <button class:active={tab === 'status'} onclick={() => (tab = 'status')}>Status</button>
         <button class:active={tab === 'users'} onclick={() => (tab = 'users')}>Directory</button>
+        <button class:active={tab === 'brokerconfig'} onclick={() => (tab = 'brokerconfig')}>Config</button>
         <button class:active={tab === 'listeners'} onclick={() => (tab = 'listeners')}>Listeners</button>
         <button class:active={tab === 'certs'} onclick={() => (tab = 'certs')}>Certificates</button>
         <button class:active={tab === 'ssh'} onclick={() => (tab = 'ssh')}>Mosquitto</button>
+        <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
     </div>
 
     {#if tab === 'status'}
@@ -194,6 +198,9 @@
     {:else if tab === 'users'}
     <Users dynsecReady={status?.dynsec.dynsecReady ?? false} />
 
+    {:else if tab === 'brokerconfig'}
+    <BrokerConfig />
+
     {:else if tab === 'listeners'}
     <Listeners />
 
@@ -202,6 +209,9 @@
 
     {:else if tab === 'ssh'}
     <SSH />
+
+    {:else if tab === 'logs'}
+    <MosquittoLogs />
     {/if}
 </div>
 

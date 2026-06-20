@@ -17,6 +17,9 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFile, spawn } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const dynsec = require('../lib/dynsec');
 const mosquittoConf = require('../lib/mosquitto-conf');
 const ca = require('../lib/ca');
@@ -947,7 +950,7 @@ module.exports = { router, setLogger, setStore };
 router.get('/local/check', async (req, res) => {
     function probe(cmd) {
         return new Promise((resolve) => {
-            const cp = require('child_process').spawn(cmd, ['--help'], { stdio: 'ignore' });
+            const cp = spawn(cmd, ['--help'], { stdio: 'ignore' });
             cp.on('error', (e) => resolve(e.code !== 'ENOENT'));
             cp.on('close', () => resolve(true));
         });
@@ -957,6 +960,39 @@ router.get('/local/check', async (req, res) => {
         res.json({ mosquittoCtrl, mosquitto });
     } catch (err) {
         handleError(res, err);
+    }
+});
+
+// ── IP address listing ────────────────────────────────────────────────────────
+
+/**
+ * GET /she/broker/ip-addresses
+ * List host IP addresses for bind-address autocomplete.
+ * Runs `ip a` locally or via SSH depending on broker.ssh configuration.
+ */
+router.get('/ip-addresses', async (req, res) => {
+    const bc = getBrokerConfig(req);
+    try {
+        let stdout = '';
+        if (bc.ssh && bc.ssh.host) {
+            const result = await sshDeploy.runCommand(bc.ssh, 'ip a 2>/dev/null || ip addr 2>/dev/null');
+            stdout = result.stdout;
+        } else {
+            const result = await execFileAsync('ip', ['a'], { timeout: 5000 }).catch(() =>
+                execFileAsync('ip', ['addr'], { timeout: 5000 }),
+            );
+            stdout = result.stdout;
+        }
+        // Extract IPv4 and IPv6 addresses; skip loopback
+        const addresses = [];
+        for (const m of stdout.matchAll(/inet6?\s+([\da-f.:]+)(?:\/\d+)?/gi)) {
+            const addr = m[1];
+            if (addr === '127.0.0.1' || addr === '::1') continue;
+            addresses.push(addr);
+        }
+        res.json({ addresses: [...new Set(addresses)] });
+    } catch {
+        res.json({ addresses: [] });
     }
 });
 

@@ -617,12 +617,16 @@ export interface BrokerListenerTls {
     tls_version?: string;
     require_certificate?: boolean;
     use_identity_as_username?: boolean;
+    use_subject_as_username?: boolean;
 }
 
 export interface BrokerListener {
     port: number;
     bindAddress?: string;
     protocol?: string;
+    mount_point?: string;
+    max_connections?: number;
+    max_qos?: number;
     tls: BrokerListenerTls;
     allow_anonymous?: boolean;
 }
@@ -671,6 +675,10 @@ export interface BrokerLocalCheck {
 
 export function getBrokerLocalCheck(): Promise<BrokerLocalCheck> {
     return request('GET', '/she/broker/local/check');
+}
+
+export function getBrokerIpAddresses(): Promise<{ addresses: string[] }> {
+    return request('GET', '/she/broker/ip-addresses');
 }
 
 export function getBrokerConf(): Promise<BrokerConf> {
