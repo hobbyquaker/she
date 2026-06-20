@@ -604,6 +604,8 @@ export interface BrokerStatus {
     dynsec: BrokerDynsecStatus;
     sys: Record<string, { val: unknown; ts: number }>;
     sshKeyDefault: string;
+    sshConfigured: boolean;
+    sshHost: string | null;
 }
 
 export interface BrokerListenerTls {
@@ -622,6 +624,7 @@ export interface BrokerListener {
     bindAddress?: string;
     protocol?: string;
     tls: BrokerListenerTls;
+    allow_anonymous?: boolean;
 }
 
 export interface BrokerConf {

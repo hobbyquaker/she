@@ -29,7 +29,7 @@ const execFileAsync = promisify(execFile);
 // NOTE: 'plugin_opt_dynsec_config_file' is kept here only for migration —
 // when read from an old conf it is normalised to 'plugin_opt_config_file' on
 // the same line that recognises it (see parseText below).
-const MANAGED_SINGLE_KEYS = new Set(['allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file', 'plugin_opt_dynsec_config_file']);
+const MANAGED_SINGLE_KEYS = new Set(['per_listener_settings', 'allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file', 'plugin_opt_dynsec_config_file']);
 
 /**
  * Parse mosquitto.conf text into a structured object.
@@ -121,6 +121,7 @@ function isListenerSubkey(key) {
         'use_identity_as_username',
         'tls_version',
         'websockets_log_level',
+        'allow_anonymous',
     ].includes(key);
 }
 
@@ -143,6 +144,9 @@ function applyListenerKey(listener, key, value) {
         case 'use_identity_as_username':
             listener.tls.use_identity_as_username = value === 'true';
             break;
+        case 'allow_anonymous':
+            listener.allow_anonymous = value === 'true';
+            break;
         default:
             break;
     }
@@ -160,7 +164,7 @@ function serialise(conf) {
     // Managed single-key entries first
     const { managed = {}, listeners = [], passthrough = [] } = conf;
 
-    const keyOrder = ['allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file'];
+    const keyOrder = ['per_listener_settings', 'allow_anonymous', 'persistence', 'persistence_location', 'log_dest', 'log_type', 'plugin', 'plugin_opt_config_file'];
     for (const key of keyOrder) {
         if (managed[key] === undefined) continue;
         const val = managed[key];
@@ -187,6 +191,9 @@ function serialise(conf) {
         }
         if (tls.use_identity_as_username !== undefined) {
             lines.push(`use_identity_as_username ${tls.use_identity_as_username ? 'true' : 'false'}`);
+        }
+        if (l.allow_anonymous !== undefined) {
+            lines.push(`allow_anonymous ${l.allow_anonymous ? 'true' : 'false'}`);
         }
         lines.push('');
     }

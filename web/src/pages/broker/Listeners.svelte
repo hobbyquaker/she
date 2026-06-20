@@ -17,6 +17,10 @@
     let listeners = $state<BrokerListener[]>([]);
     let checksum = $state<string | null>(null);
 
+    // Global settings (from managed keys)
+    let perListenerSettings = $state(false);
+    let globalAllowAnon = $state<'' | 'true' | 'false'>('')
+
     onMount(() => { load(); });
 
     async function load() {
@@ -24,6 +28,9 @@
             conf = await getBrokerConf();
             listeners = JSON.parse(JSON.stringify(conf.listeners));
             checksum = conf.checksum;
+            const aa = conf.managed['allow_anonymous'];
+            globalAllowAnon = (aa === 'true' || aa === 'false') ? aa : '';
+            perListenerSettings = conf.managed['per_listener_settings'] === 'true';
             loadError = '';
         } catch (e: any) {
             loadError = e.message ?? 'Failed to load broker config';
@@ -44,7 +51,16 @@
         saveError = '';
         saveOk = false;
         try {
-            await putBrokerConf({ listeners, managed: conf.managed, passthrough: conf.passthrough, checksum });
+            const updatedManaged = { ...conf.managed };
+            if (perListenerSettings) {
+                updatedManaged['per_listener_settings'] = 'true';
+                delete updatedManaged['allow_anonymous']; // handled per-listener
+            } else {
+                delete updatedManaged['per_listener_settings'];
+                if (globalAllowAnon) updatedManaged['allow_anonymous'] = globalAllowAnon;
+                else delete updatedManaged['allow_anonymous'];
+            }
+            await putBrokerConf({ listeners, managed: updatedManaged, passthrough: conf.passthrough, checksum });
             saveOk = true;
             setTimeout(() => (saveOk = false), 3000);
             await load(); // refresh checksum
@@ -99,6 +115,23 @@
     {#if conf === null && !loadError}
     <div class="loading">Loading…</div>
     {:else}
+    <!-- Global settings -->
+    <div class="global-settings">
+        <label class="toggle-label">
+            <input type="checkbox" bind:checked={perListenerSettings} />
+            <span><code>per_listener_settings</code> — independent auth per listener</span>
+        </label>
+        {#if !perListenerSettings}
+        <div class="anon-row">
+            <span class="field-label"><code>allow_anonymous</code></span>
+            <select bind:value={globalAllowAnon}>
+                <option value="">auto (broker default)</option>
+                <option value="true">true — allow unauthenticated clients</option>
+                <option value="false">false — require authentication</option>
+            </select>
+        </div>
+        {/if}
+    </div>
     <div class="cards">
         {#each listeners as l, idx}
         <div class="listener-card">
@@ -178,6 +211,23 @@
                         Use cert CN as username (use_identity_as_username)
                     </label>
                 </div>
+            </div>
+            {/if}
+
+            {#if perListenerSettings}
+            <div class="per-listener-anon">
+                <span class="field-label"><code>allow_anonymous</code></span>
+                <select
+                    value={l.allow_anonymous === undefined ? '' : l.allow_anonymous ? 'true' : 'false'}
+                    onchange={(e) => {
+                        const v = (e.target as HTMLSelectElement).value;
+                        l.allow_anonymous = v === '' ? undefined : v === 'true';
+                        listeners = [...listeners];
+                    }}>
+                    <option value="">auto (broker default)</option>
+                    <option value="true">true — allow unauthenticated</option>
+                    <option value="false">false — require auth</option>
+                </select>
             </div>
             {/if}
         </div>
@@ -311,5 +361,40 @@
         border-top: 1px solid var(--border, #333);
         padding-top: 10px;
         margin-top: 4px;
+    }
+
+    .global-settings {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 10px 14px;
+        background: var(--surface, #1e1e1e);
+        border: 1px solid var(--border, #333);
+        border-radius: 6px;
+        margin-bottom: 12px;
+    }
+
+    .anon-row, .per-listener-anon {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .per-listener-anon {
+        border-top: 1px solid var(--border, #333);
+        padding-top: 8px;
+        margin-top: 4px;
+    }
+
+    .field-label { font-size: 11px; color: var(--text-muted, #aaa); white-space: nowrap; }
+    .field-label code { font-size: 11px; }
+
+    .anon-row select, .per-listener-anon select {
+        background: var(--input-bg, #2a2a2a);
+        border: 1px solid var(--border, #444);
+        border-radius: 4px;
+        color: var(--text, #eee);
+        font-size: 11px;
+        padding: 3px 6px;
     }
 </style>
