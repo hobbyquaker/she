@@ -73,6 +73,7 @@
     let verbosity      = $state('info');
 
     // sheDB
+    let dbEnabled      = $state(true);  // default enabled
     let dbPath         = $state('');
     let dbPrefix       = $state('');
     let dbPublish      = $state(false);
@@ -221,7 +222,7 @@
         { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository'] },
         { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
-        { id: 'shedb',      label: 'sheDB',        terms: ['database','db','path','retain'] },
+        { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
         { id: 'ai',         label: 'AI Assistant', terms: ['llm','ollama','openai','anthropic','model','provider','base url'] },
     ] as const;
@@ -276,7 +277,13 @@
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.timezone         === 'string')  timezone     = cfg.timezone;
             if (typeof cfg.verbosity        === 'string')  verbosity    = cfg.verbosity;
-            if (typeof cfg.dbPath           === 'string')  dbPath       = cfg.dbPath;
+            if (typeof cfg.dbPath === 'string') {
+                dbEnabled = cfg.dbPath !== ''; // empty string = explicitly disabled
+                dbPath    = cfg.dbPath;
+            } else {
+                dbEnabled = true; // key absent = daemon uses default = enabled
+                dbPath    = '';
+            }
             if (typeof cfg.dbPrefix         === 'string')  dbPrefix     = cfg.dbPrefix;
             if (typeof cfg.dbPublish        === 'boolean') dbPublish    = cfg.dbPublish;
             if (typeof cfg.dbRetain         === 'boolean') dbRetain     = cfg.dbRetain;
@@ -326,6 +333,23 @@
         } finally {
             authSaving = false;
         }
+    }
+
+    async function onDbEnabledChange(val: boolean) {
+        if (val) { dbEnabled = true; return; }
+        let docCount = 0;
+        try {
+            const st = await getDaemonStatus();
+            docCount = st.dbDocs ?? 0;
+        } catch { /* best-effort */ }
+        if (docCount > 0) {
+            const ok = await dialog.show(
+                `sheDB contains ${docCount} document${docCount === 1 ? '' : 's'}. Disabling it will hide the DB page but data on disk is preserved and can be re-enabled later. Continue?`,
+                { confirm: 'Disable anyway', danger: true },
+            );
+            if (!ok) return;
+        }
+        dbEnabled = false;
     }
 
     async function onMatterEnabledChange(val: boolean) {
@@ -406,13 +430,18 @@
 
         cfg.verbosity = verbosity;
 
-        if (dbPath) {
-            cfg.dbPath = dbPath;
-            if (dbPrefix) cfg.dbPrefix = dbPrefix;
-            if (dbPublish) {
-                cfg.dbPublish = true;
-                if (dbRetain) cfg.dbRetain = true;
+        if (dbEnabled) {
+            if (dbPath) {
+                cfg.dbPath = dbPath;
+                if (dbPrefix) cfg.dbPrefix = dbPrefix;
+                if (dbPublish) {
+                    cfg.dbPublish = true;
+                    if (dbRetain) cfg.dbRetain = true;
+                }
             }
+            // else: key absent → daemon uses default path, DB enabled
+        } else {
+            cfg.dbPath = ''; // explicitly disable sheDB
         }
         if (redisUrl) cfg.redis = { url: redisUrl };
         // broker.enabled — merge into the existing broker config block (preserves dynsec, ssh, etc.)
@@ -860,9 +889,18 @@
                 <section id="sec-shedb">
                     <h3>sheDB</h3>
                     <div class="field">
+                        <label class="toggle">
+                            <input type="checkbox" checked={dbEnabled}
+                                onchange={(e) => onDbEnabledChange((e.target as HTMLInputElement).checked)} />
+                            <span class="toggle-label">Enable sheDB</span>
+                        </label>
+                        <p class="hint">Built-in JSON document store used by scripts and the DB page. Disable only if you don't use it — data on disk is preserved.</p>
+                    </div>
+                    {#if dbEnabled}
+                    <div class="field">
                         <label>
                             Database path
-                            {@render tip('Path to the sheDB data directory. Defaults to {dataDir}/db. Leave empty to disable sheDB.')}
+                            {@render tip('Path to the sheDB data directory. Defaults to {dataDir}/db. Leave empty to use the default.')}
                         </label>
                         <input type="text" bind:value={dbPath} placeholder="defaults to {dataDir}/db" />
                     </div>
@@ -871,12 +909,12 @@
                             MQTT topic prefix
                             {@render tip('Prefix for all sheDB MQTT topics. Defaults to she/db/ — documents publish to {prefix}doc/{id}, views to {prefix}view/{id}, commands use {prefix}set/{id} etc.')}
                         </label>
-                        <input type="text" bind:value={dbPrefix} placeholder="she/db/ (default)" disabled={!dbPath} />
+                        <input type="text" bind:value={dbPrefix} placeholder="she/db/ (default)" />
                     </div>
                     <div class="field field--check">
                         <span></span>
-                        <label class="check-label" class:muted={!dbPath}>
-                            <input type="checkbox" bind:checked={dbPublish} disabled={!dbPath} />
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={dbPublish} />
                             <span class="checkmark"></span>
                             Publish documents to MQTT
                             {@render tip('When enabled, every document change is published to {dbPrefix}doc/{id}. Individual views can publish independently via their own "mqttpub" setting.')}
@@ -885,13 +923,14 @@
                     {#if dbPublish}
                     <div class="field field--check">
                         <span></span>
-                        <label class="check-label" class:muted={!dbPath}>
-                            <input type="checkbox" bind:checked={dbRetain} disabled={!dbPath} />
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={dbRetain} />
                             <span class="checkmark"></span>
                             Retain document messages
                             {@render tip('When enabled, MQTT messages for document changes are published as retained messages.')}
                         </label>
                     </div>
+                    {/if}
                     {/if}
                 </section>
                 {/if}

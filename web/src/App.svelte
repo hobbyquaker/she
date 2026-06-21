@@ -184,6 +184,8 @@
             } catch { /* best effort */ }
             // Redirect away from Matter page if Matter is not enabled at runtime
             if (!stats?.matterEnabled && page === 'matter') navigate('scripts');
+            // Redirect away from DB page if sheDB is not enabled at runtime
+            if (!stats?.dbEnabled && page === 'db') navigate('scripts');
         }
         pollStatus();
         const statusInterval = setInterval(pollStatus, 5000);
@@ -300,6 +302,7 @@
             {/if}
         </button>
         {/if}
+        {#if stats?.dbEnabled}
         <button class:active={page === 'db'} onclick={() => navigate('db')}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <ellipse cx="8" cy="4.5" rx="5" ry="1.8"/>
@@ -308,6 +311,7 @@
             </svg>
             DB
         </button>
+        {/if}
         <button class:active={page === 'logs'} onclick={() => { navigate('logs'); logHasError = false; logHasWarn = false; }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
                 <line x1="2" y1="5" x2="14" y2="5"/>
