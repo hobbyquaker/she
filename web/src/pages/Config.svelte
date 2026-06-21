@@ -212,18 +212,18 @@
     let activeSection = $state('appearance');
 
     const SECTIONS = [
-        { id: 'broker',  label: 'Mosquitto',        terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
-        { id: 'matter',  label: 'Matter controller', terms: ['matter','thread','zigbee','iot','devices','smart home controller'] },
         { id: 'appearance', label: 'Appearance',    terms: ['theme','color','dark','light'] },
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
+        { id: 'broker',  label: 'Mosquitto',        terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
+        { id: 'matter',  label: 'Matter controller', terms: ['matter','thread','zigbee','iot','devices','smart home controller'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
         { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
         { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository'] },
         { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule'] },
-        { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
+        { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
         { id: 'ai',         label: 'AI Assistant', terms: ['llm','ollama','openai','anthropic','model','provider','base url'] },
     ] as const;
 
@@ -293,7 +293,7 @@
             brokerEnabled = brokerCfg?.enabled === true;
             const ms = cfg['matter-storage'] as string | undefined;
             matterEnabled = !!ms;
-            matterStorage = (ms && ms !== 'true') ? ms : '';
+            matterStorage = (ms && typeof ms === 'string' && ms !== 'true') ? ms : '';
             const ai = cfg.ai as { provider?: string; baseUrl?: string; model?: string; apiKey?: string } | undefined;
             if (ai?.provider) aiProvider = ai.provider;
             if (ai?.baseUrl)  aiBaseUrl  = ai.baseUrl;
@@ -533,47 +533,6 @@
         {:else}
             <div class="config-form">
 
-                <!-- ── Mosquitto Management ──────────────────────── -->
-                {#if visibleSections.some(s => s.id === 'broker')}
-                <section id="sec-broker">
-                    <h3>Mosquitto management</h3>
-                    <div class="feature-toggle">
-                        <label class="check-label">
-                            <input type="checkbox" checked={brokerEnabled} disabled={brokerChecking}
-                                onchange={(e) => onBrokerEnabledChange((e.target as HTMLInputElement).checked)} />
-                            <span class="checkmark"></span>
-                            Enable mosquitto broker management
-                        </label>
-                        <p class="feature-desc">Shows the <strong>Broker</strong> page in the navigation, giving access to listener config, dynamic security, TLS certificates and more. Disable this if you are not using Mosquitto or prefer to manage it externally.</p>
-                        {#if brokerChecking}<p class="feature-desc">Checking broker status…</p>{/if}
-                    </div>
-                </section>
-                {/if}
-
-                <!-- ── Matter controller ──────────────────────────── -->
-                {#if visibleSections.some(s => s.id === 'matter')}
-                <section id="sec-matter">
-                    <h3>Matter controller</h3>
-                    <div class="feature-toggle">
-                        <label class="check-label">
-                            <input type="checkbox" checked={matterEnabled} disabled={matterChecking}
-                                onchange={(e) => onMatterEnabledChange((e.target as HTMLInputElement).checked)} />
-                            <span class="checkmark"></span>
-                            Enable Matter controller
-                        </label>
-                        <p class="feature-desc">Shows the <strong>Matter</strong> page and starts the built-in Matter controller on next restart. Requires a restart to take effect. Disable only after unpairing all devices.</p>
-                        {#if matterChecking}<p class="feature-desc">Checking paired devices…</p>{/if}
-                    </div>
-                    {#if matterEnabled}
-                    <div class="field">
-                        <label for="matter-storage-input">Storage path</label>
-                        <input id="matter-storage-input" bind:value={matterStorage}
-                            placeholder="{dataDir}/matter (default)" />
-                    </div>
-                    {/if}
-                </section>
-                {/if}
-
                 <!-- ── Appearance ─────────────────────────────────── -->
                 {#if visibleSections.some(s => s.id === 'appearance')}
                 <section id="sec-appearance">
@@ -585,6 +544,61 @@
                             <option value="light">Light</option>
                             <option value="system">System (OS preference)</option>
                         </select>
+                    </div>
+                </section>
+                {/if}
+
+                <!-- ── Authentication ────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'auth')}
+                <section id="sec-auth">
+                    <h3>Authentication</h3>
+                    <div class="field">
+                        <label>
+                            Mode
+                            {@render tip('none: no authentication required. password: single-user password login. proxy: trust a header set by nginx/authentik.')}
+                        </label>
+                        <select bind:value={authMode}>
+                            <option value="none">None (open)</option>
+                            <option value="password">Password</option>
+                            <option value="proxy">Proxy header (nginx / authentik)</option>
+                        </select>
+                    </div>
+                    {#if authMode === 'password'}
+                    <div class="field">
+                        <label>
+                            {authPassword ? 'New password' : 'Password'}
+                            {@render tip('Set a new password. Leave empty to keep the current password (if already set).')}
+                        </label>
+                        <input type="password" bind:value={authPassword} placeholder="Enter new password" autocomplete="new-password" />
+                    </div>
+                    {/if}
+                    {#if authMode === 'proxy'}
+                    <div class="field">
+                        <label>
+                            Proxy user header
+                            {@render tip('The HTTP header that nginx/authentik sets after successful authentication. Default: X-Remote-User')}
+                        </label>
+                        <input type="text" bind:value={authProxyHeader} placeholder="X-Remote-User" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Logout URL
+                            {@render tip('URL to redirect to when the user clicks Logout (e.g. https://auth.example.com/application/o/she/end-session/ for Authentik). Leave empty to do nothing on logout.')}
+                        </label>
+                        <input type="text" bind:value={authProxyLogoutUrl} placeholder="https://auth.example.com/…/end-session/" />
+                    </div>
+                    {/if}
+                    {#if authErr}<div class="field-error">{authErr}</div>{/if}
+                    {#if authMsg}<div class="field-ok">{authMsg}</div>{/if}
+                    <div class="field">
+                        <span></span>
+                        <button
+                            class="save-auth-btn"
+                            onclick={saveAuth}
+                            disabled={authSaving || (authMode === 'password' && !authPassword)}
+                        >
+                            {authSaving ? 'Saving…' : 'Apply authentication settings'}
+                        </button>
                     </div>
                 </section>
                 {/if}
@@ -685,58 +699,51 @@
                 </section>
                 {/if}
 
-                <!-- ── Authentication ────────────────────────── -->
-                {#if visibleSections.some(s => s.id === 'auth')}
-                <section id="sec-auth">
-                    <h3>Authentication</h3>
-                    <div class="field">
+                <!-- ── Mosquitto Management ──────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'broker')}
+                <section id="sec-broker">
+                    <h3>Mosquitto management</h3>
+                    <div class="field field--check">
                         <label>
-                            Mode
-                            {@render tip('none: no authentication required. password: single-user password login. proxy: trust a header set by nginx/authentik.')}
+                            Enable
+                            {@render tip('Shows the Broker page in the navigation, giving access to listener config, dynamic security, TLS certificates and more. Disable if you are not using Mosquitto or prefer to manage it externally.')}
                         </label>
-                        <select bind:value={authMode}>
-                            <option value="none">None (open)</option>
-                            <option value="password">Password</option>
-                            <option value="proxy">Proxy header (nginx / authentik)</option>
-                        </select>
+                        <label class="check-label" class:muted={brokerChecking}>
+                            <input type="checkbox" checked={brokerEnabled} disabled={brokerChecking}
+                                onchange={(e) => onBrokerEnabledChange((e.target as HTMLInputElement).checked)} />
+                            <span class="checkmark"></span>
+                            Mosquitto management{#if brokerChecking} — checking…{/if}
+                        </label>
                     </div>
-                    {#if authMode === 'password'}
+                </section>
+                {/if}
+
+                <!-- ── Matter controller ──────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'matter')}
+                <section id="sec-matter">
+                    <h3>Matter controller</h3>
+                    <div class="field field--check">
+                        <label>
+                            Enable
+                            {@render tip('Shows the Matter page and starts the built-in Matter controller on next restart. Requires a restart to take effect. Disable only after unpairing all devices.')}
+                        </label>
+                        <label class="check-label" class:muted={matterChecking}>
+                            <input type="checkbox" checked={matterEnabled} disabled={matterChecking}
+                                onchange={(e) => onMatterEnabledChange((e.target as HTMLInputElement).checked)} />
+                            <span class="checkmark"></span>
+                            Matter controller{#if matterChecking} — checking…{/if}
+                        </label>
+                    </div>
+                    {#if matterEnabled}
                     <div class="field">
                         <label>
-                            {authPassword ? 'New password' : 'Password'}
-                            {@render tip('Set a new password. Leave empty to keep the current password (if already set).')}
+                            Storage path
+                            {@render tip('Path to the Matter controller storage directory. Leave empty to use the default ({dataDir}/matter).')}
                         </label>
-                        <input type="password" bind:value={authPassword} placeholder="Enter new password" autocomplete="new-password" />
+                        <input id="matter-storage-input" type="text" bind:value={matterStorage}
+                            placeholder="{dataDir}/matter (default)" />
                     </div>
                     {/if}
-                    {#if authMode === 'proxy'}
-                    <div class="field">
-                        <label>
-                            Proxy user header
-                            {@render tip('The HTTP header that nginx/authentik sets after successful authentication. Default: X-Remote-User')}
-                        </label>
-                        <input type="text" bind:value={authProxyHeader} placeholder="X-Remote-User" />
-                    </div>
-                    <div class="field">
-                        <label>
-                            Logout URL
-                            {@render tip('URL to redirect to when the user clicks Logout (e.g. https://auth.example.com/application/o/she/end-session/ for Authentik). Leave empty to do nothing on logout.')}
-                        </label>
-                        <input type="text" bind:value={authProxyLogoutUrl} placeholder="https://auth.example.com/…/end-session/" />
-                    </div>
-                    {/if}
-                    {#if authErr}<div class="field-error">{authErr}</div>{/if}
-                    {#if authMsg}<div class="field-ok">{authMsg}</div>{/if}
-                    <div class="field">
-                        <span></span>
-                        <button
-                            class="save-auth-btn"
-                            onclick={saveAuth}
-                            disabled={authSaving || (authMode === 'password' && !authPassword)}
-                        >
-                            {authSaving ? 'Saving…' : 'Apply authentication settings'}
-                        </button>
-                    </div>
                 </section>
                 {/if}
 
@@ -866,37 +873,21 @@
                 </section>
                 {/if}
 
-                <!-- ── Logging ───────────────────────────────────── -->
-                {#if visibleSections.some(s => s.id === 'logging')}
-                <section id="sec-logging">
-                    <h3>Logging</h3>
-                    <div class="field">
-                        <label>
-                            Verbosity
-                            {@render tip('Minimum log level. debug shows all messages including MQTT traffic details.')}
-                        </label>
-                        <select bind:value={verbosity}>
-                            <option value="debug">debug</option>
-                            <option value="info">info</option>
-                            <option value="warn">warn</option>
-                            <option value="error">error</option>
-                        </select>
-                    </div>
-                </section>
-                {/if}
-
                 <!-- ── sheDB ─────────────────────────────────────── -->
                 {#if visibleSections.some(s => s.id === 'shedb')}
                 <section id="sec-shedb">
                     <h3>sheDB</h3>
-                    <div class="feature-toggle">
+                    <div class="field field--check">
+                        <label>
+                            Enable
+                            {@render tip('Built-in JSON document store used by scripts and the DB page. Disable only if you don\'t use it — data on disk is preserved.')}
+                        </label>
                         <label class="check-label">
                             <input type="checkbox" checked={dbEnabled}
                                 onchange={(e) => onDbEnabledChange((e.target as HTMLInputElement).checked)} />
                             <span class="checkmark"></span>
-                            Enable sheDB
+                            sheDB
                         </label>
-                        <p class="feature-desc">Built-in JSON document store used by scripts and the DB page. Disable only if you don't use it — data on disk is preserved.</p>
                     </div>
                     {#if dbEnabled}
                     <div class="field">
@@ -947,6 +938,25 @@
                             {@render tip('redis:// URL for the optional Redis write-through cache. All state store changes are written to the she:state hash. Leave empty to disable.')}
                         </label>
                         <input type="text" bind:value={redisUrl} placeholder="leave empty to disable" />
+                    </div>
+                </section>
+                {/if}
+
+                <!-- ── Logging ───────────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'logging')}
+                <section id="sec-logging">
+                    <h3>Logging</h3>
+                    <div class="field">
+                        <label>
+                            Verbosity
+                            {@render tip('Minimum log level. debug shows all messages including MQTT traffic details.')}
+                        </label>
+                        <select bind:value={verbosity}>
+                            <option value="debug">debug</option>
+                            <option value="info">info</option>
+                            <option value="warn">warn</option>
+                            <option value="error">error</option>
+                        </select>
                     </div>
                 </section>
                 {/if}
