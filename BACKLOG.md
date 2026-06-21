@@ -32,7 +32,66 @@ Items that are intentionally deferred. Pick up when the time is right.
 
   Recommended fix: replace direct `router.METHOD(path, handler)` registration with a **dynamic dispatch map** (`Map<"METHOD path", handler>`). A single catch-all middleware walks this map at request time. `registerRoute(method, path, handler)` writes to the map; a new `unregisterRoutesByScript(scriptName)` removes all entries whose metadata identifies them as belonging to that script. On hot-reload the unload step clears the old entries and the new run registers fresh ones. No Express router accumulation, no daemon restart required. Estimated effort: ~40 lines in `server.js` + sandbox modules.
 
-## Scripts Editor
+## System scripts & cross-script event bus
+
+**Concept: two-tier script loading**
+
+Introduce a distinction between *system scripts* (ship with the daemon, in `src/scripts/`) and *user scripts* (the existing `~/.she/scripts/`). Load order: system scripts first, then user scripts. This guarantees that any API a system script attaches to `she.global` is already available when the first user script runs.
+
+System scripts are engine internals — they do not appear in the Scripts tab file tree and are not editable via the web UI. Their configuration lives in sheDB documents under the `system/<name>` namespace, editable from the DB tab.
+
+**`she.emit` / `events::` namespace — cross-script event bus**
+
+Currently scripts can share state via `she.global` (plain object, no callbacks) or via MQTT (requires broker, pollutes topic namespace, adds latency). A lightweight in-process event bus fills the gap.
+
+Rather than exposing a raw `EventEmitter` on `she.global`, extend the existing `she.on` pattern (already used for `mqtt::`, `var::`, `matter::` namespaces) with a new `events::` namespace and a new `she.emit` method:
+
+```js
+// script-a.js — subscribe
+she.on('events::alarm', ({ zone, severity }) => {
+    she.info('alarm in', zone, 'severity', severity);
+});
+
+// script-b.js — emit
+she.emit('events::alarm', { zone: 'front-door', severity: 'high' });
+```
+
+`events::` subscriptions are cleaned up on script unload just like `var::` subscriptions — no leaks on hot-reload. `she.emit` is the only new sandbox method required. This approach is more idiomatic than `she.global.events = new EventEmitter()`, reuses the existing API surface, and avoids the cleanup problem that a raw EventEmitter on `she.global` would have.
+
+Implementation: add an in-memory `Map<string, Set<listener>>` in `index.js`. `she.on('events::x', cb)` adds to the set. `she.emit('events::x', data)` iterates all listeners. On script unload, remove all `events::` listeners registered by that script. ~30 lines.
+
+**`notify.js` — notification system script**
+
+A system script that reads config from `she.db.get('system/notify')` and exposes `she.global.notify.send(title, message, [opts])`. Supported backends (selected by `config.service`):
+
+- `ntfy` — POST to `config.url`, optional Bearer token
+- `pushover` — POST to `https://api.pushover.net/1/messages.json` with `config.appToken` + `config.userKey`
+- `gotify` — POST to `config.url/message` with `config.token`
+
+User scripts call `she.global.notify?.send('Motion detected', 'Front door')` — the `?.` makes it a no-op if the system script is disabled or not yet configured.
+
+Configuration example (create via DB tab):
+```json
+// sheDB document id: system/notify
+{
+  "service": "ntfy",
+  "url": "https://ntfy.sh/my-private-topic",
+  "token": "optional-bearer-token"
+}
+```
+
+**Open questions:**
+- Should system scripts be opt-in (listed in `config.json` `systemScripts: ['notify']`) or always-on (check their own sheDB config, self-disable if missing)? Always-on with self-disabling is simpler for the user.
+- Should `she.emit` / `events::` be engine core (no script needed) or implemented as a system script? Engine core is cleaner since it avoids the load-order bootstrapping problem for the event bus itself.
+- What other system scripts make sense? Candidates: `presence.js` (aggregate per-room presence from multiple sensors), `sun.js` (publish current sun phase and twilight data to MQTT on schedule).
+
+
+
+- **Script starter templates** — when clicking `+ File`, offer an optional template picker (dropdown or modal) with a handful of pre-filled starters: *blank*, *motion-triggered light*, *daily schedule*, *MQTT bridge / link*, *HTTP fetch*, *sheDB subscriber*. Templates can be drawn directly from `doc/examples.md`. Frontend-only change: a small UI addition to the new-file flow, no backend needed.
+
+- **Diff view before git commit** — the git workflow currently goes: edit → commit dialog → write message → commit. Missing: a way to review what you are about to commit. Add a "Show diff" toggle in the commit dialog that renders `git diff HEAD` (or `git diff --cached` after staging) in a Monaco diff editor. Monaco has a built-in `createDiffEditor` API; the backend already has `GET /she/git/diff` or can trivially add one. Makes the commit step much more intentional.
+
+- **Log export** — the Logs tab holds a live ring buffer but provides no way to download it. A small export button (download as `.jsonl` or plain text) would make bug reporting and offline log analysis straightforward. Backend: a `GET /she/logs/export` endpoint that returns the buffer. Frontend: a button in the Logs toolbar.
 
 - **Find & Replace entry point** — add a small **Edit** menu button in the editor toolbar, positioned between the `filename` span and the git-status badges (current layout left-to-right: `filename | [Edit▾] | git-status | Save | Delete | AI`). Clicking it opens a compact dropdown with at minimum: *Find* (`Ctrl+F`) and *Find & Replace* (`Ctrl+H`). Could also include *Go to line* (`Ctrl+G`). Each item calls `editor.getAction('<id>')?.run()` on the Monaco instance. No Monaco context-menu changes; no new route. Frontend-only, ~20 lines + dropdown styling.
 
