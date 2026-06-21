@@ -19,7 +19,7 @@ Your home, your rules - written in plain JavaScript.
 
 ### Getting started
 - [Getting started](doc/getting-started.md) — install, first script, systemd service, Docker
-- [Concepts](doc/concept.md) — zero-boilerplate scripting, MQTT vs. sheDB, git integration
+- [Concepts](doc/concept.md) — zero-boilerplate scripting, MQTT vs. sheDB, broker access control, git integration
 
 ### Scripting
 - [Script Engine](doc/script-engine.md) — execution model, hot-reload, module system, ESM limitations
