@@ -467,13 +467,13 @@
                             <div class="view-section">
                                 <div class="section-title">Map <span class="section-hint">— <code>this</code> = document &nbsp;·&nbsp; call <code>emit(this)</code> to include in result</span></div>
                                 <div class="monaco-view-wrap monaco-view-wrap--map">
-                                    <MonacoEditor bind:value={viewMap} language="javascript" />
+                                    <MonacoEditor bind:value={viewMap} language="javascript" onSave={saveView} />
                                 </div>
                             </div>
                             <div class="view-section">
                                 <div class="section-title">Reduce <span class="section-hint">— receives <code>result</code> array, must <code>return</code> new value (optional)</span></div>
                                 <div class="monaco-view-wrap monaco-view-wrap--reduce">
-                                    <MonacoEditor bind:value={viewReduce} language="javascript" />
+                                    <MonacoEditor bind:value={viewReduce} language="javascript" onSave={saveView} />
                                 </div>
                             </div>
                             <div class="view-section view-section--options">

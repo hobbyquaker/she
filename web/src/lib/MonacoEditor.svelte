@@ -6,9 +6,11 @@
     let {
         value = $bindable(''),
         language = 'javascript',
+        onSave,
     }: {
         value?: string;
         language?: string;
+        onSave?: () => void;
     } = $props();
 
     let container: HTMLDivElement;
@@ -46,6 +48,10 @@
             if (ignoring) return;
             value = editor.getValue();
         });
+
+        if (onSave) {
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSave());
+        }
 
         // React to app theme changes and OS preference changes
         window.addEventListener('she:theme-changed', syncTheme);
