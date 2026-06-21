@@ -38,13 +38,27 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 Introduce a distinction between *system scripts* (ship with the daemon, in `src/scripts/`) and *user scripts* (the existing `~/.she/scripts/`). Load order: system scripts first, then user scripts. This guarantees that any API a system script attaches to `she.global` is already available when the first user script runs.
 
-System scripts are engine internals — they do not appear in the Scripts tab file tree and are not editable via the web UI. Their configuration lives in sheDB documents under the `system/<name>` namespace, editable from the DB tab.
+System scripts are **disabled by default**. The user explicitly enables each one. Enabled state is tracked in `~/.she/system-scripts.json` (a simple array of enabled script names, e.g. `["notify", "mqtt-to-influx"]`). This file lives in the data dir — not `config.json` (config pollution) and not sheDB (avoids a dependency on `--db-path` being set).
+
+**Web UI:** A small tab switcher appears above the file tree in the Scripts tab — **Scripts** (existing behaviour) | **System**. The System tab shows the contents of `src/scripts/` as a read-only file tree. Clicking a script opens it in Monaco with `readOnly: true` and a "READ ONLY — system script" indicator in the toolbar. Each entry has an enable/disable toggle; toggling writes to `system-scripts.json` and immediately loads or unloads the script without a daemon restart.
+
+**Self-bootstrapping sheDB config**
+
+Each system script that needs configuration creates its own sheDB document with default values on startup, and recreates it with defaults if the document has been deleted. This means the user never has to manually create a config document to get started — the script is self-documenting and safe to run unconfigured. The user edits the document in the DB tab to supply real values (API keys, topic patterns, etc.).
+
+```js
+// pattern used by every system script that needs sheDB config
+const DOC_ID = 'system/notify';
+const DEFAULTS = { service: 'pushover', appToken: '', userKey: '', defaultTitle: 'she' };
+if (!she.db.get(DOC_ID)) she.db.set(DOC_ID, DEFAULTS);
+const cfg = she.db.get(DOC_ID);
+```
 
 **`she.emit` / `events::` namespace — cross-script event bus**
 
 Currently scripts can share state via `she.global` (plain object, no callbacks) or via MQTT (requires broker, pollutes topic namespace, adds latency). A lightweight in-process event bus fills the gap.
 
-Rather than exposing a raw `EventEmitter` on `she.global`, extend the existing `she.on` pattern (already used for `mqtt::`, `var::`, `matter::` namespaces) with a new `events::` namespace and a new `she.emit` method:
+Implemented as **engine core** (in `index.js`, always available, no system script needed) by extending the existing `she.on` pattern (`mqtt::`, `var::`, `matter::`) with a new `events::` namespace and a new `she.emit` method:
 
 ```js
 // script-a.js — subscribe
@@ -56,34 +70,35 @@ she.on('events::alarm', ({ zone, severity }) => {
 she.emit('events::alarm', { zone: 'front-door', severity: 'high' });
 ```
 
-`events::` subscriptions are cleaned up on script unload just like `var::` subscriptions — no leaks on hot-reload. `she.emit` is the only new sandbox method required. This approach is more idiomatic than `she.global.events = new EventEmitter()`, reuses the existing API surface, and avoids the cleanup problem that a raw EventEmitter on `she.global` would have.
+`events::` subscriptions are cleaned up on script unload just like `var::` subscriptions — no leaks on hot-reload. `she.emit` is the only new sandbox method. Implementation: an in-memory `Map<string, Set<{listener, _script}>>` in `index.js`. On unload, remove all `events::` listeners registered by that script. ~30 lines.
 
-Implementation: add an in-memory `Map<string, Set<listener>>` in `index.js`. `she.on('events::x', cb)` adds to the set. `she.emit('events::x', data)` iterates all listeners. On script unload, remove all `events::` listeners registered by that script. ~30 lines.
+**`notify.js` — Pushover notifications**
 
-**`notify.js` — notification system script**
+Reads/bootstraps config from `she.db.get('system/notify')`:
 
-A system script that reads config from `she.db.get('system/notify')` and exposes `she.global.notify.send(title, message, [opts])`. Supported backends (selected by `config.service`):
-
-- `ntfy` — POST to `config.url`, optional Bearer token
-- `pushover` — POST to `https://api.pushover.net/1/messages.json` with `config.appToken` + `config.userKey`
-- `gotify` — POST to `config.url/message` with `config.token`
-
-User scripts call `she.global.notify?.send('Motion detected', 'Front door')` — the `?.` makes it a no-op if the system script is disabled or not yet configured.
-
-Configuration example (create via DB tab):
 ```json
-// sheDB document id: system/notify
 {
-  "service": "ntfy",
-  "url": "https://ntfy.sh/my-private-topic",
-  "token": "optional-bearer-token"
+  "appToken": "",
+  "userKey": "",
+  "defaultTitle": "she"
 }
 ```
 
-**Open questions:**
-- Should system scripts be opt-in (listed in `config.json` `systemScripts: ['notify']`) or always-on (check their own sheDB config, self-disable if missing)? Always-on with self-disabling is simpler for the user.
-- Should `she.emit` / `events::` be engine core (no script needed) or implemented as a system script? Engine core is cleaner since it avoids the load-order bootstrapping problem for the event bus itself.
-- What other system scripts make sense? Candidates: `presence.js` (aggregate per-room presence from multiple sensors), `sun.js` (publish current sun phase and twilight data to MQTT on schedule).
+Exposes `she.global.notify.send(title, message, [opts])`. If `appToken` or `userKey` are empty, logs a one-time warning and returns without sending. User scripts use `she.global.notify?.send(...)` — `?.` makes it a silent no-op if the system script is disabled.
+
+**`mqtt-to-influx.js` — forward MQTT topics to InfluxDB**
+
+Reads/bootstraps config from `she.db.get('system/mqtt-to-influx')`:
+
+```json
+{
+  "subscriptions": ["home/#"],
+  "measurement": "mqtt"
+}
+```
+
+InfluxDB connection params come from the existing daemon-level `--influx` config (already available via `she.influx.*`). Subscribes to the configured topic patterns and writes each value change as an InfluxDB point using `she.influx.write()`. Useful for users who want time-series history of MQTT state without writing any script code — just enable the system script and configure which topics to forward.
+
 
 
 
