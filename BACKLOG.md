@@ -20,8 +20,6 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **script VM timeout** — the `vm.Script` `timeout` option is never set; a script with an infinite synchronous loop hangs the daemon. Add a configurable per-script CPU timeout (e.g. `she.schedule` should not hang the event loop).
 
-- **config hot-reload** — settings like log level, latitude/longitude, influx/elastic endpoints could be reloaded from `config.json` without a full daemon restart (via `SIGHUP` or a `POST /she/config/reload` endpoint).
-
 - **graceful WebSocket shutdown** — when `process.exit(0)` is called (e.g. on restart request), connected WebSocket clients drop abruptly. Send a WS close frame first so the frontend can show a meaningful disconnect message.
 
 ## Scripts Editor
@@ -34,30 +32,11 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **Find in files — auto-refresh on save** — after a script is saved (tab `dirty → clean` transition or external WS `script:change` event), re-run the current search query silently and update the result list in-place, highlighting newly appeared or disappeared matches. Should debounce file-change events (files can save in quick succession). Depends on *Find in files* being shipped first.
 
-- **tab bar scrolling** — when many files are open the tab bar overflows with no way to reach hidden tabs (the bar already has `overflow-x: auto; scrollbar-width: none` so the overflow exists but is invisible). Fix: wrap the tab strip in a `tab-bar-wrap` flex row containing a `‹` button, the tab strip (`flex:1`, `overflow-x: hidden`), and a `›` button; clicking either calls `tabBarEl.scrollBy({ left: ±200, behavior: 'smooth' })`; a `wheel` listener on the strip translates `deltaY` → `scrollLeft` (with `e.preventDefault()` to suppress page scroll). Buttons are always rendered but disabled/dimmed (opacity ~0.3, `cursor: default`) at the respective end — avoids layout shift and `ResizeObserver` complexity. Track `canScrollLeft` / `canScrollRight` from a combined `scroll` + `ResizeObserver` listener on the strip. Bonus: call `activeTabEl.scrollIntoView({ inline: 'nearest' })` on every tab switch so the active tab is always visible. Frontend-only, no backend changes.
-
 - **file tree virtualization** — the tree re-renders entirely on any change; with hundreds of scripts this becomes slow. Use a virtual list (`svelte-virtual-list` or similar) to only render visible rows.
 
 ## MQTT
 
 - **per-topic value history** — the MQTT tab shows current state only. A configurable ring buffer (e.g. last 20 values with timestamps) per topic would be useful for debugging value changes over time.
-
-- **ACL overlay in topic tree** — when dynsec is configured, allow the user to inspect which roles/groups/users can publish to or subscribe from any topic in the tree. Primary use case: debugging access problems ("why is user X not receiving topic Y?"). Secondary: security auditing ("which topics are unprotected?").
-
-  **UX design:**
-  - An **"ACL" toggle button** in the MQTT tab toolbar (hidden when dynsec not configured / not ready). When active, each topic row gets a subtle lock badge (🔒) if at least one explicit role ACL pattern matches that topic, distinguishing "has explicit ACL" from "falls back to default".
-  - Clicking the badge (or clicking any topic row while ACL mode is on) opens an **inline inspection panel** below the row showing three sections: *Can publish (send)*, *Can subscribe*, *Can receive* — each listing the matching roles and, under each role, the groups and individual users that hold it.
-  - A "Default ACL" footer row shows the broker-wide default for each operation type (from `getDefaultACLAccess`) as the fallback when no role ACL matches.
-  - `%c` / `%u` pattern-substituted ACL entries (per-clientid / per-username topics) are shown with a ⚠ note: "per-client pattern — cannot evaluate statically."
-
-  **Implementation approach (v1, client-side matching):**
-  - On first toggle activation: batch-fetch `GET /she/broker/roles?verbose=true`, `GET /she/broker/users?verbose=true`, `GET /she/broker/groups?verbose=true` and cache in memory (re-fetched on manual refresh). Total: 3 API calls, one-time.
-  - The existing `mqttMatch()` in MQTT.svelte already handles MQTT wildcard patterns (`#`, `+`). Reuse it to evaluate whether each role ACL's topic pattern covers the inspected topic.
-  - Build an in-memory index: `Map<acltype, Map<rolename, allow/deny>>` per topic on demand (lazy, computed on panel open).
-  - Walk the index to resolve roles → groups → users for display.
-  - Mosquitto's full priority/precedence logic (multiple roles per client, group priorities) is complex; v1 can show all *matching* roles without computing the winning one — good enough for debugging.
-
-  **v2 option — dedicated backend endpoint:** `GET /she/broker/acl-check?topic=foo/bar` returns a pre-computed effective-permission summary computed server-side by the dynsec module. This gives authoritative results including priority resolution, at the cost of one round-trip per inspected topic. Worthwhile if the client-side approximation causes confusion.
 
 - **multiple MQTT broker connections** — allow connecting to more than one broker simultaneously. Config: replace the top-level `url` string with a `brokers` map where each key is a broker name and the value is the existing per-broker options object (`url`, `username`, `password`, `ca`, `cert`, `key`, `mqttVersion`). The existing `url` key stays supported as shorthand for a single default broker (backward compat). Script API: `she.broker(name)` returns a broker-scoped object exposing the full `mqtt` sub-API (`sub`, `pub`, `get`, `link`, `or`, `and`, `max`, `min`, `timer`, `age`, `getProp`). `she.mqtt` remains a shorthand alias for `she.broker('default')` (or the sole configured broker). State store keys become `mqtt::brokerName::topic`. WS `mqtt` events carry an additional `broker` field. Each broker runs its own sentinel cycle on connect. `link()` and the stdlib helpers (`or`, `and`, `max`, `min`, `timer`) work within a single broker scope only in this first step — cross-broker bridging is a follow-up. Breaking change — requires a migration note when shipped.
 
@@ -68,8 +47,6 @@ Items that are intentionally deferred. Pick up when the time is right.
   *Optional follow-up — cross-broker references:* allow `'brokerName##topic'` as a topic string in `link()` and stdlib helpers to reference a topic on a different broker. `##` is chosen as separator because a double hash can never appear in a valid MQTT topic (the `#` wildcard is only legal as a standalone final segment and publishing to a topic containing `#` is forbidden by spec), making it unambiguous to parse.
 
 ## Matter
-
-- **QR code scanning for pairing** — the commission flow currently requires the user to manually enter a pairing code or passcode + discriminator. Add support for scanning a Matter QR code (`MT:…`) via (a) the device camera (`getUserMedia` + canvas frame sampling + a JS QR decoder such as `jsQR` or `zxing-js`) or (b) an image file upload (same decoder, fed a decoded canvas). Either path extracts the pairing code and pre-fills the commissioning form. Camera path should show a live preview with a targeting reticle; file-upload path is the fallback for environments without camera access. Frontend-only change; no backend modifications needed.
 
 ## sheDB
 
@@ -87,8 +64,6 @@ Items that are intentionally deferred. Pick up when the time is right.
   - What is the right auto-renewal story for 24h-TTL CAs like step-ca?
   - Should she offer a `broker.certRenewHook` config field (a shell command executed after any cert change) as a generic post-renewal trigger for `systemctl reload mosquitto`?
   The `POST /she/broker/ca/certs`, `DELETE /she/broker/ca/certs/:serial`, `GET /she/broker/ca/certs/:serial/download` and related CA endpoints remain available for scripted/API use.
-
-- **mTLS ↔ dynsec user linkage documentation** — `use_identity_as_username true` in the mosquitto listener maps the client cert CN to the MQTT username. The Listeners tab already exposes this toggle. Document the full flow in `doc/broker-management.md`: add root CA of the client cert issuer to Trusted CAs, enable `use_identity_as_username`, create matching dynsec user. Applies regardless of whether the client cert was issued by step-ca, XCA, or another CA.
 
 - **step-ca integration (homelab PKI)** — for users running Smallstep step-ca, the integration path is: (1) add the step-ca root/intermediate cert via the Trusted CAs section so mosquitto trusts step-ca-issued client certs; (2) issue mosquitto's server cert via `step ca certificate` or use she's Generate CSR flow then upload the signed cert; (3) configure mosquitto `certfile`/`keyfile` to point at the cert. The missing piece is **auto-renewal**: step-ca issues 24h certs by default and provides `step ca renew --daemon` for background renewal. She needs to trigger `sudo systemctl reload mosquitto` after renewal. A config field `broker.certRenewHook` (a shell command executed after any cert change) would cover this generically. Document the manual flow in `doc/broker-management.md` with copy-paste commands.
 
