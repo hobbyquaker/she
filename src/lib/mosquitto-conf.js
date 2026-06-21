@@ -88,7 +88,11 @@ function parseText(raw) {
             // Normalise the old (incorrect) key name written by earlier she versions
             const managedKey = key === 'plugin_opt_dynsec_config_file' ? 'plugin_opt_config_file' : key;
             if (managed[managedKey] !== undefined) {
-                managed[managedKey] = [].concat(managed[managedKey]).concat(value);
+                const existing = [].concat(managed[managedKey]);
+                // Skip duplicate values (e.g. two log_dest file lines)
+                if (!existing.includes(value)) {
+                    managed[managedKey] = [...existing, value];
+                }
             } else {
                 managed[managedKey] = value;
             }
@@ -214,7 +218,10 @@ function serialise(conf) {
         if (managed[key] === undefined) continue;
         const val = managed[key];
         if (Array.isArray(val)) {
-            for (const v of val) lines.push(`${key} ${v}`);
+            const written = new Set();
+            for (const v of val) {
+                if (!written.has(v)) { written.add(v); lines.push(`${key} ${v}`); }
+            }
         } else {
             lines.push(`${key} ${val}`);
         }

@@ -80,3 +80,5 @@ she.setValue('var/set/testvar1', true);
 she.setValue('var/set/testvar1', true);
 she.setValue('var/set/testvar2', true);
 she.setValue('var/set/testvar2', { val: true });
+
+she.info('appended!');
