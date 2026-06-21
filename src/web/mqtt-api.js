@@ -16,7 +16,9 @@
  */
 
 const express = require('express');
-const { broadcast } = require('./log-ws');
+const { broadcast, broadcastBrokerLog } = require('./log-ws');
+
+const BROKER_LOG_TOPICS = new Set(['D', 'I', 'N', 'W', 'E'].map(l => `$SYS/broker/log/${l}`));
 
 const router = express.Router();
 
@@ -35,7 +37,11 @@ function init(store, getMqttClient) {
     // Forward every mqtt:: state change to connected WebSocket clients
     store.on('change', (key, val, obj) => {
         if (!key.startsWith('mqtt::')) return;
-        broadcast({ type: 'mqtt', topic: key.slice(6), val: obj.val, ts: obj.ts });
+        const topic = key.slice(6);
+        broadcast({ type: 'mqtt', topic, val: obj.val, ts: obj.ts });
+        if (BROKER_LOG_TOPICS.has(topic)) {
+            broadcastBrokerLog(topic.slice('$SYS/broker/log/'.length), String(obj.val), obj.ts);
+        }
     });
 }
 

@@ -95,6 +95,17 @@ function getLogBuffer() {
 }
 
 /**
+ * Broadcast a structured broker (mosquitto) log entry to all connected
+ * WebSocket clients as { type: 'brokerLog', level, msg, ts }.
+ * @param {string} level  Single-letter mosquitto level: D|I|N|W|E
+ * @param {string} msg
+ * @param {number} ts     Unix ms timestamp
+ */
+function broadcastBrokerLog(level, msg, ts) {
+    broadcast({ type: 'brokerLog', level, msg, ts });
+}
+
+/**
  * Close the WebSocket server.
  * @returns {Promise<void>}
  */
@@ -109,4 +120,4 @@ function closeWss() {
     });
 }
 
-module.exports = { attachWss, broadcast, broadcastLog, closeWss, getLogBuffer, setWelcomeProvider };
+module.exports = { attachWss, broadcast, broadcastBrokerLog, broadcastLog, closeWss, getLogBuffer, setWelcomeProvider };

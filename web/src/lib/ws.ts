@@ -4,6 +4,12 @@ export interface LogEntry {
     ts: number;
 }
 
+export interface BrokerLogEntry {
+    level: string; // D | I | N | W | E
+    msg: string;
+    ts: number;
+}
+
 type LogHandler = (entry: LogEntry) => void;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type WsHandler = (msg: Record<string, any>) => void;
@@ -11,9 +17,17 @@ type WsHandler = (msg: Record<string, any>) => void;
 const LOG_BUFFER_MAX = 2000;
 const _logBuffer: LogEntry[] = [];
 
+const BROKER_LOG_BUFFER_MAX = 500;
+const _brokerLogBuffer: BrokerLogEntry[] = [];
+
 /** All log entries received since the page was opened (capped at LOG_BUFFER_MAX). */
 export function getLogBuffer(): LogEntry[] {
     return _logBuffer.slice();
+}
+
+/** Broker log entries received since the page was opened (capped at BROKER_LOG_BUFFER_MAX). */
+export function getBrokerLogBuffer(): BrokerLogEntry[] {
+    return _brokerLogBuffer.slice();
 }
 
 let _ws: WebSocket | null = null;
@@ -46,6 +60,11 @@ function connect() {
                 if (_logBuffer.length >= LOG_BUFFER_MAX) _logBuffer.shift();
                 _logBuffer.push(entry);
                 _handlers.forEach((h) => h(entry));
+            }
+            if (msg.type === 'brokerLog') {
+                const entry: BrokerLogEntry = { level: msg.level, msg: msg.msg, ts: msg.ts };
+                if (_brokerLogBuffer.length >= BROKER_LOG_BUFFER_MAX) _brokerLogBuffer.shift();
+                _brokerLogBuffer.push(entry);
             }
             const bucket = _wsHandlers.get(msg.type);
             if (bucket) bucket.forEach((h) => h(msg));

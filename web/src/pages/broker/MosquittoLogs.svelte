@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from 'svelte';
-    import { subscribeWs } from '../../lib/ws.js';
+    import { subscribeWs, getBrokerLogBuffer } from '../../lib/ws.js';
     import { getBrokerConf } from '../../lib/api.js';
 
     type Level = 'D' | 'I' | 'N' | 'W' | 'E';
@@ -13,16 +13,7 @@
 
     const LEVEL_LABEL: Record<Level, string> = { D: 'DBG', I: 'INF', N: 'NTC', W: 'WRN', E: 'ERR' };
     const LEVEL_CLASS: Record<Level, string> = { D: 'lvl-d', I: 'lvl-i', N: 'lvl-n', W: 'lvl-w', E: 'lvl-e' };
-
-    function topicToLevel(topic: string): Level | null {
-        const suffix = topic.slice('$SYS/broker/log/'.length);
-        if (suffix === 'D') return 'D';
-        if (suffix === 'I') return 'I';
-        if (suffix === 'N') return 'N';
-        if (suffix === 'W') return 'W';
-        if (suffix === 'E') return 'E';
-        return null;
-    }
+    const VALID_LEVELS = new Set<string>(['D', 'I', 'N', 'W', 'E']);
 
     let entries = $state<LogEntry[]>([]);
     let autoScroll = $state(true);
@@ -36,12 +27,21 @@
     let unsub: (() => void) | null = null;
 
     onMount(() => {
-        unsub = subscribeWs('mqtt', (msg: { topic: string; val: string; ts: number }) => {
-            if (!msg.topic.startsWith('$SYS/broker/log/')) return;
-            const level = topicToLevel(msg.topic);
-            if (!level) return;
+        // Pre-fill from module-level buffer (survives tab navigation)
+        const buffered = getBrokerLogBuffer();
+        if (buffered.length > 0) {
+            entries = buffered
+                .filter(e => VALID_LEVELS.has(e.level))
+                .map(e => ({ ts: e.ts, level: e.level as Level, msg: e.msg }))
+                .slice(-MAX);
             hasReceived = true;
-            entries = [...entries.slice(-(MAX - 1)), { ts: msg.ts, level, msg: msg.val }];
+            tick().then(scrollToBottom);
+        }
+
+        unsub = subscribeWs('brokerLog', (msg: { level: string; msg: string; ts: number }) => {
+            if (!VALID_LEVELS.has(msg.level)) return;
+            hasReceived = true;
+            entries = [...entries.slice(-(MAX - 1)), { ts: msg.ts, level: msg.level as Level, msg: msg.msg }];
             if (autoScroll) tick().then(scrollToBottom);
         });
         // Check if log_dest includes 'topic'
