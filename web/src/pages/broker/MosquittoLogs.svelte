@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from 'svelte';
     import { subscribeWs, getBrokerLogBuffer } from '../../lib/ws.js';
-    import { getBrokerConf } from '../../lib/api.js';
+    import { getBrokerConf, getBrokerLogs } from '../../lib/api.js';
 
     type Level = 'D' | 'I' | 'N' | 'W' | 'E';
 
@@ -26,17 +26,24 @@
 
     let unsub: (() => void) | null = null;
 
-    onMount(() => {
-        // Pre-fill from module-level buffer (survives tab navigation)
-        const buffered = getBrokerLogBuffer();
-        if (buffered.length > 0) {
-            entries = buffered
-                .filter(e => VALID_LEVELS.has(e.level))
-                .map(e => ({ ts: e.ts, level: e.level as Level, msg: e.msg }))
-                .slice(-MAX);
-            hasReceived = true;
-            tick().then(scrollToBottom);
-        }
+    onMount(async () => {
+        // Fetch server-side ring buffer (history from daemon start, survives page refresh)
+        const httpEntries = await getBrokerLogs().catch(() => []);
+        // Merge with client-side buffer (entries received since page loaded)
+        const wsEntries = getBrokerLogBuffer();
+        // Combine, sort by ts, deduplicate by ts+msg
+        const seen = new Set<string>();
+        const combined = [...httpEntries, ...wsEntries]
+            .filter(e => VALID_LEVELS.has(e.level))
+            .map(e => ({ ts: e.ts, level: e.level as Level, msg: e.msg }));
+        combined.sort((a, b) => a.ts - b.ts);
+        entries = combined.filter(e => {
+            const k = `${e.ts}\x00${e.msg}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        }).slice(-MAX);
+        if (entries.length > 0) { hasReceived = true; tick().then(scrollToBottom); }
 
         unsub = subscribeWs('brokerLog', (msg: { level: string; msg: string; ts: number }) => {
             if (!VALID_LEVELS.has(msg.level)) return;

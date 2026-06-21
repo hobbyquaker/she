@@ -356,7 +356,7 @@
 
     .field-key { font-size: 11px; color: var(--text-muted, #999); font-family: monospace; display: block; margin-bottom: 5px; }
 
-    .checkbox-group { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 2px; }
+    .checkbox-group { display: grid; grid-template-columns: repeat(3, max-content); gap: 6px 20px; margin-bottom: 2px; }
     .check-label { display: flex; flex-direction: row; align-items: center; gap: 7px; font-size: 12px; color: var(--text, #ddd); cursor: pointer; font-family: monospace; user-select: none; }
     .check-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
     .checkmark { flex-shrink: 0; width: 14px; height: 14px; border: 1.5px solid var(--border, #444); border-radius: 3px; background: var(--input-bg, #2a2a2a); position: relative; transition: background 0.12s, border-color 0.12s; }
@@ -364,10 +364,10 @@
     .check-label input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
     .check-label:hover .checkmark { border-color: var(--accent, #569cd6); }
 
-    .log-type-grid { display: flex; flex-direction: column; gap: 8px; }
-    .log-type-group { display: flex; flex-wrap: wrap; gap: 5px 16px; }
+    .log-type-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px 32px; align-items: flex-start; }
+    .log-type-group { display: flex; flex-direction: column; gap: 5px; }
     .log-type-group-label { font-size: 10px; font-weight: 600; color: var(--text-muted, #666); text-transform: uppercase; letter-spacing: 0.06em; width: 100%; margin-bottom: 1px; }
-    .log-type-group--other { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--border, #333); padding-top: 8px; }
+    .log-type-group--other { flex-basis: 100%; flex-direction: row; align-items: center; border-top: 1px solid var(--border, #333); padding-top: 8px; gap: 12px; }
     .all-hint { font-size: 11px; color: var(--text-muted, #666); font-style: italic; }
 
     .err  { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.3); border-radius: 4px; color: #e88; font-size: 12px; padding: 6px 10px; }

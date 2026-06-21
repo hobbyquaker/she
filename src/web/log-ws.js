@@ -97,12 +97,26 @@ function getLogBuffer() {
 /**
  * Broadcast a structured broker (mosquitto) log entry to all connected
  * WebSocket clients as { type: 'brokerLog', level, msg, ts }.
+ * Also stores the entry in a server-side ring buffer exposed via getBrokerLogBuffer().
  * @param {string} level  Single-letter mosquitto level: D|I|N|W|E
  * @param {string} msg
  * @param {number} ts     Unix ms timestamp
  */
+const _brokerLogBuffer = [];
+const BROKER_LOG_BUFFER_MAX = 500;
+
 function broadcastBrokerLog(level, msg, ts) {
+    _brokerLogBuffer.push({ level, msg, ts });
+    if (_brokerLogBuffer.length > BROKER_LOG_BUFFER_MAX) _brokerLogBuffer.shift();
     broadcast({ type: 'brokerLog', level, msg, ts });
+}
+
+/**
+ * Return a snapshot of recent broker log entries (oldest first).
+ * @returns {{ level: string, msg: string, ts: number }[]}
+ */
+function getBrokerLogBuffer() {
+    return _brokerLogBuffer.slice();
 }
 
 /**
@@ -120,4 +134,4 @@ function closeWss() {
     });
 }
 
-module.exports = { attachWss, broadcast, broadcastBrokerLog, broadcastLog, closeWss, getLogBuffer, setWelcomeProvider };
+module.exports = { attachWss, broadcast, broadcastBrokerLog, broadcastLog, closeWss, getBrokerLogBuffer, getLogBuffer, setWelcomeProvider };

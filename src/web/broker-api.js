@@ -25,6 +25,7 @@ const mosquittoConf = require('../lib/mosquitto-conf');
 const ca = require('../lib/ca');
 const sshDeploy = require('../lib/ssh-deploy');
 const sheConfig = require('../config');
+const { getBrokerLogBuffer } = require('./log-ws');
 
 // Default SSH identity file respects the configured data directory
 const DEFAULT_SSH_KEY = path.join(sheConfig['data-dir'], 'ssh', 'broker_id_ed25519');
@@ -936,6 +937,13 @@ router.post('/ca/trusted/addpath', async (req, res) => {
     } catch (err) {
         handleError(res, err);
     }
+});
+
+// GET /she/broker/logs?limit=<N> — recent broker log entries (ring buffer, max 500)
+router.get('/logs', (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 500, 1000);
+    const all = getBrokerLogBuffer();
+    res.json(limit >= all.length ? all : all.slice(-limit));
 });
 
 module.exports = { router, setLogger, setStore };

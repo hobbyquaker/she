@@ -687,6 +687,10 @@ export function getBrokerConf(): Promise<BrokerConf> {
     return request('GET', '/she/broker/config');
 }
 
+export function getBrokerLogs(limit = 500): Promise<{ level: string; msg: string; ts: number }[]> {
+    return request('GET', `/she/broker/logs?limit=${limit}`);
+}
+
 export function putBrokerConf(conf: Pick<BrokerConf, 'listeners' | 'managed' | 'passthrough'> & { checksum?: string | null }): Promise<{ ok: boolean; backupPath: string | null }> {
     return request('PUT', '/she/broker/config', conf);
 }
