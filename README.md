@@ -20,6 +20,7 @@ Your home, your rules - written in plain JavaScript.
 | | |
 |---|---|
 | [Getting started](doc/getting-started.md) | Install, write your first script, configure |
+| [Script Engine](doc/script-engine.md) | How Scripts get executed, error handling, limitations |
 | [Sandbox API](doc/sandbox-api.md) | Everything available inside a script |
 | [sheDB](doc/db/README.md) | Embedded document store — script API, views, examples |
 | [Broker management](doc/broker-management.md) | Mosquitto management, dynsec, TLS, certificates |

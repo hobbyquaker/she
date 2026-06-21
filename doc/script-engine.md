@@ -78,7 +78,7 @@ npm install got@11
 
 **Dynamic `import()`** does work inside a VM context (it returns a Promise), but is awkward to use in the typical synchronous script style and is not officially supported or tested.
 
-True ESM support (running scripts as actual ES modules via `vm.Module`) would require a significant rewrite of the script engine and is not planned for the near term.
+True ESM support (running scripts as actual ES modules via `vm.Module`) would require a significant rewrite of the script engine and is on the backlog.
 
 ---
 
@@ -132,7 +132,7 @@ scripts/
   .shedisable-experiments   ← entire directory is skipped
 ```
 
-This is useful for temporarily disabling a script without deleting it. The marker files are visible in the web UI's file tree (they appear as plain files) and can be created/deleted from the editor.
+This is useful for temporarily disabling a script without deleting it. The marker files are visible in the web UI's file tree (they appear as tiny checkboxes) and can be created/deleted from the editor.
 
 ---
 
