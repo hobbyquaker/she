@@ -42,8 +42,9 @@ Set `authProxyHeader` in `config.json` to whichever header your proxy injects (d
 
 Regardless of auth mode:
 
-- Run your IoT devices on a **separate VLAN** isolated from your main network. MQTT and Matter traffic stays on the IoT VLAN; she bridges it to your personal devices but untrusted IoT devices cannot reach your laptops or NAS directly.
-- Consider a **VPN** (Tailscale, WireGuard) as an alternative to exposing she over the internet at all. With a VPN, you reach she as if you were on your local network and you do not need to open any ports.
+- Run your IoT devices on a **separate VLAN** isolated from your main network. MQTT traffic stays on the IoT VLAN; she bridges it to your personal devices but untrusted IoT devices cannot reach your laptops or NAS directly.
+- Consider a **VPN** as an alternative to exposing she over the internet at all.
+- Setup good firewall rules
 
 ## Script API endpoints
 
@@ -59,6 +60,6 @@ A script can inspect `req.headers` to implement its own auth — for example, ve
 
 If you run Mosquitto as your MQTT broker, the **Dynamic Security plugin** lets you define per-client ACLs that control which topics each client may publish or subscribe to. This limits blast radius if a script or IoT device misbehaves — a device that should only publish its own sensor data cannot subscribe to lock commands.
 
-she includes built-in support for managing Mosquitto Dynamic Security: client and role management, ACL assignment, and a web UI in the Broker tab.
+she includes built-in support for managing Mosquitto Dynamic Security: client and role management, ACL assignment, via a web UI in the Broker tab and with a script api.
 
 See [Broker management](broker-management.md) for setup instructions and configuration details.
