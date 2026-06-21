@@ -1,6 +1,6 @@
 # Concepts
 
-This document explains the core ideas behind **she** — the design philosophy, how MQTT and sheDB complement each other, and how to think about structuring a growing home automation system.
+This document explains the core ideas behind **she** — the design philosophy, how MQTT and sheDB complement each other, and ideas about structuring a growing home automation system.
 
 ---
 
@@ -21,7 +21,7 @@ This is the complete automation. No entity, no adapter, no service setup. The `s
 
 ## MQTT for changing state
 
-MQTT retained messages are the natural store for **fast-changing, sensor-driven state** in a smart home: temperature readings, motion events, light levels, switch positions, power consumption, door/window contacts. These values:
+MQTT retained messages are the natural store for **fast-changing, sensor-driven state** in a smart home: temperature readings, light levels, switch positions, power consumption, door/window contacts. These values:
 
 - change frequently (seconds to minutes)
 - are produced by devices that are themselves MQTT-native, or by bridges/adapters
@@ -100,6 +100,8 @@ she.db.set('enum/device-types', {
     members: ['light', 'switch', 'thermostat', 'blind', 'sensor', 'lock'],
 });
 ```
+
+This example hard-codes the member list for illustration. In practice, use a sheDB view to derive such lists dynamically from your device documents.
 
 ### When to use MQTT vs. sheDB
 
