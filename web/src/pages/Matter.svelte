@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, tick } from 'svelte';
+    import jsQR from 'jsqr';
     import { subscribeWs } from '../lib/ws.js';
     import { listMatterDevices, getMatterDevice, commissionMatter, unpairMatter, sendMatterCommand, type MatterDevice, type MatterNodeDetail } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
@@ -312,6 +313,85 @@
     let wizardError: string | null = $state(null);
     let wizardDiscoveryAddress = $state('');
 
+    // QR scan state
+    let scanOpen   = $state(false);
+    let scanError  = $state('');
+    let videoEl    = $state<HTMLVideoElement | undefined>(undefined);
+    let canvasEl   = $state<HTMLCanvasElement | undefined>(undefined);
+    let _stream: MediaStream | null = null;
+    let _scanRaf: number | null = null;
+
+    function stopScan() {
+        if (_scanRaf !== null) { cancelAnimationFrame(_scanRaf); _scanRaf = null; }
+        if (_stream) { _stream.getTracks().forEach((t) => t.stop()); _stream = null; }
+        scanOpen = false;
+        scanError = '';
+    }
+
+    function onQrFound(code: string) {
+        stopScan();
+        wizardMode = 'pairingCode';
+        wizardPairingCode = code;
+    }
+
+    function tryDecodeCanvas() {
+        if (!canvasEl) return null;
+        const ctx = canvasEl.getContext('2d', { willReadFrequently: true })!;
+        const { width, height } = canvasEl;
+        if (!width || !height) return null;
+        const img = ctx.getImageData(0, 0, width, height);
+        return jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    }
+
+    async function startCamera() {
+        scanOpen = true;
+        scanError = '';
+        await tick();
+        if (!videoEl || !canvasEl) return;
+        try {
+            _stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            videoEl.srcObject = _stream;
+            await videoEl.play();
+        } catch (e: unknown) {
+            scanError = 'Camera unavailable: ' + (e instanceof Error ? e.message : String(e));
+            return;
+        }
+        const scanFrame = () => {
+            if (!videoEl || !canvasEl || !_stream) return;
+            if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
+                canvasEl.width  = videoEl.videoWidth;
+                canvasEl.height = videoEl.videoHeight;
+                const ctx = canvasEl.getContext('2d', { willReadFrequently: true })!;
+                ctx.drawImage(videoEl, 0, 0);
+                const result = tryDecodeCanvas();
+                if (result?.data?.startsWith('MT:')) { onQrFound(result.data); return; }
+            }
+            _scanRaf = requestAnimationFrame(scanFrame);
+        };
+        _scanRaf = requestAnimationFrame(scanFrame);
+    }
+
+    function handleQrFile(e: Event) {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+                if (!canvasEl) return;
+                canvasEl.width  = img.width;
+                canvasEl.height = img.height;
+                const ctx = canvasEl.getContext('2d', { willReadFrequently: true })!;
+                ctx.drawImage(img, 0, 0);
+                const result = tryDecodeCanvas();
+                if (result?.data?.startsWith('MT:')) { onQrFound(result.data); }
+                else { scanError = 'No Matter QR code found in image.'; }
+            };
+            img.src = ev.target!.result as string;
+        };
+        reader.readAsDataURL(file);
+    }
+
     const LS_MATTER_NODE = 'she:matter:selectedNodeId';
 
     async function loadDevices() {
@@ -448,7 +528,7 @@
         }, ...feed.slice(0, FEED_MAX - 1)];
     });
 
-    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); });
+    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); stopScan(); });
 </script>
 
 <ConfirmDialog bind:this={dialog} />
@@ -480,6 +560,17 @@
                         Pairing Code / QR
                         <input type="text" placeholder="MT:..." bind:value={wizardPairingCode} />
                     </label>
+                    <div class="scan-row">
+                        <button class="scan-btn" onclick={startCamera} title="Scan QR code with camera">
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M1 1h5v5H1V1zm1 1v3h3V2H2zm7-1h5v5h-5V1zm1 1v3h3V2h-3zM1 9h5v5H1V9zm1 1v3h3v-3H2zm7 0h2v2H9v-2zm2 0h2v2h-2v-2zm0 2h2v2h-2v-2zm-2 2h2v2H9v-2zm2 0h2v2h-2v-2z"/></svg>
+                            Camera
+                        </button>
+                        <label class="scan-btn scan-file-btn" title="Decode QR from image file">
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M13 4H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zM3 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H3zm5 2.5a.5.5 0 0 1 .5.5v1h1a.5.5 0 0 1 0 1h-1v1a.5.5 0 0 1-1 0v-1h-1a.5.5 0 0 1 0-1h1V6a.5.5 0 0 1 .5-.5z"/></svg>
+                            Image…
+                            <input type="file" accept="image/*" style="display:none" onchange={handleQrFile} />
+                        </label>
+                    </div>
                 {/if}
                 <label>
                     IP Address (optional, bypasses mDNS)
@@ -688,6 +779,28 @@
         {/if}
     </div>
 </div>
+
+{#if scanOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="scan-backdrop" onclick={stopScan}></div>
+    <div class="scan-modal">
+        <div class="scan-modal-hdr">
+            <span>Scan Matter QR Code</span>
+            <button class="scan-close" onclick={stopScan}>✕</button>
+        </div>
+        {#if scanError}
+            <p class="scan-err">{scanError}</p>
+        {:else}
+            <div class="scan-preview">
+                <!-- svelte-ignore a11y_media_has_caption -->
+                <video bind:this={videoEl} playsinline class="scan-video"></video>
+                <div class="scan-reticle"></div>
+            </div>
+            <p class="scan-hint">Point camera at the QR code on the device</p>
+        {/if}
+        <canvas bind:this={canvasEl} style="display:none"></canvas>
+    </div>
+{/if}
 
 <style>
     .matter-page {
@@ -1208,4 +1321,43 @@
     }
     .e-online  { color: var(--fg-ok); }
     .e-offline { color: var(--fg-err); }
+
+    /* QR scan */
+    .scan-row { display: flex; gap: 5px; }
+    .scan-btn {
+        flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
+        background: var(--bg-widget); border: 1px solid var(--border); color: var(--fg);
+        border-radius: 3px; cursor: pointer; font-size: 11px; padding: 4px 6px;
+    }
+    .scan-btn:hover { background: var(--bg-hover); }
+    .scan-file-btn { cursor: pointer; }
+
+    .scan-backdrop {
+        position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 1000;
+    }
+    .scan-modal {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+        z-index: 1001; width: 360px; max-width: 95vw; overflow: hidden;
+        display: flex; flex-direction: column; gap: 0;
+    }
+    .scan-modal-hdr {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600;
+    }
+    .scan-close {
+        background: none; border: none; color: var(--fg-muted); cursor: pointer; font-size: 14px;
+        padding: 0 2px; line-height: 1;
+    }
+    .scan-close:hover { color: var(--fg); }
+    .scan-preview { position: relative; width: 100%; aspect-ratio: 1; background: #000; overflow: hidden; }
+    .scan-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .scan-reticle {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 60%; aspect-ratio: 1;
+        border: 2px solid rgba(86,156,214,.8); border-radius: 6px;
+        box-shadow: 0 0 0 1000px rgba(0,0,0,.35);
+    }
+    .scan-hint { margin: 0; padding: 8px 14px 10px; font-size: 11px; color: var(--fg-muted); text-align: center; }
+    .scan-err { margin: 0; padding: 10px 14px; font-size: 12px; color: var(--fg-err); }
 </style>

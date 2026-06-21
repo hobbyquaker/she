@@ -940,6 +940,88 @@ router.post('/ca/trusted/addpath', async (req, res) => {
 
 module.exports = { router, setLogger, setStore };
 
+// ── dynsec: ACL topic inspection ──────────────────────────────────────────────
+
+/**
+ * GET /she/broker/acl-check?topic=<topic>
+ * Returns authoritative per-topic ACL breakdown: for each operation type
+ * (send / subscribe / receive), lists matching roles with their holders
+ * (direct users and group membership) plus the effective default.
+ */
+router.get('/acl-check', async (req, res) => {
+    try {
+        const topic = String(req.query.topic || '').trim();
+        if (!topic) return res.status(400).json({ error: 'topic query param required' });
+
+        const mqttWildcard = require('../lib/mqtt-wildcards');
+
+        const [roles, groups, defaultAcls] = await Promise.all([
+            dynsec.listRoles(true),
+            dynsec.listGroups(true),
+            dynsec.getDefaultACLAccess(),
+        ]);
+
+        // Build index: rolename → groups that carry it (with their member lists)
+        const groupsByRole = new Map();
+        for (const g of groups) {
+            for (const r of (g.roles ?? [])) {
+                if (!groupsByRole.has(r.rolename)) groupsByRole.set(r.rolename, []);
+                groupsByRole.get(r.rolename).push({
+                    groupname: g.groupname,
+                    members: (g.clients ?? []).map((c) => c.username),
+                });
+            }
+        }
+
+        const SEND_TYPES      = new Set(['publishClientSend']);
+        const SUBSCRIBE_TYPES = new Set(['subscribePattern', 'subscribeLiteral']);
+        const RECEIVE_TYPES   = new Set(['publishClientReceive']);
+
+        function aclMatches(acltype, aclTopic) {
+            if (aclTopic.includes('%u') || aclTopic.includes('%c')) return 'dynamic';
+            if (acltype === 'subscribeLiteral' || acltype === 'unsubscribeLiteral') {
+                return aclTopic === topic ? 'match' : 'no-match';
+            }
+            return mqttWildcard(topic, aclTopic) !== null ? 'match' : 'no-match';
+        }
+
+        function matchRoles(typeSet) {
+            const result = [];
+            for (const role of roles) {
+                for (const acl of (role.acls ?? [])) {
+                    if (!typeSet.has(acl.acltype)) continue;
+                    const m = aclMatches(acl.acltype, acl.topic);
+                    if (m !== 'no-match') {
+                        result.push({
+                            rolename: role.rolename,
+                            allow: acl.allow,
+                            dynamic: m === 'dynamic',
+                            users: (role.clients ?? []).map((c) => c.username),
+                            groups: groupsByRole.get(role.rolename) ?? [],
+                        });
+                        break; // first matching ACL per role wins
+                    }
+                }
+            }
+            return result;
+        }
+
+        function defaultAllow(type) {
+            const d = defaultAcls.find((a) => a.acltype === type);
+            return d ? d.allow : false;
+        }
+
+        res.json({
+            topic,
+            send:      { roles: matchRoles(SEND_TYPES),      default: defaultAllow('publishClientSend') },
+            subscribe: { roles: matchRoles(SUBSCRIBE_TYPES), default: defaultAllow('subscribePattern') },
+            receive:   { roles: matchRoles(RECEIVE_TYPES),   default: defaultAllow('publishClientReceive') },
+        });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
 // ── Local tool check ──────────────────────────────────────────────────────────
 
 /**

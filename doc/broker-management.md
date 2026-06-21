@@ -163,6 +163,42 @@ Four sections:
 
 Cert metadata is stored in sheDB under `she/broker/cert/<serial>` for querying from scripts.
 
+---
+
+## mTLS client authentication with dynsec
+
+When a listener has both `require_certificate true` and `use_identity_as_username true`, Mosquitto maps the TLS client certificate's Common Name (CN) to the MQTT username. Combined with dynsec, this lets IoT devices authenticate with certificates instead of passwords — no shared secrets.
+
+Both options are exposed in the Listeners tab → **TLS** sub-section (visible after enabling the TLS toggle on a listener).
+
+### Step-by-step
+
+1. **Add the issuing CA to Trusted CAs.**  
+   In the Certificates tab, paste or upload the PEM of the CA that issued your client certificates (`cafile` or `capath`). This is the CA used by step-ca, XCA, or whichever tool issued your client certs — _not_ necessarily she's own local CA.  
+   Then set `cafile` (single CA cert) or `capath` (directory, populated by she via `openssl rehash`) on the listener.
+
+2. **Enable client cert requirements on the listener.**  
+   Open the Listeners tab, find your TLS listener, expand the TLS section and enable:
+   - `require_certificate` — rejects clients that present no certificate.
+   - `use_identity_as_username` — maps the cert CN to the MQTT username (replaces `MQTT CONNECT` username/password).
+
+   Click **Save** → **Apply & Reload**.
+
+3. **Create a matching dynsec user.**  
+   In the Users tab, add a user whose username matches the client cert's CN exactly (case-sensitive).  
+   Assign it to whatever role grants the necessary topic ACLs.
+
+4. **Test.**  
+   Connect with the client cert. Mosquitto will verify the cert chain, extract the CN, and look it up as a dynsec username. If no matching user exists the connection is rejected even if the cert is valid.
+
+### Notes
+
+- This flow works with any external CA — step-ca, XCA, openssl self-signed, etc. she does not need to be the issuer.
+- `use_subject_as_username` (also available in the Listeners UI) is an alternative: it uses the full Subject DN rather than just the CN. Useful when CNs are not unique across your CA.
+- If you also use she's own local CA for client certs, the cert CN is set at issuance time from the Common Name field in the Issued Client Certs section.
+
+---
+
 ### SSH / Remote
 
 Only relevant when `broker.ssh.host` is set (remote mode).

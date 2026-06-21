@@ -826,6 +826,25 @@ export function setDefaultAclAccess(acls: DefaultAclEntry[]): Promise<{ ok: bool
     return request('PUT', '/she/broker/acl-defaults', { acls });
 }
 
+// dynsec — ACL topic inspection
+export interface AclCheckRole {
+    rolename: string;
+    allow: boolean;
+    dynamic: boolean;
+    users: string[];
+    groups: Array<{ groupname: string; members: string[] }>;
+}
+export interface AclCheckSection { roles: AclCheckRole[]; default: boolean; }
+export interface AclCheckResult {
+    topic: string;
+    send: AclCheckSection;
+    subscribe: AclCheckSection;
+    receive: AclCheckSection;
+}
+export function checkBrokerAcl(topic: string): Promise<AclCheckResult> {
+    return request('GET', `/she/broker/acl-check?${new URLSearchParams({ topic })}`);
+}
+
 // dynsec — anonymous group
 export function getAnonymousGroup(): Promise<{ group: string | null }> {
     return request('GET', '/she/broker/anonymous-group');

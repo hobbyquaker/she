@@ -3,8 +3,8 @@
     import { subscribeWs } from '../lib/ws.js';
     import {
         fetchMqttState, publishMqtt,
-        getBrokerStatus, listBrokerRoles, listBrokerUsers, listBrokerGroups, getDefaultAclAccess,
-        type DynsecRole, type DynsecUser, type DynsecGroup, type DefaultAclEntry,
+        getBrokerStatus, listBrokerRoles, checkBrokerAcl,
+        type DynsecRole, type AclCheckResult,
     } from '../lib/api.js';
 
     /* ── Non-reactive data store ──────────────────────────────────────────────
@@ -287,22 +287,19 @@
     let totalCount = $derived.by(() => { void version; return topicMap.size; });
 
     /* ── ACL overlay ──────────────────────────────────────────────────────────── */
-    interface AclData {
-        roles: DynsecRole[];
-        users: DynsecUser[];
-        groups: DynsecGroup[];
-        defaults: DefaultAclEntry[];
-    }
+    interface AclData { roles: DynsecRole[]; }
 
-    const SEND_TYPES = new Set(['publishClientSend']);
+    const SEND_TYPES      = new Set(['publishClientSend']);
     const SUBSCRIBE_TYPES = new Set(['subscribePattern', 'subscribeLiteral']);
-    const RECEIVE_TYPES = new Set(['publishClientReceive']);
+    const RECEIVE_TYPES   = new Set(['publishClientReceive']);
 
-    let dynsecAvail = $state(false);
-    let aclMode    = $state(false);
-    let aclLoading = $state(false);
-    let aclData    = $state<AclData | null>(null);
-    let aclInspect = $state<string | null>(null);
+    let dynsecAvail  = $state(false);
+    let aclMode      = $state(false);
+    let aclLoading   = $state(false);
+    let aclData      = $state<AclData | null>(null);
+    let aclInspect   = $state<string | null>(null);
+    let aclCheck     = $state<AclCheckResult | null>(null);
+    let aclCheckBusy = $state(false);
 
     function aclTopicMatches(acltype: string, aclTopic: string, topic: string): 'match' | 'no-match' | 'dynamic' {
         if (aclTopic.includes('%u') || aclTopic.includes('%c')) return 'dynamic';
@@ -323,52 +320,11 @@
         return false;
     }
 
-    interface MatchedRole { rolename: string; allow: boolean; dynamic: boolean; }
-
-    function matchingRoles(topic: string, aclTypeSet: Set<string>): MatchedRole[] {
-        if (!aclData) return [];
-        const result: MatchedRole[] = [];
-        for (const role of aclData.roles) {
-            if (!role.acls) continue;
-            for (const acl of role.acls) {
-                if (!aclTypeSet.has(acl.acltype)) continue;
-                const m = aclTopicMatches(acl.acltype, acl.topic, topic);
-                if (m !== 'no-match') {
-                    result.push({ rolename: role.rolename, allow: acl.allow, dynamic: m === 'dynamic' });
-                    break;
-                }
-            }
-        }
-        return result;
-    }
-
-    function roleHolders(rolename: string) {
-        if (!aclData) return { direct: [] as string[], viaGroup: [] as { groupname: string; members: string[] }[] };
-        const direct = aclData.users
-            .filter((u) => u.roles?.some((r) => r.rolename === rolename))
-            .map((u) => u.username);
-        const viaGroup = aclData.groups
-            .filter((g) => g.roles?.some((r) => r.rolename === rolename))
-            .map((g) => ({ groupname: g.groupname, members: (g.clients ?? []).map((c) => c.username) }));
-        return { direct, viaGroup };
-    }
-
-    function defaultFor(acltype: string): boolean {
-        if (!aclData) return false;
-        const d = aclData.defaults.find((a) => a.acltype === acltype);
-        return d?.allow ?? false;
-    }
-
     async function loadAclData() {
         aclLoading = true;
         try {
-            const [rolesR, usersR, groupsR, defaultsR] = await Promise.all([
-                listBrokerRoles(),
-                listBrokerUsers(),
-                listBrokerGroups(),
-                getDefaultAclAccess(),
-            ]);
-            aclData = { roles: rolesR.roles, users: usersR.users, groups: groupsR.groups, defaults: defaultsR.acls };
+            const rolesR = await listBrokerRoles();
+            aclData = { roles: rolesR.roles };
         } catch {
             aclData = null;
             aclMode = false;
@@ -377,14 +333,30 @@
         }
     }
 
+    async function openInspect(topic: string) {
+        if (aclInspect === topic) { aclInspect = null; aclCheck = null; return; }
+        aclInspect = topic;
+        aclCheck = null;
+        aclCheckBusy = true;
+        try {
+            aclCheck = await checkBrokerAcl(topic);
+        } catch {
+            aclCheck = null;
+        } finally {
+            aclCheckBusy = false;
+        }
+    }
+
     async function toggleAclMode() {
         if (!aclMode) {
             aclMode = true;
             aclInspect = null;
+            aclCheck = null;
             if (!aclData) await loadAclData();
         } else {
             aclMode = false;
             aclInspect = null;
+            aclCheck = null;
         }
     }
 
@@ -430,36 +402,36 @@
             {/if}
             {#if aclMode && n.isLeaf}
                 {@const matched = !!aclData && hasAcl(n.path)}
-                <button class="acl-badge" class:matched onclick={(e) => { e.stopPropagation(); aclInspect = aclInspect === n.path ? null : n.path; }} title={matched ? 'Has explicit ACL — click to inspect' : 'No explicit ACL — uses defaults'}>🔒</button>
+                <button class="acl-badge" class:matched onclick={(e) => { e.stopPropagation(); openInspect(n.path); }} title={matched ? 'Has explicit ACL — click to inspect' : 'No explicit ACL — click to inspect defaults'}>🔒</button>
             {/if}
         </div>
-        {#if aclMode && n.isLeaf && aclInspect === n.path && aclData}
-            {@const sendRoles = matchingRoles(n.path, SEND_TYPES)}
-            {@const subRoles  = matchingRoles(n.path, SUBSCRIBE_TYPES)}
-            {@const recvRoles = matchingRoles(n.path, RECEIVE_TYPES)}
+        {#if aclMode && n.isLeaf && aclInspect === n.path}
             <div class="acl-panel">
-                {#each [
-                    { label: 'Send',      roles: sendRoles, defType: 'publishClientSend' },
-                    { label: 'Subscribe', roles: subRoles,  defType: 'subscribePattern' },
-                    { label: 'Receive',   roles: recvRoles, defType: 'publishClientReceive' },
-                ] as sec}
-                <div class="acl-sec">
-                    <span class="acl-sec-hdr">{sec.label}</span>
-                    {#if sec.roles.length === 0}
-                        <span class="acl-def" class:allow={defaultFor(sec.defType)} class:deny={!defaultFor(sec.defType)}>{defaultFor(sec.defType) ? 'allow' : 'deny'} (default)</span>
-                    {:else}
-                        {#each sec.roles as mr}
-                            {@const h = roleHolders(mr.rolename)}
-                            <span class="acl-role" class:allow={mr.allow} class:deny={!mr.allow}>
-                                {mr.allow ? '✓' : '✗'} <strong>{mr.rolename}</strong>
-                                {#if mr.dynamic}<span class="acl-dyn" title="per-user/client pattern — cannot evaluate statically">⚠%u/%c</span>{/if}
-                                {#if h.direct.length > 0}<span class="acl-members">{h.direct.join(', ')}</span>{/if}
-                                {#each h.viaGroup as g}<span class="acl-group">{g.groupname}</span>{/each}
-                            </span>
-                        {/each}
-                    {/if}
-                </div>
-                {/each}
+                {#if aclCheckBusy}
+                    <span class="acl-loading">Loading…</span>
+                {:else if aclCheck}
+                    {#each [
+                        { label: 'Send',      section: aclCheck.send },
+                        { label: 'Subscribe', section: aclCheck.subscribe },
+                        { label: 'Receive',   section: aclCheck.receive },
+                    ] as sec}
+                    <div class="acl-sec">
+                        <span class="acl-sec-hdr">{sec.label}</span>
+                        {#if sec.section.roles.length === 0}
+                            <span class="acl-def" class:allow={sec.section.default} class:deny={!sec.section.default}>{sec.section.default ? 'allow' : 'deny'} (default)</span>
+                        {:else}
+                            {#each sec.section.roles as mr}
+                                <span class="acl-role" class:allow={mr.allow} class:deny={!mr.allow}>
+                                    {mr.allow ? '✓' : '✗'} <strong>{mr.rolename}</strong>
+                                    {#if mr.dynamic}<span class="acl-dyn" title="per-user/client pattern — cannot evaluate statically">⚠%u/%c</span>{/if}
+                                    {#if mr.users.length > 0}<span class="acl-members">{mr.users.join(', ')}</span>{/if}
+                                    {#each mr.groups as g}<span class="acl-group">{g.groupname}</span>{/each}
+                                </span>
+                            {/each}
+                        {/if}
+                    </div>
+                    {/each}
+                {/if}
             </div>
         {/if}
         {#if hasKids && isOpen}

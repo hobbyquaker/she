@@ -77,6 +77,30 @@
     let scriptRunning = $state<Set<string>>(new Set());
     let chatExtraFiles = $state<AiExtraFile[]>([]);
 
+    // Tab bar scroll state
+    let tabBarEl = $state<HTMLDivElement | undefined>(undefined);
+    let canScrollLeft  = $state(false);
+    let canScrollRight = $state(false);
+    let _tabBarResizeObserver: ResizeObserver | null = null;
+
+    function updateTabScrollBounds() {
+        if (!tabBarEl) return;
+        canScrollLeft  = tabBarEl.scrollLeft > 0;
+        canScrollRight = tabBarEl.scrollLeft + tabBarEl.clientWidth < tabBarEl.scrollWidth - 1;
+    }
+
+    function scrollTabBar(dir: -1 | 1) {
+        tabBarEl?.scrollBy({ left: dir * 200, behavior: 'smooth' });
+    }
+
+    $effect(() => {
+        if (!tabBarEl) return;
+        _tabBarResizeObserver?.disconnect();
+        _tabBarResizeObserver = new ResizeObserver(updateTabScrollBounds);
+        _tabBarResizeObserver.observe(tabBarEl);
+        updateTabScrollBounds();
+    });
+
     // Script log panel filters
     let logFilterLevel = $state<'all' | 'debug' | 'info' | 'warn' | 'error'>('all');
     let logFilterText = $state('');
@@ -384,6 +408,7 @@ declare const she: {
 
     onDestroy(() => {
         window.removeEventListener('beforeunload', onBeforeUnload);
+        _tabBarResizeObserver?.disconnect();
         if (syntaxCheckTimer) clearTimeout(syntaxCheckTimer);
         unsubLog?.();
         unsubRunning?.();
@@ -470,6 +495,10 @@ declare const she: {
         editor.setModel(tab.model);
         suppressChange = false;
         runSyntaxCheck();
+        await tick();
+        tabBarEl?.querySelector<HTMLElement>(`[data-tab-path="${CSS.escape(path)}"]`)
+            ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+        updateTabScrollBounds();
     }
 
     async function closeTab(path: string) {
@@ -1248,21 +1277,31 @@ declare const she: {
 
     <div class="editor-area">
         {#if tabs.length > 0}
-            <div class="tab-bar">
-                {#each tabs as tab (tab.path)}
-                    <div
-                        class="tab"
-                        class:active={tab.path === activeTab}
-                        onclick={() => switchTab(tab.path)}
-                        role="button"
-                        tabindex="0"
-                        onkeydown={(e) => e.key === 'Enter' && switchTab(tab.path)}
-                    >
-                        <span class="tab-label">{tab.path.split('/').pop()}</span>
-                        {#if tab.dirty}<span class="tab-dirty">●</span>{/if}
-                        <button class="tab-close" title="Close" onclick={(e) => { e.stopPropagation(); closeTab(tab.path); }}>×</button>
-                    </div>
-                {/each}
+            <div class="tab-bar-wrap">
+                <button class="tab-scroll-btn" onclick={() => scrollTabBar(-1)} disabled={!canScrollLeft} aria-label="Scroll tabs left">‹</button>
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div class="tab-bar" bind:this={tabBarEl}
+                    onscroll={updateTabScrollBounds}
+                    onwheel={(e) => { e.preventDefault(); tabBarEl!.scrollLeft += e.deltaY; updateTabScrollBounds(); }}
+                    role="tablist"
+                >
+                    {#each tabs as tab (tab.path)}
+                        <div
+                            class="tab"
+                            class:active={tab.path === activeTab}
+                            data-tab-path={tab.path}
+                            onclick={() => switchTab(tab.path)}
+                            role="tab"
+                            tabindex="0"
+                            onkeydown={(e) => e.key === 'Enter' && switchTab(tab.path)}
+                        >
+                            <span class="tab-label">{tab.path.split('/').pop()}</span>
+                            {#if tab.dirty}<span class="tab-dirty">●</span>{/if}
+                            <button class="tab-close" title="Close" onclick={(e) => { e.stopPropagation(); closeTab(tab.path); }}>×</button>
+                        </div>
+                    {/each}
+                </div>
+                <button class="tab-scroll-btn" onclick={() => scrollTabBar(1)} disabled={!canScrollRight} aria-label="Scroll tabs right">›</button>
             </div>
         {/if}
 
@@ -1803,9 +1842,21 @@ declare const she: {
         min-width: 200px; max-width: 700px; flex-shrink: 0;
     }
 
+    .tab-bar-wrap {
+        display: flex; align-items: stretch; background: var(--bg-app);
+        border-bottom: 1px solid var(--border-sub); flex-shrink: 0; height: 35px;
+    }
+    .tab-scroll-btn {
+        flex-shrink: 0; width: 22px; background: var(--bg-app); border: none;
+        border-right: 1px solid var(--border-sub); color: var(--fg-muted); cursor: pointer;
+        font-size: 14px; padding: 0; display: flex; align-items: center; justify-content: center;
+    }
+    .tab-scroll-btn:last-child { border-right: none; border-left: 1px solid var(--border-sub); }
+    .tab-scroll-btn:disabled { opacity: 0.25; cursor: default; pointer-events: none; }
+    .tab-scroll-btn:not(:disabled):hover { color: var(--fg); background: var(--bg-hover); }
     .tab-bar {
-        display: flex; overflow-x: auto; background: var(--bg-app);
-        border-bottom: 1px solid var(--border-sub); flex-shrink: 0; height: 35px; scrollbar-width: none;
+        display: flex; overflow-x: hidden; flex: 1;
+        scrollbar-width: none;
     }
     .tab-bar::-webkit-scrollbar { display: none; }
     .tab {
