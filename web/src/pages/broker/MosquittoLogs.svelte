@@ -164,7 +164,8 @@
 
     .spacer { flex: 1; }
 
-    .autoscroll-label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted, #aaa); cursor: pointer; user-select: none; }
+    .autoscroll-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted, #aaa); cursor: pointer; user-select: none; }
+    .autoscroll-label input[type='checkbox'] { accent-color: var(--accent, #569cd6); width: 14px; height: 14px; cursor: pointer; }
     .btn-clear { background: none; border: 1px solid var(--border, #444); border-radius: 3px; color: var(--text-muted, #888); cursor: pointer; font-size: 11px; padding: 2px 8px; }
 
     .log-container {

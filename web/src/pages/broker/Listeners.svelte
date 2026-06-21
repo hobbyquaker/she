@@ -412,7 +412,7 @@
         min-width: 160px;
     }
 
-    .field-row input, .field-row select {
+    .field-row input:not([type='checkbox']), .field-row select {
         background: var(--input-bg, #2a2a2a);
         border: 1px solid var(--border, #444);
         border-radius: 4px;
@@ -420,6 +420,8 @@
         font-size: 12px;
         padding: 4px 7px;
     }
+
+    input[type='checkbox'] { accent-color: var(--accent, #569cd6); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
 
     .tls-inline {
         flex: 0 0 auto;
@@ -437,6 +439,15 @@
         cursor: pointer;
         font-size: 12px;
         user-select: none;
+    }
+
+    .auth-section select, .global-settings select {
+        background: var(--input-bg, #2a2a2a);
+        border: 1px solid var(--border, #444);
+        border-radius: 4px;
+        color: var(--text, #eee);
+        font-size: 11px;
+        padding: 3px 6px;
     }
 
     .advanced-btn {

@@ -25,9 +25,19 @@
 
     // log_dest / log_type — multi-value (stored as Set for UI)
     const LOG_DEST_OPTIONS = ['file', 'stdout', 'stderr', 'syslog', 'topic', 'none'] as const;
-    const LOG_TYPE_OPTIONS = ['debug', 'error', 'warning', 'notice', 'information', 'subscribe', 'unsubscribe', 'websockets', 'connect', 'disconnect', 'publish', 'receive', 'all'] as const;
+
+    // log_type grouped for UI display
+    const LOG_TYPE_SEVERITY = ['error', 'warning', 'notice', 'information', 'debug'] as const;
+    const LOG_TYPE_EVENTS   = ['connect', 'disconnect', 'subscribe', 'unsubscribe', 'publish', 'receive', 'websockets'] as const;
+    const LOG_TYPE_OTHER    = ['all'] as const;
+    const LOG_TYPE_OPTIONS  = [...LOG_TYPE_SEVERITY, ...LOG_TYPE_EVENTS, ...LOG_TYPE_OTHER] as const;
+
     let logDest = $state<Set<string>>(new Set());
     let logType = $state<Set<string>>(new Set());
+
+    function toggleSet(s: Set<string>, v: string): Set<string> {
+        const n = new Set(s); n.has(v) ? n.delete(v) : n.add(v); return n;
+    }
 
     function m(key: string): string {
         if (!conf) return '';
@@ -131,6 +141,56 @@
     {#if reloadMsg}<div class="reload-msg">{reloadMsg}</div>{/if}
 
     {#if conf}
+    <!-- ── Logging ──────────────────────────────────────────────────────── -->
+    <div class="section">
+        <h4>Logging</h4>
+        <div class="field">
+            <span class="field-key">log_dest</span>
+            <div class="checkbox-group">
+                {#each LOG_DEST_OPTIONS as opt}
+                <label class="check-label">
+                    <input type="checkbox" checked={logDest.has(opt)} onchange={() => { logDest = toggleSet(logDest, opt); }} />
+                    {opt}
+                </label>
+                {/each}
+            </div>
+            <p class="hint">Log destinations. Enable <code>topic</code> to stream logs to <code>$SYS/broker/log/*</code> and view them in the Logs tab. <code>none</code> disables logging entirely.</p>
+        </div>
+        <div class="field">
+            <span class="field-key">log_type</span>
+            <div class="log-type-grid">
+                <div class="log-type-group">
+                    <span class="log-type-group-label">Severity</span>
+                    {#each LOG_TYPE_SEVERITY as opt}
+                    <label class="check-label">
+                        <input type="checkbox" checked={logType.has(opt)} onchange={() => { logType = toggleSet(logType, opt); }} />
+                        {opt}
+                    </label>
+                    {/each}
+                </div>
+                <div class="log-type-group">
+                    <span class="log-type-group-label">Events</span>
+                    {#each LOG_TYPE_EVENTS as opt}
+                    <label class="check-label">
+                        <input type="checkbox" checked={logType.has(opt)} onchange={() => { logType = toggleSet(logType, opt); }} />
+                        {opt}
+                    </label>
+                    {/each}
+                </div>
+                <div class="log-type-group log-type-group--other">
+                    {#each LOG_TYPE_OTHER as opt}
+                    <label class="check-label">
+                        <input type="checkbox" checked={logType.has(opt)} onchange={() => { logType = toggleSet(logType, opt); }} />
+                        <strong>{opt}</strong>
+                    </label>
+                    {/each}
+                    <span class="all-hint">enables all types above</span>
+                </div>
+            </div>
+            <p class="hint">Types of messages to log. Leave all unchecked to use the broker default.</p>
+        </div>
+    </div>
+
     <!-- ── Connection limits ─────────────────────────────────────────────── -->
     <div class="section">
         <h4>Connection limits</h4>
@@ -212,40 +272,7 @@
         </div>
     </div>
 
-    <!-- ── Logging ──────────────────────────────────────────────────────── -->
-    <div class="section">
-        <h4>Logging</h4>
-        <div class="field">
-            <span class="field-key">log_dest</span>
-            <div class="checkbox-group">
-                {#each LOG_DEST_OPTIONS as opt}
-                <label class="check-label">
-                    <input type="checkbox"
-                        checked={logDest.has(opt)}
-                        onchange={() => { const s = new Set(logDest); s.has(opt) ? s.delete(opt) : s.add(opt); logDest = s; }} />
-                    {opt}
-                </label>
-                {/each}
-            </div>
-            <p class="hint">Log destinations. Enable <code>topic</code> to stream logs to <code>$SYS/broker/log/*</code> and view them in the Logs tab.</p>
-        </div>
-        <div class="field">
-            <span class="field-key">log_type</span>
-            <div class="checkbox-group">
-                {#each LOG_TYPE_OPTIONS as opt}
-                <label class="check-label">
-                    <input type="checkbox"
-                        checked={logType.has(opt)}
-                        onchange={() => { const s = new Set(logType); s.has(opt) ? s.delete(opt) : s.add(opt); logType = s; }} />
-                    {opt}
-                </label>
-                {/each}
-            </div>
-            <p class="hint">Types of messages to log. Leave empty to use the broker default.</p>
-        </div>
-    </div>
-
-    <!-- ── Performance ───────────────────────────────────────────────────── -->
+    <!-- ── Performance ─────────────────────────────────────────────────── -->
     <div class="section">
         <h4>Performance</h4>
         <div class="field-grid">
@@ -311,7 +338,7 @@
     .field label { display: flex; flex-direction: column; gap: 3px; }
     .field label span { font-size: 11px; color: var(--text-muted, #999); font-family: monospace; }
 
-    input, select {
+    input:not([type='checkbox']), select {
         background: var(--input-bg, #2a2a2a);
         border: 1px solid var(--border, #444);
         border-radius: 4px;
@@ -325,9 +352,15 @@
 
     .field-key { font-size: 11px; color: var(--text-muted, #999); font-family: monospace; display: block; margin-bottom: 5px; }
 
-    .checkbox-group { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 4px; }
-    .check-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text, #ddd); cursor: pointer; font-family: monospace; user-select: none; }
-    .check-label input { cursor: pointer; }
+    .checkbox-group { display: flex; flex-wrap: wrap; gap: 5px 16px; margin-bottom: 2px; }
+    .check-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text, #ddd); cursor: pointer; font-family: monospace; user-select: none; }
+    .check-label input[type='checkbox'] { accent-color: var(--accent, #569cd6); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+
+    .log-type-grid { display: flex; flex-direction: column; gap: 8px; }
+    .log-type-group { display: flex; flex-wrap: wrap; gap: 5px 16px; }
+    .log-type-group-label { font-size: 10px; font-weight: 600; color: var(--text-muted, #666); text-transform: uppercase; letter-spacing: 0.06em; width: 100%; margin-bottom: 1px; }
+    .log-type-group--other { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--border, #333); padding-top: 8px; }
+    .all-hint { font-size: 11px; color: var(--text-muted, #666); font-style: italic; }
 
     .err  { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.3); border-radius: 4px; color: #e88; font-size: 12px; padding: 6px 10px; }
     .ok   { background: rgba(70,180,70,0.1); border: 1px solid rgba(70,180,70,0.25); border-radius: 4px; color: #8c8; font-size: 12px; padding: 6px 10px; }
