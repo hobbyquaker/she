@@ -170,3 +170,24 @@ EOF
 ```
 
 Once the remote is configured, the commit/push/history controls in the Scripts tab work without any further setup.
+
+---
+
+## Broker access control with Mosquitto Dynamic Security
+
+In a production homelab it is often useful to assign different MQTT permissions to different clients — for example, granting a specific IoT device access only to its own topics, or restricting a guest system from publishing to sensitive topics.
+
+**she** integrates with Mosquitto's [Dynamic Security plugin](https://mosquitto.org/documentation/dynamic-security/) and exposes its full management surface through the `she.broker.*` script API and the Broker page in the web UI. From a script you can create and delete clients, roles, and groups, assign ACLs, and react to membership changes — all at runtime, without restarting Mosquitto or editing config files by hand.
+
+```js
+// Provision a new IoT device client with its own role and topic ACL
+she.broker.createClient({ username: 'sensor-kitchen', password: 'secret' });
+she.broker.createRole({ rolename: 'sensor-kitchen' });
+she.broker.addRoleACL('sensor-kitchen', 'publishClientSend', 'home/sensor/kitchen/#', true);
+she.broker.assignRole('sensor-kitchen', 'sensor-kitchen');
+```
+
+This makes it straightforward to automate device provisioning: a single script can handle the full lifecycle — creating credentials when a device is first seen and revoking them when it is decommissioned.
+
+See [Broker management](broker-management.md) for the full API reference, setup instructions, and the web UI walkthrough.
+
