@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from 'svelte';
     import * as monaco from 'monaco-editor';
+    import { resolveMonacoTheme } from '../lib/theme.js';
     import {
         listScriptsTree,
         readScript,
@@ -433,7 +434,7 @@ declare const she: {
         emptyModel = monaco.editor.createModel('', 'javascript');
         editor = monaco.editor.create(editorContainer, {
             model: emptyModel,
-            theme: 'vs-dark',
+            theme: resolveMonacoTheme(),
             automaticLayout: true,
             minimap: { enabled: false },
             fontSize: 14,
@@ -515,6 +516,16 @@ declare const she: {
             ? savedActive : (tabs[0]?.path ?? null);
         if (restoreActive) await switchTab(restoreActive);
         _mounted = true;
+
+        // Keep all Monaco editors in sync with the app theme
+        const syncMonacoTheme = () => monaco.editor.setTheme(resolveMonacoTheme());
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        window.addEventListener('she:theme-changed', syncMonacoTheme);
+        mq.addEventListener('change', syncMonacoTheme);
+        return () => {
+            window.removeEventListener('she:theme-changed', syncMonacoTheme);
+            mq.removeEventListener('change', syncMonacoTheme);
+        };
     });
 
     onDestroy(() => {
@@ -764,7 +775,7 @@ declare const she: {
         historyDiffOrigModel = monaco.editor.createModel(result.content, lang);
         historyDiffModModel  = monaco.editor.createModel(currentContent, lang);
         historyDiffEditor = monaco.editor.createDiffEditor(historyDiffContainer, {
-            theme: 'vs-dark',
+            theme: resolveMonacoTheme(),
             readOnly: true,
             renderSideBySide: true,
             automaticLayout: true,
@@ -1142,7 +1153,7 @@ declare const she: {
         proposedModifiedModel = monaco.editor.createModel(code, 'javascript');
 
         diffEditor = monaco.editor.createDiffEditor(diffEditorContainer, {
-            theme: 'vs-dark',
+            theme: resolveMonacoTheme(),
             readOnly: true,
             renderSideBySide: true,
             automaticLayout: true,

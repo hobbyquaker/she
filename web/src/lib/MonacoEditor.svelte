@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as monaco from 'monaco-editor';
+    import { resolveMonacoTheme } from './theme.js';
 
     let {
         value = $bindable(''),
@@ -14,6 +15,10 @@
     let editor: monaco.editor.IStandaloneCodeEditor;
     let ignoring = false;
 
+    function syncTheme() {
+        monaco.editor.setTheme(resolveMonacoTheme());
+    }
+
     onMount(() => {
         const langOpts: Partial<monaco.editor.IStandaloneEditorConstructionOptions> =
             language === 'json'
@@ -23,7 +28,7 @@
         editor = monaco.editor.create(container, {
             value,
             language,
-            theme: 'vs-dark',
+            theme: resolveMonacoTheme(),
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             fontSize: 13,
@@ -41,6 +46,16 @@
             if (ignoring) return;
             value = editor.getValue();
         });
+
+        // React to app theme changes and OS preference changes
+        window.addEventListener('she:theme-changed', syncTheme);
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        mq.addEventListener('change', syncTheme);
+
+        return () => {
+            window.removeEventListener('she:theme-changed', syncTheme);
+            mq.removeEventListener('change', syncTheme);
+        };
     });
 
     onDestroy(() => editor?.dispose());
