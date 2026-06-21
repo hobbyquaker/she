@@ -163,6 +163,16 @@ Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance
 
 - **secrets management** — store secrets (named groups of arbitrary string fields, e.g. `{ "smtp": { "password": "…", "host": "…" } }`) in a dedicated encrypted file (`~/.she/secrets.enc`) separate from `config.json`, using AES-256-GCM via Node.js built-in `crypto`. Encryption key sourced from env var `SHE_SECRETS_KEY` (takes precedence) or key file `~/.she/secrets.key` (chmod 600). Access from scripts via `she.secrets.get('<name>/<field>')`. Integrate as own section in config ui (show/hide values). Open questions to resolve before implementation: HTTP API exposure (security concern — avoid reading secret values over the network, or localhost-only), behavior when key is missing, hot-reload vs. startup-only, CLI subcommands for management, configurable secrets file path.
 
+## Broker Page — Auth without dynsec
+
+- **Password file & ACL file management** — users who prefer static `passwd` / `acl` files over the dynamic-security plugin have no UI support today. Needs to work in both local and SSH/remote mode (analogous to how `mosquitto.conf` read/write already works via `ssh-deploy`).
+
+  Scope:
+  - **Password file**: read the file, list usernames, add a user (`mosquitto_passwd -b <file> <user> <pass>`), change password, delete a user (`mosquitto_passwd -D <file> <user>`). In remote mode, run the command on the broker host via `sshDeploy.runCommand()`; in local mode use `execFile()`.
+  - **ACL file**: read/write the raw text (mosquitto acl format). Expose a Monaco editor for the raw file (like the Advanced config editor), plus optionally a structured UI for the common patterns (user-level `topic`, `readwrite`, `read`, `write` lines and `pattern` lines).
+  - **Config integration**: the global `password_file` and `acl_file` keys in `mosquitto.conf` already flow through the managed-key system; listener-level `password_file` / `acl_file` are already parsed and serialised per-listener. The new UI should make it easy to point these at the managed files.
+  - **Remote path convention**: document a recommended layout (e.g. `/etc/mosquitto/passwd`, `/etc/mosquitto/acl`) so the SSH deploy path and the `mosquitto.conf` path stay consistent.
+
 ## Broker Page — Certificates & mTLS
 
 - **Client certificate management — deferred pending external CA strategy** — The local CA and client cert issuance UI (Local CA section, Client Certs section, issue/revoke/download P12 flows) has been intentionally removed from the Security page UI. The backend API surface is preserved for automation. The right solution for client cert management in a homelab context is an external CA, not a she-managed one. Before re-introducing a client cert UI, the following questions need to be resolved:
