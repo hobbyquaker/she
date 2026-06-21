@@ -1346,6 +1346,7 @@ declare const she: {
                     {#each replaceItems as item}
                     <label class="replace-item">
                         <input type="checkbox" bind:checked={item.checked} />
+                        <span class="replace-checkmark"></span>
                         <span class="replace-item-path">{item.path}</span>
                         <span class="replace-item-n">{item.changes}×</span>
                     </label>
@@ -1537,6 +1538,7 @@ declare const she: {
                                 <ul class="changes-list">
                                     {#each gitInfo.changes as c}
                                         <li class="changes-item">
+                                            <label class="changes-cb-wrap">
                                             <input
                                                 type="checkbox"
                                                 class="changes-check"
@@ -1547,6 +1549,8 @@ declare const she: {
                                                     checkedFiles = s;
                                                 }}
                                             />
+                                            <span class="changes-checkmark"></span>
+                                            </label>
                                             <span class="changes-status">{c.status}</span>
                                             <span class="changes-file">{c.file}</span>
                                         </li>
@@ -2148,7 +2152,20 @@ declare const she: {
         list-style: none; padding: 4px 0; margin: 0; max-height: 180px; overflow-y: auto;
     }
     .changes-item { display: flex; align-items: center; gap: 6px; padding: 3px 10px; }
-    .changes-check { flex-shrink: 0; cursor: pointer; accent-color: var(--accent); }
+    .changes-cb-wrap { display: flex; align-items: center; flex-shrink: 0; cursor: pointer; }
+    .changes-check { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .changes-checkmark {
+        flex-shrink: 0; width: 12px; height: 12px;
+        border: 1.5px solid var(--border); border-radius: 3px;
+        background: var(--bg-input); position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .changes-check:checked + .changes-checkmark { background: var(--accent); border-color: var(--accent); }
+    .changes-check:checked + .changes-checkmark::after {
+        content: ''; position: absolute; left: 2px; top: 0px; width: 4px; height: 7px;
+        border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg);
+    }
+    .changes-cb-wrap:hover .changes-checkmark { border-color: var(--accent); }
     .changes-status { font-size: 10px; font-weight: 700; color: var(--fg-warn); flex-shrink: 0; width: 16px; }
     .changes-file { font-size: 11px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .changes-commit-row {
@@ -2406,6 +2423,19 @@ declare const she: {
         display: flex; align-items: center; gap: 6px; padding: 2px 0;
         font-size: 11px; cursor: pointer; user-select: none;
     }
+    .replace-item input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .replace-checkmark {
+        flex-shrink: 0; width: 12px; height: 12px;
+        border: 1.5px solid var(--border); border-radius: 3px;
+        background: var(--bg-input); position: relative;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .replace-item input:checked + .replace-checkmark { background: var(--accent); border-color: var(--accent); }
+    .replace-item input:checked + .replace-checkmark::after {
+        content: ''; position: absolute; left: 2px; top: 0px; width: 4px; height: 7px;
+        border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg);
+    }
+    .replace-item:hover .replace-checkmark { border-color: var(--accent); }
     .replace-item-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
     .replace-item-n { color: var(--fg-muted); flex-shrink: 0; }
 </style>
