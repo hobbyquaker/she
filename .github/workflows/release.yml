@@ -9,8 +9,25 @@ permissions:
     contents: write
 
 jobs:
+    lint:
+        name: Lint
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Use Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: '26'
+                  cache: 'npm'
+
+            - run: npm ci
+
+            - run: npm run lint:ci
+
     test:
         name: Test
+        needs: lint
         uses: ./.github/workflows/test.yml
 
     release:

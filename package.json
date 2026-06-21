@@ -11,9 +11,11 @@
         "test:verbose": "cross-env NODE_OPTIONS=\"--no-warnings\" jest --verbose --forceExit",
         "lint": "eslint --cache --cache-location .cache/.eslintcache .",
         "lint:fix": "eslint --cache --cache-location .cache/.eslintcache --fix .",
+        "lint:ci": "eslint --no-cache .",
         "format": "prettier --cache --cache-location .cache/.prettiercache --write .",
         "format:check": "prettier --cache --cache-location .cache/.prettiercache --check .",
         "build:web": "cd web && npm install && npm run build",
+        "prepare": "git config core.hooksPath .githooks || true",
         "postinstall": "node -e \"console.log('\\n  smart-home-engine installed.\\n  To run as a systemd service: sudo she --install\\n')\""
     },
     "bin": {

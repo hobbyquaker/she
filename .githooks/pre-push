@@ -1,0 +1,5 @@
+#!/bin/sh
+# Clear ESLint cache so the hook behaves identically to CI (lint:ci).
+rm -f .cache/.eslintcache
+echo "Running lint..."
+npm run lint:ci
