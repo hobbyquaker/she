@@ -56,6 +56,23 @@ A script can inspect `req.headers` to implement its own auth — for example, ve
 
 > This behaviour is tracked as a known limitation and a more ergonomic solution (auth inherited by default, with an explicit `{ public: true }` opt-out for webhook receivers) is planned. See [BACKLOG.md](../BACKLOG.md).
 
+## Third-party npm packages in scripts
+
+Scripts run inside a Node.js VM sandbox, but they can `require()` any package that is installed in the global Node.js environment or in the she package itself. This means that **whatever npm package you load into a script runs with the same privileges as the she process** — full filesystem access, network access, and access to all connected devices.
+
+npm is a large, open ecosystem. The vast majority of packages are written in good faith, but the historical record includes a meaningful number of packages that were malicious (credential theft, crypto miners, backdoors) or simply of such low quality that they introduced severe vulnerabilities. Supply-chain attacks — where a legitimate package is later compromised — are a documented and recurring threat.
+
+**Recommendations:**
+
+- **Keep third-party dependencies at an absolute minimum.** Before reaching for an npm package, ask whether the task can be done with the built-in sandbox API (`she.mqtt`, `she.db`, `she.http.fetch`, …) or with a short piece of code you write yourself.
+- **Read the code you introduce.** If you do use a package, read every line that will execute in your scripts. This is realistic for small, focused utilities (a handful of functions, no transitive dependencies); it is not realistic for large packages with deep dependency trees.
+- **Prefer zero-dependency packages.** Each transitive dependency is an additional attack surface you did not review.
+- **Pin exact versions.** Use `npm install --save-exact` so an update cannot silently swap in different code.
+- **Check package provenance.** Look at download counts, publish history, the source repository, and when the last version was published. A package that was dormant for two years and suddenly received an update deserves extra scrutiny.
+- **Never install a package solely because a tutorial or an AI assistant suggested it** without first reviewing what it actually does.
+
+You are responsible for every piece of code that runs in your smart home. A compromised script has access to your presence sensors, locks, alarms, and anything else connected to your broker. Treat npm installs in this context with the same caution you would apply to running an unknown binary as root.
+
 ## Mosquitto Dynamic Security
 
 If you run Mosquitto as your MQTT broker, the **Dynamic Security plugin** lets you define per-client ACLs that control which topics each client may publish or subscribe to. This limits blast radius if a script or IoT device misbehaves — a device that should only publish its own sensor data cannot subscribe to lock commands.
