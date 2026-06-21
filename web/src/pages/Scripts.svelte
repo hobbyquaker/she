@@ -155,15 +155,13 @@
             searchLoading = false;
         }
     }
-    function jumpToMatch(path: string, match: SearchMatch) {
-        switchTab(path);
-        tick().then(() => {
-            if (editor) {
-                editor.revealLineInCenter(match.line);
-                editor.setPosition({ lineNumber: match.line, column: match.col });
-                editor.focus();
-            }
-        });
+    async function jumpToMatch(path: string, match: SearchMatch) {
+        await openTab(path);
+        if (editor) {
+            editor.revealLineInCenter(match.line);
+            editor.setPosition({ lineNumber: match.line, column: match.col });
+            editor.focus();
+        }
     }
     function _escRegex(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
     async function buildReplacePreview() {
@@ -1297,7 +1295,7 @@ declare const she: {
                         {#if searchTruncated}<div class="search-status search-trunc">Showing first 500 matches.</div>{/if}
                         {#each searchResults as result}
                         <div class="search-file-group">
-                            <button class="search-file-btn" onclick={() => switchTab(result.path)}>
+                            <button class="search-file-btn" onclick={() => openTab(result.path)}>
                                 <span class="search-fname">{result.path}</span>
                                 <span class="search-fcount">{result.matches.length}</span>
                             </button>
