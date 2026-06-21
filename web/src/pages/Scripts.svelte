@@ -1314,7 +1314,7 @@ declare const she: {
                         {:else}
                         {#if searchTruncated}<div class="search-status search-trunc">Showing first 200 results.</div>{/if}
                         {#each searchFileResults as fp}
-                        <button class="search-match-row search-file-result" onclick={() => switchTab(fp)}>
+                        <button class="search-match-row search-file-result" onclick={() => openTab(fp)}>
                             <span class="search-preview">{fp}</span>
                         </button>
                         {/each}
