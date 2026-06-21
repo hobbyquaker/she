@@ -95,6 +95,15 @@ function makeLabel(filePath) {
 }
 
 log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1 ? 'info' : config.verbosity);
+
+// Safety net: unhandled Promise rejections from async script callbacks are not caught
+// by the per-script domain (Node.js domains don't intercept Promise rejections).
+// Log the error instead of letting Node.js crash the process.
+process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.stack || reason.message : String(reason);
+    log.error('unhandled promise rejection — add try/catch to async script callbacks:\n' + msg);
+});
+
 log.info('she ' + pkg.version + ' starting');
 log.debug('loaded config: ', config);
 
