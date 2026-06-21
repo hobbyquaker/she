@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, type AuthMode } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, type AuthMode } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
@@ -29,6 +29,10 @@
     let varPrefix      = $state('var');
     let mqttVersion    = $state('');
     let disableVars    = $state(false);
+
+    // Mosquitto management
+    let brokerEnabled  = $state(false);
+    let brokerChecking = $state(false);
 
     // Web server
     let port           = $state<number | ''>(8080);
@@ -139,6 +143,7 @@
         'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
         'redis',
         'ai',
+        'broker', // handled explicitly in load/save for broker.enabled
     ]);
 
     // ── Leaflet map ────────────────────────────────────────────────────────
@@ -200,7 +205,8 @@
     let activeSection = $state('appearance');
 
     const SECTIONS = [
-        { id: 'appearance', label: 'Appearance',  terms: ['theme','color','dark','light'] },
+        { id: 'broker',     label: 'Mosquitto',    terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
+        { id: 'appearance', label: 'Appearance',   terms: ['theme','color','dark','light'] },
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
@@ -269,6 +275,8 @@
             if (typeof cfg.dbRetain         === 'boolean') dbRetain     = cfg.dbRetain;
             const redis = cfg.redis as { url?: string } | undefined;
             if (redis?.url) redisUrl = redis.url;
+            const brokerCfg = cfg.broker as Record<string, unknown> | undefined;
+            brokerEnabled = brokerCfg?.enabled === true;
             const ai = cfg.ai as { provider?: string; baseUrl?: string; model?: string; apiKey?: string } | undefined;
             if (ai?.provider) aiProvider = ai.provider;
             if (ai?.baseUrl)  aiBaseUrl  = ai.baseUrl;
@@ -277,6 +285,8 @@
             aiPreset = detectAiPreset(aiProvider, aiBaseUrl);
             previousPreset = aiPreset;
             extra = Object.fromEntries(Object.entries(cfg).filter(([k]) => !KNOWN.has(k)));
+            // Keep the full broker object in extra so non-enabled fields survive a save
+            if (brokerCfg) extra = { ...extra, broker: brokerCfg };
         } catch (e: any) {
             errMsg = e.message;
         } finally {
@@ -306,6 +316,34 @@
         } finally {
             authSaving = false;
         }
+    }
+
+    async function onBrokerEnabledChange(val: boolean) {
+        if (val) { brokerEnabled = true; return; }
+        // Turning OFF — guard against active dynsec or SSH config
+        brokerChecking = true;
+        try {
+            const st = await getBrokerStatus();
+            if (st.dynsec?.configured) {
+                await dialog.show(
+                    'Cannot disable mosquitto management: the dynamic security plugin is still configured. Remove it first via Broker → Status.',
+                    { alert: true } as any,
+                );
+                return;
+            }
+            if (st.sshConfigured) {
+                const ok = await dialog.show(
+                    'An SSH broker connection is configured. Disabling mosquitto management will hide the Broker page but your configuration will be preserved.',
+                    { confirm: 'Disable anyway', danger: true },
+                );
+                if (!ok) return;
+            }
+        } catch {
+            // getBrokerStatus may fail if broker was never configured — proceed
+        } finally {
+            brokerChecking = false;
+        }
+        brokerEnabled = false;
     }
 
     async function save() {
@@ -347,6 +385,14 @@
             }
         }
         if (redisUrl) cfg.redis = { url: redisUrl };
+        // broker.enabled — merge into the existing broker config block (preserves dynsec, ssh, etc.)
+        const brokerExtra = (extra.broker as Record<string, unknown> | undefined) ?? {};
+        const { enabled: _bIgnored, ...brokerRest } = brokerExtra;
+        if (brokerEnabled) {
+            cfg.broker = { ...brokerRest, enabled: true };
+        } else if (Object.keys(brokerRest).length > 0) {
+            cfg.broker = brokerRest;
+        }
         if (aiProvider) {
             cfg.ai = {
                 provider: aiProvider,
@@ -423,6 +469,22 @@
             <div class="loading">Loading…</div>
         {:else}
             <div class="config-form">
+
+                <!-- ── Mosquitto Management ──────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'broker')}
+                <section id="sec-broker">
+                    <h3>Mosquitto management</h3>
+                    <div class="field">
+                        <label class="toggle">
+                            <input type="checkbox" checked={brokerEnabled} disabled={brokerChecking}
+                                onchange={(e) => onBrokerEnabledChange((e.target as HTMLInputElement).checked)} />
+                            <span class="toggle-label">Enable mosquitto broker management</span>
+                        </label>
+                        <p class="hint">Shows the <strong>Broker</strong> page in the navigation, giving access to listener config, dynamic security, TLS certificates and more. Disable this if you are not using Mosquitto or prefer to manage it externally.</p>
+                        {#if brokerChecking}<p class="hint">Checking broker status…</p>{/if}
+                    </div>
+                </section>
+                {/if}
 
                 <!-- ── Appearance ─────────────────────────────────── -->
                 {#if visibleSections.some(s => s.id === 'appearance')}

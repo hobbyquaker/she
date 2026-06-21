@@ -69,6 +69,7 @@
     // packages dot
     let pinnedPackages = $state<string[]>([]);
     let outdatedDepsCount = $state(0);
+    let brokerEnabled = $state(false);
 
     // matter dot
     let matterDevices = $state<{ nodeId: string; online?: boolean }[]>([]);
@@ -177,6 +178,10 @@
                 const [o, cfg] = await Promise.all([getOutdatedDeps(), getConfig()]);
                 pinnedPackages = Array.isArray(cfg.pinnedPackages) ? (cfg.pinnedPackages as string[]) : [];
                 outdatedDepsCount = Object.keys(o).filter(n => !pinnedPackages.includes(n)).length;
+                const wasBrokerEnabled = brokerEnabled;
+                brokerEnabled = (cfg.broker as any)?.enabled === true;
+                // If broker was just disabled and user is on the Broker page, redirect
+                if (wasBrokerEnabled && !brokerEnabled && page === 'security') navigate('scripts');
             } catch { /* best effort */ }
         }
         pollStatus();
@@ -264,6 +269,7 @@
             {:else if mqttConnected}<span class="nav-dot nav-dot--ok" title="MQTT connected"></span>
             {/if}
         </button>
+        {#if brokerEnabled}
         <button class:active={page === 'security'} onclick={() => navigate('security')}>
             <!-- Broker icon: antenna / broadcast -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -274,6 +280,7 @@
             </svg>
             Broker
         </button>
+        {/if}
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
