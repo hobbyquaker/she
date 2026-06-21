@@ -537,14 +537,15 @@
                 {#if visibleSections.some(s => s.id === 'broker')}
                 <section id="sec-broker">
                     <h3>Mosquitto management</h3>
-                    <div class="field">
-                        <label class="toggle">
+                    <div class="feature-toggle">
+                        <label class="check-label">
                             <input type="checkbox" checked={brokerEnabled} disabled={brokerChecking}
                                 onchange={(e) => onBrokerEnabledChange((e.target as HTMLInputElement).checked)} />
-                            <span class="toggle-label">Enable mosquitto broker management</span>
+                            <span class="checkmark"></span>
+                            Enable mosquitto broker management
                         </label>
-                        <p class="hint">Shows the <strong>Broker</strong> page in the navigation, giving access to listener config, dynamic security, TLS certificates and more. Disable this if you are not using Mosquitto or prefer to manage it externally.</p>
-                        {#if brokerChecking}<p class="hint">Checking broker status…</p>{/if}
+                        <p class="feature-desc">Shows the <strong>Broker</strong> page in the navigation, giving access to listener config, dynamic security, TLS certificates and more. Disable this if you are not using Mosquitto or prefer to manage it externally.</p>
+                        {#if brokerChecking}<p class="feature-desc">Checking broker status…</p>{/if}
                     </div>
                 </section>
                 {/if}
@@ -553,21 +554,21 @@
                 {#if visibleSections.some(s => s.id === 'matter')}
                 <section id="sec-matter">
                     <h3>Matter controller</h3>
-                    <div class="field">
-                        <label class="toggle">
+                    <div class="feature-toggle">
+                        <label class="check-label">
                             <input type="checkbox" checked={matterEnabled} disabled={matterChecking}
                                 onchange={(e) => onMatterEnabledChange((e.target as HTMLInputElement).checked)} />
-                            <span class="toggle-label">Enable Matter controller</span>
+                            <span class="checkmark"></span>
+                            Enable Matter controller
                         </label>
-                        <p class="hint">Shows the <strong>Matter</strong> page and starts the built-in Matter controller on next restart. Requires a restart to take effect. Disable only after unpairing all devices.</p>
-                        {#if matterChecking}<p class="hint">Checking paired devices…</p>{/if}
+                        <p class="feature-desc">Shows the <strong>Matter</strong> page and starts the built-in Matter controller on next restart. Requires a restart to take effect. Disable only after unpairing all devices.</p>
+                        {#if matterChecking}<p class="feature-desc">Checking paired devices…</p>{/if}
                     </div>
                     {#if matterEnabled}
                     <div class="field">
                         <label for="matter-storage-input">Storage path</label>
                         <input id="matter-storage-input" bind:value={matterStorage}
                             placeholder="{dataDir}/matter (default)" />
-                        <p class="hint">Directory where Matter controller state is persisted. Leave empty to use the default path inside the data directory.</p>
                     </div>
                     {/if}
                 </section>
@@ -888,13 +889,14 @@
                 {#if visibleSections.some(s => s.id === 'shedb')}
                 <section id="sec-shedb">
                     <h3>sheDB</h3>
-                    <div class="field">
-                        <label class="toggle">
+                    <div class="feature-toggle">
+                        <label class="check-label">
                             <input type="checkbox" checked={dbEnabled}
                                 onchange={(e) => onDbEnabledChange((e.target as HTMLInputElement).checked)} />
-                            <span class="toggle-label">Enable sheDB</span>
+                            <span class="checkmark"></span>
+                            Enable sheDB
                         </label>
-                        <p class="hint">Built-in JSON document store used by scripts and the DB page. Disable only if you don't use it — data on disk is preserved.</p>
+                        <p class="feature-desc">Built-in JSON document store used by scripts and the DB page. Disable only if you don't use it — data on disk is preserved.</p>
                     </div>
                     {#if dbEnabled}
                     <div class="field">
@@ -1232,6 +1234,34 @@
     .check-label.muted:hover .checkmark { border-color: var(--border); }
 
     .muted { opacity: 0.4; }
+
+    /* ── feature toggle (enable/disable sections) ─────────────────── */
+    .feature-toggle {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .feature-desc {
+        margin: 0;
+        font-size: 11px;
+        color: var(--fg-muted);
+        line-height: 1.5;
+        padding-left: 23px; /* align under label text: 15px checkmark + 8px gap */
+    }
+
+    /* ── feature toggle (enable/disable sections) ─────────────────── */
+    .feature-toggle {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .feature-desc {
+        margin: 0;
+        font-size: 11px;
+        color: var(--fg-muted);
+        line-height: 1.5;
+        padding-left: 23px; /* align with label text after the 15px checkmark + 8px gap */
+    }
 
     input[type='text'],
     input[type='number'],
