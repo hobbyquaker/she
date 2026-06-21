@@ -11,7 +11,7 @@ async function updateWeather() {
     const lat = she.config.latitude;
     const lon = she.config.longitude;
     try {
-        const data = await she.http.fetch(
+        const { body: data } = await she.http.fetch(
             `https://api.open-meteo.com/v1/forecast` +
             `?latitude=${lat}&longitude=${lon}` +
             `&current=temperature_2m,precipitation,wind_speed_10m,weather_code`
@@ -147,7 +147,7 @@ const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 async function fetchPrice() {
     if (Date.now() - lastFetch < CACHE_TTL) return;
     try {
-        const data = await she.http.fetch('https://api.example.com/electricity/price');
+        const { body: data } = await she.http.fetch('https://api.example.com/electricity/price');
         she.mqtt.pub('home/energy/price_ct', data.price_cents);
         lastFetch = Date.now();
     } catch (err) {

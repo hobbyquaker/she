@@ -74,8 +74,8 @@ she.mqtt.min(srcs[], topicOrCb)      Publish minimum of source values (0 if none
 she.now()                            Current timestamp in ms
 she.debug / .info / .warn / .error   Structured logging (prefixed with script name)
 she.global                           Shared mutable object across all scripts
-she.http.fetch(url, [opts])          HTTP/HTTPS fetch → Promise<string|object>
-                                       Auto-parses JSON by Content-Type. Throws on non-2xx.
+she.http.fetch(url, [opts], [cb])    HTTP/HTTPS fetch → { body, code, headers }; or cb(err, res)
+                                       Auto-parses JSON by Content-Type. Rejects/errs on non-2xx.
 she.http.sub(path, cb)               Register POST /api/<script><path> webhook endpoint
                                          cb(body, { params, query, headers })
 she.config.latitude                  Read-only: geographic latitude from daemon config

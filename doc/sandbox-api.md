@@ -381,31 +381,58 @@ See [Cross-script patterns](examples/cross-script.md) for more patterns includin
 
 ## she.http -- HTTP helpers
 
-### she.http.fetch(url, [options])
+### she.http.fetch(url, [options], [callback])
 
-Makes an HTTP/HTTPS request using the native `fetch` API and returns a Promise. Automatically parses the response body: if the server returns a `Content-Type` containing `json`, the response is parsed as JSON; otherwise it is returned as plain text.
+Makes an HTTP/HTTPS request using the native `fetch` API. Automatically parses the response body: if the server returns a `Content-Type` containing `json`, the response is parsed as JSON; otherwise it is returned as plain text.
 
-Throws an `Error` if the response status is not OK (4xx / 5xx).
+Rejects / calls `callback(err)` if the response status is not OK (4xx / 5xx). On error the `Error` object additionally carries `body`, `code`, and `headers` from the failed response.
 
 | Param | Type | Description |
 |---|---|---|
 | `url` | `string` | The URL to fetch. |
 | `[options]` | `object` | Standard [Fetch API options](https://developer.mozilla.org/en-US/docs/Web/API/fetch#options) (`method`, `headers`, `body`, etc.). |
+| `[callback]` | `function` | Node.js-style `callback(err, res)`. When omitted a Promise is returned. |
+
+**Response object (`res`):**
+
+| Field | Type | Description |
+|---|---|---|
+| `res.body` | `string \| object` | Parsed response body (JSON object or plain text string). |
+| `res.code` | `number` | HTTP status code, e.g. `200`. |
+| `res.headers` | `object` | Response headers as a plain object. |
 
 ```js
-// GET — auto-parsed JSON
-const data = await she.http.fetch('https://api.example.com/status');
-she.log('status:', data.status);
+// Promise style — destructure body
+const { body } = await she.http.fetch('https://api.example.com/status');
+she.log('status:', body.status);
+
+// Access code and headers too
+const { body, code, headers } = await she.http.fetch('https://api.example.com/data');
+she.log('HTTP', code, headers['content-type']);
 
 // POST with JSON body
-const result = await she.http.fetch('https://api.example.com/command', {
+const { body: result } = await she.http.fetch('https://api.example.com/command', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'toggle' }),
 });
-
-// Publish the result to MQTT
 she.mqtt.pub('home/device/response', result.ok);
+
+// Callback style — avoids async/await in script top-level
+she.http.fetch('https://api.example.com/status', (err, res) => {
+    if (err) return she.warn('fetch failed:', err.message);
+    she.log('status:', res.body.status, '— HTTP', res.code);
+});
+
+// Callback with options
+she.http.fetch('https://api.example.com/command', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'toggle' }),
+}, (err, res) => {
+    if (err) return she.warn('command failed:', err.message);
+    she.mqtt.pub('home/device/response', res.body.ok);
+});
 ```
 
 ---
@@ -447,7 +474,7 @@ A read-only object exposing daemon configuration values relevant to scripts. Att
 she.info('location:', she.config.latitude, she.config.longitude);
 
 // Use coordinates for a custom API call
-const weather = await she.http.fetch(
+const { body: weather } = await she.http.fetch(
     `https://api.open-meteo.com/v1/forecast?latitude=${she.config.latitude}&longitude=${she.config.longitude}&current_weather=true`
 );
 she.mqtt.pub('home/weather/temperature', weather.current_weather.temperature);
