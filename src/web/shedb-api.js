@@ -39,8 +39,18 @@ router.use('/docs', (req, res) => {
     if (!core) return core503(res);
 
     const method = req.method.toUpperCase();
-    // Strip leading slash; empty → list all
-    const id = req.path.replace(/^\/+/, '');
+    // Strip leading slash and decode each segment; empty → list all
+    const id = req.path
+        .replace(/^\/+/, '')
+        .split('/')
+        .map((s) => {
+            try {
+                return decodeURIComponent(s);
+            } catch {
+                return s;
+            }
+        })
+        .join('/');
 
     // GET /she/db/docs  — list all IDs
     if (method === 'GET' && !id) {
@@ -88,8 +98,18 @@ router.use('/views', (req, res) => {
     if (!core) return core503(res);
 
     const method = req.method.toUpperCase();
-    // Strip leading slash; detect /result suffix
-    const rawPath = req.path.replace(/^\/+/, '');
+    // Strip leading slash, decode each segment, detect /result suffix
+    const rawPath = req.path
+        .replace(/^\/+/, '')
+        .split('/')
+        .map((s) => {
+            try {
+                return decodeURIComponent(s);
+            } catch {
+                return s;
+            }
+        })
+        .join('/');
     const isResult = rawPath.endsWith('/result');
     const id = isResult ? rawPath.slice(0, -'/result'.length) : rawPath;
 

@@ -104,12 +104,19 @@ export function writeScript(path: string, content: string): Promise<{ ok: boolea
     return request('PUT', `/she/scripts/${path}`, { content });
 }
 
-export interface SearchMatch { line: number; col: number; preview: string; }
-export interface SearchResult { path: string; matches: SearchMatch[]; }
+export interface SearchMatch {
+    line: number;
+    col: number;
+    preview: string;
+}
+export interface SearchResult {
+    path: string;
+    matches: SearchMatch[];
+}
 
 export function searchScripts(
     q: string,
-    opts: { regex?: boolean; caseSensitive?: boolean; mode?: 'text' | 'files' } = {}
+    opts: { regex?: boolean; caseSensitive?: boolean; mode?: 'text' | 'files' } = {},
 ): Promise<{ results: SearchResult[] | string[]; truncated: boolean }> {
     const params = new URLSearchParams({ q });
     if (opts.regex) params.set('regex', 'true');
@@ -257,24 +264,29 @@ export interface ViewResult {
     error?: string;
 }
 
+/** Encode a sheDB document/view ID for use in a URL path. Slashes are preserved as path separators. */
+function encodeDbId(id: string): string {
+    return id.split('/').map(encodeURIComponent).join('/');
+}
+
 export function listDocs(): Promise<string[]> {
     return request('GET', '/she/db/docs');
 }
 
 export function getDoc(id: string): Promise<Record<string, unknown>> {
-    return request('GET', `/she/db/docs/${id}`);
+    return request('GET', `/she/db/docs/${encodeDbId(id)}`);
 }
 
 export function putDoc(id: string, doc: Record<string, unknown>): Promise<{ ok: boolean }> {
-    return request('PUT', `/she/db/docs/${id}`, doc);
+    return request('PUT', `/she/db/docs/${encodeDbId(id)}`, doc);
 }
 
 export function patchDoc(id: string, partial: Record<string, unknown>): Promise<{ ok: boolean }> {
-    return request('PATCH', `/she/db/docs/${id}`, partial);
+    return request('PATCH', `/she/db/docs/${encodeDbId(id)}`, partial);
 }
 
 export function deleteDoc(id: string): Promise<{ ok: boolean }> {
-    return request('DELETE', `/she/db/docs/${id}`);
+    return request('DELETE', `/she/db/docs/${encodeDbId(id)}`);
 }
 
 export function listViews(): Promise<string[]> {
@@ -282,15 +294,15 @@ export function listViews(): Promise<string[]> {
 }
 
 export function getView(id: string): Promise<ViewDefinition> {
-    return request('GET', `/she/db/views/${id}`);
+    return request('GET', `/she/db/views/${encodeDbId(id)}`);
 }
 
 export function putView(id: string, view: ViewDefinition): Promise<{ ok: boolean }> {
-    return request('PUT', `/she/db/views/${id}`, view);
+    return request('PUT', `/she/db/views/${encodeDbId(id)}`, view);
 }
 
 export function deleteView(id: string): Promise<{ ok: boolean }> {
-    return request('DELETE', `/she/db/views/${id}`);
+    return request('DELETE', `/she/db/views/${encodeDbId(id)}`);
 }
 
 // ---- Deps API ----
@@ -370,7 +382,7 @@ export function deleteConversation(id: string): Promise<{ ok: boolean }> {
 }
 
 export function getViewResult(id: string): Promise<ViewResult> {
-    return request('GET', `/she/db/views/${id}/result`);
+    return request('GET', `/she/db/views/${encodeDbId(id)}/result`);
 }
 
 // ---- Matter API ----
@@ -623,7 +635,7 @@ export interface BrokerStatus {
 }
 
 export interface BrokerListenerTls {
-    enabled?: boolean;   // UI-only flag; not written to mosquitto.conf
+    enabled?: boolean; // UI-only flag; not written to mosquitto.conf
     certfile?: string;
     keyfile?: string;
     cafile?: string;
@@ -853,7 +865,10 @@ export interface AclCheckRole {
     users: string[];
     groups: Array<{ groupname: string; members: string[] }>;
 }
-export interface AclCheckSection { roles: AclCheckRole[]; default: boolean; }
+export interface AclCheckSection {
+    roles: AclCheckRole[];
+    default: boolean;
+}
 export interface AclCheckResult {
     topic: string;
     send: AclCheckSection;
@@ -939,16 +954,11 @@ export function generateBrokerServerCert(opts: {
     return request('POST', '/she/broker/ca/server/generate', opts);
 }
 
-export function generateBrokerServerCSR(opts: {
-    cn: string;
-    san?: string[];
-}): Promise<{ ok: boolean; csrPem: string }> {
+export function generateBrokerServerCSR(opts: { cn: string; san?: string[] }): Promise<{ ok: boolean; csrPem: string }> {
     return request('POST', '/she/broker/ca/server/csr', opts);
 }
 
-export function importBrokerServerCert(
-    body: { cert: string; key?: string } | { p12base64: string; passphrase?: string },
-): Promise<{ ok: boolean; server: ServerCertInfo }> {
+export function importBrokerServerCert(body: { cert: string; key?: string } | { p12base64: string; passphrase?: string }): Promise<{ ok: boolean; server: ServerCertInfo }> {
     return request('POST', '/she/broker/ca/server/import', body);
 }
 
@@ -984,10 +994,7 @@ export function brokerFsComplete(inputPath: string): Promise<{ suggestions: stri
     return request('GET', `/she/broker/fs/complete?path=${encodeURIComponent(inputPath)}`);
 }
 
-export function setBrokerServerCertPath(body: {
-    certPath: string;
-    keyPath: string;
-}): Promise<{ ok: boolean; server: ServerCertInfo }> {
+export function setBrokerServerCertPath(body: { certPath: string; keyPath: string }): Promise<{ ok: boolean; server: ServerCertInfo }> {
     return request('POST', '/she/broker/ca/server/pathlink', body);
 }
 
