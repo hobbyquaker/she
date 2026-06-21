@@ -183,6 +183,30 @@ Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance
 
 ## Security / Robustness
 
+- **Script API endpoint authentication** — when she auth is enabled (`auth: 'password'` or `auth: 'proxy'`), all `/she/*` routes are protected by `authMiddleware`. However, routes registered by scripts via `she.api.*` and `she.http.sub()` are explicitly excluded from this middleware (comment in `server.js`: *"user scripts control their own auth"*). In practice, scripts rarely implement auth, there is no helper to do so, and the result is a false sense of security: a user who enables password auth believing their she instance is now protected is wrong — every script-registered route remains open to anyone who can reach the HTTP port.
+
+  **Root cause:** `she.api.*` and `she.http.sub()` are conceptually different but share the same `/api/` prefix and the same absent auth policy:
+  - `she.api.*` — exposing script data or control endpoints, logically an extension of the she API → should inherit she-level auth
+  - `she.http.sub()` — receiving webhooks from external services (IFTTT, IoT devices, cloud hooks) that cannot present a session cookie → needs to remain reachable without she auth, optionally protected by a shared secret in the URL or body
+
+  **Recommended fix:** when auth mode is not `none`, apply `authMiddleware` to `/api/*` by the same rule as `/she/*`. Give `she.http.sub()` an explicit `{ public: true }` option to bypass this for genuine external webhooks:
+
+  ```js
+  // protected by she auth (inherits current mode):
+  she.api.get('/status', () => she.mqtt.get('home/alarm'));
+
+  // explicitly public — external caller can't log in:
+  she.http.sub('/hook', body => she.info('received', body), { public: true });
+  ```
+
+  This is **not a breaking change** for deployments using the default `auth: 'none'` — behaviour is identical. It only activates when the user has explicitly enabled auth, which is precisely when they expect protection.
+
+  `she.api.*` routes without `{ public: true }` inherit she auth and require a valid session cookie (password mode) or proxy header (proxy mode). The `Authorization: Bearer <token>` header should also be accepted as an alternative to the session cookie so scripts can be called programmatically.
+
+  **Additionally:** expose `she.checkAuth(req)` as a convenience for scripts that intentionally handle auth themselves (e.g. check a per-script shared secret). Returns `true` if the request passes she-level auth, regardless of mode.
+
+
+
 - **path traversal via symlinks** — `safePath()` in `scripts-api.js` checks `startsWith(root + sep)` but does not resolve symlinks. A symlinked entry inside the script root could point outside it. Use `fs.realpath()` to resolve before checking.
 
 - **session persistence** — login sessions are held in-memory and lost on every daemon restart, forcing all users to re-login. Persist session tokens (hashed) to a file in `--data-dir`.
