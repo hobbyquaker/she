@@ -104,6 +104,20 @@ export function writeScript(path: string, content: string): Promise<{ ok: boolea
     return request('PUT', `/she/scripts/${path}`, { content });
 }
 
+export interface SearchMatch { line: number; col: number; preview: string; }
+export interface SearchResult { path: string; matches: SearchMatch[]; }
+
+export function searchScripts(
+    q: string,
+    opts: { regex?: boolean; caseSensitive?: boolean; mode?: 'text' | 'files' } = {}
+): Promise<{ results: SearchResult[] | string[]; truncated: boolean }> {
+    const params = new URLSearchParams({ q });
+    if (opts.regex) params.set('regex', 'true');
+    if (opts.caseSensitive) params.set('caseSensitive', 'true');
+    if (opts.mode) params.set('mode', opts.mode);
+    return request('GET', `/she/scripts/search?${params}`);
+}
+
 export function deleteScript(path: string): Promise<{ ok: boolean }> {
     return request('DELETE', `/she/scripts/${path}`);
 }

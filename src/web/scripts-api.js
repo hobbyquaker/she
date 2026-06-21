@@ -161,6 +161,64 @@ router.use((req, res) => {
         return res.json(buildTree(root, '', false));
     }
 
+    // GET /she/scripts/search?q=&regex=false&caseSensitive=false&mode=text|files
+    if (method === 'GET' && filePath === 'search') {
+        const q = String(req.query.q || '').trim();
+        const isRegex = req.query.regex === 'true';
+        const caseSensitive = req.query.caseSensitive === 'true';
+        const mode = req.query.mode === 'files' ? 'files' : 'text';
+        if (!q) return res.json({ results: [], truncated: false });
+
+        const allFiles = walk(root, '', false);
+
+        if (mode === 'files') {
+            const lq = q.toLowerCase();
+            const all = allFiles.map(f => f.path).filter(p => p.toLowerCase().includes(lq));
+            return res.json({ results: all.slice(0, 200), truncated: all.length > 200 });
+        }
+
+        // text search
+        const MAX = 500;
+        let pattern = null;
+        if (isRegex) {
+            try { pattern = new RegExp(q, caseSensitive ? '' : 'i'); }
+            catch (e) { return res.status(400).json({ error: 'Invalid regex: ' + e.message }); }
+        }
+        const results = [];
+        let total = 0;
+        let truncated = false;
+
+        outer: for (const file of allFiles) {
+            const abs = safePath(root, file.path);
+            if (!abs) continue;
+            let buf;
+            try { buf = fs.readFileSync(abs); } catch { continue; }
+            if (buf.slice(0, 8192).indexOf(0) !== -1) continue; // binary
+            const lines = buf.toString('utf8').split('\n');
+            const fileMatches = [];
+            for (let i = 0; i < lines.length; i++) {
+                if (total >= MAX) { truncated = true; break outer; }
+                const line = lines[i];
+                let col = -1;
+                if (pattern) {
+                    pattern.lastIndex = 0;
+                    const m = pattern.exec(line);
+                    if (m) col = m.index;
+                } else {
+                    const h = caseSensitive ? line : line.toLowerCase();
+                    const n = caseSensitive ? q : q.toLowerCase();
+                    col = h.indexOf(n);
+                }
+                if (col >= 0) {
+                    fileMatches.push({ line: i + 1, col: col + 1, preview: line.trim().slice(0, 200) });
+                    total++;
+                }
+            }
+            if (fileMatches.length) results.push({ path: file.path, matches: fileMatches });
+        }
+        return res.json({ results, truncated });
+    }
+
     // GET /she/scripts/<path>  — read file content
     if (method === 'GET') {
         const abs = safePath(root, filePath);

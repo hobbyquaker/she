@@ -17,10 +17,13 @@
         getGitFileAtCommit,
         getConfig,
         restartDaemon,
+        searchScripts,
         type GitStatus,
         type GitCommit,
         type TreeEntry,
         type AiExtraFile,
+        type SearchMatch,
+        type SearchResult,
     } from '../lib/api.js';
     import { subscribeLog, subscribeWs, type LogEntry } from '../lib/ws.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
@@ -77,6 +80,25 @@
     let scriptRunning = $state<Set<string>>(new Set());
     let chatExtraFiles = $state<AiExtraFile[]>([]);
 
+    // --- Search panel ---
+    let searchOpen      = $state(false);
+    let searchMode      = $state<'text' | 'files'>('text');
+    let searchQuery     = $state('');
+    let searchCaseSensitive = $state(false);
+    let searchRegex     = $state(false);
+    let searchReplaceOpen = $state(false);
+    let searchReplaceText = $state('');
+    let searchResults   = $state<SearchResult[]>([]);
+    let searchFileResults = $state<string[]>([]);
+    let searchTruncated = $state(false);
+    let searchLoading   = $state(false);
+    let searchError     = $state('');
+    let searchInputEl   = $state<HTMLInputElement | undefined>(undefined);
+    let replaceItems    = $state<{ path: string; checked: boolean; original: string; replaced: string; changes: number }[]>([]);
+    let replaceConfirmOpen = $state(false);
+    let replaceLoading  = $state(false);
+    let _searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     // Tab bar scroll state
     let tabBarEl = $state<HTMLDivElement | undefined>(undefined);
     let canScrollLeft  = $state(false);
@@ -91,6 +113,93 @@
 
     function scrollTabBar(dir: -1 | 1) {
         tabBarEl?.scrollBy({ left: dir * 200, behavior: 'smooth' });
+    }
+
+    // ---- Search helpers ----
+    function openSearch(mode: 'text' | 'files' = 'text') {
+        searchOpen = true;
+        searchMode = mode;
+        tick().then(() => searchInputEl?.focus());
+    }
+    function closeSearch() {
+        searchOpen = false;
+        searchQuery = '';
+        searchResults = [];
+        searchFileResults = [];
+        searchTruncated = false;
+        searchError = '';
+        searchReplaceOpen = false;
+        replaceConfirmOpen = false;
+    }
+    function triggerSearch() {
+        if (_searchDebounceTimer) clearTimeout(_searchDebounceTimer);
+        _searchDebounceTimer = setTimeout(runSearch, 300);
+    }
+    async function runSearch() {
+        const q = searchQuery.trim();
+        if (!q) { searchResults = []; searchFileResults = []; searchTruncated = false; searchError = ''; return; }
+        searchLoading = true; searchError = '';
+        try {
+            if (searchMode === 'files') {
+                const r = await searchScripts(q, { mode: 'files' }) as { results: string[]; truncated: boolean };
+                searchFileResults = r.results;
+                searchTruncated = r.truncated;
+            } else {
+                const r = await searchScripts(q, { regex: searchRegex, caseSensitive: searchCaseSensitive }) as { results: SearchResult[]; truncated: boolean };
+                searchResults = r.results;
+                searchTruncated = r.truncated;
+            }
+        } catch (e: unknown) {
+            searchError = (e as Error).message || 'Search failed';
+        } finally {
+            searchLoading = false;
+        }
+    }
+    function jumpToMatch(path: string, match: SearchMatch) {
+        switchTab(path);
+        tick().then(() => {
+            if (editor) {
+                editor.revealLineInCenter(match.line);
+                editor.setPosition({ lineNumber: match.line, column: match.col });
+                editor.focus();
+            }
+        });
+    }
+    function _escRegex(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    async function buildReplacePreview() {
+        if (!searchQuery.trim() || !searchResults.length) return;
+        replaceLoading = true;
+        const items: typeof replaceItems = [];
+        const flags = 'g' + (searchCaseSensitive ? '' : 'i');
+        for (const result of searchResults) {
+            try {
+                const f = await readScript(result.path);
+                const re = searchRegex ? new RegExp(searchQuery, flags) : new RegExp(_escRegex(searchQuery), flags);
+                const replaced = f.content.replace(re, searchReplaceText);
+                if (replaced !== f.content)
+                    items.push({ path: result.path, checked: true, original: f.content, replaced, changes: result.matches.length });
+            } catch { /* skip */ }
+        }
+        replaceItems = items;
+        replaceLoading = false;
+        replaceConfirmOpen = true;
+    }
+    async function applyReplace() {
+        for (const item of replaceItems.filter(i => i.checked)) {
+            try {
+                await writeScript(item.path, item.replaced);
+                const tab = tabs.find(t => t.path === item.path);
+                if (tab?.model) { tab.model.setValue(item.replaced); tab.savedContent = item.replaced; tab.dirty = false; }
+            } catch { /* skip */ }
+        }
+        replaceConfirmOpen = false;
+        await runSearch();
+    }
+    function onLayoutKeydown(e: KeyboardEvent) {
+        if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+            e.preventDefault();
+            searchOpen && searchMode === 'text' ? closeSearch() : openSearch('text');
+        }
     }
 
     $effect(() => {
@@ -332,6 +441,10 @@ declare const she: {
             fontSize: 14,
             lineNumbers: 'on',
             scrollBeyondLastLine: false,
+        });
+
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
+            searchOpen && searchMode === 'text' ? closeSearch() : openSearch('text');
         });
 
         editor.onDidChangeModelContent(() => {
@@ -1134,14 +1247,105 @@ declare const she: {
 </div>
 {/if}
 
-<div class="layout">
+<div class="layout" onkeydown={onLayoutKeydown}>
     <aside style:width="{asideWidth}px">
         <div class="toolbar">
             <button onclick={newFile} title="New script">+ File</button>
             <button onclick={newFolder} title="New folder">+ Folder</button>
+            <button class="search-toggle" class:active={searchOpen} onclick={() => searchOpen ? closeSearch() : openSearch('text')} title="Find in files / Find files (Ctrl+Shift+F)">&#x2315;</button>
             <button onclick={loadTree} title="Refresh" class="refresh">↻</button>
         </div>
         {#if error}<div class="err">{error}</div>{/if}
+
+        {#if searchOpen}
+        <div class="search-panel">
+            <div class="search-mode-bar">
+                <button class:active={searchMode==='text'} onclick={() => { searchMode='text'; triggerSearch(); }}>Text</button>
+                <button class:active={searchMode==='files'} onclick={() => { searchMode='files'; triggerSearch(); }}>Files</button>
+                <button class="search-close-btn" onclick={closeSearch} title="Close">×</button>
+            </div>
+            <div class="search-input-row">
+                <input bind:value={searchQuery} bind:this={searchInputEl}
+                    placeholder={searchMode==='text' ? 'Find in files…' : 'Find files…'}
+                    oninput={triggerSearch}
+                    onkeydown={(e) => e.key==='Escape' && closeSearch()} />
+                {#if searchMode === 'text'}
+                <button class:active={searchCaseSensitive} title="Case sensitive" onclick={() => { searchCaseSensitive=!searchCaseSensitive; triggerSearch(); }}>Aa</button>
+                <button class:active={searchRegex} title="Use regex" onclick={() => { searchRegex=!searchRegex; triggerSearch(); }}>.*</button>
+                <button class:active={searchReplaceOpen} title="Replace" onclick={() => searchReplaceOpen=!searchReplaceOpen}>⇄</button>
+                {/if}
+            </div>
+            {#if searchMode === 'text' && searchReplaceOpen}
+            <div class="search-input-row">
+                <input bind:value={searchReplaceText} placeholder="Replace with…" />
+                <button onclick={buildReplacePreview}
+                    disabled={!searchQuery.trim() || searchResults.length===0 || replaceLoading}>
+                    {replaceLoading ? '…' : 'Preview'}
+                </button>
+            </div>
+            {/if}
+            <div class="search-results">
+                {#if searchLoading}
+                <div class="search-status">Searching…</div>
+                {:else if searchError}
+                <div class="search-status search-err">{searchError}</div>
+                {:else if searchQuery.trim()}
+                    {#if searchMode === 'text'}
+                        {#if searchResults.length === 0}
+                        <div class="search-status">No results.</div>
+                        {:else}
+                        {#if searchTruncated}<div class="search-status search-trunc">Showing first 500 matches.</div>{/if}
+                        {#each searchResults as result}
+                        <div class="search-file-group">
+                            <button class="search-file-btn" onclick={() => switchTab(result.path)}>
+                                <span class="search-fname">{result.path}</span>
+                                <span class="search-fcount">{result.matches.length}</span>
+                            </button>
+                            {#each result.matches as match}
+                            <button class="search-match-row" onclick={() => jumpToMatch(result.path, match)}>
+                                <span class="search-lnum">{match.line}</span>
+                                <span class="search-preview">{match.preview}</span>
+                            </button>
+                            {/each}
+                        </div>
+                        {/each}
+                        {/if}
+                    {:else}
+                        {#if searchFileResults.length === 0}
+                        <div class="search-status">No files found.</div>
+                        {:else}
+                        {#if searchTruncated}<div class="search-status search-trunc">Showing first 200 results.</div>{/if}
+                        {#each searchFileResults as fp}
+                        <button class="search-match-row search-file-result" onclick={() => switchTab(fp)}>
+                            <span class="search-preview">{fp}</span>
+                        </button>
+                        {/each}
+                        {/if}
+                    {/if}
+                {/if}
+            </div>
+            {#if replaceConfirmOpen}
+            <div class="replace-confirm">
+                <div class="replace-confirm-hdr">
+                    <span>Replace in {replaceItems.filter(i=>i.checked).length} file(s)</span>
+                    <div class="replace-confirm-btns">
+                        <button onclick={applyReplace} disabled={replaceItems.filter(i=>i.checked).length===0}>Apply</button>
+                        <button onclick={() => replaceConfirmOpen=false}>Cancel</button>
+                    </div>
+                </div>
+                <div class="replace-confirm-list">
+                    {#each replaceItems as item}
+                    <label class="replace-item">
+                        <input type="checkbox" bind:checked={item.checked} />
+                        <span class="replace-item-path">{item.path}</span>
+                        <span class="replace-item-n">{item.changes}×</span>
+                    </label>
+                    {/each}
+                </div>
+            </div>
+            {/if}
+        </div>
+        {/if}
 
         {#snippet treeEntry(entry: TreeEntry, parentDisabled: boolean = false)}
             {#if entry.type === 'dir'}
@@ -2109,4 +2313,90 @@ declare const she: {
         font-family: inherit; white-space: nowrap;
     }
     .welcome-shortcuts-grid span { color: var(--fg-muted); padding-left: 4px; }
+
+    /* ── Search panel ── */
+    .toolbar button.search-toggle {
+        flex: 0 0 auto; background: none; border: 1px solid transparent;
+        color: var(--fg-muted); padding: 3px 7px; font-size: 15px; border-radius: 3px;
+    }
+    .toolbar button.search-toggle:hover { color: var(--fg); background: var(--bg-hover); }
+    .toolbar button.search-toggle.active { color: var(--fg-brand); border-color: var(--fg-brand); background: rgba(86,156,214,0.1); }
+
+    .search-panel {
+        display: flex; flex-direction: column; flex-shrink: 0;
+        border-bottom: 1px solid var(--border-sub); background: var(--bg-panel);
+    }
+    .search-mode-bar {
+        display: flex; gap: 1px; padding: 4px 6px 0; align-items: center;
+    }
+    .search-mode-bar button {
+        background: none; border: none; border-bottom: 2px solid transparent;
+        color: var(--fg-muted); cursor: pointer; font-size: 11px; padding: 2px 8px 3px;
+    }
+    .search-mode-bar button:hover { color: var(--fg); }
+    .search-mode-bar button.active { color: var(--fg); border-bottom-color: var(--fg-brand); }
+    .search-close-btn { margin-left: auto; font-size: 14px; padding: 2px 5px !important; }
+    .search-input-row {
+        display: flex; align-items: center; gap: 3px; padding: 4px 6px;
+    }
+    .search-input-row input {
+        flex: 1; min-width: 0; font-size: 12px; padding: 3px 6px;
+        background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px;
+        color: var(--fg); outline: none;
+    }
+    .search-input-row input:focus { border-color: var(--accent); }
+    .search-input-row button {
+        flex-shrink: 0; background: none; border: 1px solid transparent;
+        color: var(--fg-muted); cursor: pointer; padding: 2px 5px;
+        border-radius: 2px; font-size: 11px; white-space: nowrap;
+    }
+    .search-input-row button:hover { color: var(--fg); background: var(--bg-hover); }
+    .search-input-row button.active { color: var(--fg-brand); background: rgba(86,156,214,0.12); border-color: var(--accent); }
+    .search-input-row button:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+    .search-results { overflow-y: auto; max-height: 240px; }
+    .search-status { padding: 5px 8px; color: var(--fg-muted); font-size: 11px; }
+    .search-err { color: var(--fg-err); }
+    .search-trunc { color: #d4944a; }
+    .search-file-group {}
+    .search-file-btn {
+        display: flex; align-items: center; gap: 4px; width: 100%;
+        background: none; border: none; color: var(--fg); cursor: pointer;
+        text-align: left; padding: 3px 8px 2px; font-size: 11px; font-weight: 600;
+    }
+    .search-file-btn:hover { background: var(--bg-hover); }
+    .search-fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .search-fcount {
+        background: var(--fg-brand); color: #fff; border-radius: 8px;
+        padding: 0 5px; font-size: 9px; font-weight: 700; flex-shrink: 0;
+    }
+    .search-match-row {
+        display: flex; align-items: baseline; gap: 6px; width: 100%;
+        background: none; border: none; color: var(--fg-muted); cursor: pointer;
+        text-align: left; padding: 1px 8px 1px 16px; font-family: monospace;
+    }
+    .search-match-row:hover { background: var(--bg-hover); color: var(--fg); }
+    .search-lnum { color: var(--fg-brand); font-size: 10px; flex-shrink: 0; min-width: 24px; text-align: right; }
+    .search-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .search-file-result { padding-left: 8px; }
+
+    .replace-confirm { border-top: 1px solid var(--border-sub); background: var(--bg-app); }
+    .replace-confirm-hdr {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 5px 8px; font-size: 11px; color: var(--fg);
+        border-bottom: 1px solid var(--border-sub);
+    }
+    .replace-confirm-btns { display: flex; gap: 4px; }
+    .replace-confirm-btns button {
+        font-size: 11px; padding: 2px 8px; border-radius: 2px; cursor: pointer;
+        background: var(--accent); border: none; color: #fff;
+    }
+    .replace-confirm-btns button + button { background: none; border: 1px solid var(--border); color: var(--fg-muted); }
+    .replace-confirm-btns button:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+    .replace-confirm-list { padding: 4px 8px; max-height: 100px; overflow-y: auto; }
+    .replace-item {
+        display: flex; align-items: center; gap: 6px; padding: 2px 0;
+        font-size: 11px; cursor: pointer; user-select: none;
+    }
+    .replace-item-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+    .replace-item-n { color: var(--fg-muted); flex-shrink: 0; }
 </style>
