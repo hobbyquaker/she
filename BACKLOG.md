@@ -99,6 +99,25 @@ Reads/bootstraps config from `she.db.get('system/mqtt-to-influx')`:
 
 InfluxDB connection params come from the existing daemon-level `--influx` config (already available via `she.influx.*`). Subscribes to the configured topic patterns and writes each value change as an InfluxDB point using `she.influx.write()`. Useful for users who want time-series history of MQTT state without writing any script code — just enable the system script and configure which topics to forward.
 
+**⚠️ Open question: is the whole system scripts concept a good idea?**
+
+Arguments against, worth considering before implementing:
+
+- **she's core value proposition is zero-boilerplate scripting** — the `mqtt-to-influx` use case is already three lines of user script code. Shipping a system script for it adds a whole infrastructure layer (two-tier loading, `system-scripts.json`, read-only UI tab, self-bootstrapping sheDB docs) to solve something that is already trivially solvable in user space. Does the added complexity pay for itself?
+
+- **sheDB dependency for `notify.js`** — if `--db-path` is not configured, sheDB is unavailable and the self-bootstrapping config pattern fails silently. Pushover credentials then have no home. The daemon-level `config.json` is the more reliable place for API keys, but that conflicts with the "system scripts configure themselves" design.
+
+- **`she.global.notify` couples user scripts to a system script** — user scripts that call `she.global.notify?.send(...)` now have an implicit dependency on a specific system script being enabled. If the system script is renamed, split, or the user switches notification service, every user script referencing `she.global.notify` breaks. This is exactly the kind of coupling she's philosophy discourages.
+
+- **`mqtt-to-influx` conflicts with existing `she.influx.*` sandbox API** — users who already use `she.influx.write()` in their own scripts and also enable the system script end up with double-writes or competing subscription logic. The system script has no way to know what user scripts are already doing with InfluxDB.
+
+- **Maintenance surface** — every system script is code that ships with every installation and must be maintained, tested, and documented. A poorly written `notify.js` (e.g. no timeout on the HTTP request) can hang the event loop for every she user who enables it. The same bug in a user script only affects that one user.
+
+- **Alternative that avoids all of the above** — instead of system scripts, ship a well-stocked `doc/examples.md` and a template library (see Script starter templates backlog item). Users copy a template, own the code, and there is no hidden layer. The `she.emit` / `events::` engine core stands on its own merits regardless of whether system scripts exist.
+
+Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance burden) is the right deliverable, and the system scripts concept is deferred or dropped entirely.
+
+
 
 
 
