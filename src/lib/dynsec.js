@@ -145,13 +145,15 @@ function init(config, log) {
                 _log.info('dynsec: ready — subscribed as', dynsecCfg.adminUsername);
                 _drain(); // flush any requests queued before connection
                 // Probe whether the plugin is actually loaded and responding
-                _request('getDefaultACLAccess').then(() => {
-                    _dynsecReady = true;
-                    _log.info('dynsec: plugin confirmed active');
-                }).catch((err) => {
-                    _dynsecReady = false;
-                    _log.warn('dynsec: plugin probe failed — is the dynamic-security plugin loaded in mosquitto.conf?', err.message);
-                });
+                _request('getDefaultACLAccess')
+                    .then(() => {
+                        _dynsecReady = true;
+                        _log.info('dynsec: plugin confirmed active');
+                    })
+                    .catch((err) => {
+                        _dynsecReady = false;
+                        _log.warn('dynsec: plugin probe failed — is the dynamic-security plugin loaded in mosquitto.conf?', err.message);
+                    });
             }
         });
         // The admin role has subscribePattern + publishClientReceive for $SYS/#.
@@ -179,7 +181,7 @@ function init(config, log) {
             const val = payload.toString();
             const now = Date.now();
             const prev = _sysData[topic];
-            _sysData[topic] = { val, ts: now, lc: prev && prev.val !== val ? now : (prev ? prev.lc : now) };
+            _sysData[topic] = { val, ts: now, lc: prev && prev.val !== val ? now : prev ? prev.lc : now };
             return;
         }
         if (topic !== RESPONSE_TOPIC) return;

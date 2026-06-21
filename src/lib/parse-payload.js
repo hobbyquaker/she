@@ -21,7 +21,7 @@ function parsePayload(payload) {
         if (Array.isArray(parsed)) return { val: parsed };
         if (!parsed || typeof parsed.val === 'undefined') return { val: parsed };
         return parsed;
-    } catch (_) {
+    } catch {
         return { val: str };
     }
 }

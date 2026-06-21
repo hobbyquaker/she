@@ -18,7 +18,7 @@
 const express = require('express');
 const { broadcast, broadcastBrokerLog } = require('./log-ws');
 
-const BROKER_LOG_TOPICS = new Set(['D', 'I', 'N', 'W', 'E'].map(l => `$SYS/broker/log/${l}`));
+const BROKER_LOG_TOPICS = new Set(['D', 'I', 'N', 'W', 'E'].map((l) => `$SYS/broker/log/${l}`));
 
 const router = express.Router();
 

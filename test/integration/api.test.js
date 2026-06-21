@@ -131,7 +131,9 @@ afterAll((done) => {
                 if (tmpConfigFile)
                     try {
                         require('fs').unlinkSync(tmpConfigFile);
-                    } catch {}
+                    } catch {
+                        // ignore
+                    }
                 done();
             });
         });

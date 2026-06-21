@@ -42,7 +42,7 @@ function httpRequest(method, port, urlPath, body) {
 }
 
 // Build a minimal Express app that mounts the router for each test group
-async function makeApp(controllerMock) {
+async function _makeApp(controllerMock) {
     // Reset module registry and inject the mock (doMock avoids Babel hoist restrictions)
     jest.resetModules();
     jest.doMock('../../src/matter/controller', () => controllerMock);

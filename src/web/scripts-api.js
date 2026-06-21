@@ -173,7 +173,7 @@ router.use((req, res) => {
 
         if (mode === 'files') {
             const lq = q.toLowerCase();
-            const all = allFiles.map(f => f.path).filter(p => p.toLowerCase().includes(lq));
+            const all = allFiles.map((f) => f.path).filter((p) => p.toLowerCase().includes(lq));
             return res.json({ results: all.slice(0, 200), truncated: all.length > 200 });
         }
 
@@ -181,8 +181,11 @@ router.use((req, res) => {
         const MAX = 500;
         let pattern = null;
         if (isRegex) {
-            try { pattern = new RegExp(q, caseSensitive ? '' : 'i'); }
-            catch (e) { return res.status(400).json({ error: 'Invalid regex: ' + e.message }); }
+            try {
+                pattern = new RegExp(q, caseSensitive ? '' : 'i');
+            } catch (e) {
+                return res.status(400).json({ error: 'Invalid regex: ' + e.message });
+            }
         }
         const results = [];
         let total = 0;
@@ -192,12 +195,19 @@ router.use((req, res) => {
             const abs = safePath(root, file.path);
             if (!abs) continue;
             let buf;
-            try { buf = fs.readFileSync(abs); } catch { continue; }
+            try {
+                buf = fs.readFileSync(abs);
+            } catch {
+                continue;
+            }
             if (buf.slice(0, 8192).indexOf(0) !== -1) continue; // binary
             const lines = buf.toString('utf8').split('\n');
             const fileMatches = [];
             for (let i = 0; i < lines.length; i++) {
-                if (total >= MAX) { truncated = true; break outer; }
+                if (total >= MAX) {
+                    truncated = true;
+                    break outer;
+                }
                 const line = lines[i];
                 let col = -1;
                 if (pattern) {

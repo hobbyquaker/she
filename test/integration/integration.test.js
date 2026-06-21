@@ -83,7 +83,8 @@ function startMs() {
     const rlErr = readline.createInterface({ input: ms.stderr, crlfDelay: Infinity });
     // Strip ANSI escape codes so regex comparisons in tests are not confused by
     // colour wrapping added by pino-pretty's colorize:true option.
-    const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
+    // eslint-disable-next-line no-control-regex
+    const stripAnsi = (s) => s.replace(/\u001b\[[0-9;]*m/g, '');
     rlOut.on('line', (data) => {
         const line = stripAnsi(data.toString());
         console.log('ms', line);
@@ -126,7 +127,9 @@ afterAll((done) => {
                 if (tmpConfigFile)
                     try {
                         fs.unlinkSync(tmpConfigFile);
-                    } catch {}
+                    } catch {
+                        // ignore
+                    }
                 done();
             });
         });
@@ -481,7 +484,9 @@ describe('script file changes — subscription cleanup', () => {
     afterAll(() => {
         try {
             fs.unlinkSync(reloadScriptPath);
-        } catch {}
+        } catch {
+            // ignore
+        }
     });
 
     it('new subscriptions work after hot-reload', async () => {

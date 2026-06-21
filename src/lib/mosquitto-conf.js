@@ -30,17 +30,28 @@ const execFileAsync = promisify(execFile);
 // when read from an old conf it is normalised to 'plugin_opt_config_file' on
 // the same line that recognises it (see parseText below).
 const MANAGED_SINGLE_KEYS = new Set([
-    'per_listener_settings', 'allow_anonymous',
-    'persistence', 'persistence_location',
-    'log_dest', 'log_type',
-    'plugin', 'plugin_opt_config_file', 'plugin_opt_dynsec_config_file',
+    'per_listener_settings',
+    'allow_anonymous',
+    'persistence',
+    'persistence_location',
+    'log_dest',
+    'log_type',
+    'plugin',
+    'plugin_opt_config_file',
+    'plugin_opt_dynsec_config_file',
     // Connection limits
-    'max_connections', 'max_inflight_messages', 'max_queued_messages',
-    'max_packet_size', 'message_size_limit', 'max_keepalive',
+    'max_connections',
+    'max_inflight_messages',
+    'max_queued_messages',
+    'max_packet_size',
+    'message_size_limit',
+    'max_keepalive',
     // Sessions
-    'persistent_client_expiration', 'retain_available',
+    'persistent_client_expiration',
+    'retain_available',
     // Performance / misc
-    'set_tcp_nodelay', 'connection_messages',
+    'set_tcp_nodelay',
+    'connection_messages',
 ]);
 
 /**
@@ -205,14 +216,24 @@ function serialise(conf) {
     const { managed = {}, listeners = [], passthrough = [] } = conf;
 
     const keyOrder = [
-        'per_listener_settings', 'allow_anonymous',
-        'persistence', 'persistence_location',
-        'max_connections', 'max_inflight_messages', 'max_queued_messages',
-        'max_packet_size', 'message_size_limit', 'max_keepalive',
-        'persistent_client_expiration', 'retain_available',
-        'set_tcp_nodelay', 'connection_messages',
-        'log_dest', 'log_type',
-        'plugin', 'plugin_opt_config_file',
+        'per_listener_settings',
+        'allow_anonymous',
+        'persistence',
+        'persistence_location',
+        'max_connections',
+        'max_inflight_messages',
+        'max_queued_messages',
+        'max_packet_size',
+        'message_size_limit',
+        'max_keepalive',
+        'persistent_client_expiration',
+        'retain_available',
+        'set_tcp_nodelay',
+        'connection_messages',
+        'log_dest',
+        'log_type',
+        'plugin',
+        'plugin_opt_config_file',
     ];
     for (const key of keyOrder) {
         if (managed[key] === undefined) continue;
@@ -220,7 +241,10 @@ function serialise(conf) {
         if (Array.isArray(val)) {
             const written = new Set();
             for (const v of val) {
-                if (!written.has(v)) { written.add(v); lines.push(`${key} ${v}`); }
+                if (!written.has(v)) {
+                    written.add(v);
+                    lines.push(`${key} ${v}`);
+                }
             }
         } else {
             lines.push(`${key} ${val}`);

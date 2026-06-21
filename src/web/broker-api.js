@@ -94,10 +94,14 @@ router.get('/status', (req, res) => {
     // received by the dynsec client (e.g. when dynsec is not configured).
     if (_store) {
         const sysPrefixes = [
-            '$SYS/broker/version', '$SYS/broker/uptime',
-            '$SYS/broker/clients/', '$SYS/broker/messages/',
-            '$SYS/broker/subscriptions/', '$SYS/broker/retained messages/',
-            '$SYS/broker/bytes/', '$SYS/broker/heap/',
+            '$SYS/broker/version',
+            '$SYS/broker/uptime',
+            '$SYS/broker/clients/',
+            '$SYS/broker/messages/',
+            '$SYS/broker/subscriptions/',
+            '$SYS/broker/retained messages/',
+            '$SYS/broker/bytes/',
+            '$SYS/broker/heap/',
         ];
         for (const [topic, entry] of _store.mqttEntries()) {
             if (!sys[topic] && sysPrefixes.some((p) => topic.startsWith(p))) {
@@ -963,16 +967,12 @@ router.get('/acl-check', async (req, res) => {
 
         const mqttWildcard = require('../lib/mqtt-wildcards');
 
-        const [roles, groups, defaultAcls] = await Promise.all([
-            dynsec.listRoles(true),
-            dynsec.listGroups(true),
-            dynsec.getDefaultACLAccess(),
-        ]);
+        const [roles, groups, defaultAcls] = await Promise.all([dynsec.listRoles(true), dynsec.listGroups(true), dynsec.getDefaultACLAccess()]);
 
         // Build index: rolename → groups that carry it (with their member lists)
         const groupsByRole = new Map();
         for (const g of groups) {
-            for (const r of (g.roles ?? [])) {
+            for (const r of g.roles ?? []) {
                 if (!groupsByRole.has(r.rolename)) groupsByRole.set(r.rolename, []);
                 groupsByRole.get(r.rolename).push({
                     groupname: g.groupname,
@@ -981,9 +981,9 @@ router.get('/acl-check', async (req, res) => {
             }
         }
 
-        const SEND_TYPES      = new Set(['publishClientSend']);
+        const SEND_TYPES = new Set(['publishClientSend']);
         const SUBSCRIBE_TYPES = new Set(['subscribePattern', 'subscribeLiteral']);
-        const RECEIVE_TYPES   = new Set(['publishClientReceive']);
+        const RECEIVE_TYPES = new Set(['publishClientReceive']);
 
         function aclMatches(acltype, aclTopic) {
             if (aclTopic.includes('%u') || aclTopic.includes('%c')) return 'dynamic';
@@ -996,7 +996,7 @@ router.get('/acl-check', async (req, res) => {
         function matchRoles(typeSet) {
             const result = [];
             for (const role of roles) {
-                for (const acl of (role.acls ?? [])) {
+                for (const acl of role.acls ?? []) {
                     if (!typeSet.has(acl.acltype)) continue;
                     const m = aclMatches(acl.acltype, acl.topic);
                     if (m !== 'no-match') {
@@ -1021,9 +1021,9 @@ router.get('/acl-check', async (req, res) => {
 
         res.json({
             topic,
-            send:      { roles: matchRoles(SEND_TYPES),      default: defaultAllow('publishClientSend') },
+            send: { roles: matchRoles(SEND_TYPES), default: defaultAllow('publishClientSend') },
             subscribe: { roles: matchRoles(SUBSCRIBE_TYPES), default: defaultAllow('subscribePattern') },
-            receive:   { roles: matchRoles(RECEIVE_TYPES),   default: defaultAllow('publishClientReceive') },
+            receive: { roles: matchRoles(RECEIVE_TYPES), default: defaultAllow('publishClientReceive') },
         });
     } catch (err) {
         handleError(res, err);
@@ -1068,9 +1068,7 @@ router.get('/ip-addresses', async (req, res) => {
             const result = await sshDeploy.runCommand(bc.ssh, 'ip a 2>/dev/null || ip addr 2>/dev/null');
             stdout = result.stdout;
         } else {
-            const result = await execFileAsync('ip', ['a'], { timeout: 5000 }).catch(() =>
-                execFileAsync('ip', ['addr'], { timeout: 5000 }),
-            );
+            const result = await execFileAsync('ip', ['a'], { timeout: 5000 }).catch(() => execFileAsync('ip', ['addr'], { timeout: 5000 }));
             stdout = result.stdout;
         }
         // Extract IPv4 and IPv6 addresses; skip loopback
@@ -1121,8 +1119,8 @@ router.post('/ssh/keygen', async (req, res) => {
 
 /** POST /she/broker/ssh/test — Test SSH connection */
 router.post('/ssh/test', async (req, res) => {
+    const bc = getBrokerConfig(req);
     try {
-        const bc = getBrokerConfig(req);
         if (!bc.ssh || !bc.ssh.host) return res.status(400).json({ error: 'broker.ssh.host not configured' });
         const user = (bc.ssh && bc.ssh.user) || require('os').userInfo().username;
         const key = sshDeploy.expandHome((bc.ssh && bc.ssh.identityFile) || DEFAULT_SSH_KEY);
@@ -1449,7 +1447,6 @@ router.post('/wizard/reinit', (req, res) => {
 router.get('/wizard/diagnose', async (req, res) => {
     try {
         const bc = getBrokerConfig(req);
-        const configPath = req.app.locals.configPath;
         const adminUsername = bc.dynsec && bc.dynsec.adminUsername;
         const configDir = bc.configDir || '/etc/mosquitto';
         const dynSecPath = `${configDir}/dynamic-security.json`;
@@ -1491,16 +1488,21 @@ router.get('/wizard/diagnose', async (req, res) => {
         const hasAdminRole = adminRoles.includes('admin');
 
         const adminRoleDef = roles.find((r) => r.rolename === 'admin');
-        const adminRoleAcls = adminRoleDef ? (adminRoleDef.acls || []) : [];
-        const hasControlSendAcl = adminRoleAcls.some(
-            (a) => a.acltype === 'publishClientSend' && (a.topic || '').includes('$CONTROL/dynamic-security')
-        );
+        const adminRoleAcls = adminRoleDef ? adminRoleDef.acls || [] : [];
+        const hasControlSendAcl = adminRoleAcls.some((a) => a.acltype === 'publishClientSend' && (a.topic || '').includes('$CONTROL/dynamic-security'));
 
         const issues = [];
         if (!adminUsername) issues.push('broker.dynsec.adminUsername not set in config.json');
-        if (adminUsername && !adminClientExists) issues.push(`User "${adminUsername}" not found in dynamic-security.json — mosquitto_ctrl init may have silently failed (file exists and is not writable by the SSH user). Delete ${dynSecPath} on the broker and re-run the wizard.`);
-        if (adminClientExists && !hasAdminRole) issues.push(`User "${adminUsername}" exists but does not have the "admin" role — ACL for $CONTROL/dynamic-security/# may be missing.`);
-        if (hasAdminRole && !hasControlSendAcl) issues.push(`The "admin" role exists but is missing a publishClientSend ACL for $CONTROL/dynamic-security/#. Re-run mosquitto_ctrl dynsec init to regenerate the file.`);
+        if (adminUsername && !adminClientExists)
+            issues.push(
+                `User "${adminUsername}" not found in dynamic-security.json — mosquitto_ctrl init may have silently failed (file exists and is not writable by the SSH user). Delete ${dynSecPath} on the broker and re-run the wizard.`,
+            );
+        if (adminClientExists && !hasAdminRole)
+            issues.push(`User "${adminUsername}" exists but does not have the "admin" role — ACL for $CONTROL/dynamic-security/# may be missing.`);
+        if (hasAdminRole && !hasControlSendAcl)
+            issues.push(
+                `The "admin" role exists but is missing a publishClientSend ACL for $CONTROL/dynamic-security/#. Re-run mosquitto_ctrl dynsec init to regenerate the file.`,
+            );
 
         res.json({
             ok: issues.length === 0,

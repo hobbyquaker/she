@@ -141,8 +141,16 @@ async function importCA(config, { certPem, keyPem, chainPem = null }) {
         await openssl(['x509', '-in', tmpCert, '-noout']);
         await openssl(['pkey', '-in', tmpKey, '-noout']);
     } catch (e) {
-        try { fs.unlinkSync(tmpCert); } catch { /* ignore */ }
-        try { fs.unlinkSync(tmpKey); } catch { /* ignore */ }
+        try {
+            fs.unlinkSync(tmpCert);
+        } catch {
+            /* ignore */
+        }
+        try {
+            fs.unlinkSync(tmpKey);
+        } catch {
+            /* ignore */
+        }
         throw new Error(`Invalid certificate or key: ${e.message}`);
     }
 
@@ -153,7 +161,11 @@ async function importCA(config, { certPem, keyPem, chainPem = null }) {
 
     fs.renameSync(tmpCert, crtPath);
     fs.renameSync(tmpKey, keyPath);
-    try { fs.chmodSync(keyPath, 0o600); } catch { /* ignore */ }
+    try {
+        fs.chmodSync(keyPath, 0o600);
+    } catch {
+        /* ignore */
+    }
 
     if (!fs.existsSync(srlPath)) {
         fs.writeFileSync(srlPath, '01\n', 'utf8');
@@ -165,7 +177,11 @@ async function importCA(config, { certPem, keyPem, chainPem = null }) {
         try {
             await openssl(['x509', '-in', tmpChain, '-noout']);
         } catch (e) {
-            try { fs.unlinkSync(tmpChain); } catch { /* ignore */ }
+            try {
+                fs.unlinkSync(tmpChain);
+            } catch {
+                /* ignore */
+            }
             throw new Error(`Invalid chain certificate: ${e.message}`);
         }
         fs.renameSync(tmpChain, chainPath);
@@ -195,7 +211,7 @@ async function extractFromP12(p12Buffer, passphrase) {
         const passArg = `pass:${passphrase}`;
         const tryExtract = async (extraFlags = []) => {
             const { stdout: certOut } = await openssl(['pkcs12', '-in', tmpP12, '-clcerts', '-nokeys', '-passin', passArg, '-nodes', ...extraFlags]);
-            const { stdout: keyOut }  = await openssl(['pkcs12', '-in', tmpP12, '-nocerts',  '-nodes', '-passin', passArg, ...extraFlags]);
+            const { stdout: keyOut } = await openssl(['pkcs12', '-in', tmpP12, '-nocerts', '-nodes', '-passin', passArg, ...extraFlags]);
             return { certOut, keyOut };
         };
         let certOut, keyOut;
@@ -205,12 +221,16 @@ async function extractFromP12(p12Buffer, passphrase) {
             ({ certOut, keyOut } = await tryExtract(['-legacy']));
         }
         const certMatch = certOut.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/);
-        const keyMatch  = keyOut.match(/-----BEGIN [\w ]+ KEY-----[\s\S]+?-----END [\w ]+ KEY-----/);
+        const keyMatch = keyOut.match(/-----BEGIN [\w ]+ KEY-----[\s\S]+?-----END [\w ]+ KEY-----/);
         if (!certMatch) throw new Error('No certificate found in P12 file');
-        if (!keyMatch)  throw new Error('No private key found in P12 file');
+        if (!keyMatch) throw new Error('No private key found in P12 file');
         return { certPem: certMatch[0] + '\n', keyPem: keyMatch[0] + '\n' };
     } finally {
-        try { fs.unlinkSync(tmpP12); } catch { /* ignore */ }
+        try {
+            fs.unlinkSync(tmpP12);
+        } catch {
+            /* ignore */
+        }
     }
 }
 
@@ -311,7 +331,11 @@ async function generateServerCSR(config, { cn, san = [] } = {}) {
 
     // Generate key
     await openssl(['genpkey', '-algorithm', 'ed25519', '-out', keyPath]);
-    try { fs.chmodSync(keyPath, 0o600); } catch { /* ignore */ }
+    try {
+        fs.chmodSync(keyPath, 0o600);
+    } catch {
+        /* ignore */
+    }
 
     // Build subject and optional SAN extension for the CSR
     const sanEntries = [cn, ...san].filter(Boolean).map((s, i) => {
@@ -353,7 +377,11 @@ async function importServerCert(config, { certPem, keyPem = null } = {}) {
     try {
         await openssl(['x509', '-in', tmpCrt, '-noout']);
     } catch (e) {
-        try { fs.unlinkSync(tmpCrt); } catch { /* ignore */ }
+        try {
+            fs.unlinkSync(tmpCrt);
+        } catch {
+            /* ignore */
+        }
         throw new Error(`Invalid certificate: ${e.message}`);
     }
 
@@ -363,14 +391,30 @@ async function importServerCert(config, { certPem, keyPem = null } = {}) {
         try {
             await openssl(['pkey', '-in', tmpKey, '-noout']);
         } catch (e) {
-            try { fs.unlinkSync(tmpCrt); } catch { /* ignore */ }
-            try { fs.unlinkSync(tmpKey); } catch { /* ignore */ }
+            try {
+                fs.unlinkSync(tmpCrt);
+            } catch {
+                /* ignore */
+            }
+            try {
+                fs.unlinkSync(tmpKey);
+            } catch {
+                /* ignore */
+            }
             throw new Error(`Invalid private key: ${e.message}`);
         }
         fs.renameSync(tmpKey, keyPath);
-        try { fs.chmodSync(keyPath, 0o600); } catch { /* ignore */ }
+        try {
+            fs.chmodSync(keyPath, 0o600);
+        } catch {
+            /* ignore */
+        }
     } else if (!fs.existsSync(keyPath)) {
-        try { fs.unlinkSync(tmpCrt); } catch { /* ignore */ }
+        try {
+            fs.unlinkSync(tmpCrt);
+        } catch {
+            /* ignore */
+        }
         throw new Error('No private key provided and no existing server.key on disk');
     }
 
@@ -438,7 +482,12 @@ async function issueClientCert(config, { cn, days = 365 } = {}) {
         p12CertfileArg = combinedChainTmp;
     }
     await openssl(['pkcs12', '-export', '-in', crtPath, '-inkey', keyPath, '-certfile', p12CertfileArg, '-out', p12Path, '-passout', `pass:${passphrase}`, '-legacy']);
-    if (combinedChainTmp) try { fs.unlinkSync(combinedChainTmp); } catch { /* ignore */ }
+    if (combinedChainTmp)
+        try {
+            fs.unlinkSync(combinedChainTmp);
+        } catch {
+            /* ignore */
+        }
 
     const fingerprint = await certFingerprint(crtPath);
     const expires = await certExpiry(crtPath);
