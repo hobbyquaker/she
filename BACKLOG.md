@@ -14,13 +14,23 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **`import` syntax support** — scripts currently run via `vm.Script` (classic-script context) which rejects static `import` declarations. Transform `import X from 'y'` → `const X = require('y')`, `import { a, b } from 'y'` → `const { a, b } = require('y')`, `import * as ns from 'y'` → `const ns = require('y')`, `import 'y'` → `require('y')` inside `createScript()` before handing source to `vm.Script`. Both `import` and `require` would then work side-by-side — no breaking changes. `export` statements have no meaning in script context and should either be stripped silently or cause a clear error. Do not support `import.meta` or top-level `await` (both require true ESM module scope). Implementation: ~30 lines, no new deps. A minimal regex approach covers 99% of real-world use; for robustness consider using acorn (transitive dep) to find and rewrite only top-level import nodes.
 
-- **per-script resource limits** — detect callbacks that take too long, log a warning
+- **per-script resource limits / blocking callback detection** — a script callback that runs a synchronous infinite loop (or any long-running blocking code) stalls the entire daemon: MQTT processing stops, all other scripts freeze, and there is no way to interrupt the blocking code from within the same thread. Two complementary improvements, in increasing complexity order:
+
+  1. **`vm.Script` initial-run timeout** — pass a `timeout` option to `script.runInContext()` (e.g. 5 s). This terminates the script if the *top-level body* runs synchronously for too long. Easy, ~5 lines. Does **not** protect against blocking callbacks.
+
+  2. **Event-loop heartbeat** — schedule a `setImmediate` every 100 ms. If it fires more than ~500 ms late, the event loop was blocked. Track the "currently executing script" in a module-level variable (set when a sandbox callback fires, cleared in a follow-up `setImmediate`); log a warning naming the script. This detects blocking callbacks and provides useful diagnostics, but cannot interrupt them — it only reports after the fact.
+
+  3. **Worker threads per script** — the only way to achieve true isolation: each script runs in its own `worker_thread`, so blocking one worker does not affect the daemon or other scripts. The worker can be killed and restarted on reload. Major architectural rewrite: `she.mqtt.get()` is currently synchronous — in a worker context it would need `SharedArrayBuffer`-based state sharing or become async (a breaking API change). All subscription callbacks would need to be dispatched across the thread boundary via `postMessage`. Estimated effort: weeks. Only worth pursuing if the homelab grows large enough that a single misbehaving script is a real operational risk.
+
+  Practical path: implement 1 + 2 as a low-effort improvement now; defer 3 unless there is a concrete need.
 
 - **per-script log history** — when a script crashes at 3am and the user opens the UI, the circular log buffer may have rotated away the relevant entries. Concrete symptom: the file tree shows a red error dot on the script, but clicking it opens an empty log panel — the error that caused the dot is gone. Store the last N log lines per script persistently in the data dir (e.g. `~/.she/logs/<scriptname>.jsonl`, ring-buffered) so the log panel always shows recent history even after daemon restart or log rotation.
 
-- **script VM timeout** — the `vm.Script` `timeout` option is never set; a script with an infinite synchronous loop hangs the daemon. Add a configurable per-script CPU timeout (e.g. `she.schedule` should not hang the event loop).
-
 - **graceful WebSocket shutdown** — when `process.exit(0)` is called (e.g. on restart request), connected WebSocket clients drop abruptly. Send a WS close frame first so the frontend can show a meaningful disconnect message.
+
+- **HTTP route unregistration on script unload** — routes registered via `she.api.*` and `she.http.sub()` are added to the Express router and are currently never removed when a script is unloaded or hot-reloaded (documented limitation in `doc/script-engine.md`). This has two consequences: (1) the old handler keeps serving requests after the script is gone; (2) re-registering the same method+path after a hot-reload throws or silently stacks a duplicate handler, so only a daemon restart fixes a route change.
+
+  Recommended fix: replace direct `router.METHOD(path, handler)` registration with a **dynamic dispatch map** (`Map<"METHOD path", handler>`). A single catch-all middleware walks this map at request time. `registerRoute(method, path, handler)` writes to the map; a new `unregisterRoutesByScript(scriptName)` removes all entries whose metadata identifies them as belonging to that script. On hot-reload the unload step clears the old entries and the new run registers fresh ones. No Express router accumulation, no daemon restart required. Estimated effort: ~40 lines in `server.js` + sandbox modules.
 
 ## Scripts Editor
 
