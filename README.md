@@ -15,18 +15,28 @@ Your home, your rules - written in plain JavaScript.
 - **Broker management** — optional Mosquitto management: dynamic user/ACL management via the dynsec plugin (`she.broker.*` script API), listener and TLS configuration, TLS certificate management (server cert self-signed / CSR / import, trusted CA store), SSH-based remote file deployment
 - **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer, broker manager
 
-## Docs
+## Documentation
 
-| | |
-|---|---|
-| [Getting started](doc/getting-started.md) | Install, write your first script, configure |
-| [Concepts](doc/concept.md) | Core ideas: zero-boilerplate scripting, MQTT vs. sheDB, git integration |
-| [Script Engine](doc/script-engine.md) | How Scripts get executed, error handling, limitations |
-| [Sandbox API](doc/sandbox-api.md) | Everything available inside a script |
-| [sheDB](doc/db/README.md) | Embedded document store — script API, views, examples |
-| [Broker management](doc/broker-management.md) | Mosquitto management, dynsec, TLS, certificates |
-| [Examples](doc/examples.md) | Real-world script patterns |
-| [HTTP API](doc/http-api.md) | REST API reference including broker management endpoints |
+### Getting started
+- [Getting started](doc/getting-started.md) — install, first script, systemd service, Docker
+- [Concepts](doc/concept.md) — zero-boilerplate scripting, MQTT vs. sheDB, git integration
+
+### Scripting
+- [Script Engine](doc/script-engine.md) — execution model, hot-reload, module system, ESM limitations
+- [Sandbox API](doc/sandbox-api.md) — everything available inside a script (`she.mqtt`, `she.schedule`, `she.db`, …)
+- [Examples](doc/examples.md) — real-world script patterns
+
+### sheDB
+- [sheDB overview](doc/db/README.md) — when and why to use the embedded document store
+- [Documents](doc/db/documents.md) — CRUD, deep merge, nested property mutations
+- [Views](doc/db/views.md) — map/reduce queries
+- [View examples](doc/db/view-examples.md)
+- [Sandbox API](doc/db/sandbox.md) — `she.db.*` reference
+
+### Operations & integration
+- [Broker management](doc/broker-management.md) — Mosquitto, dynsec, TLS, certificates, SSH deploy
+- [HTTP API](doc/http-api.md) — REST API reference
+- [CLI](doc/cli.md) — all command-line flags
 
 ## Quick look
 
