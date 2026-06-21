@@ -360,6 +360,12 @@
         }
     }
 
+    // Re-sync full state whenever the daemon connects (or reconnects) to MQTT.
+    // The server sends mqtt:status as a welcome message to every new WS connection,
+    // so this also fires after a browser-WS reconnect, plugging the gap where
+    // retained messages broadcast during WS downtime would otherwise be lost.
+    const unsubStatus = subscribeWs('mqtt:status', () => { load(); });
+
     onMount(load);
     onMount(async () => {
         try {
@@ -367,7 +373,7 @@
             dynsecAvail = Boolean(status.dynsec?.dynsecReady);
         } catch { dynsecAvail = false; }
     });
-    onDestroy(() => { unsubWs(); if (rafId !== null) cancelAnimationFrame(rafId); });
+    onDestroy(() => { unsubWs(); unsubStatus(); if (rafId !== null) cancelAnimationFrame(rafId); });
 </script>
 
 <!--
