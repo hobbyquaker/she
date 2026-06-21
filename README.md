@@ -34,6 +34,7 @@ Your home, your rules - written in plain JavaScript.
 - [Sandbox API](doc/db/sandbox.md) — `she.db.*` reference
 
 ### Operations & integration
+- [Security](doc/security.md) — trust model, auth modes, reverse proxy, Mosquitto ACLs, network segmentation
 - [Broker management](doc/broker-management.md) — Mosquitto, dynsec, TLS, certificates, SSH deploy
 - [HTTP API](doc/http-api.md) — REST API reference
 - [CLI](doc/cli.md) — all command-line flags
