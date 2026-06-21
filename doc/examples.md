@@ -73,12 +73,12 @@ she.timer('home/motion/hall', 5 * 60 * 1000, 'home/light/hall');
 
 ```js
 // Open blinds 15 minutes after sunrise
-she.sunSchedule('sunrise', { shift: 900 }, () => {
+she.schedule('sunrise', { shift: 900 }, () => {
     she.mqtt.pub('home/blinds/living', 'up');
 });
 
 // Close blinds at sunset, ± random 10 minutes
-she.sunSchedule('sunset', { random: 600 }, () => {
+she.schedule('sunset', { random: 600 }, () => {
     she.mqtt.pub('home/blinds/living', 'down');
 });
 ```
@@ -121,7 +121,7 @@ she.mqtt.sub('home/presence', { change: true }, (topic, val) => {
 ## Combine motion sensors
 
 ```js
-// home/motion/any = 1 when any room has motion
+// home/motion/any = truthy when any room has motion
 she.mqtt.or(
     ['home/motion/hall', 'home/motion/kitchen', 'home/motion/living'],
     'home/motion/any'
