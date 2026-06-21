@@ -1637,7 +1637,7 @@ declare const she: {
                                     <span>·</span>
                                     <a href="https://github.com/hobbyquaker/she/blob/main/doc/sandbox-api.md" target="_blank" rel="noopener">API reference</a>
                                     <span>·</span>
-                                    <a href="https://github.com/hobbyquaker/she/blob/main/README.md" target="_blank" rel="noopener">README</a>
+                                    <a href="https://github.com/hobbyquaker/she/blob/main/README.md#documentation" target="_blank" rel="noopener">Documentation</a>
                                 </div>
                                 <div class="welcome-shortcuts">
                                     <div class="welcome-shortcuts-title">Keyboard shortcuts</div>
