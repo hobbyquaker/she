@@ -163,6 +163,10 @@ Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance
 
 - **secrets management** — store secrets (named groups of arbitrary string fields, e.g. `{ "smtp": { "password": "…", "host": "…" } }`) in a dedicated encrypted file (`~/.she/secrets.enc`) separate from `config.json`, using AES-256-GCM via Node.js built-in `crypto`. Encryption key sourced from env var `SHE_SECRETS_KEY` (takes precedence) or key file `~/.she/secrets.key` (chmod 600). Access from scripts via `she.secrets.get('<name>/<field>')`. Integrate as own section in config ui (show/hide values). Open questions to resolve before implementation: HTTP API exposure (security concern — avoid reading secret values over the network, or localhost-only), behavior when key is missing, hot-reload vs. startup-only, CLI subcommands for management, configurable secrets file path.
 
+## Broker Page — Raw config editor
+
+- **Monaco editor for `mosquitto.conf`** — the `PUT /she/broker/config/raw` endpoint and the `putBrokerConfRaw()` API helper already exist; only the frontend tab is missing. Add an **Advanced** sub-tab to the Broker page that renders the full `mosquitto.conf` text in a Monaco editor (`language: 'ini'`). On save, call `putBrokerConfRaw(content, checksum)` — external-modify detection via checksum works the same way as the structured editor. The tab should also surface the backup list with a one-click restore (calls `POST /she/broker/config/restore`). This gives power users a full escape hatch beyond what the structured Listeners / Global Config tabs expose.
+
 ## Broker Page — Auth without dynsec
 
 - **Password file & ACL file management** — users who prefer static `passwd` / `acl` files over the dynamic-security plugin have no UI support today. Needs to work in both local and SSH/remote mode (analogous to how `mosquitto.conf` read/write already works via `ssh-deploy`).
