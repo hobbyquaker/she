@@ -180,9 +180,10 @@
                 outdatedDepsCount = Object.keys(o).filter(n => !pinnedPackages.includes(n)).length;
                 const wasBrokerEnabled = brokerEnabled;
                 brokerEnabled = (cfg.broker as any)?.enabled === true;
-                // If broker was just disabled and user is on the Broker page, redirect
                 if (wasBrokerEnabled && !brokerEnabled && page === 'security') navigate('scripts');
             } catch { /* best effort */ }
+            // Redirect away from Matter page if Matter is not enabled at runtime
+            if (!stats?.matterEnabled && page === 'matter') navigate('scripts');
         }
         pollStatus();
         const statusInterval = setInterval(pollStatus, 5000);
@@ -281,6 +282,7 @@
             Broker
         </button>
         {/if}
+        {#if stats?.matterEnabled}
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -297,6 +299,7 @@
             {:else if matterStatus === 'offline'}<span class="nav-dot nav-dot--err" title="No Matter devices online"></span>
             {/if}
         </button>
+        {/if}
         <button class:active={page === 'db'} onclick={() => navigate('db')}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <ellipse cx="8" cy="4.5" rx="5" ry="1.8"/>

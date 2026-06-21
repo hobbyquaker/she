@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, type AuthMode } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, type AuthMode } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
@@ -33,6 +33,11 @@
     // Mosquitto management
     let brokerEnabled  = $state(false);
     let brokerChecking = $state(false);
+
+    // Matter controller
+    let matterEnabled  = $state(false);
+    let matterStorage  = $state('');   // path; empty = use daemon default (<data-dir>/matter)
+    let matterChecking = $state(false);
 
     // Web server
     let port           = $state<number | ''>(8080);
@@ -144,6 +149,7 @@
         'redis',
         'ai',
         'broker', // handled explicitly in load/save for broker.enabled
+        'matter-storage', // handled explicitly
     ]);
 
     // ── Leaflet map ────────────────────────────────────────────────────────
@@ -205,8 +211,9 @@
     let activeSection = $state('appearance');
 
     const SECTIONS = [
-        { id: 'broker',     label: 'Mosquitto',    terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
-        { id: 'appearance', label: 'Appearance',   terms: ['theme','color','dark','light'] },
+        { id: 'broker',  label: 'Mosquitto',        terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
+        { id: 'matter',  label: 'Matter controller', terms: ['matter','thread','zigbee','iot','devices','smart home controller'] },
+        { id: 'appearance', label: 'Appearance',    terms: ['theme','color','dark','light'] },
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
@@ -277,6 +284,9 @@
             if (redis?.url) redisUrl = redis.url;
             const brokerCfg = cfg.broker as Record<string, unknown> | undefined;
             brokerEnabled = brokerCfg?.enabled === true;
+            const ms = cfg['matter-storage'] as string | undefined;
+            matterEnabled = !!ms;
+            matterStorage = (ms && ms !== 'true') ? ms : '';
             const ai = cfg.ai as { provider?: string; baseUrl?: string; model?: string; apiKey?: string } | undefined;
             if (ai?.provider) aiProvider = ai.provider;
             if (ai?.baseUrl)  aiBaseUrl  = ai.baseUrl;
@@ -316,6 +326,26 @@
         } finally {
             authSaving = false;
         }
+    }
+
+    async function onMatterEnabledChange(val: boolean) {
+        if (val) { matterEnabled = true; return; }
+        matterChecking = true;
+        try {
+            const devices = await listMatterDevices();
+            if (devices.length > 0) {
+                await dialog.show(
+                    `Cannot disable the Matter controller: ${devices.length} device${devices.length === 1 ? ' is' : 's are'} still paired. Unpair all devices first via the Matter page.`,
+                    { alert: true } as any,
+                );
+                return;
+            }
+        } catch {
+            // listMatterDevices may fail if Matter is already stopped — proceed
+        } finally {
+            matterChecking = false;
+        }
+        matterEnabled = false;
     }
 
     async function onBrokerEnabledChange(val: boolean) {
@@ -392,6 +422,10 @@
             cfg.broker = { ...brokerRest, enabled: true };
         } else if (Object.keys(brokerRest).length > 0) {
             cfg.broker = brokerRest;
+        }
+        // matter-storage
+        if (matterEnabled) {
+            cfg['matter-storage'] = matterStorage || true;
         }
         if (aiProvider) {
             cfg.ai = {
@@ -483,6 +517,30 @@
                         <p class="hint">Shows the <strong>Broker</strong> page in the navigation, giving access to listener config, dynamic security, TLS certificates and more. Disable this if you are not using Mosquitto or prefer to manage it externally.</p>
                         {#if brokerChecking}<p class="hint">Checking broker status…</p>{/if}
                     </div>
+                </section>
+                {/if}
+
+                <!-- ── Matter controller ──────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'matter')}
+                <section id="sec-matter">
+                    <h3>Matter controller</h3>
+                    <div class="field">
+                        <label class="toggle">
+                            <input type="checkbox" checked={matterEnabled} disabled={matterChecking}
+                                onchange={(e) => onMatterEnabledChange((e.target as HTMLInputElement).checked)} />
+                            <span class="toggle-label">Enable Matter controller</span>
+                        </label>
+                        <p class="hint">Shows the <strong>Matter</strong> page and starts the built-in Matter controller on next restart. Requires a restart to take effect. Disable only after unpairing all devices.</p>
+                        {#if matterChecking}<p class="hint">Checking paired devices…</p>{/if}
+                    </div>
+                    {#if matterEnabled}
+                    <div class="field">
+                        <label for="matter-storage-input">Storage path</label>
+                        <input id="matter-storage-input" bind:value={matterStorage}
+                            placeholder="{dataDir}/matter (default)" />
+                        <p class="hint">Directory where Matter controller state is persisted. Leave empty to use the default path inside the data directory.</p>
+                    </div>
+                    {/if}
                 </section>
                 {/if}
 
