@@ -136,6 +136,7 @@
     <div class="global-settings">
         <label class="toggle-label">
             <input type="checkbox" bind:checked={perListenerSettings} />
+            <span class="checkmark"></span>
             <span><code>per_listener_settings</code> — independent auth per listener</span>
             <span class="info-icon" title="Not recommended when using the dynamic-security plugin — dynsec credentials only apply to the default listener. See mosquitto documentation.">ℹ</span>
         </label>
@@ -176,6 +177,7 @@
                 </label>
                 <label class="toggle-label tls-inline">
                     <input type="checkbox" checked={isTlsEnabled(l)} onchange={(e) => setTlsEnabled(l, (e.target as HTMLInputElement).checked)} />
+                    <span class="checkmark"></span>
                     TLS
                 </label>
             </div>
@@ -224,10 +226,12 @@
                 <div class="field-row">
                     <label class="toggle-label">
                         <input type="checkbox" bind:checked={l.tls.require_certificate} />
+                        <span class="checkmark"></span>
                         Require client certificate (require_certificate)
                     </label>
                     <label class="toggle-label">
                         <input type="checkbox" bind:checked={l.tls.use_identity_as_username} />
+                        <span class="checkmark"></span>
                         Use cert CN as username (use_identity_as_username)
                     </label>
                 </div>
@@ -270,6 +274,7 @@
                 <div class="field-row">
                     <label class="toggle-label">
                         <input type="checkbox" bind:checked={l.tls.use_subject_as_username} />
+                        <span class="checkmark"></span>
                         Use cert Subject as username (use_subject_as_username)
                     </label>
                 </div>
@@ -421,7 +426,11 @@
         padding: 4px 7px;
     }
 
-    input[type='checkbox'] { accent-color: var(--accent, #569cd6); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+    .toggle-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .checkmark { flex-shrink: 0; width: 14px; height: 14px; border: 1.5px solid var(--border, #444); border-radius: 3px; background: var(--input-bg, #2a2a2a); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .toggle-label input:checked + .checkmark { background: var(--accent, #569cd6); border-color: var(--accent, #569cd6); }
+    .toggle-label input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .toggle-label:hover .checkmark { border-color: var(--accent, #569cd6); }
 
     .tls-inline {
         flex: 0 0 auto;

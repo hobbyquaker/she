@@ -150,6 +150,7 @@
                 {#each LOG_DEST_OPTIONS as opt}
                 <label class="check-label">
                     <input type="checkbox" checked={logDest.has(opt)} onchange={() => { logDest = toggleSet(logDest, opt); }} />
+                    <span class="checkmark"></span>
                     {opt}
                 </label>
                 {/each}
@@ -164,6 +165,7 @@
                     {#each LOG_TYPE_SEVERITY as opt}
                     <label class="check-label">
                         <input type="checkbox" checked={logType.has(opt)} onchange={() => { logType = toggleSet(logType, opt); }} />
+                        <span class="checkmark"></span>
                         {opt}
                     </label>
                     {/each}
@@ -173,6 +175,7 @@
                     {#each LOG_TYPE_EVENTS as opt}
                     <label class="check-label">
                         <input type="checkbox" checked={logType.has(opt)} onchange={() => { logType = toggleSet(logType, opt); }} />
+                        <span class="checkmark"></span>
                         {opt}
                     </label>
                     {/each}
@@ -181,6 +184,7 @@
                     {#each LOG_TYPE_OTHER as opt}
                     <label class="check-label">
                         <input type="checkbox" checked={logType.has(opt)} onchange={() => { logType = toggleSet(logType, opt); }} />
+                        <span class="checkmark"></span>
                         <strong>{opt}</strong>
                     </label>
                     {/each}
@@ -335,7 +339,7 @@
     .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
     .field { display: flex; flex-direction: column; gap: 4px; }
 
-    .field label { display: flex; flex-direction: column; gap: 3px; }
+    .field label:not(.check-label) { display: flex; flex-direction: column; gap: 3px; }
     .field label span { font-size: 11px; color: var(--text-muted, #999); font-family: monospace; }
 
     input:not([type='checkbox']), select {
@@ -352,9 +356,13 @@
 
     .field-key { font-size: 11px; color: var(--text-muted, #999); font-family: monospace; display: block; margin-bottom: 5px; }
 
-    .checkbox-group { display: flex; flex-wrap: wrap; gap: 5px 16px; margin-bottom: 2px; }
-    .check-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text, #ddd); cursor: pointer; font-family: monospace; user-select: none; }
-    .check-label input[type='checkbox'] { accent-color: var(--accent, #569cd6); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+    .checkbox-group { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 2px; }
+    .check-label { display: flex; flex-direction: row; align-items: center; gap: 7px; font-size: 12px; color: var(--text, #ddd); cursor: pointer; font-family: monospace; user-select: none; }
+    .check-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .checkmark { flex-shrink: 0; width: 14px; height: 14px; border: 1.5px solid var(--border, #444); border-radius: 3px; background: var(--input-bg, #2a2a2a); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .check-label input:checked + .checkmark { background: var(--accent, #569cd6); border-color: var(--accent, #569cd6); }
+    .check-label input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .check-label:hover .checkmark { border-color: var(--accent, #569cd6); }
 
     .log-type-grid { display: flex; flex-direction: column; gap: 8px; }
     .log-type-group { display: flex; flex-wrap: wrap; gap: 5px 16px; }

@@ -89,6 +89,7 @@
         <div class="spacer"></div>
         <label class="autoscroll-label">
             <input type="checkbox" bind:checked={autoScroll} />
+            <span class="checkmark"></span>
             Auto-scroll
         </label>
         <button class="btn-clear" onclick={clear}>Clear</button>
@@ -164,8 +165,12 @@
 
     .spacer { flex: 1; }
 
-    .autoscroll-label { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted, #aaa); cursor: pointer; user-select: none; }
-    .autoscroll-label input[type='checkbox'] { accent-color: var(--accent, #569cd6); width: 14px; height: 14px; cursor: pointer; }
+    .autoscroll-label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-muted, #aaa); cursor: pointer; user-select: none; }
+    .autoscroll-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .checkmark { flex-shrink: 0; width: 14px; height: 14px; border: 1.5px solid var(--border, #444); border-radius: 3px; background: var(--input-bg, #2a2a2a); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .autoscroll-label input:checked + .checkmark { background: var(--accent, #569cd6); border-color: var(--accent, #569cd6); }
+    .autoscroll-label input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .autoscroll-label:hover .checkmark { border-color: var(--accent, #569cd6); }
     .btn-clear { background: none; border: 1px solid var(--border, #444); border-radius: 3px; color: var(--text-muted, #888); cursor: pointer; font-size: 11px; padding: 2px 8px; }
 
     .log-container {
