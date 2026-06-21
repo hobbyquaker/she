@@ -332,7 +332,7 @@ she.schedule(['dawn', 'dusk'], callback);
 
 ## she.global
 
-A plain object shared across all running scripts. Use it to pass values between scripts without going through MQTT.
+A plain object shared across all running scripts. Use it to pass values, pre-computed results, or utility functions between scripts without going through MQTT.
 
 ```js
 // script-a.js
@@ -342,6 +342,40 @@ she.global.sharedCounter = 0;
 she.global.sharedCounter++;
 she.log('counter:', she.global.sharedCounter);
 ```
+
+Because scripts load in filesystem order you cannot guarantee that another script has already populated `she.global` when yours runs. Guard reads with `?.` or a default:
+
+```js
+const count = she.global.sharedCounter ?? 0;
+```
+
+### Cross-script event bus
+
+`she.global` can hold any object — including a Node.js `EventEmitter`. This gives you a lightweight in-process pub/sub channel without MQTT or broker involvement.
+
+```js
+// scripts/00-init.js — set up the bus once, before other scripts load
+const { EventEmitter } = require('events');
+she.global.bus = new EventEmitter();
+```
+
+```js
+// scripts/alarm.js — emit an event
+she.mqtt.sub('home/sensor/basement/flood', { change: true }, (topic, val) => {
+    if (val) she.global.bus?.emit('alert', { type: 'flood', zone: 'basement' });
+});
+```
+
+```js
+// scripts/notify.js — react to any alert
+she.global.bus?.on('alert', ({ type, zone }) => {
+    she.warn('alert:', type, 'in', zone);
+});
+```
+
+Using `?.` makes the call a safe no-op if `00-init.js` hasn't run or is disabled.
+
+See [Cross-script patterns](examples/cross-script.md) for more patterns including library scripts and shared configuration.
 
 ---
 

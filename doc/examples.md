@@ -1,6 +1,21 @@
 # Script Examples
 
-## React to a button press and toggle a light
+Examples are organised by topic. Each file contains self-contained, copy-paste-ready scripts with comments.
+
+| Topic | Description |
+|---|---|
+| [Lights & switches](examples/lights-and-switches.md) | Toggle, dim, motion-triggered, scenes, presence-conditioned |
+| [Presence & security](examples/presence-and-security.md) | Presence detection, heating, alarms, watchdogs |
+| [Scheduling](examples/scheduling.md) | Cron, solar events, one-shots, weekend logic |
+| [HTTP & webhooks](examples/http-and-webhooks.md) | Fetch external APIs, expose endpoints, receive webhooks, push notifications |
+| [Cross-script patterns](examples/cross-script.md) | Shared state, event bus, library scripts |
+| [sheDB](examples/shedb.md) | Device registry, config, counters, reactive queries |
+
+---
+
+## Quick reference
+
+### React to a button press and toggle a light
 
 ```js
 she.mqtt.sub('home/remote/button1', { change: true }, (topic, val) => {
