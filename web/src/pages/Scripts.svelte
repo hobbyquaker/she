@@ -442,6 +442,8 @@ declare const she: {
             scrollBeyondLastLine: false,
         });
 
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save());
+
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
             searchOpen && searchMode === 'text' ? closeSearch() : openSearch('text');
         });
