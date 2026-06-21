@@ -38,10 +38,13 @@ The web UI is served on port **8080** by default. It provides:
 |-----|-------------|
 | **Scripts** | Monaco-based editor: create, edit, save, rename, and delete `.js` scripts |
 | **MQTT** | Browse all known topics with current values and timestamps; publish messages |
-| **Matter** | Commission and manage paired Matter devices |
+| **Broker** | Manage Mosquitto config, listeners, TLS, dynsec users and roles *(must be enabled — see below)* |
+| **Matter** | Commission and manage paired Matter devices *(must be enabled — see below)* |
 | **DB** | Inspect and edit sheDB documents and views |
 | **Logs** | Live structured log stream |
 | **Config** | All daemon settings — MQTT broker settings, authentication, ... |
+
+> **Note:** The **Broker** and **Matter** tabs are hidden by default. Enable them in **Config → Mosquitto** and **Config → Matter controller** respectively. The **DB** tab is visible by default and can be hidden the same way.
 
 ## Your first script
 
