@@ -314,7 +314,6 @@
 </script>
 
 {#snippet dbWelcome()}
-<ConfirmDialog bind:this={dialog} />
     <div class="welcome">
         <div class="welcome-inner">
             <div class="welcome-logo">db</div>
@@ -335,6 +334,7 @@
     </div>
 {/snippet}
 
+<ConfirmDialog bind:this={dialog} />
 <div class="db-root" role="presentation" onmousemove={onResizeMove} onmouseup={onResizeEnd} onmouseleave={onResizeEnd}>
     <!-- Panel tabs -->
     <div class="panel-tabs">
