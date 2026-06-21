@@ -356,7 +356,11 @@ if (config.url) {
     // Inform newly-connected WS clients of the current MQTT broker connection state.
     setWelcomeProvider(() => ({ type: 'mqtt:status', ready: _started, connected }));
 
-    const _mqttOpts = { will: { topic: config.name + '/connected', payload: '0', retain: true } };
+    // resubscribe: false — she manually re-subscribes in the connect handler, so MQTT.js's
+    // automatic re-subscribe on reconnect must be disabled.  If both fire, Mosquitto receives
+    // two SUBSCRIBE '#' packets and silently drops QoS-0 retained messages that overflow the
+    // per-client queue between the two subscriptions.
+    const _mqttOpts = { will: { topic: config.name + '/connected', payload: '0', retain: true }, resubscribe: false };
     if (config.mqttUsername) _mqttOpts.username = config.mqttUsername;
     if (config.mqttPassword) _mqttOpts.password = config.mqttPassword;
     if (config.mqttCa) _mqttOpts.ca = config.mqttCa;
@@ -423,7 +427,10 @@ if (config.url) {
         // after subscribing to #. When it arrives, all retained messages from the
         // broker have already been delivered and stored.
         if (!_started && _sentinelValue !== null && !msg.retain && topic === config.name + '/she-sentinel' && payload.toString() === _sentinelValue) {
-            startOnce('mqtt: retained state ready, starting scripts');
+            let _retainedCount = 0;
+            // eslint-disable-next-line no-unused-vars
+            for (const _ of store.mqttEntries()) _retainedCount++;
+            startOnce('mqtt: retained state ready, starting scripts (' + _retainedCount + ' retained topics loaded)');
             return; // sentinel is internal — don’t process further
         }
 
