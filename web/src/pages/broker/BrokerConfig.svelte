@@ -12,6 +12,10 @@
     let checksum = $state<string | null>(null);
 
     // Local copies of managed keys
+    let persistence        = $state('');   // 'true' | 'false' | ''
+    let persistenceLocation = $state('');
+    let sysInterval        = $state('');
+    let includeDirs        = $state('');   // newline-separated paths
     let maxConnections     = $state('');
     let maxInflight        = $state('');
     let maxQueued          = $state('');
@@ -58,6 +62,11 @@
         try {
             conf = await getBrokerConf();
             checksum = conf.checksum;
+            persistence        = m('persistence');
+            persistenceLocation = m('persistence_location');
+            sysInterval        = m('sys_interval');
+            const idv = conf.managed['include_dir'];
+            includeDirs = idv ? (Array.isArray(idv) ? idv.join('\n') : idv) : '';
             maxConnections     = m('max_connections');
             maxInflight        = m('max_inflight_messages');
             maxQueued          = m('max_queued_messages');
@@ -86,6 +95,12 @@
             function set(key: string, val: string) {
                 if (val !== '') managed[key] = val; else delete managed[key];
             }
+            set('persistence',                persistence);
+            set('persistence_location',        persistenceLocation);
+            set('sys_interval',                sysInterval);
+            const dirs = includeDirs.split('\n').map((s: string) => s.trim()).filter(Boolean);
+            if (dirs.length > 0) managed['include_dir'] = dirs.length === 1 ? dirs[0] : dirs;
+            else delete managed['include_dir'];
             set('max_connections',            maxConnections);
             set('max_inflight_messages',       maxInflight);
             set('max_queued_messages',         maxQueued);
@@ -141,6 +156,45 @@
     {#if reloadMsg}<div class="reload-msg">{reloadMsg}</div>{/if}
 
     {#if conf}
+    <!-- ── General ──────────────────────────────────────────────────────── -->
+    <div class="section">
+        <h4>General</h4>
+        <div class="field-grid">
+            <div class="field">
+                <label>
+                    <span>persistence</span>
+                    <select bind:value={persistence}>
+                        <option value="">auto (broker default)</option>
+                        <option value="true">true — persist sessions &amp; retained msgs</option>
+                        <option value="false">false — no disk persistence</option>
+                    </select>
+                </label>
+                <p class="hint">Enable on-disk persistence of subscriptions, retained messages, and QoS 1/2 queues.</p>
+            </div>
+            <div class="field">
+                <label>
+                    <span>persistence_location</span>
+                    <input bind:value={persistenceLocation} placeholder="/var/lib/mosquitto/" />
+                </label>
+                <p class="hint">Directory where mosquitto stores its persistence data. Must be writable by the mosquitto process.</p>
+            </div>
+            <div class="field">
+                <label>
+                    <span>sys_interval</span>
+                    <input type="number" bind:value={sysInterval} placeholder="10" min="0" />
+                </label>
+                <p class="hint">Interval in seconds between <code>$SYS</code> status updates. <code>0</code> disables <code>$SYS</code> messages.</p>
+            </div>
+        </div>
+        <div class="field">
+            <label>
+                <span>include_dir</span>
+                <textarea bind:value={includeDirs} rows={3} placeholder="/etc/mosquitto/conf.d"></textarea>
+            </label>
+            <p class="hint">One path per line. Each directory will be scanned for <code>*.conf</code> files and included in order.</p>
+        </div>
+    </div>
+
     <!-- ── Logging ──────────────────────────────────────────────────────── -->
     <div class="section">
         <h4>Logging</h4>
@@ -342,7 +396,7 @@
     .field label:not(.check-label) { display: flex; flex-direction: column; gap: 3px; }
     .field label span { font-size: 11px; color: var(--text-muted, #999); font-family: monospace; }
 
-    input:not([type='checkbox']), select {
+    input:not([type='checkbox']), select, textarea {
         background: var(--input-bg, #2a2a2a);
         border: 1px solid var(--border, #444);
         border-radius: 4px;
@@ -350,6 +404,7 @@
         font-size: 12px;
         padding: 4px 8px;
     }
+    textarea { font-family: monospace; resize: vertical; width: 100%; box-sizing: border-box; }
 
     .hint { margin: 0; font-size: 10.5px; color: var(--text-muted, #777); line-height: 1.4; }
     .hint code { font-size: 10px; background: rgba(255,255,255,0.06); border-radius: 2px; padding: 0 3px; }

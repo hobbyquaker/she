@@ -52,6 +52,10 @@ const MANAGED_SINGLE_KEYS = new Set([
     // Performance / misc
     'set_tcp_nodelay',
     'connection_messages',
+    // $SYS reporting
+    'sys_interval',
+    // Include dirs
+    'include_dir',
 ]);
 
 /**
@@ -230,10 +234,12 @@ function serialise(conf) {
         'retain_available',
         'set_tcp_nodelay',
         'connection_messages',
+        'sys_interval',
         'log_dest',
         'log_type',
         'plugin',
         'plugin_opt_config_file',
+        'include_dir',
     ];
     for (const key of keyOrder) {
         if (managed[key] === undefined) continue;

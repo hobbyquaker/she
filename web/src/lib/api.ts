@@ -623,6 +623,7 @@ export interface BrokerStatus {
 }
 
 export interface BrokerListenerTls {
+    enabled?: boolean;   // UI-only flag; not written to mosquitto.conf
     certfile?: string;
     keyfile?: string;
     cafile?: string;

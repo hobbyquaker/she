@@ -102,14 +102,15 @@
     }
 
     function isTlsEnabled(l: BrokerListener): boolean {
-        return !!(l.tls?.certfile || l.tls?.keyfile || l.tls?.capath || l.tls?.cafile);
+        return !!(l.tls?.enabled || l.tls?.certfile || l.tls?.keyfile || l.tls?.capath || l.tls?.cafile);
     }
 
     function setTlsEnabled(l: BrokerListener, enabled: boolean) {
-        if (!enabled) {
+        if (enabled) {
+            l.tls = { ...l.tls, enabled: true };
+        } else {
             l.tls = {};
         }
-        // trigger reactivity
         listeners = [...listeners];
     }
 </script>
