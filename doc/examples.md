@@ -28,10 +28,17 @@ she.mqtt.sub('home/remote/button1', { change: true }, (topic, val) => {
 
 ---
 
-## Control a Hue lamp with a Homematic remote
+## Control a Hue lamp with a Homematic BidCoS remote (Dimming via Long-Press)
 
 ```js
 she.mqtt.link('hm//RC4:1/PRESS_CONT', 'hue//lights/Hobbyraum/bri_inc', -16);
+she.mqtt.sub('hm//RC4:2/PRESS_CONT', () => {
+    if (!she.mqtt.get('hue//lights/Hobbyraum')) {
+        she.mqtt.pub('hue//lights/Hobbyraum', 1);
+    } else {
+        she.mqtt.pub('hue//lights/Hobbyraum/bri_inc', 16);
+    }
+});
 she.mqtt.link('hm//RC4:3/PRESS_CONT', 'hue//lights/Hobbyraum/ct_inc', -16);
 she.mqtt.link('hm//RC4:4/PRESS_CONT', 'hue//lights/Hobbyraum/ct_inc', 16);
 
@@ -40,13 +47,6 @@ she.mqtt.link('hm//RC4:2/PRESS_SHORT', 'hue//lights/Hobbyraum', 254);
 she.mqtt.link('hm//RC4:3/PRESS_SHORT', 'hue//lights/Hobbyraum/ct', 153);
 she.mqtt.link('hm//RC4:4/PRESS_SHORT', 'hue//lights/Hobbyraum/ct', 500);
 
-she.mqtt.sub('hm//RC4:2/PRESS_CONT', () => {
-    if (!she.mqtt.get('hue//lights/Hobbyraum')) {
-        she.mqtt.pub('hue//lights/Hobbyraum', 1);
-    } else {
-        she.mqtt.pub('hue//lights/Hobbyraum/bri_inc', 16);
-    }
-});
 ```
 
 ---
@@ -55,23 +55,16 @@ she.mqtt.sub('hm//RC4:2/PRESS_CONT', () => {
 
 ```js
 // Turn on immediately when motion is detected
-she.mqtt.sub('home/motion/hall', { change: true }, (topic, val) => {
-    if (val) she.mqtt.pub('home/light/hall', 1);
+she.mqtt.sub('home/motion/hall', { change: true }, (_, val) => {
+    if (val) she.mqtt.pub('home/light/hall', val);
 });
 
-// Turn off 5 minutes after motion stops
-she.mqtt.sub('home/motion/hall', { change: true, condition: 'val === false', shift: 300 }, () => {
-    // only switch off if motion is still absent
-    if (!she.mqtt.get('home/motion/hall')) {
-        she.mqtt.pub('home/light/hall', 0);
-    }
-});
 ```
 
 Or use `she.timer` for simpler one-shot behaviour:
 
 ```js
-she.timer('home/motion/hall', 'home/light/hall', 5 * 60 * 1000);
+she.timer('home/motion/hall', 5 * 60 * 1000, 'home/light/hall');
 ```
 
 ---
