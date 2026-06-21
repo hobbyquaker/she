@@ -38,6 +38,9 @@ Your home, your rules - written in plain JavaScript.
 - [HTTP API](doc/http-api.md) — REST API reference
 - [CLI](doc/cli.md) — all command-line flags
 
+### Development
+- [Backlog](BACKLOG.md) — planned features, deferred ideas, open design questions
+
 ## Quick look
 
 ![AI assistant proposing changes to an existing script with inline diff](doc/screenshots/she-ai-2.png) [... more screenshots](doc/screenshots.md) 
