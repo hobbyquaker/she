@@ -8,3 +8,4 @@ dist/web
 web/node_modules
 !test/testscripts/node_modules/
 !test/testscripts/node_modules/**
+test/testscripts/test-reload-cleanup.js
