@@ -829,7 +829,11 @@ declare const she: {
     // ── Context menu ─────────────────────────────────────────────────────────
     function openCtxMenu(e: MouseEvent, entry: TreeEntry) {
         e.preventDefault();
-        ctxMenu = { x: e.clientX, y: e.clientY, entry };
+        const MENU_W = 180;
+        const MENU_H = 200;
+        const x = Math.min(e.clientX, window.innerWidth  - MENU_W);
+        const y = Math.min(e.clientY, window.innerHeight - MENU_H);
+        ctxMenu = { x, y, entry };
     }
 
     function closeCtxMenu() { ctxMenu = null; }
