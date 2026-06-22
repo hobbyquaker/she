@@ -112,17 +112,21 @@ async function notify(title, message, opts = {}) {
         she.warn('pushover not configured — skipping notification');
         return;
     }
-    await she.http.fetch('https://api.pushover.net/1/messages.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            token:   cfg.appToken,
-            user:    cfg.userKey,
-            title,
-            message,
-            priority: opts.priority ?? 0,
-        }),
-    });
+    try {
+        await she.http.fetch('https://api.pushover.net/1/messages.json', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                token:   cfg.appToken,
+                user:    cfg.userKey,
+                title,
+                message,
+                priority: opts.priority ?? 0,
+            }),
+        });
+    } catch (err) {
+        she.warn('pushover send failed:', err.message);
+    }
 }
 
 // Use from this script or share via she.global.notify (see cross-script examples)
@@ -130,7 +134,11 @@ she.global.notify = notify;
 
 // Alert on flood
 she.mqtt.sub('home/sensor/basement/flood', { change: true, retain: true }, async (topic, val) => {
-    if (val) await notify('⚠️ FLOOD', 'Basement flood sensor triggered', { priority: 1 });
+    try {
+        if (val) await notify('⚠️ FLOOD', 'Basement flood sensor triggered', { priority: 1 });
+    } catch (err) {
+        she.error('flood alert failed:', err.message);
+    }
 });
 ```
 

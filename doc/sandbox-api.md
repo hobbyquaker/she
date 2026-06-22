@@ -473,11 +473,17 @@ A read-only object exposing daemon configuration values relevant to scripts. Att
 ```js
 she.info('location:', she.config.latitude, she.config.longitude);
 
-// Use coordinates for a custom API call
-const { body: weather } = await she.http.fetch(
-    `https://api.open-meteo.com/v1/forecast?latitude=${she.config.latitude}&longitude=${she.config.longitude}&current_weather=true`
-);
-she.mqtt.pub('home/weather/temperature', weather.current_weather.temperature);
+// Use coordinates for a custom API call -- wrap in async IIFE (top-level await is not supported)
+(async () => {
+    try {
+        const { body: weather } = await she.http.fetch(
+            `https://api.open-meteo.com/v1/forecast?latitude=${she.config.latitude}&longitude=${she.config.longitude}&current_weather=true`
+        );
+        she.mqtt.pub('home/weather/temperature', weather.current_weather.temperature);
+    } catch (err) {
+        she.warn('weather fetch failed:', err.message);
+    }
+})();
 ```
 
 ---
@@ -836,3 +842,61 @@ she.elastic.find('events', 'room', 'living', 5).then((docs) => {
     she.log('found:', docs);
 });
 ```
+
+---
+
+## Async / await
+
+`async` functions and `await` work inside any **callback** passed to `she.mqtt.sub()`, `she.schedule()`, `she.http.sub()`, etc.
+
+```js
+she.mqtt.sub('home/doorbell', async (topic, val) => {
+    try {
+        const { body } = await she.http.fetch('https://api.example.com/notify');
+        she.log('notified:', body.ok);
+    } catch (err) {
+        she.error('notification failed:', err.message);
+    }
+});
+```
+
+**Always wrap `await` in `try/catch` inside callbacks.** An unhandled rejection inside a callback cannot be attributed to a specific script — it appears in the logs without a script name. The daemon does not crash (a global handler catches it), but the log entry is hard to trace back.
+
+```js
+// ✗ unhandled rejection on fetch error
+she.schedule('0 * * * *', async () => {
+    const { body } = await she.http.fetch('https://example.com/data');
+    she.mqtt.pub('home/data', body.value);
+});
+
+// ✓ errors are caught and logged with the script name
+she.schedule('0 * * * *', async () => {
+    try {
+        const { body } = await she.http.fetch('https://example.com/data');
+        she.mqtt.pub('home/data', body.value);
+    } catch (err) {
+        she.error('fetch failed:', err.message);
+    }
+});
+```
+
+**Top-level `await` does not work.** Scripts run in a classic-script VM context, not an ES module, so `await` outside a function body is a `SyntaxError`. If you need to perform async setup (e.g. fetch initial state) before registering callbacks, write an explicit async IIFE and chain `.catch()` on it:
+
+```js
+// ✗ SyntaxError — top-level await is not supported
+const data = await she.http.fetch('https://example.com/init');
+
+// ✓ async IIFE
+(async () => {
+    try {
+        const { body: data } = await she.http.fetch('https://example.com/init');
+        she.mqtt.sub('home/device', (topic, val) => {
+            // data is available here
+        });
+    } catch (err) {
+        she.error('startup error:', err.message);
+    }
+})();
+```
+
+Register callbacks **inside** the IIFE so they are set up after the async work completes. Be aware that any code after the first `await` yields to the event loop, so scripts that follow in load order may run their top-level body before your async IIFE resumes. If other scripts depend on values you write to `she.global`, this load-order guarantee is lost.
