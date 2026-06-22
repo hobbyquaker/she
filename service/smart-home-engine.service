@@ -9,6 +9,8 @@ User=she
 Group=she
 Restart=on-failure
 RestartSec=5s
+TimeoutStopSec=3
+KillMode=mixed
 
 ExecStart=/usr/local/bin/she --data-dir /var/lib/she
 
