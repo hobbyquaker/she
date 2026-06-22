@@ -28,6 +28,38 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **graceful WebSocket shutdown** — when `process.exit(0)` is called (e.g. on restart request), connected WebSocket clients drop abruptly. Send a WS close frame first so the frontend can show a meaningful disconnect message.
 
+- **Safe mode — start without executing scripts** — when a user script blocks the event loop permanently (infinite synchronous loop), the daemon becomes unresponsive: MQTT stops, the web UI is unreachable, and even `systemctl stop` hangs until systemd's `TimeoutStopSec` SIGKILL fires. Safe mode initialises everything (MQTT, HTTP/WS server, file watcher, Config, Logs) but skips all `loadScript()` calls. The user can then open the web UI, identify and fix/delete the offending script, and restart normally.
+
+  **Activation — two independent mechanisms, both configurable:**
+
+  1. **CLI flag `--safe-mode`** — always enters safe mode regardless of any other state. Useful for a manual override (`ExecStart=/usr/local/bin/she --safe-mode --data-dir /var/lib/she` as a one-off override via `systemctl edit --force`).
+
+  2. **Auto-detect via sentinel file (configurable, default on)** — on every normal startup, write a sentinel file `<dataDir>/.she-running`. Delete it as the *first* synchronous action in the `SIGTERM` handler (before any async cleanup) and also in `process.on('exit', ...)`. On startup, if the file already exists, she was SIGKILL'd without a clean exit → enter safe mode automatically. Controlled by config key `safeMode.autoDetect` (bool, default `true`). Expose as a toggle in the Config UI "Script engine" section alongside the heartbeat settings.
+
+  **Getting out of safe mode:** just use the existing "Restart daemon" button in the stats popup — no new UI flow needed. A clean restart without `--safe-mode` and without a sentinel file present will start normally.
+
+  **Web UI:** when `stats.safeMode === true`, show a full-width red banner spanning the top of the app (above the nav bar): *"⚠ SAFE MODE — scripts are not running. Edit or delete the problematic script, then restart the daemon."* The Scripts tab remains fully functional for editing and deleting. No other UI changes are needed.
+
+  **Backend:** `GET /she/status` gains a `safeMode: boolean` field. Config keys: `safeMode.autoDetect` (bool, default `true`). The `--safe-mode` CLI flag (yargs boolean, default `false`) always wins.
+
+  **`vm.Script` initial-run timeout (complementary):** while implementing safe mode, also pass `{ timeout: 5000 }` to `script.runInContext()`. This kills scripts whose *top-level body* blocks synchronously for >5s at load time, catching infinite loops at the point of loading rather than only after callbacks fire. On timeout, log an error with the script name and continue loading other scripts — same behaviour as a syntax error. Default 5s; make it configurable via `safeMode.scriptTimeout` (ms, `0` = disabled). Note: this only applies to synchronous top-level code; callbacks are not affected.
+
+  **Known downsides and edge cases to handle carefully:**
+
+  - **Interaction with `TimeoutStopSec=3`** (critical): the service file uses `TimeoutStopSec=3`. If she is doing legitimate slow graceful cleanup (MQTT disconnect, DB flush) and takes >3s, systemd SIGKILLs it. Sentinel remains → false-positive safe mode on next start. **Fix:** delete the sentinel synchronously at the very start of the SIGTERM handler, before any async cleanup begins. If SIGKILL fires 3s later the sentinel is already gone. Test this carefully.
+
+  - **OOM killer / external `kill -9`**: any out-of-band SIGKILL (OOM, Docker, manual) leaves the sentinel and triggers safe mode on next start. This is arguably correct behaviour (something went wrong → investigate) but may surprise users who manage the process externally.
+
+  - **Docker volumes**: the sentinel file lives in `--data-dir`. If the container is force-removed and recreated with the same volume, the sentinel persists and triggers safe mode on the first start of the new container. Document this; advise deleting the volume or setting `safeMode.autoDetect: false` in Dockerised setups.
+
+  - **Development environments**: developers who frequently `kill -9` a local she instance will be constantly dropped into safe mode. The `safeMode.autoDetect: false` config option is the escape hatch; mention it prominently in the docs.
+
+  - **`vm.Script` timeout false positives**: scripts that intentionally do heavy synchronous work at startup (parsing large JSON files, precomputing lookup tables) could be killed. The 5s default is generous for home-automation scripts; document the `safeMode.scriptTimeout: 0` opt-out.
+
+  - **Sentinel and restart-from-UI**: `POST /she/restart` calls `process.exit(0)`, which fires `process.on('exit', ...)` → sentinel is deleted before the new process starts. No false positive.
+
+  - **Multiple simultaneous starts**: two she instances racing at startup could both see no sentinel, both write it, and both start normally. Edge case not worth special handling; process locking is overkill for this use case.
+
 ## System scripts & cross-script event bus
 
 **Concept: two-tier script loading**
