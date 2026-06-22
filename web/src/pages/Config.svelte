@@ -72,6 +72,11 @@
     // Logging
     let verbosity      = $state('info');
 
+    // Script engine
+    let heartbeatEnabled   = $state(false);
+    let heartbeatInterval  = $state<number | ''>(50);
+    let heartbeatThreshold = $state<number | ''>(300);
+
     // sheDB
     let dbEnabled      = $state(true);  // default enabled
     let dbPath         = $state('');
@@ -224,6 +229,7 @@
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
+        { id: 'engine',     label: 'Script engine', terms: ['heartbeat','event loop','lag','blocking','performance'] },
         { id: 'ai',         label: 'AI Assistant', terms: ['llm','ollama','openai','anthropic','model','provider','base url'] },
     ] as const;
 
@@ -277,6 +283,12 @@
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.timezone         === 'string')  timezone     = cfg.timezone;
             if (typeof cfg.verbosity        === 'string')  verbosity    = cfg.verbosity;
+            if (typeof cfg.heartbeat === 'object' && cfg.heartbeat !== null) {
+                const hb = cfg.heartbeat as Record<string, unknown>;
+                if (typeof hb.enabled   === 'boolean') heartbeatEnabled   = hb.enabled;
+                if (typeof hb.interval  === 'number')  heartbeatInterval  = hb.interval;
+                if (typeof hb.threshold === 'number')  heartbeatThreshold = hb.threshold;
+            }
             if (typeof cfg.dbPath === 'string') {
                 dbEnabled = cfg.dbPath !== ''; // empty string = explicitly disabled
                 dbPath    = cfg.dbPath;
@@ -429,6 +441,11 @@
         if (timezone)         cfg.timezone  = timezone;
 
         cfg.verbosity = verbosity;
+        cfg.heartbeat = {
+            enabled: heartbeatEnabled,
+            ...(heartbeatInterval  !== '' ? { interval:  Number(heartbeatInterval)  } : {}),
+            ...(heartbeatThreshold !== '' ? { threshold: Number(heartbeatThreshold) } : {}),
+        };
 
         if (dbEnabled) {
             if (dbPath) {
@@ -957,6 +974,36 @@
                             <option value="warn">warn</option>
                             <option value="error">error</option>
                         </select>
+                    </div>
+                </section>
+                {/if}
+
+                <!-- ── Script engine ─────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'engine')}
+                <section id="sec-engine">
+                    <h3>Script engine</h3>
+                    <div class="field field--check">
+                        <span></span>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={heartbeatEnabled} />
+                            <span class="checkmark"></span>
+                            Enable event-loop heartbeat
+                            {@render tip('When enabled, periodically measures event-loop lag and logs a warning when a user script callback blocks the loop longer than the threshold. Requires daemon restart.')}
+                        </label>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Heartbeat interval (ms)
+                            {@render tip('How often the heartbeat fires, in milliseconds. Lower = finer resolution, slightly more overhead. Default: 50 ms.')}
+                        </label>
+                        <input type="number" bind:value={heartbeatInterval} min="10" max="5000" step="10" disabled={!heartbeatEnabled} placeholder="50" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Lag threshold (ms)
+                            {@render tip('Minimum excess delay (beyond the interval) before a warning is logged. Default: 300 ms.')}
+                        </label>
+                        <input type="number" bind:value={heartbeatThreshold} min="50" max="60000" step="50" disabled={!heartbeatEnabled} placeholder="300" />
                     </div>
                 </section>
                 {/if}

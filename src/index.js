@@ -192,6 +192,18 @@ const scriptTimers = new Map(); // scriptFile â†’ Set<timer id>
 
 const _global = {};
 
+// ── Event-loop heartbeat ─────────────────────────────────────────────────────
+let _blockingScript = null;
+
+/** Wrap a user callback dispatch so the heartbeat can identify the active script. */
+function _dispatch(label, fn) {
+    _blockingScript = label;
+    fn();
+    setImmediate(() => {
+        _blockingScript = null;
+    });
+}
+
 // Sun scheduling
 
 const SUNCALC_EVENTS = new Set([
@@ -269,10 +281,10 @@ function sunScheduleEvent(obj, shift) {
                 // Event is less than 1s in the future or already in the past
                 // (options.random may have shifted us further to the past)
                 // call the callback immediately!
-                obj.domain.bind(obj.callback)();
+                _dispatch(obj._script, obj.domain.bind(obj.callback));
             } else {
                 // Schedule the event and track the job so it can be cancelled on script unload
-                obj._job = scheduler.scheduleJob(event, obj.domain.bind(obj.callback));
+                obj._job = scheduler.scheduleJob(event, () => _dispatch(obj._script, obj.domain.bind(obj.callback)));
             }
         }
     }
@@ -372,6 +384,26 @@ require('./web/server').setStatsProvider(() => {
 // Push current script:running state so the UI green dots survive a browser reload.
 setWelcomeProvider(() => Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true })));
 
+if (config.heartbeat?.enabled) {
+    const _hbInterval = typeof config.heartbeat.interval === 'number' ? config.heartbeat.interval : 50;
+    const _hbThreshold = typeof config.heartbeat.threshold === 'number' ? config.heartbeat.threshold : 300;
+    let _lastBeat = Date.now();
+    const _hbTimer = setInterval(() => {
+        const now = Date.now();
+        const lag = now - _lastBeat - _hbInterval;
+        _lastBeat = now;
+        if (lag > _hbThreshold) {
+            const label = _blockingScript ?? 'unknown';
+            if (lag > 2000) {
+                log.warn(`event loop blocked ${lag}ms — script: ${label}`);
+            } else {
+                log.warn(`event loop lag ${lag}ms — last active script: ${label}`);
+            }
+        }
+    }, _hbInterval);
+    _hbTimer.unref();
+}
+
 if (!config.url) {
     log.warn('no MQTT broker URL configured â€” set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
 }
@@ -400,7 +432,7 @@ if (config.url) {
         log.debug('mqtt subscribe #');
         mqtt.subscribe('#');
         mqtt.subscribe('$SYS/#');
-        mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => c.callback());
+        mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => _dispatch(c._script, () => c.callback()));
 
         if (!_started) {
             // Cancel the “broker not connecting” startup timeout — we’re connected.
@@ -435,7 +467,7 @@ if (config.url) {
         if (connected) {
             connected = false;
             log.info('mqtt closed ' + config.url);
-            mqttEventCallbacks.filter((c) => c.event === 'disconnect').forEach((c) => c.callback());
+            mqttEventCallbacks.filter((c) => c.event === 'disconnect').forEach((c) => _dispatch(c._script, () => c.callback()));
         }
         broadcast({ type: 'mqtt:status', ready: _started, connected: false });
     });
@@ -604,7 +636,7 @@ function stateChange(topic, state, oldState, msg) {
                  * @param {object} objPrev - previous state - the whole state object
                  * @param {object} msg - the mqtt message as received from MQTT.js
                  */
-                subs.callback(topic, state.val, state, oldState, msg);
+                _dispatch(subs._script, () => subs.callback(topic, state.val, state, oldState, msg));
             }, delay);
         }
     });
@@ -844,12 +876,12 @@ function runScript(script, name, _origin) {
                     scheduler.scheduleJob(pattern, () => {
                         // Track the random-delay timer so it is cancelled on unload
                         // if the job fires in the same tick as the script is reloaded.
-                        const id = setTimeout(scriptDomain.bind(callback), (parseFloat(options.random) || 0) * 1000 * Math.random());
+                        const id = setTimeout(() => _dispatch(name, scriptDomain.bind(callback)), (parseFloat(options.random) || 0) * 1000 * Math.random());
                         _myTimers.add(id);
                     }),
                 );
             } else {
-                _myJobs.push(scheduler.scheduleJob(pattern, scriptDomain.bind(callback)));
+                _myJobs.push(scheduler.scheduleJob(pattern, () => _dispatch(name, scriptDomain.bind(callback))));
             }
         },
 
@@ -969,7 +1001,7 @@ function runScript(script, name, _origin) {
                 const varStoreKey = 'var::' + key.slice(5);
                 const boundCb = scriptDomain.bind(callback);
                 const varHandler = (changedKey, val, obj, prevObj) => {
-                    if (changedKey === varStoreKey) boundCb(val, obj, prevObj);
+                    if (changedKey === varStoreKey) _dispatch(name, () => boundCb(val, obj, prevObj));
                 };
                 store.on('change', varHandler);
                 varSubscriptions.push({ key: varStoreKey, handler: varHandler, _script: name });
