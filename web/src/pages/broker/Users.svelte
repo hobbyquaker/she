@@ -675,7 +675,7 @@
                 <td class="mono small">{acl.acltype}</td>
                 <td class="mono">{acl.topic}</td>
                 <td>{acl.allow ? '✓' : '✗'}</td>
-                <td><button class="danger" onclick={() => doRemoveAcl(aclRole!.rolename, acl.acltype, acl.topic)}>✕</button></td>
+                <td><button class="btn-rm" onclick={() => doRemoveAcl(aclRole!.rolename, acl.acltype, acl.topic)}>✕</button></td>
             </tr>
             {/each}
             </tbody>
@@ -689,6 +689,7 @@
             <input placeholder="topic or pattern" bind:value={newAclTopic} />
             <label class="allow-toggle">
                 <input type="checkbox" bind:checked={newAclAllow} />
+                <span class="acl-checkmark"></span>
                 Allow
             </label>
             <button onclick={submitAddAcl} disabled={!newAclTopic}>Add</button>
@@ -854,7 +855,13 @@
     .acl-add-row select { background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 11px; padding: 4px 6px; }
     .acl-add-row input { flex: 1; background: var(--input-bg, #1e1e1e); border: 1px solid var(--border, #555); border-radius: 4px; color: var(--text, #eee); font-size: 11px; padding: 4px 6px; }
     .acl-add-row button { background: var(--accent-dim, rgba(86,156,214,0.12)); border: 1px solid var(--accent-border, rgba(86,156,214,0.3)); border-radius: 4px; color: var(--accent, #569cd6); cursor: pointer; font-size: 11px; padding: 4px 10px; }
-    .allow-toggle { flex-direction: row; align-items: center; gap: 4px; color: var(--text, #eee); cursor: pointer; }
+    .allow-toggle { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 12px; color: var(--text, #eee); cursor: pointer; user-select: none; white-space: nowrap; }
+    .allow-toggle input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .acl-checkmark { flex-shrink: 0; width: 14px; height: 14px; border: 1.5px solid var(--border, #444); border-radius: 3px; background: var(--input-bg, #1e1e1e); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .allow-toggle input:checked + .acl-checkmark { background: var(--accent, #569cd6); border-color: var(--accent, #569cd6); }
+    .allow-toggle input:checked + .acl-checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .btn-rm { background: none; border: 1px solid var(--border, #444); border-radius: 3px; color: var(--text-muted, #888); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 6px; }
+    .btn-rm:hover { background: rgba(220,60,60,0.12); border-color: rgba(220,60,60,0.4); color: #e66; }
 
     /* Settings panel */
     .settings-section { border-bottom: 1px solid var(--border, #333); padding: 14px 0; }
