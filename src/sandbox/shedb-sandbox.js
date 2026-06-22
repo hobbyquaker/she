@@ -13,9 +13,12 @@
  *   she.db.prop(id, method, prop, val)→ void  (method: 'set'|'create'|'del')
  *   she.db.sub(pattern, callback)     → void  (callback(id, doc))
  *   she.db.query(filter, mapFn, reduceFn) → Array (ad-hoc synchronous query)
+ *   she.db.getView(id)                → Array|undefined (current view result)
+ *   she.db.subView(pattern, callback) → void  (callback(id, result))
+ *   she.db.setView(id, definition)    → void  (create/update named view)
  */
 
-const { getCore, addListener, removeListenersByScript } = require('../web/shedb');
+const { getCore, addListener, removeListenersByScript, addViewListener, removeViewListenersByScript } = require('../web/shedb');
 
 module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
     const core = getCore();
@@ -80,6 +83,57 @@ module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
             if (!core) return [];
             return core.adhocQuery(filter, mapFn, reduceFn);
         },
+
+        /**
+         * Return the current computed result array for a named view, or undefined if
+         * the view does not exist, has not yet completed, or produced an error.
+         *
+         * @param {string} id - view name
+         * @returns {Array|undefined}
+         */
+        getView(id) {
+            if (!core) return undefined;
+            const view = core.views[id];
+            if (!view || view.error) return undefined;
+            return view.result;
+        },
+
+        /**
+         * Subscribe to view result changes matching an MQTT wildcard pattern.
+         * callback(id, result) fires whenever a matching view's result changes;
+         * result is undefined if the view errored.
+         * Subscriptions are automatically removed when the script is hot-reloaded.
+         *
+         * @param {string}   pattern  - MQTT wildcard, e.g. 'stats/#'
+         * @param {Function} callback - called as callback(id, result)
+         */
+        subView(pattern, callback) {
+            if (!core) return;
+            const wrapped = scriptDomain.bind(callback);
+            addViewListener(pattern, wrapped, trackingKey);
+        },
+
+        /**
+         * Create or update a named persistent view.
+         * Definition: { map, filter?, reduce?, publish?, retain?, description? }
+         * `publish` maps to `mqttpub` internally.
+         *
+         * @param {string} id
+         * @param {{ map: string, filter?: string, reduce?: string, publish?: boolean, retain?: boolean, description?: string }} definition
+         */
+        setView(id, definition) {
+            if (!core) return;
+            if (!definition || typeof definition !== 'object') return;
+            const { map, filter, reduce, publish, retain, description } = definition;
+            if (typeof map !== 'string' || !map.trim()) return;
+            const payload = { map };
+            if (filter) payload.filter = filter;
+            if (reduce) payload.reduce = reduce;
+            if (publish) payload.mqttpub = true;
+            if (retain) payload.retain = true;
+            if (description) payload.description = String(description).slice(0, 500);
+            core.query(id, payload);
+        },
     };
 };
 
@@ -89,4 +143,5 @@ module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
  */
 module.exports.cleanup = function (scriptFile) {
     removeListenersByScript(scriptFile);
+    removeViewListenersByScript(scriptFile);
 };
