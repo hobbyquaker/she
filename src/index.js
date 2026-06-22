@@ -384,26 +384,6 @@ require('./web/server').setStatsProvider(() => {
 // Push current script:running state so the UI green dots survive a browser reload.
 setWelcomeProvider(() => Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true })));
 
-if (config.heartbeat?.enabled) {
-    const _hbInterval = typeof config.heartbeat.interval === 'number' ? config.heartbeat.interval : 50;
-    const _hbThreshold = typeof config.heartbeat.threshold === 'number' ? config.heartbeat.threshold : 300;
-    let _lastBeat = Date.now();
-    const _hbTimer = setInterval(() => {
-        const now = Date.now();
-        const lag = now - _lastBeat - _hbInterval;
-        _lastBeat = now;
-        if (lag > _hbThreshold) {
-            const label = _blockingScript ?? 'unknown';
-            if (lag > 2000) {
-                log.warn(`event loop blocked ${lag}ms — script: ${label}`);
-            } else {
-                log.warn(`event loop lag ${lag}ms — last active script: ${label}`);
-            }
-        }
-    }, _hbInterval);
-    _hbTimer.unref();
-}
-
 if (!config.url) {
     log.warn('no MQTT broker URL configured â€” set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
 }
@@ -1497,6 +1477,26 @@ function loadDir(dir) {
     }
 }
 function start() {
+    if (config.heartbeat?.enabled) {
+        const _hbInterval = typeof config.heartbeat.interval === 'number' ? config.heartbeat.interval : 50;
+        const _hbThreshold = typeof config.heartbeat.threshold === 'number' ? config.heartbeat.threshold : 300;
+        let _lastBeat = Date.now();
+        const _hbTimer = setInterval(() => {
+            const now = Date.now();
+            const lag = now - _lastBeat - _hbInterval;
+            _lastBeat = now;
+            if (lag > _hbThreshold) {
+                const label = _blockingScript ?? 'unknown';
+                if (lag > 2000) {
+                    log.warn(`event loop blocked ${lag}ms — script: ${label}`);
+                } else {
+                    log.warn(`event loop lag ${lag}ms — last active script: ${label}`);
+                }
+            }
+        }, _hbInterval);
+        _hbTimer.unref();
+    }
+
     if (config.file) {
         if (typeof config.file === 'string') {
             loadScript(config.file);
