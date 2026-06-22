@@ -179,7 +179,7 @@ export interface DaemonStatus {
     cpuPercent?: number;
     eluPercent?: number;
     elMeanMs?: number;
-    elP99Ms?: number;
+    elMaxMs?: number;
     latestVersion?: string;
     dataDir?: string;
     startedAt?: number;

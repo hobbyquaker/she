@@ -404,7 +404,7 @@
                         <dt>CPU</dt><dd>{stats.cpuPercent != null ? stats.cpuPercent + ' %' : '—'}</dd>
                         <dt>EL util</dt><dd>{stats.eluPercent != null ? stats.eluPercent + ' %' : '—'}</dd>
                         <dt>EL lag mean</dt><dd>{stats.elMeanMs != null ? stats.elMeanMs + ' ms' : '—'}</dd>
-                        <dt>EL lag p99</dt><dd>{stats.elP99Ms != null ? stats.elP99Ms + ' ms' : '—'}</dd>
+                        <dt>EL lag max</dt><dd>{stats.elMaxMs != null ? stats.elMaxMs + ' ms' : '—'}</dd>
                     </dl>
                     {:else}
                     <span class="stats-empty">Loading…</span>

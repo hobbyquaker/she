@@ -362,7 +362,7 @@ require('./web/server').setStatsProvider(() => {
     const eluDelta = performance.eventLoopUtilization(_prevElu);
     _prevElu = performance.eventLoopUtilization();
     const elMeanMs = Math.round(_elHisto.mean / 1e6);
-    const elP99Ms = Math.round(_elHisto.percentile(99) / 1e6);
+    const elMaxMs = Math.round(_elHisto.max / 1e6);
     _elHisto.reset();
     const mem = process.memoryUsage();
     const memMb = Math.round(mem.rss / 1048576);
@@ -403,7 +403,7 @@ require('./web/server').setStatsProvider(() => {
         cpuPercent,
         eluPercent: Math.round(eluDelta.utilization * 100),
         elMeanMs,
-        elP99Ms,
+        elMaxMs,
     };
 });
 
