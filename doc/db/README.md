@@ -30,6 +30,9 @@ Use the following methods in your scripts to interact with sheDB:
 | `she.db.prop(id, method, prop, val)` | Mutate a single property (`method`: `'set'`, `'create'`, or `'del'`) |
 | `she.db.sub(pattern, callback)` | Subscribe to document changes matching an MQTT wildcard pattern |
 | `she.db.query(filter, mapFn, [reduceFn])` | Run an ad-hoc synchronous query, returns an array |
+| `she.db.getView(id)` | Return the current computed result array of a named view, or `undefined` |
+| `she.db.subView(pattern, callback)` | Subscribe to view result changes matching an MQTT wildcard pattern |
+| `she.db.setView(id, definition)` | Create or update a named persistent view |
 
 ### Example
 

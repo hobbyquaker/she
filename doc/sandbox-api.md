@@ -616,7 +616,56 @@ she.log('active:', active);
 
 ---
 
-## she.matter -- Matter device control
+### she.db.getView(id)
+
+Return the current computed result array of a named view, or `undefined` if the view does not exist, has not yet completed, or produced a runtime error.
+
+```js
+const lights = she.db.getView('activeLights');
+if (lights) she.log('active lights:', lights.length);
+```
+
+---
+
+### she.db.subView(pattern, callback)
+
+Subscribe to view result changes matching an MQTT wildcard pattern. `callback(id, result)` fires whenever a matching view recomputes; `result` is `undefined` if the view errored. Subscriptions are automatically removed when the script is hot-reloaded.
+
+```js
+she.db.subView('stats/#', (id, result) => {
+    she.info('view updated:', id, result?.length, 'items');
+});
+```
+
+---
+
+### she.db.setView(id, definition)
+
+Create or update a named persistent view. Equivalent to saving a view via the web UI.
+
+| Field | Type | Description |
+|---|---|---|
+| `map` | `string` | **Required.** Map function body. `this` = current document; call `emit(value)` to include in result. |
+| `filter` | `string` | Optional MQTT wildcard to pre-filter which documents the map function receives. |
+| `reduce` | `string` | Optional reduce function body. Receives `result` array; must `return` a new value. |
+| `publish` | `boolean` | Publish result to MQTT topic `<dbPrefix>view/<id>` on every update. |
+| `retain` | `boolean` | Send the MQTT publish as a retained message (requires `publish: true`). |
+| `description` | `string` | Optional short description shown in the web UI sidebar. |
+
+```js
+// Create a view that lists all active devices
+she.db.setView('activeDevices', {
+    filter: 'devices/#',
+    map: 'if (this.active) emit({ id: this._id, name: this.name });',
+    publish: true,
+});
+
+// Read its result later (once the worker has computed it)
+she.schedule('*/1 * * * *', () => {
+    const devices = she.db.getView('activeDevices');
+    she.info('active devices:', devices?.length ?? 0);
+});
+```
 
 Available when `--matter-storage` is configured. Methods throw or log errors if the Matter controller is not running.
 

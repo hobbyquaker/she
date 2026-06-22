@@ -23,6 +23,9 @@ let _broadcast = () => {};
 /** Registry for she.db.sub() sandbox subscriptions */
 const _listeners = []; // { pattern: string, callback: Function, _script: string }
 
+/** Registry for she.db.subView() sandbox subscriptions */
+const _viewListeners = []; // { pattern: string, callback: Function, _script: string }
+
 /**
  * Initialise sheDB.
  *
@@ -79,6 +82,18 @@ function init({ dbPath, dbPublish, dbRetain, dbPrefix, mqttName, mqtt, log, broa
         const query = _core.queries[id];
         if (query && query.mqttpub && _mqtt && view && !view.error) {
             _mqtt.publish(_dbPrefix + 'view/' + id, JSON.stringify(view.result ?? []), { retain: query.retain === true });
+        }
+
+        // Fire sandbox she.db.subView() listeners
+        const result = view && !view.error ? view.result : undefined;
+        for (const sub of _viewListeners) {
+            if (mqttWildcard(id, sub.pattern) !== null) {
+                try {
+                    sub.callback(id, result);
+                } catch {
+                    /* errors are caught by the script domain wrapper */
+                }
+            }
         }
     });
 
@@ -165,10 +180,22 @@ function addListener(pattern, callback, scriptName) {
     _listeners.push({ pattern, callback, _script: scriptName });
 }
 
-/** Remove all listeners registered by a script (called on hot-reload / unload). */
+/** Remove all she.db.sub() listeners registered by a script (called on hot-reload / unload). */
 function removeListenersByScript(scriptName) {
     for (let i = _listeners.length - 1; i >= 0; i--) {
         if (_listeners[i]._script === scriptName) _listeners.splice(i, 1);
+    }
+}
+
+/** Register a she.db.subView() listener. */
+function addViewListener(pattern, callback, scriptName) {
+    _viewListeners.push({ pattern, callback, _script: scriptName });
+}
+
+/** Remove all she.db.subView() listeners registered by a script (called on hot-reload / unload). */
+function removeViewListenersByScript(scriptName) {
+    for (let i = _viewListeners.length - 1; i >= 0; i--) {
+        if (_viewListeners[i]._script === scriptName) _viewListeners.splice(i, 1);
     }
 }
 
@@ -177,4 +204,4 @@ function getCore() {
     return _core;
 }
 
-module.exports = { init, handleMqttMessage, addListener, removeListenersByScript, getCore };
+module.exports = { init, handleMqttMessage, addListener, removeListenersByScript, addViewListener, removeViewListenersByScript, getCore };

@@ -155,17 +155,6 @@ Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance
 
 ## sheDB
 
-- **DB side panel — MQTT wildcard search** — the document and view ID search fields use plain substring matching. When the search string contains `#` or `+`, switch to MQTT wildcard matching using a TS port of `src/lib/mqtt-wildcards.js` (tiny pure function, no new dep). Plain text without wildcards keeps the current substring behaviour.
-
-- **DB view editor: copy-to-clipboard for MQTT topic** — when the "publish to MQTT" checkbox is enabled, visually promote the full topic string (`{dbViewPrefix}{viewId}`) from a muted hint to a clearly readable element, and add a small clipboard icon button next to it. Clicking copies the topic via `navigator.clipboard.writeText()`. The icon and topic display are hidden when `mqttpub` is off.
-
-- **she.db views sandbox API** — add three new methods:
-  - `she.db.getView(id)` — returns the current computed result array (`core.views[id].result`), or `undefined` if missing or errored. Synchronous.
-  - `she.db.subView(pattern, callback)` — subscribe to view result changes using MQTT wildcard pattern matching on view IDs. `callback(id, result)` fires whenever a matching view's result changes. Cleaned up on hot-reload like `she.db.sub()`.
-  - `she.db.setView(id, definition)` — create or update a named view. Definition: `{ map, filter?, reduce?, publish?, retain?, description? }`. `publish` maps to `mqttpub` internally. Mirrors `she.db.set()` for documents.
-
-  Also update `doc/sandbox-api.md` and `doc/db/sandbox.md`.
-
 ## Secrets
 
 - **secrets management** — store secrets (named groups of arbitrary string fields, e.g. `{ "smtp": { "password": "…", "host": "…" } }`) in a dedicated encrypted file (`~/.she/secrets.enc`) separate from `config.json`, using AES-256-GCM via Node.js built-in `crypto`. Encryption key sourced from env var `SHE_SECRETS_KEY` (takes precedence) or key file `~/.she/secrets.key` (chmod 600). Access from scripts via `she.secrets.get('<name>/<field>')`. Integrate as own section in config ui (show/hide values). Open questions to resolve before implementation: HTTP API exposure (security concern — avoid reading secret values over the network, or localhost-only), behavior when key is missing, hot-reload vs. startup-only, CLI subcommands for management, configurable secrets file path.

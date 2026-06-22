@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
     import { listDocs, getDoc, putDoc, deleteDoc, listViews, getView, putView, deleteView, getViewResult, getConfig, type ViewDefinition, type ViewResult } from '../lib/api.js';
+    import { mqttWildcard } from '../lib/mqtt-wildcards.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import ViewChat from './ViewChat.svelte';
     import MonacoEditor from '../lib/MonacoEditor.svelte';
@@ -261,12 +262,32 @@
     let docSearch = $state('');
     let viewSearch = $state('');
 
+    function hasWildcard(s: string) { return s.includes('#') || s.includes('+'); }
+
     let filteredDocIds = $derived(
-        [...docIds].filter(id => !docSearch || id.toLowerCase().includes(docSearch.toLowerCase())).sort()
+        [...docIds].filter(id => {
+            if (!docSearch) return true;
+            if (hasWildcard(docSearch)) return mqttWildcard(id, docSearch) !== null;
+            return id.toLowerCase().includes(docSearch.toLowerCase());
+        }).sort()
     );
     let filteredViewIds = $derived(
-        [...viewIds].filter(id => !viewSearch || id.toLowerCase().includes(viewSearch.toLowerCase())).sort()
+        [...viewIds].filter(id => {
+            if (!viewSearch) return true;
+            if (hasWildcard(viewSearch)) return mqttWildcard(id, viewSearch) !== null;
+            return id.toLowerCase().includes(viewSearch.toLowerCase());
+        }).sort()
     );
+
+    // ---- MQTT topic clipboard copy ----
+    let mqttTopicCopied = $state(false);
+    let _mqttCopyTimer: ReturnType<typeof setTimeout> | null = null;
+    function copyMqttTopic() {
+        try { navigator.clipboard.writeText(`${dbViewPrefix}${selectedViewId}`); } catch { /* ignore */ }
+        mqttTopicCopied = true;
+        if (_mqttCopyTimer) clearTimeout(_mqttCopyTimer);
+        _mqttCopyTimer = setTimeout(() => (mqttTopicCopied = false), 1500);
+    }
 
     onMount(() => {
         loadDocs();
@@ -481,9 +502,24 @@
                                     <input type="checkbox" bind:checked={viewMqttPub} />
                                     <span class="checkmark"></span>
                                     Publish to MQTT
-                                    <span class="section-hint">— publish view to MQTT topic <code>{dbViewPrefix}{selectedViewId} on every update</code></span>
                                 </label>
                                 {#if viewMqttPub}
+                                <div class="mqtt-topic-row">
+                                    <code class="mqtt-topic">{dbViewPrefix}{selectedViewId}</code>
+                                    <button class="btn-copy" title={mqttTopicCopied ? 'Copied!' : 'Copy topic'} onclick={copyMqttTopic}>
+                                        {#if mqttTopicCopied}
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="2,8 6,12 14,4"/>
+                                        </svg>
+                                        {:else}
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                                            <rect x="5" y="2" width="9" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                                            <rect x="2" y="5" width="9" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                                        </svg>
+                                        {/if}
+                                    </button>
+                                    <span class="section-hint">published on every update</span>
+                                </div>
                                 <label class="opt-check">
                                     <input type="checkbox" bind:checked={viewRetain} />
                                     <span class="checkmark"></span>
@@ -875,6 +911,36 @@
         transform: rotate(45deg);
     }
     .opt-check:hover .checkmark { border-color: var(--accent); }
+
+    .mqtt-topic-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 0 3px 19px;
+    }
+    .mqtt-topic {
+        font-size: 11px;
+        background: var(--bg-widget);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 1px 5px;
+        color: var(--fg);
+        font-family: monospace;
+        word-break: break-all;
+    }
+    .btn-copy {
+        flex-shrink: 0;
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        color: var(--fg-muted);
+        cursor: pointer;
+        padding: 2px 4px;
+        line-height: 0;
+        display: inline-flex;
+        align-items: center;
+    }
+    .btn-copy:hover { color: var(--fg); border-color: var(--accent); }
 
     .section-body { padding: 6px 8px; }
 
