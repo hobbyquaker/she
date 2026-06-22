@@ -1005,12 +1005,14 @@ function runScript(script, name, _origin) {
 
     const Sandbox = {
         setTimeout: (fn, delay, ...args) => {
-            const id = setTimeout(fn, delay, ...args);
+            const wrapped = args.length ? () => fn(...args) : fn;
+            const id = setTimeout(() => _dispatch(name, wrapped), delay);
             _myTimers.add(id);
             return id;
         },
         setInterval: (fn, delay, ...args) => {
-            const id = setInterval(fn, delay, ...args);
+            const wrapped = args.length ? () => fn(...args) : fn;
+            const id = setInterval(() => _dispatch(name, wrapped), delay);
             _myTimers.add(id);
             return id;
         },
@@ -1084,7 +1086,8 @@ function runScript(script, name, _origin) {
     // she.setTimeout / she.clearTimeout — tracked versions for use by stdlib and
     // sandbox modules that don't have direct access to the Sandbox context.
     she.setTimeout = (fn, delay, ...args) => {
-        const id = setTimeout(fn, delay, ...args);
+        const wrapped = args.length ? () => fn(...args) : fn;
+        const id = setTimeout(() => _dispatch(name, wrapped), delay);
         _myTimers.add(id);
         return id;
     };
