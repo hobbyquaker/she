@@ -82,6 +82,22 @@ function init({ dbPath, dbPublish, dbRetain, dbPrefix, mqttName, mqtt, log, broa
         }
     });
 
+    // When a view definition is saved, immediately publish the existing cached
+    // result if mqttpub is enabled. This covers the case where the user enables
+    // mqttpub on an already-computed view: the worker re-runs and finds an
+    // identical result, so the 'view' event is suppressed by the deepEqual
+    // check — without this handler nothing would be published until the next
+    // document change triggers a view recomputation.
+    _core.on('query', (id) => {
+        const query = _core.queries[id];
+        if (query && query.mqttpub && _mqtt) {
+            const view = _core.views[id];
+            if (view && !view.error) {
+                _mqtt.publish(_dbPrefix + 'view/' + id, JSON.stringify(view.result ?? []), { retain: query.retain === true });
+            }
+        }
+    });
+
     return _core;
 }
 
