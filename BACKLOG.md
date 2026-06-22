@@ -16,6 +16,21 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **Document async/await usage and constraints** — add an "Async / await" section to `doc/sandbox-api.md` explaining: (1) `async function` + `await` works inside any callback; (2) top-level `await` does **not** work — `vm.Script` runs in a classic-script context, not an ES module, so top-level `await` is a `SyntaxError`; (3) always wrap `await` calls in `try/catch` inside callbacks — an uncaught rejection is attributed to an unknown script; (4) the correct pattern with error handling. Also update the async examples in `doc/examples/http-and-webhooks.md` to all use try/catch.
 
+  **Considered and rejected: auto-wrapping scripts in an async IIFE** — wrapping every script source in `(async () => { ... })()` at compile time would enable top-level `await` without any API changes. Rejected because it introduces several subtle runtime problems specific to she's architecture: (a) script execution order breaks — everything after the first `await` yields to the event loop, so a later script can finish registering its callbacks before an earlier async script completes setup, destroying the predictable load order that `she.global` sharing depends on; (b) the domain-based error handler does not catch Promise rejections, so all errors after the first `await` become unhandled rejections unless the wrapping `.catch()` is explicitly routed back to the per-script logger via an injected VM variable; (c) the `vm.Script` initial-run `timeout` option only measures the synchronous preamble and becomes effectively useless; (d) `return` at top level silently exits the IIFE instead of being a `SyntaxError`, masking bugs; (e) the wrapper shifts all line numbers by one, breaking stack-trace filtering and compile-error reporting.
+
+  The recommended pattern when top-level `await` is genuinely needed (e.g. fetch initial state before registering callbacks) is a user-written async IIFE:
+
+  ```js
+  (async () => {
+      const state = await she.http.fetch('http://...');
+      she.mqtt.sub('home/#', async (topic, val) => {
+          try { /* ... */ } catch (err) { she.error(err); }
+      });
+  })().catch(err => she.error('startup error:', err));
+  ```
+
+  This keeps line numbers correct, lets the user opt in deliberately, and makes the `.catch()` explicit. Document this pattern alongside the constraints above.
+
 - **per-script resource limits / blocking callback detection** — a script callback that runs a synchronous infinite loop (or any long-running blocking code) stalls the entire daemon: MQTT processing stops, all other scripts freeze, and there is no way to interrupt the blocking code from within the same thread. Two complementary improvements, in increasing complexity order:
 
   1. **`vm.Script` initial-run timeout** — pass a `timeout` option to `script.runInContext()` (e.g. 5 s). This terminates the script if the *top-level body* runs synchronously for too long. Easy, ~5 lines. Does **not** protect against blocking callbacks.
