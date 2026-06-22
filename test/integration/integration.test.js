@@ -525,3 +525,18 @@ describe('script file changes — subscription cleanup', () => {
         expect(fired).toBe(1);
     }, 20000);
 });
+
+describe('she.global — shared mutable object across scripts', () => {
+    it('value written by one script is visible to another script', (done) => {
+        mqttSubscribe('test/global/result', (payload) => {
+            if (payload === 'shared-value-42') {
+                mqtt.unsubscribe('test/global/result');
+                done();
+            }
+        });
+        // script-a sets she.global.testShared, then script-b reads and publishes it
+        mqtt.publish('test/global/set', 'shared-value-42', () => {
+            setTimeout(() => mqtt.publish('test/global/get', ''), 200);
+        });
+    }, 10000);
+});

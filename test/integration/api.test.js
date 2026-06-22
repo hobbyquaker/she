@@ -204,3 +204,25 @@ describe('HTTP API — she.api.delete', () => {
         expect(res.body).toEqual({ deleted: '99' });
     });
 });
+
+// ── she.http.sub() integration ────────────────────────────────────────────────
+
+describe('she.http.sub() — webhook routes', () => {
+    it('POST /api/test-webhook/hook responds { ok: true } for a simple callback', async () => {
+        const res = await post('/api/test-webhook/hook', { ping: 1 });
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true });
+    });
+
+    it('POST /api/test-webhook/throws responds 500 with error message', async () => {
+        const res = await post('/api/test-webhook/throws', {});
+        expect(res.status).toBe(500);
+        expect(res.body).toMatchObject({ error: 'intentional error' });
+    });
+
+    it('POST /api/test-webhook/async-throws responds 500 with error message', async () => {
+        const res = await post('/api/test-webhook/async-throws', {});
+        expect(res.status).toBe(500);
+        expect(res.body).toMatchObject({ error: 'async error' });
+    });
+});

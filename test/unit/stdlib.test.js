@@ -1,5 +1,8 @@
 'use strict';
 
+jest.mock('../../src/web/server');
+const { registerRoute } = require('../../src/web/server');
+
 const installStdlib = require('../../src/sandbox/stdlib');
 
 function makeShe(state = {}) {
@@ -15,6 +18,22 @@ function makeShe(state = {}) {
         clearTimeout: jest.fn((id) => clearTimeout(id)),
     };
     installStdlib(she);
+    return she;
+}
+
+function makeSheWithCtx(state = {}, ctx = {}) {
+    const she = {
+        _state: { ...state },
+        getValue: jest.fn((topic) => she._state[topic]?.val),
+        setValue: jest.fn((topic, val) => {
+            she._state[topic] = { val, lc: Date.now() };
+        }),
+        getProp: jest.fn((topic, prop) => she._state[topic]?.[prop]),
+        mqttsub: jest.fn(),
+        setTimeout: jest.fn((fn, ms) => setTimeout(fn, ms)),
+        clearTimeout: jest.fn((id) => clearTimeout(id)),
+    };
+    installStdlib(she, ctx);
     return she;
 }
 
@@ -348,5 +367,191 @@ describe('she.mqtt.timer()', () => {
         const she = makeShe({ 'home/light': { val: 1 } });
         she.mqtt.timer('home/motion', 5000, 'home/light');
         expect(she.setTimeout).toHaveBeenCalled();
+    });
+});
+
+// ── she.mqtt.link() — array sources and targets ─────────────────────────────
+
+describe('she.mqtt.link() — array sources and targets', () => {
+    it('passes array source directly to mqttsub', () => {
+        const she = makeShe();
+        she.mqtt.link(['src/a', 'src/b'], 'dst/out');
+        // link() forwards the array to mqttsub verbatim; the MQTT client handles multi-subscribe
+        expect(she.mqttsub).toHaveBeenCalledWith(['src/a', 'src/b'], expect.any(Function));
+    });
+
+    it('passes array target directly to setValue when source fires', () => {
+        const she = makeShe();
+        she.mqtt.link('src/in', ['dst/x', 'dst/y']);
+        const cb = she.mqttsub.mock.calls[0][1];
+        cb('src/in', 7);
+        // link() forwards the array to setValue verbatim
+        expect(she.setValue).toHaveBeenCalledWith(['dst/x', 'dst/y'], 7);
+    });
+
+    it('applies a transform and passes array target to setValue', () => {
+        const she = makeShe();
+        she.mqtt.link('src/in', ['dst/x', 'dst/y'], (v) => v + 1);
+        const cb = she.mqttsub.mock.calls[0][1];
+        cb('src/in', 3);
+        expect(she.setValue).toHaveBeenCalledWith(['dst/x', 'dst/y'], 4);
+    });
+});
+
+// ── she.http.fetch() ─────────────────────────────────────────────────────────
+
+function mockFetchResponse({ ok = true, status = 200, statusText = 'OK', contentType = 'text/plain', body = '' } = {}) {
+    const hdrs = new Map([['content-type', contentType]]);
+    return {
+        ok,
+        status,
+        statusText,
+        headers: {
+            get: (k) => hdrs.get(k) ?? null,
+            forEach: (fn) => hdrs.forEach((v, k) => fn(v, k)),
+        },
+        json: async () => (typeof body === 'object' ? body : JSON.parse(body)),
+        text: async () => String(body ?? ''),
+    };
+}
+
+describe('she.http.fetch()', () => {
+    let she;
+
+    beforeEach(() => {
+        global.fetch = jest.fn();
+        she = makeShe();
+    });
+
+    afterEach(() => {
+        delete global.fetch;
+    });
+
+    it('returns parsed JSON body when Content-Type is application/json', async () => {
+        global.fetch.mockResolvedValue(mockFetchResponse({ contentType: 'application/json', body: { x: 1 } }));
+        const res = await she.http.fetch('http://example.com/api');
+        expect(res.body).toEqual({ x: 1 });
+        expect(res.code).toBe(200);
+    });
+
+    it('returns text body when Content-Type is text/plain', async () => {
+        global.fetch.mockResolvedValue(mockFetchResponse({ contentType: 'text/plain', body: 'hello world' }));
+        const res = await she.http.fetch('http://example.com');
+        expect(res.body).toBe('hello world');
+    });
+
+    it('throws on non-2xx status with code attached to error', async () => {
+        global.fetch.mockResolvedValue(mockFetchResponse({ ok: false, status: 404, statusText: 'Not Found', body: 'no' }));
+        await expect(she.http.fetch('http://example.com')).rejects.toMatchObject({
+            message: expect.stringContaining('404'),
+            code: 404,
+        });
+    });
+
+    it('calls callback(null, res) on success', (done) => {
+        global.fetch.mockResolvedValue(mockFetchResponse({ body: 'ok' }));
+        she.http.fetch('http://example.com', (err, res) => {
+            expect(err).toBeNull();
+            expect(res.code).toBe(200);
+            done();
+        });
+    });
+
+    it('calls callback(err, null) on network failure', (done) => {
+        global.fetch.mockRejectedValue(new Error('network error'));
+        she.http.fetch('http://example.com', (err) => {
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toMatch('network error');
+            done();
+        });
+    });
+
+    it('aborts the request and rejects with timeout error after 30 s', async () => {
+        jest.useFakeTimers();
+        global.fetch.mockImplementation((_url, { signal }) => {
+            return new Promise((_, reject) => {
+                signal.addEventListener('abort', () => reject(signal.reason));
+            });
+        });
+        const p = she.http.fetch('http://example.com/slow');
+        jest.advanceTimersByTime(30_000);
+        await expect(p).rejects.toThrow(/timed out/);
+        jest.useRealTimers();
+    });
+});
+
+// ── she.http.sub() ───────────────────────────────────────────────────────────
+
+function mockRes() {
+    const res = { json: jest.fn(), status: jest.fn() };
+    res.status.mockReturnValue(res);
+    return res;
+}
+
+describe('she.http.sub()', () => {
+    beforeEach(() => registerRoute.mockClear());
+
+    it('throws TypeError when path is not a string', () => {
+        const she = makeSheWithCtx({}, { scriptName: 's' });
+        expect(() => she.http.sub(123, () => {})).toThrow(TypeError);
+    });
+
+    it('throws TypeError when callback is not a function', () => {
+        const she = makeSheWithCtx({}, { scriptName: 's' });
+        expect(() => she.http.sub('/hook', 'notafn')).toThrow(TypeError);
+    });
+
+    it('registers a POST route at /api/<scriptName><path>', () => {
+        const she = makeSheWithCtx({}, { scriptName: 'myscript' });
+        she.http.sub('/webhook', () => {});
+        expect(registerRoute).toHaveBeenCalledWith('post', '/api/myscript/webhook', expect.any(Function));
+    });
+
+    it('responds { ok: true } (200) when callback resolves', async () => {
+        const she = makeSheWithCtx({}, { scriptName: 's' });
+        she.http.sub('/hook', () => 'ignored');
+        const handler = registerRoute.mock.calls[0][2];
+        const req = { body: { v: 1 }, params: {}, query: {}, headers: {} };
+        const res = mockRes();
+        handler(req, res);
+        await new Promise((r) => setTimeout(r, 10));
+        expect(res.json).toHaveBeenCalledWith({ ok: true });
+    });
+
+    it('responds { error } (500) when callback throws synchronously', () => {
+        const she = makeSheWithCtx({}, { scriptName: 's' });
+        she.http.sub('/throw', () => {
+            throw new Error('boom');
+        });
+        const handler = registerRoute.mock.calls[0][2];
+        const req = { body: {}, params: {}, query: {}, headers: {} };
+        const res = mockRes();
+        handler(req, res);
+        expect(res.status).toHaveBeenCalledWith(500);
+        expect(res.json).toHaveBeenCalledWith({ error: 'boom' });
+    });
+
+    it('responds { error } (500) when callback returns a rejected promise', async () => {
+        const she = makeSheWithCtx({}, { scriptName: 's' });
+        she.http.sub('/async-throw', async () => {
+            throw new Error('async boom');
+        });
+        const handler = registerRoute.mock.calls[0][2];
+        const req = { body: {}, params: {}, query: {}, headers: {} };
+        const res = mockRes();
+        handler(req, res);
+        await new Promise((r) => setTimeout(r, 10));
+        expect(res.status).toHaveBeenCalledWith(500);
+        expect(res.json).toHaveBeenCalledWith({ error: 'async boom' });
+    });
+
+    it('passes body and context to the callback', () => {
+        const cb = jest.fn(() => 'ok');
+        const she = makeSheWithCtx({}, { scriptName: 's' });
+        she.http.sub('/data', cb);
+        const handler = registerRoute.mock.calls[0][2];
+        const req = { body: { key: 'val' }, params: { id: '1' }, query: { q: 'x' }, headers: { 'x-foo': 'bar' } };
+        handler(req, mockRes());
+        expect(cb).toHaveBeenCalledWith({ key: 'val' }, { params: { id: '1' }, query: { q: 'x' }, headers: { 'x-foo': 'bar' } });
     });
 });

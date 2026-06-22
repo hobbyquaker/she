@@ -317,4 +317,4 @@ router.use((req, res) => {
     res.status(405).json({ error: 'Method not allowed' });
 });
 
-module.exports = { router };
+module.exports = { router, safePath };

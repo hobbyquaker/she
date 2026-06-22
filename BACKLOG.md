@@ -16,8 +16,6 @@ Items that are intentionally deferred. Pick up when the time is right.
 
 - **Document async/await usage and constraints** — add an "Async / await" section to `doc/sandbox-api.md` explaining: (1) `async function` + `await` works inside any callback; (2) top-level `await` does **not** work — `vm.Script` runs in a classic-script context, not an ES module, so top-level `await` is a `SyntaxError`; (3) always wrap `await` calls in `try/catch` inside callbacks — an uncaught rejection is attributed to an unknown script; (4) the correct pattern with error handling. Also update the async examples in `doc/examples/http-and-webhooks.md` to all use try/catch.
 
-- **`import` syntax support** — scripts currently run via `vm.Script` (classic-script context) which rejects static `import` declarations. Transform `import X from 'y'` → `const X = require('y')`, `import { a, b } from 'y'` → `const { a, b } = require('y')`, `import * as ns from 'y'` → `const ns = require('y')`, `import 'y'` → `require('y')` inside `createScript()` before handing source to `vm.Script`. Both `import` and `require` would then work side-by-side — no breaking changes. `export` statements have no meaning in script context and should either be stripped silently or cause a clear error. Do not support `import.meta` or top-level `await` (both require true ESM module scope). Implementation: ~30 lines, no new deps. A minimal regex approach covers 99% of real-world use; for robustness consider using acorn (transitive dep) to find and rewrite only top-level import nodes.
-
 - **per-script resource limits / blocking callback detection** — a script callback that runs a synchronous infinite loop (or any long-running blocking code) stalls the entire daemon: MQTT processing stops, all other scripts freeze, and there is no way to interrupt the blocking code from within the same thread. Two complementary improvements, in increasing complexity order:
 
   1. **`vm.Script` initial-run timeout** — pass a `timeout` option to `script.runInContext()` (e.g. 5 s). This terminates the script if the *top-level body* runs synchronously for too long. Easy, ~5 lines. Does **not** protect against blocking callbacks.
@@ -28,7 +26,7 @@ Items that are intentionally deferred. Pick up when the time is right.
 
   Practical path: implement 1 + 2 as a low-effort improvement now; defer 3 unless there is a concrete need.
 
-- **per-script log history** — when a script crashes at 3am and the user opens the UI, the circular log buffer may have rotated away the relevant entries. Concrete symptom: the file tree shows a red error dot on the script, but clicking it opens an empty log panel — the error that caused the dot is gone. Store the last N log lines per script persistently in the data dir (e.g. `~/.she/logs/<scriptname>.jsonl`, ring-buffered) so the log panel always shows recent history even after daemon restart or log rotation.
+- **log history across restarts** — when a script crashes at 3am and the user opens the UI, the circular in-memory log buffer is gone and the log panel is empty. Fix: write a second raw-JSON pino stream (parallel to the existing pino-pretty console stream) to `~/.she/logs/she.jsonl`. Rotate on daemon startup (rename current file to `she.jsonl.1`, start fresh). Expose `GET /she/logs/history?since=<ts>` that reads and streams the file, filtered to entries at or after the given timestamp (use `daemonStartTime` as the default `since` so the frontend gets exactly "this run"). Frontend fetches history on WS connect and prepends it to the live buffer; client-side filtering by script name / level covers the per-script view. Also makes the "Log export" backlog item trivial — just return the file. The per-script `.jsonl` approach was considered but rejected: one unified file filtered client-side is simpler and avoids per-script file management (stale files on rename/delete, disk writes per-script).
 
 - **graceful WebSocket shutdown** — when `process.exit(0)` is called (e.g. on restart request), connected WebSocket clients drop abruptly. Send a WS close frame first so the frontend can show a meaningful disconnect message.
 
@@ -123,8 +121,6 @@ Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance
 
 
 
-
-
 - **Script starter templates** — when clicking `+ File`, offer an optional template picker (dropdown or modal) with a handful of pre-filled starters: *blank*, *motion-triggered light*, *daily schedule*, *MQTT bridge / link*, *HTTP fetch*, *sheDB subscriber*. Templates can be drawn directly from `doc/examples.md`. Frontend-only change: a small UI addition to the new-file flow, no backend needed.
 
 - **Diff view before git commit** — the git workflow currently goes: edit → commit dialog → write message → commit. Missing: a way to review what you are about to commit. Add a "Show diff" toggle in the commit dialog that renders `git diff HEAD` (or `git diff --cached` after staging) in a Monaco diff editor. Monaco has a built-in `createDiffEditor` API; the backend already has `GET /she/git/diff` or can trivially add one. Makes the commit step much more intentional.
@@ -161,7 +157,16 @@ Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance
 
 ## sheDB
 
+- **DB side panel — MQTT wildcard search** — the document and view ID search fields use plain substring matching. When the search string contains `#` or `+`, switch to MQTT wildcard matching using a TS port of `src/lib/mqtt-wildcards.js` (tiny pure function, no new dep). Plain text without wildcards keeps the current substring behaviour.
 
+- **DB view editor: copy-to-clipboard for MQTT topic** — when the "publish to MQTT" checkbox is enabled, visually promote the full topic string (`{dbViewPrefix}{viewId}`) from a muted hint to a clearly readable element, and add a small clipboard icon button next to it. Clicking copies the topic via `navigator.clipboard.writeText()`. The icon and topic display are hidden when `mqttpub` is off.
+
+- **she.db views sandbox API** — add three new methods:
+  - `she.db.getView(id)` — returns the current computed result array (`core.views[id].result`), or `undefined` if missing or errored. Synchronous.
+  - `she.db.subView(pattern, callback)` — subscribe to view result changes using MQTT wildcard pattern matching on view IDs. `callback(id, result)` fires whenever a matching view's result changes. Cleaned up on hot-reload like `she.db.sub()`.
+  - `she.db.setView(id, definition)` — create or update a named view. Definition: `{ map, filter?, reduce?, publish?, retain?, description? }`. `publish` maps to `mqttpub` internally. Mirrors `she.db.set()` for documents.
+
+  Also update `doc/sandbox-api.md` and `doc/db/sandbox.md`.
 
 ## Secrets
 

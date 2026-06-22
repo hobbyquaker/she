@@ -272,3 +272,20 @@ describe('sheDB WebSocket events', () => {
         });
     }, 10000);
 });
+
+describe('WebSocket — MQTT state broadcast', () => {
+    it('broadcasts {type:"mqtt"} when an MQTT message is published', (done) => {
+        const testTopic = 'ws/mqtt/broadcast/test-' + Date.now();
+        const ws = new WebSocket(`ws://127.0.0.1:${apiPort}/she/ws`);
+        ws.on('message', (data) => {
+            const msg = JSON.parse(data);
+            if (msg.type === 'mqtt' && msg.topic === testTopic) {
+                ws.close();
+                expect(msg.val).toBe(42);
+                expect(typeof msg.ts).toBe('number');
+                done();
+            }
+        });
+        ws.on('open', () => mqtt.publish(testTopic, '42'));
+    }, 10000);
+});
