@@ -950,6 +950,150 @@ router.get('/logs', (req, res) => {
     res.json(limit >= all.length ? all : all.slice(-limit));
 });
 
+// ── Password file management ──────────────────────────────────────────────────
+
+/** POSIX shell-safe single-quote escaping for SSH commands */
+function shellArg(s) {
+    return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * GET /she/broker/passwd?file=<path>
+ * List usernames from a mosquitto password file.
+ */
+router.get('/passwd', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const file = String(req.query.file || '').trim();
+        if (!file || !file.startsWith('/')) return res.status(400).json({ error: 'absolute file path required' });
+
+        let text = '';
+        if (bc.ssh && bc.ssh.host) {
+            const result = await sshDeploy.runCommand(bc.ssh, `sudo cat -- ${shellArg(file)} 2>/dev/null || true`);
+            text = result.stdout;
+        } else {
+            try {
+                text = fs.readFileSync(file, 'utf8');
+            } catch (e) {
+                if (e.code !== 'ENOENT') throw e;
+            }
+        }
+        const users = text
+            .split('\n')
+            .filter((l) => l.includes(':'))
+            .map((l) => l.split(':')[0])
+            .filter(Boolean);
+        res.json({ users });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * POST /she/broker/passwd
+ * Add or update a user in a mosquitto password file.
+ * Body: { file, username, password }
+ */
+router.post('/passwd', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { file, username, password } = req.body;
+        if (!file || typeof file !== 'string' || !file.startsWith('/')) return res.status(400).json({ error: 'absolute file path required' });
+        if (!username || typeof username !== 'string') return res.status(400).json({ error: 'username required' });
+        if (!password || typeof password !== 'string') return res.status(400).json({ error: 'password required' });
+        if (/[:\n\r]/.test(username)) return res.status(400).json({ error: 'invalid username' });
+
+        if (bc.ssh && bc.ssh.host) {
+            const cmd = `sudo mosquitto_passwd -b ${shellArg(file)} ${shellArg(username)} ${shellArg(password)}`;
+            await sshDeploy.runCommand(bc.ssh, cmd);
+        } else {
+            await execFileAsync('mosquitto_passwd', ['-b', file, username, password]);
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * DELETE /she/broker/passwd/:user
+ * Delete a user from a mosquitto password file.
+ * Body: { file }
+ */
+router.delete('/passwd/:user', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { file } = req.body;
+        const username = req.params.user;
+        if (!file || typeof file !== 'string' || !file.startsWith('/')) return res.status(400).json({ error: 'absolute file path required' });
+
+        if (bc.ssh && bc.ssh.host) {
+            const cmd = `sudo mosquitto_passwd -D ${shellArg(file)} ${shellArg(username)}`;
+            await sshDeploy.runCommand(bc.ssh, cmd);
+        } else {
+            await execFileAsync('mosquitto_passwd', ['-D', file, username]);
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+// ── ACL file management ───────────────────────────────────────────────────────
+
+/**
+ * GET /she/broker/acl?file=<path>
+ * Read a mosquitto ACL file (static file, not dynsec).
+ */
+router.get('/acl', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const file = String(req.query.file || '').trim();
+        if (!file || !file.startsWith('/')) return res.status(400).json({ error: 'absolute file path required' });
+
+        let content = '';
+        if (bc.ssh && bc.ssh.host) {
+            try {
+                content = await sshDeploy.readRemoteFile(bc.ssh, file);
+            } catch (e) {
+                if (!String(e.message).toLowerCase().includes('no such file')) throw e;
+            }
+        } else {
+            try {
+                content = fs.readFileSync(file, 'utf8');
+            } catch (e) {
+                if (e.code !== 'ENOENT') throw e;
+            }
+        }
+        res.json({ content });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
+/**
+ * PUT /she/broker/acl
+ * Write a mosquitto ACL file.
+ * Body: { file, content }
+ */
+router.put('/acl', async (req, res) => {
+    try {
+        const bc = getBrokerConfig(req);
+        const { file, content } = req.body;
+        if (!file || typeof file !== 'string' || !file.startsWith('/')) return res.status(400).json({ error: 'absolute file path required' });
+        if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
+
+        if (bc.ssh && bc.ssh.host) {
+            await sshDeploy.uploadContent(bc.ssh, content, file);
+        } else {
+            fs.writeFileSync(file, content, 'utf8');
+        }
+        res.json({ ok: true });
+    } catch (err) {
+        handleError(res, err);
+    }
+});
+
 module.exports = { router, setLogger, setStore };
 
 // ── dynsec: ACL topic inspection ──────────────────────────────────────────────

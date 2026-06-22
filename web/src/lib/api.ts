@@ -768,6 +768,28 @@ export function brokerDynsecDiagnose(): Promise<DynsecDiagnosis> {
     return request('GET', '/she/broker/wizard/diagnose');
 }
 
+// passwd file management
+export function listPasswdUsers(file: string): Promise<{ users: string[] }> {
+    return request('GET', `/she/broker/passwd?file=${encodeURIComponent(file)}`);
+}
+
+export function addPasswdUser(file: string, username: string, password: string): Promise<{ ok: boolean }> {
+    return request('POST', '/she/broker/passwd', { file, username, password });
+}
+
+export function deletePasswdUser(file: string, username: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/broker/passwd/${encodeURIComponent(username)}`, { file });
+}
+
+// ACL file management
+export function readAclFile(file: string): Promise<{ content: string }> {
+    return request('GET', `/she/broker/acl?file=${encodeURIComponent(file)}`);
+}
+
+export function writeAclFile(file: string, content: string): Promise<{ ok: boolean }> {
+    return request('PUT', '/she/broker/acl', { file, content });
+}
+
 // dynsec — users
 export function listBrokerUsers(): Promise<{ users: DynsecUser[] }> {
     return request('GET', '/she/broker/users');
