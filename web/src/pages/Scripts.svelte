@@ -442,10 +442,19 @@ declare const she: {
             scrollBeyondLastLine: false,
         });
 
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save());
-
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
             searchOpen && searchMode === 'text' ? closeSearch() : openSearch('text');
+        });
+
+        // Use a native keydown listener on Monaco's DOM node for Ctrl-S so
+        // that the browser's built-in "Save Page" action is reliably prevented.
+        // editor.addCommand() alone is insufficient — the browser can fire its
+        // native handler before Monaco's keybinding system processes the event.
+        editor.getDomNode()?.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                save();
+            }
         });
 
         editor.onDidChangeModelContent(() => {
