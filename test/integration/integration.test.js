@@ -534,9 +534,12 @@ describe('she.global — shared mutable object across scripts', () => {
                 done();
             }
         });
-        // script-a sets she.global.testShared, then script-b reads and publishes it
-        mqtt.publish('test/global/set', 'shared-value-42', () => {
-            setTimeout(() => mqtt.publish('test/global/get', ''), 200);
+        mqtt.publish('test/global/set', 'shared-value-42');
+        // Wait for the daemon log confirming script-a has processed the set
+        // before publishing the get trigger, so she.global is guaranteed to be
+        // populated when script-b reads it.
+        subscribe('ms', /test-global-a\.js: global-set: shared-value-42/, () => {
+            mqtt.publish('test/global/get', '');
         });
     }, 10000);
 });
