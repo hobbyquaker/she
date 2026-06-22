@@ -238,27 +238,11 @@ Consider whether `she.emit` alone (engine core, clearly useful, zero maintenance
 
 ### Unit tests
 
-- **`safePath()` unit tests** — `safePath()` in `scripts-api.js` is the only guard against path traversal in the scripts HTTP API and has zero test coverage. Pure function, easy to test in isolation. Cases to cover: normal relative paths accepted, `../` sequences rejected, absolute paths rejected, leading slashes stripped, paths that resolve exactly to root accepted, paths that resolve outside root rejected. Add to a new `test/unit/scripts-api.test.js`.
-
-- **`StateStore` unit tests** — `src/lib/state-store.js` is the central shared state structure used by every interface (MQTT, Matter, variables) and emits the `change` event that drives most of the daemon's reactive behaviour. No tests exist. Cases: `set()`/`get()` round-trip, `setObject()`, `getProp()`, `getObject()`, `lc` stays unchanged when value does not change (only `ts` advances), `change` event fires with `(key, val, obj, prevObj)` including `undefined` prev on first set, `entries()` / `sortedEntries()`. Add to `test/unit/state-store.test.js`.
-
-- **`she.http.sub()` unit tests** — the webhook receiver in `src/sandbox/stdlib.js` has real error-handling logic (auto-responds `{ok:true}`, catches sync throws and rejected promises) and is entirely untested. Mock `registerRoute` (same pattern as `api-sandbox.test.js`). Cases: route registered at `/api/<scriptName><path>`, callback invoked with `(body, {params, query, headers})`, `{ok:true}` 200 on success, `{error}` 500 on sync throw, `{error}` 500 on rejected promise, `TypeError` on non-string path or non-function callback. Extend `test/unit/stdlib.test.js`.
-
-- **Auth module unit tests** — `src/web/auth.js` exports a router with login/logout/setup/mode endpoints and a `checkAuth()` function. `server.test.js` tests the middleware guard but does not test the auth endpoints or `checkAuth()` logic directly. Add `test/unit/auth.test.js` covering: `GET /she/auth/mode` returns current mode without requiring auth, `POST /she/auth/login` with correct password → 200 + `she_session` cookie, wrong password → 401, `POST /she/auth/logout` → clears cookie, session TTL: a session created `SESSION_TTL_MS` ms ago is rejected, `checkAuth()` with proxy mode + header present/absent, `checkAuth()` with password mode + valid/expired/missing session cookie, `POST /she/auth/setup` changes mode and password hash.
-
-- **`she.mqtt.link()` with array sources / array targets** — `she.mqtt.link(['src1','src2'], ['dst1','dst2'])` (the multi-source, multi-target form seen in `test/testscripts/test1.js`) has no unit test coverage. Add cases to `test/unit/stdlib.test.js`: array source publishes to string target, string source publishes to array of targets, array source with transform.
-
-- **`she.http.fetch()` unit tests** — mock global `fetch` and test: JSON auto-parsed when `Content-Type: application/json`, plain text returned otherwise, `Error` thrown on non-2xx status, `AbortController` timeout fires at 30 s. Extend `test/unit/stdlib.test.js`.
+- **Auth module unit tests** — `POST /she/auth/setup` changes mode and password hash. Session TTL: a session created `SESSION_TTL_MS` ms ago is rejected.
 
 ### Integration tests
 
-- **`she.http.sub()` integration** — spawn daemon with a test script that calls `she.http.sub('/hook', cb)`, then POST to `/api/<scriptName>/hook` and verify: `{ok:true}` response, callback receives correct body, sync throw inside callback produces `{error}` 500. No current integration test exercises the webhook endpoint path at all.
-
-- **WebSocket `mqtt` message type** — `shedb.test.js` covers `db:change` and `db:ids` WS events. The `{type:'mqtt', topic, val, ts}` broadcast (sent every time an MQTT topic changes) is not integration-tested. Connect WS, publish an MQTT message, assert the WS client receives the correct mqtt message. Also covers the `{type:'ping'}` keepalive as a side effect.
-
 - **Auth integration** — all integration tests run with `auth: 'none'`. Add a suite that starts the server with `auth: 'password'` and a hashed password: verify `/she/scripts` returns 401 without a cookie, `POST /she/auth/login` with correct credentials returns 200 and sets a cookie, the cookie grants access to `/she/scripts`, wrong password returns 401, `GET /she/auth/mode` returns 200 in all modes (public endpoint). Add to `test/unit/server.test.js` (it already spins up a real server) or a new `test/integration/auth.test.js`.
-
-- **`she.global` cross-script sharing** — `she.global` is the only mechanism for scripts to share mutable state at runtime and has no test coverage at all. Integration test: load two test scripts, have script A write to `she.global.counter`, have script B read it and publish via MQTT, assert the published value.
 
 - **integration tests for `.shelib` / `.shedisable` marker hot-reload** — the live unload/reload on marker changes has no test coverage.
 
