@@ -35,6 +35,22 @@ const _handlers = new Set<LogHandler>();
 const _wsHandlers = new Map<string, Set<WsHandler>>();
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+let _historyPromise: Promise<LogEntry[]> | null = null;
+
+/**
+ * Fetch daemon log history (she.jsonl) once per WS lifecycle.
+ * The promise is cached so multiple callers share a single request.
+ * It is reset on WS close so a daemon restart causes a fresh re-fetch.
+ */
+export function getHistoryEntries(): Promise<LogEntry[]> {
+    if (!_historyPromise) {
+        _historyPromise = fetch('/she/logs/history')
+            .then((r) => (r.ok ? (r.json() as Promise<LogEntry[]>) : []))
+            .catch((): LogEntry[] => []);
+    }
+    return _historyPromise;
+}
+
 function totalSubscribers() {
     let n = _handlers.size;
     for (const s of _wsHandlers.values()) n += s.size;
@@ -48,6 +64,7 @@ function wsUrl() {
 
 function connect() {
     if (_ws) return;
+    getHistoryEntries(); // start fetch in parallel with WS handshake
     const url = wsUrl();
     const ws = new WebSocket(url);
     _ws = ws;
@@ -77,7 +94,10 @@ function connect() {
         // Only clear _ws if it still points to this socket.
         // A newer socket may have been created already (e.g. a re-subscribe
         // happened before this stale close event fired).
-        if (_ws === ws) _ws = null;
+        if (_ws === ws) {
+            _ws = null;
+            _historyPromise = null; // invalidate so reconnect re-fetches fresh history
+        }
         if (totalSubscribers() > 0) {
             _reconnectTimer = setTimeout(connect, 3000);
         }

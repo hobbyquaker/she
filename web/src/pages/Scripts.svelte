@@ -26,7 +26,7 @@
         type SearchMatch,
         type SearchResult,
     } from '../lib/api.js';
-    import { subscribeLog, subscribeWs, type LogEntry } from '../lib/ws.js';
+    import { subscribeLog, subscribeWs, getHistoryEntries, type LogEntry } from '../lib/ws.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import Chat from './Chat.svelte';
@@ -611,7 +611,16 @@ declare const she: {
             const uri = monaco.Uri.parse(`file:///she-scripts/${encodeURIComponent(path)}`);
             monaco.editor.getModel(uri)?.dispose();
             const model = monaco.editor.createModel(content, langFromPath(path), uri);
-            tabs = [...tabs, { path, dirty: false, savedContent: content, model, logEntries: [] }];
+            // Seed log history for this script from the daemon's jsonl log file.
+            let logEntries: LogEntry[] = [];
+            try {
+                const history = await getHistoryEntries();
+                logEntries = history.filter((e) => {
+                    const m = e.msg.match(/^([^:\n]+\.js):\s/);
+                    return m && m[1] === path;
+                });
+            } catch { /* best-effort */ }
+            tabs = [...tabs, { path, dirty: false, savedContent: content, model, logEntries }];
             if (andSwitch) await switchTab(path);
         } catch (e: any) { error = (e as Error).message; }
     }

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { subscribeLog, getLogBuffer, type LogEntry } from '../lib/ws.js';
+    import { subscribeLog, getLogBuffer, getHistoryEntries, type LogEntry } from '../lib/ws.js';
 
     const MAX_LINES = 2000;
     let entries = $state<LogEntry[]>(getLogBuffer());
@@ -20,15 +20,12 @@
 
     onMount(async () => {
         try {
-            const resp = await fetch('/she/logs/history');
-            if (resp.ok) {
-                const history: LogEntry[] = await resp.json();
-                // Merge history with any live entries already received during the fetch.
-                // History entries are older so prepend them; deduplicate by ts+msg.
-                const liveSet = new Set(entries.map((e) => e.ts + e.msg));
-                const newHistory = history.filter((e) => !liveSet.has(e.ts + e.msg));
-                entries = [...newHistory, ...entries].slice(-MAX_LINES);
-            }
+            const history = await getHistoryEntries();
+            // Merge history with any live entries already received during the fetch.
+            // History entries are older so prepend them; deduplicate by ts+msg.
+            const liveSet = new Set(entries.map((e) => e.ts + e.msg));
+            const newHistory = history.filter((e) => !liveSet.has(e.ts + e.msg));
+            entries = [...newHistory, ...entries].slice(-MAX_LINES);
         } catch { /* best-effort — live log still works without history */ }
         historyLoading = false;
         if (logEl) logEl.scrollTop = logEl.scrollHeight;
