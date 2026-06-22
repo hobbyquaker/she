@@ -177,6 +177,9 @@ export interface DaemonStatus {
     handlers?: number;
     memMb?: number;
     cpuPercent?: number;
+    eluPercent?: number;
+    elMeanMs?: number;
+    elP99Ms?: number;
     latestVersion?: string;
     dataDir?: string;
     startedAt?: number;

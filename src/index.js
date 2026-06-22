@@ -328,6 +328,23 @@ let _mqttMsgCount = 0;
 let _mqttMsgTs = Date.now();
 let _prevCpuUsage = process.cpuUsage();
 
+// perf_hooks — event loop utilization + delay histogram (always-on, minimal overhead)
+const { PerformanceObserver, monitorEventLoopDelay, performance } = require('perf_hooks');
+let _prevElu = performance.eventLoopUtilization();
+const _elHisto = monitorEventLoopDelay({ resolution: 20 });
+_elHisto.enable();
+
+// GC observer — log only significant GC pauses (>=50ms); never spams on normal minor GCs
+const _gcKinds = { 1: 'minor', 2: 'major', 4: 'incremental', 8: 'weaken' };
+new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+        if (entry.duration >= 50) {
+            const kind = _gcKinds[entry.detail?.kind] ?? 'gc';
+            log.warn(`GC ${kind} pause ${Math.round(entry.duration)}ms`);
+        }
+    }
+}).observe({ type: 'gc', buffered: false });
+
 // Register runtime stats provider for GET /she/status
 require('./web/server').setStatsProvider(() => {
     let topics = 0;
@@ -341,6 +358,11 @@ require('./web/server').setStatsProvider(() => {
     const cpuDelta = process.cpuUsage(_prevCpuUsage);
     _prevCpuUsage = process.cpuUsage();
     const cpuPercent = elapsed > 0 ? Math.round(((cpuDelta.user + cpuDelta.system) / 1000 / (elapsed * 1000)) * 1000) / 10 : 0;
+    const eluDelta = performance.eventLoopUtilization(_prevElu);
+    _prevElu = performance.eventLoopUtilization();
+    const elMeanMs = Math.round(_elHisto.mean / 1e6);
+    const elP99Ms = Math.round(_elHisto.percentile(99) / 1e6);
+    _elHisto.reset();
     const mem = process.memoryUsage();
     const memMb = Math.round(mem.rss / 1048576);
     const core = shedb.getCore();
@@ -378,6 +400,9 @@ require('./web/server').setStatsProvider(() => {
         handlers: subscriptions.length + varSubscriptions.length + mqttEventCallbacks.length,
         memMb,
         cpuPercent,
+        eluPercent: Math.round(eluDelta.utilization * 100),
+        elMeanMs,
+        elP99Ms,
     };
 });
 
