@@ -61,6 +61,18 @@
     let chatResizeStartX = 0;
     let chatResizeStartW = 0;
 
+    // ---- View editor row resize ----
+    const MAP_HEIGHT_KEY = 'she-db-map-height';
+    const REDUCE_HEIGHT_KEY = 'she-db-reduce-height';
+    let mapHeight = $state(parseInt(localStorage.getItem(MAP_HEIGHT_KEY) ?? '240', 10));
+    let reduceHeight = $state(parseInt(localStorage.getItem(REDUCE_HEIGHT_KEY) ?? '160', 10));
+    let _mapDragging = false;
+    let _mapDragStartY = 0;
+    let _mapDragStartH = 0;
+    let _reduceDragging = false;
+    let _reduceDragStartY = 0;
+    let _reduceDragStartH = 0;
+
     const currentView = $derived(
         selectedViewId
             ? { id: selectedViewId, filter: viewFilter, map: viewMap, reduce: viewReduce }
@@ -90,6 +102,8 @@
     function onResizeMove(e: MouseEvent) {
         if (resizing) sidebarWidth = Math.max(140, Math.min(500, resizeStartWidth + e.clientX - resizeStartX));
         if (chatResizing) chatWidth = Math.max(240, Math.min(600, chatResizeStartW - (e.clientX - chatResizeStartX)));
+        if (_mapDragging) mapHeight = Math.max(60, Math.min(600, _mapDragStartH + e.clientY - _mapDragStartY));
+        if (_reduceDragging) reduceHeight = Math.max(40, Math.min(400, _reduceDragStartH + e.clientY - _reduceDragStartY));
     }
 
     function onResizeEnd() {
@@ -100,6 +114,14 @@
         if (chatResizing) {
             chatResizing = false;
             localStorage.setItem(CHAT_WIDTH_KEY, String(chatWidth));
+        }
+        if (_mapDragging) {
+            _mapDragging = false;
+            localStorage.setItem(MAP_HEIGHT_KEY, String(mapHeight));
+        }
+        if (_reduceDragging) {
+            _reduceDragging = false;
+            localStorage.setItem(REDUCE_HEIGHT_KEY, String(reduceHeight));
         }
     }
 
@@ -356,7 +378,7 @@
 {/snippet}
 
 <ConfirmDialog bind:this={dialog} />
-<div class="db-root" role="presentation" onmousemove={onResizeMove} onmouseup={onResizeEnd} onmouseleave={onResizeEnd}>
+<div class="db-root" class:row-dragging={_mapDragging || _reduceDragging} role="presentation" onmousemove={onResizeMove} onmouseup={onResizeEnd} onmouseleave={onResizeEnd}>
     <!-- Panel tabs -->
     <div class="panel-tabs">
         <button class:active={panel === 'docs'} onclick={() => (panel = 'docs')}>Documents</button>
@@ -473,6 +495,7 @@
                         <div class="loading">Loading…</div>
                     {:else}
                         <div class="view-sections">
+                            <div class="view-top">
                             <div class="view-section">
                                 <div class="section-title">Description <span class="section-hint">— optional, shown in sidebar</span></div>
                                 <div class="section-body">
@@ -487,15 +510,19 @@
                             </div>
                             <div class="view-section">
                                 <div class="section-title">Map <span class="section-hint">— <code>this</code> = document &nbsp;·&nbsp; call <code>emit(this)</code> to include in result</span></div>
-                                <div class="monaco-view-wrap monaco-view-wrap--map">
+                                <div class="monaco-view-wrap" style:height="{mapHeight}px">
                                     <MonacoEditor bind:value={viewMap} language="javascript" onSave={saveView} />
                                 </div>
+                                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                                <div class="view-row-handle" role="separator" onmousedown={(e) => { _mapDragging = true; _mapDragStartY = e.clientY; _mapDragStartH = mapHeight; e.preventDefault(); }}></div>
                             </div>
                             <div class="view-section">
                                 <div class="section-title">Reduce <span class="section-hint">— receives <code>result</code> array, must <code>return</code> new value (optional)</span></div>
-                                <div class="monaco-view-wrap monaco-view-wrap--reduce">
+                                <div class="monaco-view-wrap" style:height="{reduceHeight}px">
                                     <MonacoEditor bind:value={viewReduce} language="javascript" onSave={saveView} />
                                 </div>
+                                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                                <div class="view-row-handle" role="separator" onmousedown={(e) => { _reduceDragging = true; _reduceDragStartY = e.clientY; _reduceDragStartH = reduceHeight; e.preventDefault(); }}></div>
                             </div>
                             <div class="view-section view-section--options">
                                 <label class="opt-check">
@@ -528,8 +555,9 @@
                                 </label>
                                 {/if}
                             </div>
+                            </div><!-- /view-top -->
                             {#if viewResult}
-                                <div class="view-result">
+                                <div class="view-result-fill">
                                     <div class="result-header">
                                         Result
                                         {#if viewResult.error}
@@ -570,6 +598,7 @@
         height: 100%;
         font-size: 0.9rem;
     }
+    .db-root.row-dragging { cursor: row-resize; user-select: none; }
 
     .panel-tabs {
         display: flex;
@@ -826,17 +855,31 @@
     }
 
     .monaco-view-wrap {
-        overflow: auto;
-        resize: vertical;
+        overflow: hidden;
     }
-    .monaco-view-wrap--map    { height: 240px; }
-    .monaco-view-wrap--reduce { height: 160px; }
 
     /* ---- View section layout ---- */
     .view-sections {
-        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
         flex: 1;
+        overflow: hidden;
+        min-height: 0;
     }
+    .view-top {
+        flex: 0 1 auto;
+        overflow-y: auto;
+        min-height: 0;
+    }
+    .view-row-handle {
+        height: 5px;
+        flex-shrink: 0;
+        cursor: row-resize;
+        background: var(--border-sub);
+        transition: background 0.15s;
+    }
+    .view-row-handle:hover,
+    .view-row-handle:active { background: var(--accent); }
 
     .view-section {
         border-bottom: 1px solid var(--border-sub);
@@ -956,11 +999,12 @@
     }
 
     /* ---- View result ---- */
-    .view-result {
-        margin: 8px;
-        border: 1px solid var(--border-sub);
-        border-radius: 4px;
+    .view-result-fill {
+        flex: 1 0 120px;
+        display: flex;
+        flex-direction: column;
         overflow: hidden;
+        border-top: 2px solid var(--border-sub);
     }
 
     .result-header {
@@ -992,6 +1036,7 @@
 
     .result-json,
     .result-error {
+        flex: 1;
         margin: 0;
         padding: 8px;
         background: var(--bg-app);
@@ -999,8 +1044,8 @@
         font-family: 'Cascadia Code', 'Fira Mono', monospace;
         font-size: 0.8rem;
         overflow: auto;
-        max-height: 260px;
         white-space: pre-wrap;
+        min-height: 0;
     }
 
     .result-error { color: var(--fg-err-subtle); }
