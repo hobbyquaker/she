@@ -194,14 +194,15 @@ const _global = {};
 
 // ── Event-loop heartbeat ─────────────────────────────────────────────────────
 let _blockingScript = null;
+let _blockingScriptTs = 0; // timestamp when the last _dispatch() call finished
 
 /** Wrap a user callback dispatch so the heartbeat can identify the active script. */
 function _dispatch(label, fn) {
     _blockingScript = label;
     fn();
-    setImmediate(() => {
-        _blockingScript = null;
-    });
+    // Record end-time synchronously — no setImmediate, which would race with the
+    // heartbeat timer when blocking occurs inside a poll-phase (I/O) callback.
+    _blockingScriptTs = Date.now();
 }
 
 // Sun scheduling
@@ -1512,9 +1513,11 @@ function start() {
         const _hbTimer = setInterval(() => {
             const now = Date.now();
             const lag = now - _lastBeat - _hbInterval;
+            const prevBeat = _lastBeat;
             _lastBeat = now;
             if (lag > _hbThreshold) {
-                const label = _blockingScript ?? 'unknown';
+                // Attribute to a script only if it dispatched a callback since the previous beat.
+                const label = _blockingScriptTs >= prevBeat ? (_blockingScript ?? 'unknown') : 'unknown';
                 if (lag > 2000) {
                     log.warn(`event loop blocked ${lag}ms — script: ${label}`);
                 } else {
