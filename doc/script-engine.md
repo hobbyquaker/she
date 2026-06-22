@@ -106,7 +106,6 @@ Other scripts are not affected. The daemon does not restart. MQTT state is prese
 ### What is NOT cleaned up on reload
 
 - **`she.global`** — the shared mutable object (`she.global.myVar`) is shared across all scripts and survives reload. This is intentional.
-- **HTTP routes** registered via `she.api.*` or `she.http.sub()` — these are registered on the Express router and are currently not unregistered on reload. Registering the same route twice will throw. To change an API route, restart the daemon.
 - **External side effects** — anything your script did to the outside world (MQTT messages published, DB records written, etc.) is not rolled back.
 
 ### `.shelib` — shared library directories

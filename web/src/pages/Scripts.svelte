@@ -213,6 +213,7 @@
     let logFilterLevel = $state<'all' | 'debug' | 'info' | 'warn' | 'error'>('all');
     let logFilterText = $state('');
     let logFilterRegex = $state(false);
+    let logAutoscroll = $state(true);
     const LOG_LEVELS = ['all', 'debug', 'info', 'warn', 'error'] as const;
     const LOG_LEVEL_ORDER = { debug: 0, info: 1, warn: 2, error: 3 } as const;
 
@@ -488,7 +489,7 @@ declare const she: {
             const tab = tabs.find(t => t.path === relPath);
             if (tab) {
                 tab.logEntries = [...tab.logEntries.slice(-199), entry];
-                if (tab.path === activeTab && logPanelOpen && logEl) {
+                if (tab.path === activeTab && logPanelOpen && logEl && logAutoscroll) {
                     tick().then(() => { if (logEl) logEl.scrollTop = logEl.scrollHeight; });
                 }
             }
@@ -1760,6 +1761,11 @@ declare const she: {
                                 <span class="log-filter-checkmark"></span>
                                 Regex
                             </label>
+                            <label class="log-filter-autoscroll">
+                                <input type="checkbox" bind:checked={logAutoscroll} />
+                                <span class="log-filter-checkmark"></span>
+                                Auto-scroll
+                            </label>
                             <button class="log-clear" onclick={clearLog}>Clear</button>
                         {/if}
                     </div>
@@ -2258,6 +2264,17 @@ declare const she: {
         font-size: 11px; color: var(--fg-muted); user-select: none; white-space: nowrap;
     }
     .log-filter-regex input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .log-filter-autoscroll {
+        display: flex; align-items: center; gap: 4px; cursor: pointer;
+        font-size: 11px; color: var(--fg-muted); user-select: none; white-space: nowrap;
+    }
+    .log-filter-autoscroll input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .log-filter-autoscroll input:checked + .log-filter-checkmark { background: var(--accent); border-color: var(--accent); }
+    .log-filter-autoscroll input:checked + .log-filter-checkmark::after {
+        content: ''; position: absolute; left: 2px; top: 0px; width: 4px; height: 7px;
+        border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg);
+    }
+    .log-filter-autoscroll:hover .log-filter-checkmark { border-color: var(--accent); }
     .log-filter-checkmark {
         flex-shrink: 0; width: 12px; height: 12px;
         border: 1.5px solid var(--border); border-radius: 3px;
