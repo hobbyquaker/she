@@ -4,6 +4,7 @@
 
     const MAX_LINES = 2000;
     let entries = $state<LogEntry[]>(getLogBuffer());
+    let historyLoading = $state(true);
     let logEl: HTMLDivElement;
     let autoscroll = $state(true);
     let filterLevel = $state<'all' | 'debug' | 'info' | 'warn' | 'error'>('all');
@@ -17,8 +18,19 @@
         entries = [...entries.slice(-(MAX_LINES - 1)), entry];
     });
 
-    onMount(() => {
-        // Scroll to bottom on first show
+    onMount(async () => {
+        try {
+            const resp = await fetch('/she/logs/history');
+            if (resp.ok) {
+                const history: LogEntry[] = await resp.json();
+                // Merge history with any live entries already received during the fetch.
+                // History entries are older so prepend them; deduplicate by ts+msg.
+                const liveSet = new Set(entries.map((e) => e.ts + e.msg));
+                const newHistory = history.filter((e) => !liveSet.has(e.ts + e.msg));
+                entries = [...newHistory, ...entries].slice(-MAX_LINES);
+            }
+        } catch { /* best-effort — live log still works without history */ }
+        historyLoading = false;
         if (logEl) logEl.scrollTop = logEl.scrollHeight;
     });
 
@@ -48,6 +60,7 @@
 <div class="page">
     <div class="toolbar">
         <h2>Logs</h2>
+        {#if historyLoading}<span class="history-loading" title="Loading log history…">↺</span>{/if}
         <select bind:value={filterLevel}>
             {#each levels as l}<option value={l}>{l}</option>{/each}
         </select>
@@ -81,6 +94,8 @@
         border-bottom: 1px solid var(--border-sub); flex-shrink: 0;
     }
     h2 { font-size: 13px; font-weight: 600; flex: 1; }
+    .history-loading { font-size: 13px; color: var(--fg-muted); animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     select {
         background: var(--bg-input); color: var(--fg); border: 1px solid var(--border);
         padding: 2px 6px; border-radius: 3px; font-size: 12px;

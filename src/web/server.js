@@ -124,6 +124,31 @@ app.get('/she/status', (req, res) => {
     res.json(s);
 });
 
+// Log history from the current daemon run's she.jsonl file.
+// ?since=<ts> filters to entries with ts >= that timestamp (default: 0 = all).
+app.get('/she/logs/history', (req, res) => {
+    const since = req.query.since ? parseInt(req.query.since, 10) : 0;
+    const { LOGS_DIR } = require('../lib/storage');
+    const logFile = require('path').join(LOGS_DIR, 'she.jsonl');
+    try {
+        const raw = require('fs').readFileSync(logFile, 'utf8');
+        const entries = raw
+            .split('\n')
+            .filter((l) => l.trim())
+            .map((l) => {
+                try {
+                    return JSON.parse(l);
+                } catch {
+                    return null;
+                }
+            })
+            .filter((e) => e && typeof e.ts === 'number' && e.ts >= since);
+        res.json(entries);
+    } catch {
+        res.json([]);
+    }
+});
+
 // Serve the built Svelte SPA from dist/web/
 // Hashed assets (JS/CSS) are immutable; index.html must never be cached so
 // browsers always pick up a freshly deployed version.

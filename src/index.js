@@ -37,6 +37,26 @@ if (process.argv.includes('--install')) {
 // Ensure the data directory exists before anything else runs
 require('./lib/storage').ensureRoot();
 
+// ---------------------------------------------------------------------------
+// Persistent JSON-Lines log file — written alongside the pino-pretty stream.
+// On each daemon start: rotate she.jsonl → she.jsonl.1, then open fresh.
+// ---------------------------------------------------------------------------
+const _fs = require('fs');
+const _path = require('path');
+const { LOGS_DIR } = require('./lib/storage');
+const _logFileCurrent = _path.join(LOGS_DIR, 'she.jsonl');
+const _logFilePrev = _path.join(LOGS_DIR, 'she.jsonl.1');
+try {
+    _fs.renameSync(_logFileCurrent, _logFilePrev);
+} catch {
+    /* no previous file — ignore */
+}
+const _logFileStream = _fs.createWriteStream(_logFileCurrent, { flags: 'w' });
+function _writeLogLine(level, msg) {
+    _logFileStream.write(JSON.stringify({ level, msg, ts: Date.now() }) + '\n');
+}
+// ---------------------------------------------------------------------------
+
 const config = require('./config');
 
 // Apply configured timezone before any Date/scheduler usage
@@ -60,18 +80,22 @@ const log = {
     debug: (...args) => {
         _pino.debug(args.join(' '));
         broadcastLog({ level: 'debug', msg: args.join(' '), ts: Date.now() });
+        _writeLogLine('debug', args.join(' '));
     },
     info: (...args) => {
         _pino.info(args.join(' '));
         broadcastLog({ level: 'info', msg: args.join(' '), ts: Date.now() });
+        _writeLogLine('info', args.join(' '));
     },
     warn: (...args) => {
         _pino.warn(args.join(' '));
         broadcastLog({ level: 'warn', msg: args.join(' '), ts: Date.now() });
+        _writeLogLine('warn', args.join(' '));
     },
     error: (...args) => {
         _pino.error(args.join(' '));
         broadcastLog({ level: 'error', msg: args.join(' '), ts: Date.now() });
+        _writeLogLine('error', args.join(' '));
     },
     setLevel: (level) => {
         _pino.level = level;

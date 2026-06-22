@@ -8,6 +8,7 @@ const STORAGE_ROOT = process.env.SHE_DATA_DIR || path.join(os.homedir(), '.she')
 const CONFIG_ROOT = path.join(STORAGE_ROOT, 'config');
 const SCRIPTS_ROOT = path.join(STORAGE_ROOT, 'scripts');
 const DB_ROOT = path.join(STORAGE_ROOT, 'db');
+const LOGS_DIR = path.join(STORAGE_ROOT, 'logs');
 
 /**
  * Return the absolute path for a named sub-directory of ~/.she/.
@@ -43,6 +44,7 @@ function ensureRoot() {
     fs.mkdirSync(CONFIG_ROOT, { recursive: true });
     fs.mkdirSync(SCRIPTS_ROOT, { recursive: true });
     fs.mkdirSync(DB_ROOT, { recursive: true });
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
 }
 
 /**
@@ -71,4 +73,4 @@ function ensureUserPackageJson() {
     return pkgPath;
 }
 
-module.exports = { STORAGE_ROOT, CONFIG_ROOT, SCRIPTS_ROOT, DB_ROOT, getStoragePath, getConfigPath, ensureStorageDir, ensureRoot, ensureUserPackageJson };
+module.exports = { STORAGE_ROOT, CONFIG_ROOT, SCRIPTS_ROOT, DB_ROOT, LOGS_DIR, getStoragePath, getConfigPath, ensureStorageDir, ensureRoot, ensureUserPackageJson };
