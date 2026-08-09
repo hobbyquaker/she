@@ -121,7 +121,8 @@
                 {/if}
             </div>
         {:else}
-            {#each filtered as e (e.ts + e.msg)}
+            <!-- Unkeyed on purpose: duplicate entries are legal in a log stream -->
+            {#each filtered as e}
             <div class="entry">
                 <span class="ts">{fmt(e.ts)}</span>
                 <span class="badge {LEVEL_CLASS[e.level]}">{LEVEL_LABEL[e.level]}</span>

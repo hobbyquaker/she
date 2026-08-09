@@ -23,8 +23,8 @@ const LOG_BUFFER_MAX = 500;
 /**
  * Attach a WebSocketServer to an existing http.Server.
  * Clients connect to /she/ws. Once connected they receive:
- *   - { type: 'log', line: string }  — every pino log line
- *   - { type: 'ping' }               — keepalive every 30 s
+ *   - { type: 'log', level, msg, ts } — every daemon/script log entry
+ *   - { type: 'ping' }                — keepalive every 30 s
  *
  * @param {import('http').Server} httpServer
  * @param {(req: import('http').IncomingMessage) => boolean} [authCheck]

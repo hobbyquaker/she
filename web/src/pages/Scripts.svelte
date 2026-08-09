@@ -1771,7 +1771,8 @@ declare const she: {
                     </div>
                     {#if logPanelOpen}
                         <div class="log-body" bind:this={logEl}>
-                            {#each (currentTab?.logEntries ?? []).filter(logEntryVisible) as e (e.ts + e.msg)}
+                            <!-- Unkeyed on purpose: duplicate entries are legal in a log stream -->
+                            {#each (currentTab?.logEntries ?? []).filter(logEntryVisible) as e}
                                 <div class="log-line {e.level}">
                                     <span class="ts">{fmt(e.ts)}</span>
                                     <span class="lvl">{e.level.toUpperCase()}</span>

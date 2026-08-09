@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onDestroy, onMount } from 'svelte';
     import { subscribeLog, getLogBuffer, getHistoryEntries, type LogEntry } from '../lib/ws.js';
 
     const MAX_LINES = 2000;
@@ -14,9 +14,10 @@
     const levels = ['all', 'debug', 'info', 'warn', 'error'] as const;
     const levelOrder = { debug: 0, info: 1, warn: 2, error: 3 };
 
-    subscribeLog((entry) => {
+    const unsubLog = subscribeLog((entry) => {
         entries = [...entries.slice(-(MAX_LINES - 1)), entry];
     });
+    onDestroy(unsubLog);
 
     onMount(async () => {
         try {
@@ -73,7 +74,10 @@
         <button onclick={clear}>Clear</button>
     </div>
     <div class="log" bind:this={logEl}>
-        {#each entries.filter(visible) as e (e.ts + e.msg)}
+        <!-- Unkeyed on purpose: identical entries (same ms, same msg) are legal
+             in a log stream, and duplicate keys make Svelte throw, killing the
+             whole list. -->
+        {#each entries.filter(visible) as e}
             <div class="line {e.level}">
                 <span class="ts">{fmt(e.ts)}</span>
                 <span class="lvl">{e.level.toUpperCase()}</span>

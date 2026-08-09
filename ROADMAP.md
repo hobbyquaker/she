@@ -12,9 +12,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 ## Table of Contents
 
-**Bugs**
-- [B1 — Logs tab stays empty although scripts are logging](#b1--logs-tab-stays-empty-although-scripts-are-logging)
-
 **Script Engine**
 - [S1 — Async callback safety: proper per-dispatch Promise wrapping](#s1--async-callback-safety-proper-per-dispatch-promise-wrapping)
 - [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(heartbeat shipped)*
@@ -58,24 +55,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [T4 — Rapid hot-reload integration tests](#t4--rapid-hot-reload-integration-tests)
 
 ---
-
-## Bugs
-
-### B1 — Logs tab stays empty although scripts are logging
-
-**Reported (08/2026).** Scripts visibly generate log messages, but the Logs tab shows nothing — just an empty list. **Key observation (same report):** messages logged *while the Logs tab is open* do not appear either — **but the same messages DO show up in the per-script log pane in the Scripts tab.**
-
-**What the observation eliminates (verified in code).** There is no separate script-log channel: `she.log/info/warn/error` in scripts call the same wrapped `log.*` functions (`she` object methods in `src/index.js` ~715–745 → `log.*` wrappers ~76–99 → `broadcastLog({ level, msg, ts })` in `src/web/log-ws.js`), which broadcast one `{ type: 'log', … }` feed over `/she/ws`. On the frontend, **both** the Scripts tab's log pane and the Logs tab consume that one feed via the same `subscribeLog()` in `web/src/lib/ws.ts` (Scripts filters entries by the script's label prefix, `Scripts.svelte` ~469–493). Since the Scripts pane renders the message, the entry demonstrably reaches the browser — daemon, WS transport, and label parsing are all fine. **The bug is inside `web/src/pages/Logs.svelte`** (or its interaction with the shared ws module), not in the backend.
-
-**Remaining candidates (in `Logs.svelte`):**
-
-1. **Subscription lifecycle across tab switches.** `Logs.svelte` registers `subscribeLog()` at component init and — unlike `Scripts.svelte` — never stores/calls the unsubscribe function. Depending on how `App.svelte` mounts/destroys pages on tab switch, a destroyed instance's handler can keep consuming while the visible instance's registration or state is stale. This shape ("other subscribers work, this one is dead") fits the symptom best.
-2. **The history merge on mount.** `onMount` fetches `/she/logs/history` (the `she.jsonl` file) and replaces `entries` with a merged/deduped array (dedup key `ts + msg`). A race or exception here could clobber live entries — though live entries arriving *after* the merge should still append.
-3. **Filter state** — level select / search text persisting an empty match. Quickly excluded by the reporter checking the toolbar (level "all", empty search).
-
-**Diagnosis next step:** with devtools, breakpoint the `subscribeLog` handler in `Logs.svelte` (line ~17) and log a message from a script. If the handler doesn't fire → candidate 1 (lifecycle). If it fires but nothing renders → candidate 2/3 (merge/render/filter).
-
-**Ships with:** the fix, a proper unsubscribe in `Logs.svelte` regardless of root cause, and a cleanup of the stale doc comment in `log-ws.js` (it documents `{ type: 'log', line }` but the actual payload is `{ level, msg, ts }`).
 
 ## Script Engine
 
