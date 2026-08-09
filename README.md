@@ -40,7 +40,7 @@ Your home, your rules - written in plain JavaScript.
 - [CLI](doc/cli.md) — all command-line flags
 
 ### Development
-- [Backlog](BACKLOG.md) — planned features, deferred ideas, open design questions
+- [Roadmap](ROADMAP.md) — planned features, deferred ideas, open design questions
 
 ## Quick look
 

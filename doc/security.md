@@ -54,7 +54,7 @@ In practice this means that even with `auth: 'password'` or `auth: 'proxy'` enab
 
 A script can inspect `req.headers` to implement its own auth — for example, verify a shared secret in the `Authorization` header for webhook endpoints.
 
-> This behaviour is tracked as a known limitation and a more ergonomic solution (auth inherited by default, with an explicit `{ public: true }` opt-out for webhook receivers) is planned. See [BACKLOG.md](../BACKLOG.md).
+> This behaviour is tracked as a known limitation and a more ergonomic solution (auth inherited by default, with an explicit `{ public: true }` opt-out for webhook receivers) is planned. See [ROADMAP.md](../ROADMAP.md), item A2.
 
 ## Third-party npm packages in scripts
 
