@@ -812,7 +812,7 @@ she.influx.write('events', { count: 1 }, {}, Date.now());
 
 ### she.influx.getLast(topic, n)
 
-Return the last `n` recorded values for an MQTT `topic`, oldest first. Assumes points carry a `topic` tag; the value is read from the `_value` field (2.x) or the `value` field (1.x, falling back to the first data column).
+Return the last `n` recorded values for an MQTT `topic`, oldest first (looking back 30 days at most). Against InfluxDB 2.x, points are expected to carry a `topic` tag and the value is read from the `_value` field. Against 1.x, a **measurement named like the topic** is queried first (the common mqtt-to-influx schema, e.g. influx4mqtt: measurement = topic, field = `value`); if that yields nothing, a `topic`-tag scan across all measurements is tried. The value is read from the `value` field, falling back to the first data column.
 
 ```js
 she.influx.getLast('home/sensor/temp', 10).then((pts) => {

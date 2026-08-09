@@ -6,6 +6,10 @@ let _mode = null; // 'v1' | 'v2' | null
 
 const V1_TIMEOUT_MS = 10000;
 
+function v1Timeout() {
+    return Number(_opts.timeout) || V1_TIMEOUT_MS;
+}
+
 /**
  * Initialise the InfluxDB client.  Called from index.js when config.influx is set.
  *
@@ -119,7 +123,7 @@ async function v1Write(lines) {
         method: 'POST',
         headers: v1Headers(),
         body: lines,
-        signal: AbortSignal.timeout(V1_TIMEOUT_MS),
+        signal: AbortSignal.timeout(v1Timeout()),
     });
     if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -139,7 +143,7 @@ async function v1Query(q) {
     const params = new URLSearchParams({ db: _opts.database, q, epoch: 'ms' });
     const res = await fetch(`${_opts.url.replace(/\/$/, '')}/query?${params}`, {
         headers: v1Headers(),
-        signal: AbortSignal.timeout(V1_TIMEOUT_MS),
+        signal: AbortSignal.timeout(v1Timeout()),
     });
     if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -170,4 +174,13 @@ function escapeQL(s) {
     return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-module.exports = { init, getClient, getOpts, getMode, buildLine, v1Write, v1Query, escapeQL };
+/**
+ * Escape a string for use inside an InfluxQL double-quoted identifier
+ * (measurement/tag/field name).
+ * @param {string} s
+ */
+function escapeIdent(s) {
+    return String(s).replace(/"/g, '\\"');
+}
+
+module.exports = { init, getClient, getOpts, getMode, buildLine, v1Write, v1Query, escapeQL, escapeIdent };

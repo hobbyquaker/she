@@ -168,6 +168,12 @@ describe('src/influx', () => {
             expect(influx.escapeQL("it's a \\ topic")).toBe("it\\'s a \\\\ topic");
         });
     });
+
+    describe('escapeIdent', () => {
+        it('escapes double quotes in identifiers', () => {
+            expect(influx.escapeIdent('my "quoted" topic')).toBe('my \\"quoted\\" topic');
+        });
+    });
 });
 
 describe('she.influx sandbox (v1 mode)', () => {
@@ -201,33 +207,68 @@ describe('she.influx sandbox (v1 mode)', () => {
         expect(opts.body).toBe('temp,room=living value=21.5 1700000000000');
     });
 
-    it('getLast() escapes the topic, merges series, trims to n and sorts ascending', async () => {
+    it('getLast() queries the topic-named measurement first and does not fall back when it has rows', async () => {
         const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
             jsonResponse({
                 results: [
                     {
                         series: [
                             {
-                                name: 'a',
-                                columns: ['time', 'value', 'topic'],
+                                name: 'heizung//warmwasser',
+                                columns: ['time', 'value'],
                                 values: [
-                                    [3000, 3, "it's/temp"],
-                                    [1000, 1, "it's/temp"],
+                                    [2000, 47.5],
+                                    [1000, 46.9],
                                 ],
-                            },
-                            {
-                                name: 'b',
-                                columns: ['time', 'value', 'topic'],
-                                values: [[2000, 2, "it's/temp"]],
                             },
                         ],
                     },
                 ],
             }),
         );
-        const pts = await she.influx.getLast("it's/temp", 2);
+        const pts = await she.influx.getLast('heizung//warmwasser', 2);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
         const params = new URL(fetchMock.mock.calls[0][0]).searchParams;
-        expect(params.get('q')).toBe("SELECT * FROM /.*/ WHERE \"topic\" = 'it\\'s/temp' ORDER BY time DESC LIMIT 2");
+        expect(params.get('q')).toBe('SELECT * FROM "heizung//warmwasser" WHERE time >= now() - 30d ORDER BY time DESC LIMIT 2');
+        expect(pts).toEqual([
+            { ts: 1000, val: 46.9 },
+            { ts: 2000, val: 47.5 },
+        ]);
+    });
+
+    it('getLast() falls back to a time-bounded topic-tag scan, escapes the topic, merges series, trims to n and sorts ascending', async () => {
+        const fetchMock = jest
+            .spyOn(global, 'fetch')
+            .mockResolvedValueOnce(jsonResponse({ results: [{}] })) // measurement query: empty
+            .mockResolvedValueOnce(
+                jsonResponse({
+                    results: [
+                        {
+                            series: [
+                                {
+                                    name: 'a',
+                                    columns: ['time', 'value', 'topic'],
+                                    values: [
+                                        [3000, 3, "it's/temp"],
+                                        [1000, 1, "it's/temp"],
+                                    ],
+                                },
+                                {
+                                    name: 'b',
+                                    columns: ['time', 'value', 'topic'],
+                                    values: [[2000, 2, "it's/temp"]],
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            );
+        const pts = await she.influx.getLast("it's/temp", 2);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const q1 = new URL(fetchMock.mock.calls[0][0]).searchParams.get('q');
+        const q2 = new URL(fetchMock.mock.calls[1][0]).searchParams.get('q');
+        expect(q1).toBe('SELECT * FROM "it\'s/temp" WHERE time >= now() - 30d ORDER BY time DESC LIMIT 2');
+        expect(q2).toBe("SELECT * FROM /.*/ WHERE \"topic\" = 'it\\'s/temp' AND time >= now() - 30d ORDER BY time DESC LIMIT 2");
         // newest two (ts 2000, 3000), oldest first
         expect(pts).toEqual([
             { ts: 2000, val: 2 },
@@ -235,28 +276,33 @@ describe('she.influx sandbox (v1 mode)', () => {
         ]);
     });
 
-    it('getRange() bounds the time range in ms and sorts ascending', async () => {
-        const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
-            jsonResponse({
-                results: [
-                    {
-                        series: [
-                            {
-                                name: 'mqtt',
-                                columns: ['time', 'value', 'topic'],
-                                values: [
-                                    [2000, 'b', 'home/x'],
-                                    [1000, 'a', 'home/x'],
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            }),
-        );
+    it('getRange() bounds the time range in ms on both the measurement and the fallback query', async () => {
+        const fetchMock = jest
+            .spyOn(global, 'fetch')
+            .mockResolvedValueOnce(jsonResponse({ results: [{}] })) // measurement query: empty
+            .mockResolvedValueOnce(
+                jsonResponse({
+                    results: [
+                        {
+                            series: [
+                                {
+                                    name: 'mqtt',
+                                    columns: ['time', 'value', 'topic'],
+                                    values: [
+                                        [2000, 'b', 'home/x'],
+                                        [1000, 'a', 'home/x'],
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            );
         const pts = await she.influx.getRange('home/x', 1000, 2000);
-        const params = new URL(fetchMock.mock.calls[0][0]).searchParams;
-        expect(params.get('q')).toBe('SELECT * FROM /.*/ WHERE "topic" = \'home/x\' AND time >= 1000ms AND time <= 2000ms');
+        const q1 = new URL(fetchMock.mock.calls[0][0]).searchParams.get('q');
+        const q2 = new URL(fetchMock.mock.calls[1][0]).searchParams.get('q');
+        expect(q1).toBe('SELECT * FROM "home/x" WHERE time >= 1000ms AND time <= 2000ms');
+        expect(q2).toBe('SELECT * FROM /.*/ WHERE "topic" = \'home/x\' AND time >= 1000ms AND time <= 2000ms');
         expect(pts).toEqual([
             { ts: 1000, val: 'a' },
             { ts: 2000, val: 'b' },

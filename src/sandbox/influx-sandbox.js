@@ -35,6 +35,18 @@ function v1RowVal(row) {
     return null;
 }
 
+/**
+ * Map v1 result rows to the { ts, val } shape, newest-trimmed to n (LIMIT
+ * applies per series in InfluxQL, so multi-series results must be merged and
+ * re-trimmed), sorted oldest-first.
+ * @param {object[]} rows
+ * @param {number} [n]
+ */
+function v1Points(rows, n) {
+    const pts = rows.map((r) => ({ ts: r.time, val: v1RowVal(r) })).sort((a, b) => b.ts - a.ts);
+    return (n ? pts.slice(0, Number(n)) : pts).reverse();
+}
+
 module.exports = function (she) {
     she.influx = {
         /**
@@ -101,10 +113,12 @@ module.exports = function (she) {
         },
 
         /**
-         * Return the last N recorded values for an MQTT topic.
-         * Assumes data was stored with a "topic" tag; the value comes from the
-         * "_value" field (v2) or the "value" field (v1, falling back to the
-         * first data column). Results are sorted oldest-first.
+         * Return the last N recorded values for an MQTT topic (last 30 days).
+         * v2: assumes points carry a "topic" tag, value from "_value".
+         * v1: tries a measurement named like the topic first (influx4mqtt-style
+         * schema), then falls back to a "topic" tag scan; value from the
+         * "value" field, falling back to the first data column.
+         * Results are sorted oldest-first.
          * @param {string} topic
          * @param {number} n
          * @returns {Promise<{ ts: number, val: any }[]>}
@@ -113,16 +127,16 @@ module.exports = function (she) {
             const mode = influx.getMode();
             if (!mode) return Promise.resolve([]);
             if (mode === 'v1') {
-                // LIMIT applies per series in InfluxQL — query across all
-                // measurements, then merge, trim to n and sort ascending.
-                const ql = `SELECT * FROM /.*/ WHERE "topic" = '${influx.escapeQL(topic)}' ORDER BY time DESC LIMIT ${Number(n)}`;
-                return influx.v1Query(ql).then((rows) =>
-                    rows
-                        .map((r) => ({ ts: r.time, val: v1RowVal(r) }))
-                        .sort((a, b) => b.ts - a.ts)
-                        .slice(0, Number(n))
-                        .reverse(),
-                );
+                // Fast path: measurement named like the topic (the common
+                // mqtt-to-influx v1 schema, e.g. influx4mqtt). Fallback: points
+                // stored with a "topic" tag — that needs a scan across all
+                // measurements, so keep it time-bounded (30d, like the v2 path).
+                const mQl = `SELECT * FROM "${influx.escapeIdent(topic)}" WHERE time >= now() - 30d ORDER BY time DESC LIMIT ${Number(n)}`;
+                return influx.v1Query(mQl).then((rows) => {
+                    if (rows.length) return v1Points(rows, n);
+                    const tagQl = `SELECT * FROM /.*/ WHERE "topic" = '${influx.escapeQL(topic)}' AND time >= now() - 30d ORDER BY time DESC LIMIT ${Number(n)}`;
+                    return influx.v1Query(tagQl).then((tagRows) => v1Points(tagRows, n));
+                });
             }
             const opts = influx.getOpts();
             const safeTopic = topic.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -143,8 +157,13 @@ module.exports = function (she) {
             if (mode === 'v1') {
                 const fromMs = new Date(from).getTime();
                 const toMs = new Date(to).getTime();
-                const ql = `SELECT * FROM /.*/ WHERE "topic" = '${influx.escapeQL(topic)}' AND time >= ${fromMs}ms AND time <= ${toMs}ms`;
-                return influx.v1Query(ql).then((rows) => rows.map((r) => ({ ts: r.time, val: v1RowVal(r) })).sort((a, b) => a.ts - b.ts));
+                const bounds = `time >= ${fromMs}ms AND time <= ${toMs}ms`;
+                const mQl = `SELECT * FROM "${influx.escapeIdent(topic)}" WHERE ${bounds}`;
+                return influx.v1Query(mQl).then((rows) => {
+                    if (rows.length) return v1Points(rows);
+                    const tagQl = `SELECT * FROM /.*/ WHERE "topic" = '${influx.escapeQL(topic)}' AND ${bounds}`;
+                    return influx.v1Query(tagQl).then((tagRows) => v1Points(tagRows));
+                });
             }
             const opts = influx.getOpts();
             const safeTopic = topic.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
