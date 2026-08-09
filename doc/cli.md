@@ -35,7 +35,7 @@ The following integrations are activated only when configured:
 | Config key | Description |
 |---|---|
 | `redis.url` | Redis URL — enables write-through cache for the state store |
-| `influx` | InfluxDB connection config — enables time-series write-through |
+| `influx` | InfluxDB connection config — enables time-series write-through. 2.x: `url`, `token`, `org`, `bucket`. 1.x: `url`, `database`, optional `username`, `password`, `retentionPolicy` (version inferred from the keys, or forced with `version: 1`) |
 | `elastic` | Elasticsearch connection config — enables search index write-through |
 
 ## Environment variables

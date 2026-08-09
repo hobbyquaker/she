@@ -752,7 +752,9 @@ await she.matter.send('1', 1, 'levelControl', 'moveToLevel', { level: 128, trans
 
 ## she.influx -- InfluxDB integration
 
-Enabled when an `influx` config block is present in `config.json`:
+Enabled when an `influx` config block is present in `config.json`. Both InfluxDB 2.x and classic InfluxDB 1.x are supported — the same `she.influx` API works against either.
+
+**InfluxDB 2.x** (token / org / bucket):
 
 ```json
 {
@@ -765,18 +767,38 @@ Enabled when an `influx` config block is present in `config.json`:
 }
 ```
 
+**InfluxDB 1.x** (database / username / password):
+
+```json
+{
+  "influx": {
+    "url": "http://localhost:8086",
+    "database": "she",
+    "username": "user",
+    "password": "secret"
+  }
+}
+```
+
+`username`/`password` are optional (omit them when the server runs without authentication); an optional `retentionPolicy` selects the retention policy for writes. The API version is inferred from the keys (`database` → 1.x, `token` → 2.x) and can be forced with `"version": 1`. Both variants can also be configured in the web UI (Settings → InfluxDB).
+
 All methods return Promises. When InfluxDB is not configured every method resolves to an empty result immediately.
 
-### she.influx.query(fluxQuery)
+### she.influx.query(query)
 
-Execute an arbitrary [Flux query](https://docs.influxdata.com/flux/v0/) and return the result rows as plain objects.
+Execute an arbitrary query and return the result rows as plain objects. Against InfluxDB 2.x the query is a [Flux query](https://docs.influxdata.com/flux/v0/); against 1.x it is an [InfluxQL query](https://docs.influxdata.com/influxdb/v1/query_language/).
 
 ```js
+// InfluxDB 2.x — Flux
 she.influx.query(`
   from(bucket: "mqtt")
     |> range(start: -1h)
     |> filter(fn: (r) => r["_measurement"] == "temperature")
 `).then((rows) => she.log(rows));
+
+// InfluxDB 1.x — InfluxQL (time comes back as a millisecond timestamp)
+she.influx.query(`SELECT value FROM mqtt WHERE "topic" = 'home/sensor/temp' ORDER BY time DESC LIMIT 20`)
+    .then((rows) => she.log(rows));
 ```
 
 ### she.influx.write(measurement, fields, [tags], [timestamp])
@@ -790,7 +812,7 @@ she.influx.write('events', { count: 1 }, {}, Date.now());
 
 ### she.influx.getLast(topic, n)
 
-Return the last `n` recorded values for an MQTT `topic`.
+Return the last `n` recorded values for an MQTT `topic`, oldest first. Assumes points carry a `topic` tag; the value is read from the `_value` field (2.x) or the `value` field (1.x, falling back to the first data column).
 
 ```js
 she.influx.getLast('home/sensor/temp', 10).then((pts) => {

@@ -87,6 +87,16 @@
     // Redis
     let redisUrl       = $state('');
 
+    // InfluxDB
+    let influxVersion  = $state<'1' | '2'>('2');
+    let influxUrl      = $state('');
+    let influxToken    = $state('');
+    let influxOrg      = $state('');
+    let influxBucket   = $state('');
+    let influxDatabase = $state('');
+    let influxUsername = $state('');
+    let influxPassword = $state('');
+
     // AI Assistant
     interface AiPreset {
         id: string; label: string; provider: string;
@@ -153,6 +163,7 @@
         'verbosity',
         'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
         'redis',
+        'influx',
         'ai',
         'broker', // handled explicitly in load/save for broker.enabled
         'matter-storage', // handled explicitly
@@ -228,6 +239,7 @@
         { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
+        { id: 'influx',     label: 'InfluxDB',     terms: ['influx','influxdb','time series','history','token','org','bucket','database','flux','influxql'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
         { id: 'engine',     label: 'Script engine', terms: ['heartbeat','event loop','lag','blocking','performance'] },
         { id: 'ai',         label: 'AI Assistant', terms: ['llm','ollama','openai','anthropic','model','provider','base url'] },
@@ -301,6 +313,17 @@
             if (typeof cfg.dbRetain         === 'boolean') dbRetain     = cfg.dbRetain;
             const redis = cfg.redis as { url?: string } | undefined;
             if (redis?.url) redisUrl = redis.url;
+            const inf = cfg.influx as Record<string, unknown> | undefined;
+            if (inf) {
+                influxVersion = (Number(inf.version) === 1 || (!!inf.database && !inf.token)) ? '1' : '2';
+                if (typeof inf.url      === 'string') influxUrl      = inf.url;
+                if (typeof inf.token    === 'string') influxToken    = inf.token;
+                if (typeof inf.org      === 'string') influxOrg      = inf.org;
+                if (typeof inf.bucket   === 'string') influxBucket   = inf.bucket;
+                if (typeof inf.database === 'string') influxDatabase = inf.database;
+                if (typeof inf.username === 'string') influxUsername = inf.username;
+                if (typeof inf.password === 'string') influxPassword = inf.password;
+            }
             const brokerCfg = cfg.broker as Record<string, unknown> | undefined;
             brokerEnabled = brokerCfg?.enabled === true;
             const ms = cfg['matter-storage'] as string | undefined;
@@ -461,6 +484,22 @@
             cfg.dbPath = ''; // explicitly disable sheDB
         }
         if (redisUrl) cfg.redis = { url: redisUrl };
+        if (influxUrl) {
+            cfg.influx = influxVersion === '1'
+                ? {
+                    version: 1,
+                    url: influxUrl,
+                    ...(influxDatabase ? { database: influxDatabase } : {}),
+                    ...(influxUsername ? { username: influxUsername } : {}),
+                    ...(influxPassword ? { password: influxPassword } : {}),
+                }
+                : {
+                    url: influxUrl,
+                    ...(influxToken  ? { token:  influxToken }  : {}),
+                    ...(influxOrg    ? { org:    influxOrg }    : {}),
+                    ...(influxBucket ? { bucket: influxBucket } : {}),
+                };
+        }
         // broker.enabled — merge into the existing broker config block (preserves dynsec, ssh, etc.)
         const brokerExtra = (extra.broker as Record<string, unknown> | undefined) ?? {};
         const { enabled: _bIgnored, ...brokerRest } = brokerExtra;
@@ -956,6 +995,75 @@
                         </label>
                         <input type="text" bind:value={redisUrl} placeholder="leave empty to disable" />
                     </div>
+                </section>
+                {/if}
+
+                <!-- ── InfluxDB ──────────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'influx')}
+                <section id="sec-influx">
+                    <h3>InfluxDB</h3>
+                    <div class="field">
+                        <label>
+                            URL
+                            {@render tip('Base URL of the InfluxDB server, e.g. http://localhost:8086. Leave empty to disable the InfluxDB integration. Requires daemon restart.')}
+                        </label>
+                        <input type="text" bind:value={influxUrl} placeholder="leave empty to disable" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            API version
+                            {@render tip('InfluxDB 2.x uses token/org/bucket and Flux queries. InfluxDB 1.x uses database/username/password and InfluxQL queries (she.influx.query).')}
+                        </label>
+                        <select bind:value={influxVersion}>
+                            <option value="2">2.x (token / org / bucket)</option>
+                            <option value="1">1.x (database / username / password)</option>
+                        </select>
+                    </div>
+                    {#if influxVersion === '2'}
+                    <div class="field">
+                        <label>
+                            Token
+                            {@render tip('InfluxDB API token. Stored in plain text in config.json.')}
+                        </label>
+                        <input type="password" bind:value={influxToken} placeholder="API token" autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Organization
+                            {@render tip('InfluxDB organization name.')}
+                        </label>
+                        <input type="text" bind:value={influxOrg} placeholder="my-org" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Bucket
+                            {@render tip('Bucket that she.influx.write() writes to and getLast()/getRange() read from.')}
+                        </label>
+                        <input type="text" bind:value={influxBucket} placeholder="mqtt" spellcheck="false" />
+                    </div>
+                    {:else}
+                    <div class="field">
+                        <label>
+                            Database
+                            {@render tip('InfluxDB 1.x database name that she.influx writes to and reads from.')}
+                        </label>
+                        <input type="text" bind:value={influxDatabase} placeholder="she" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Username
+                            {@render tip('InfluxDB 1.x username. Leave empty if authentication is disabled on the server.')}
+                        </label>
+                        <input type="text" bind:value={influxUsername} placeholder="(optional)" autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Password
+                            {@render tip('InfluxDB 1.x password. Stored in plain text in config.json.')}
+                        </label>
+                        <input type="password" bind:value={influxPassword} placeholder="(optional)" autocomplete="new-password" />
+                    </div>
+                    {/if}
                 </section>
                 {/if}
 
