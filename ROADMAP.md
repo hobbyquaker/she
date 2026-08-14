@@ -19,6 +19,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [S4 — Safe mode: start without executing scripts](#s4--safe-mode-start-without-executing-scripts)
 - [S5 — `she.emit` / `events::` cross-script event bus](#s5--sheemit--events-cross-script-event-bus)
 - [S6 — System scripts: two-tier script loading](#s6--system-scripts-two-tier-script-loading) ⚠️ *(needs decision)*
+- [S7 — Initial evaluation from retained state for stdlib combiners](#s7--initial-evaluation-from-retained-state-for-stdlib-combiners)
 
 **Web UI & Editor**
 - [U1 — Script starter templates](#u1--script-starter-templates)
@@ -200,6 +201,19 @@ Arguments against, worth considering before implementing:
 - **Alternative that avoids all of the above** — instead of system scripts, ship a well-stocked `doc/examples.md` and a template library (see [U1](#u1--script-starter-templates)). Users copy a template, own the code, and there is no hidden layer. The `she.emit` / `events::` engine core ([S5](#s5--sheemit--events-cross-script-event-bus)) stands on its own merits regardless of whether system scripts exist.
 
 Consider whether S5 alone is the right deliverable, and the system scripts concept is deferred or dropped entirely. Note: the feezal bridge scripts ([I3](#i3--feezal-dashboard-pairing)) are prime candidates for system scripts — but they work fine as plain user scripts, so they do not justify the concept on their own.
+
+### S7 — Initial evaluation from retained state for stdlib combiners
+
+`she.mqtt.max` / `min` / `and` / `or` currently only publish their target topic when one of the source topics *changes* after the subscription is registered. On a fresh script start the target value therefore stays unset (or stale from a previous retained publish) until the first source change arrives — even though the current values of all source topics are already known from retained messages in the state store.
+
+Add a flag (e.g. `{ initial: true }` in the options object) that evaluates the combiner immediately on registration from the retained values (`she.mqtt.get()` per source topic) and publishes the result — so a fresh script start immediately sets its target value.
+
+Notes:
+
+- Script load happens after the retained-state sentinel cycle completes, so the state store is fully populated at registration time — the initial evaluation is reliable.
+- Source topics with no retained value yet: skip them the same way the change-driven path handles missing values (e.g. `and`/`or` over the known subset; `max`/`min` over available values; publish nothing if no source is known).
+- Default off for backward compatibility — an unconditional publish-on-load could re-trigger downstream automations on every script reload.
+- Consider the same flag for `she.mqtt.timer` (restart-survival is a different semantic, though — probably out of scope) and `link()` (an initial one-shot sync mirrors the same need).
 
 ## Web UI & Editor
 
