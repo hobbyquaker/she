@@ -30,6 +30,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [U6 — Script-specific configuration UI](#u6--script-specific-configuration-ui) ⚠️ *(questionable idea)*
 - [U7 — Hide the log panel when no file is open in the Scripts tab](#u7--hide-the-log-panel-when-no-file-is-open-in-the-scripts-tab)
 - [U8 — Logs tab: clickable script prefix opens the script in the editor](#u8--logs-tab-clickable-script-prefix-opens-the-script-in-the-editor)
+- [U9 — Logs tab: show milliseconds in timestamps](#u9--logs-tab-show-milliseconds-in-timestamps)
 
 **MQTT, Matter & Broker**
 - [M1 — Per-topic value history](#m1--per-topic-value-history)
@@ -267,6 +268,10 @@ Implementation sketch:
 - `Logs.svelte` parses the prefix with the same pattern the Scripts tab already uses for log routing (`/^([^:\n]+\.js):\s/`, see `Scripts.svelte`) and renders it as a distinct clickable span, leaving the rest of the message as-is.
 - Navigation: switch tabs via the existing hash navigation, and tell the Scripts page which file to open — e.g. a `window` CustomEvent (`she:open-script` with the path) that `Scripts.svelte` listens for (all pages stay mounted, so the listener is always live), reusing its existing open-file logic including log-history seeding.
 - **Synergy with [I3](#i3--feezal-dashboard-pairing):** I3 wants a stable, documented deep-link URL for a named script (feezal "open adapter in she" links). Implementing this as a real hash route (e.g. `#/scripts/<path>`) instead of an internal event would deliver both at once — preferable if the routing change is not much bigger.
+
+### U9 — Logs tab: show milliseconds in timestamps
+
+Log timestamps are rendered with `toLocaleTimeString()` — second resolution only. Entries carry a ms-precision `ts`, and within-one-second ordering matters when debugging bursts, so show milliseconds: `12:13:14.567`. Change `fmt()` in `Logs.svelte` (e.g. `toLocaleTimeString` + `.` + zero-padded `ts % 1000`, or `Intl.DateTimeFormat` with `fractionalSecondDigits: 3`). Apply the same format to the other log panes using the identical `fmt()` helper — the per-script pane in `Scripts.svelte` and `broker/MosquittoLogs.svelte` — so all log views read alike.
 
 ## MQTT, Matter & Broker
 
