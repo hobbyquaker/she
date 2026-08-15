@@ -403,6 +403,13 @@ async function getAttribute(nodeId, endpointId, clusterName, attrName) {
  * Write a single attribute value (a remote write for client nodes — the
  * attribute must be writable per the device's Matter data model).
  *
+ * Uses the interaction-level write rather than Endpoint.set(): set() requires
+ * a synthesized client behavior, which matter.js does not create for every
+ * cluster (e.g. basicInformation on the root endpoint reports
+ * "Behavior ... is not present on this endpoint" although the cluster and its
+ * state are there). The interaction write goes over the same wire path that
+ * commands use and needs no behavior instance.
+ *
  * @param {string}  nodeId
  * @param {number}  endpointId
  * @param {string}  clusterName  camelCase cluster name, e.g. "basicInformation"
@@ -412,8 +419,14 @@ async function getAttribute(nodeId, endpointId, clusterName, attrName) {
  */
 async function setAttribute(nodeId, endpointId, clusterName, attrName, value) {
     const node = _findClientNode(nodeId);
-    const endpoint = _resolveEndpoint(node, endpointId);
-    await endpoint.set({ [_clusterName(clusterName)]: { [attrName]: value } });
+    const { Write, WriteResult } = require('@matter/protocol');
+    const clusters = require('@matter/main/clusters');
+    const clusterDef = clusters[clusterName.charAt(0).toUpperCase() + clusterName.slice(1)]?.Complete;
+    if (!clusterDef) throw new Error(`Unknown cluster "${clusterName}"`);
+    if (!clusterDef.attributes?.[attrName]) throw new Error(`Unknown attribute "${clusterName}.${attrName}"`);
+    const request = Write(Write.Attribute({ endpoint: Number(endpointId), cluster: clusterDef, attributes: attrName, value }));
+    const result = await node.interaction.write(request);
+    WriteResult.assertSuccess(result);
 }
 
 /**

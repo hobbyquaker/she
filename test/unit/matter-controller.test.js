@@ -67,6 +67,19 @@ describe('matter controller', () => {
             LogFormat: { PLAIN: 'plain' },
         }));
 
+        // Lazily required by setAttribute() — mock so jest doesn't load the real
+        // packages (their exports resolve to TypeScript sources under jest).
+        jest.doMock('@matter/protocol', () => ({
+            Write: Object.assign(
+                jest.fn((attr) => ({ writeRequests: [attr] })),
+                { Attribute: jest.fn((d) => d) },
+            ),
+            WriteResult: { assertSuccess: jest.fn() },
+        }));
+        jest.doMock('@matter/main/clusters', () => ({
+            BasicInformation: { Complete: { id: 40, attributes: { nodeLabel: { id: 5 } } } },
+        }));
+
         // Re-require with fresh modules so _server is reset to null
         controller = require('../../src/matter/controller');
         ({ Environment, ServerNode } = require('@matter/main'));
@@ -169,10 +182,10 @@ describe('matter controller', () => {
 
     // ── rename ────────────────────────────────────────────────────────────────
 
-    test('rename writes basicInformation.nodeLabel on endpoint 0 and broadcasts the device list', async () => {
-        const set = jest.fn().mockResolvedValue(undefined);
-        const endpoint = { number: 0, set };
-        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+    test('rename writes basicInformation.nodeLabel via an interaction write and broadcasts the device list', async () => {
+        const write = jest.fn().mockResolvedValue([]);
+        const fakeClientNode = makeFakeClientNode(BigInt('42'));
+        fakeClientNode.interaction = { write };
         const fakeServer = makeFakeServer([fakeClientNode]);
         ServerNode.create.mockResolvedValue(fakeServer);
         const broadcast = jest.fn();
@@ -180,7 +193,10 @@ describe('matter controller', () => {
         broadcast.mockClear();
 
         await controller.rename('42', 'Hexagon Panels');
-        expect(set).toHaveBeenCalledWith({ basicInformation: { nodeLabel: 'Hexagon Panels' } });
+        expect(write).toHaveBeenCalledTimes(1);
+        const { Write, WriteResult } = require('@matter/protocol');
+        expect(Write.Attribute).toHaveBeenCalledWith({ endpoint: 0, cluster: expect.objectContaining({ id: 40 }), attributes: 'nodeLabel', value: 'Hexagon Panels' });
+        expect(WriteResult.assertSuccess).toHaveBeenCalled();
         expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:deviceList' }));
     });
 
