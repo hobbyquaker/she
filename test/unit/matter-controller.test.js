@@ -180,6 +180,28 @@ describe('matter controller', () => {
         expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:attr', nodeId: '7', endpointId: 1, clusterName: 'onOff', attrName: 'onOff', value: true }));
     });
 
+    test('nodeLabel change rebroadcasts the device list (rename completion)', async () => {
+        const changeEvent = { on: jest.fn() };
+        const endpoint = {
+            number: 0,
+            state: { basicInformation: { nodeLabel: '' } },
+            events: { basicInformation: { nodeLabel$Changed: changeEvent } },
+        };
+        const fakeClientNode = makeFakeClientNode(BigInt('7'), { endpoints: [endpoint] });
+        const fakeServer = makeFakeServer();
+        fakeServer.peers.commission.mockResolvedValue(fakeClientNode);
+        ServerNode.create.mockResolvedValue(fakeServer);
+        const broadcast = jest.fn();
+        await controller.init('/tmp/matter', fakeLog, broadcast);
+        await controller.commission({ passcode: 20202021 });
+        broadcast.mockClear();
+
+        // Simulate the subscription report carrying the new label
+        changeEvent.on.mock.calls[0][0]('Hexagon Panels');
+        expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:attr', attrName: 'nodeLabel', value: 'Hexagon Panels' }));
+        expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:deviceList' }));
+    });
+
     // ── rename ────────────────────────────────────────────────────────────────
 
     test('rename writes basicInformation.nodeLabel via an interaction write and broadcasts the device list', async () => {

@@ -514,6 +514,12 @@
             }
         }
         devices = updated;
+        // Keep the open detail header in sync (e.g. after a rename, the new
+        // nodeLabel arrives with the device's subscription report)
+        if (selected) {
+            const d = updated.find((x) => x.nodeId === selected!.nodeId);
+            if (d?.name && selected.name !== d.name) selected.name = d.name;
+        }
     });
     const unsubStatus = subscribeWs('matter:deviceStatus', (msg) => {
         if (msg.nodeId === undefined) return;

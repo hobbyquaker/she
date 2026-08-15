@@ -588,6 +588,13 @@ function _broadcastNodeAttributes(node, nodeId) {
                             value: _jsonSafe(value),
                             ts: Date.now(),
                         });
+                        // Device/endpoint labels feed the device list — rebroadcast it
+                        // when they change. This is also what completes a rename():
+                        // the local mirror only learns the new nodeLabel when the
+                        // device's subscription report arrives, i.e. exactly now.
+                        if (attrName === 'nodeLabel' || attrName === 'productName') {
+                            _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
+                        }
                     });
                     count++;
                 }
