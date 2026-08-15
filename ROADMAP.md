@@ -12,6 +12,9 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 ## Table of Contents
 
+**Bugs**
+- [B2 — Cleared retained topics linger in the state store / MQTT tab](#b2--cleared-retained-topics-linger-in-the-state-store--mqtt-tab)
+
 **Script Engine**
 - [S1 — Async callback safety: proper per-dispatch Promise wrapping](#s1--async-callback-safety-proper-per-dispatch-promise-wrapping)
 - [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(heartbeat shipped)*
@@ -56,6 +59,21 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [T4 — Rapid hot-reload integration tests](#t4--rapid-hot-reload-integration-tests)
 
 ---
+
+## Bugs
+
+### B2 — Cleared retained topics linger in the state store / MQTT tab
+
+**Reported (08/2026).** Using "Clear retained" in the MQTT tab (with *Recursive* checked) publishes empty retained payloads for the topic and its children — and the broker clears them correctly (verified with `mosquitto_sub`: the retained messages are gone). But the topics still appear in the MQTT tab, and stay there until a daemon restart.
+
+**Cause (confirmed in code).** Per MQTT convention, a zero-length retained publish deletes the retained message. she's state store has no handling for this: nothing in the incoming-message path removes a topic from the store when an empty retained payload arrives, so the state store — the source of `GET /she/mqtt/state` and the MQTT tab's live view — keeps the stale entry. The frontend's `clearRetained()` (`MQTT.svelte`) only publishes; it relies on the state coming back corrected, which it never does.
+
+**Fix sketch:**
+
+- In the central MQTT message handler (where the state store is updated, `src/index.js`), treat a **zero-length payload on a retained message** as deletion: remove the topic from the state store instead of storing an empty value. Non-retained empty payloads keep their current behaviour (they are legitimate values/events).
+- Propagate the removal to the frontend: the WS `mqtt` event (and the `/she/mqtt/state` snapshot) must reflect the deletion so `topicMap` drops the row — likely a new `deleted`/`removed` flag on the event, handled in `MQTT.svelte`.
+- Check the write-through integrations for the same gap: Redis (`she:state` hash entry should be deleted) and the `var::`/script subscription dispatch (decide whether script callbacks should fire on deletion — probably yes, with `undefined`/`null` payload, but document it).
+- Tests: unit test for the state-store deletion path; integration test — publish retained, clear with empty retained publish, assert the topic is gone from `GET /she/mqtt/state`.
 
 ## Script Engine
 
