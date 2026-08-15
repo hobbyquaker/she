@@ -145,6 +145,28 @@ describe('matter controller', () => {
         await expect(controller.commission({ passcode: 1 })).rejects.toThrow('not started');
     });
 
+    test('commission attaches attribute watchers and broadcasts changes (B3)', async () => {
+        const changeEvent = { on: jest.fn() };
+        const endpoint = {
+            number: 1,
+            state: { onOff: { onOff: false } },
+            events: { onOff: { onOff$Changed: changeEvent } },
+        };
+        const fakeClientNode = makeFakeClientNode(BigInt('7'), { endpoints: [endpoint] });
+        const fakeServer = makeFakeServer();
+        fakeServer.peers.commission.mockResolvedValue(fakeClientNode);
+        ServerNode.create.mockResolvedValue(fakeServer);
+        const broadcast = jest.fn();
+        await controller.init('/tmp/matter', fakeLog, broadcast);
+
+        await controller.commission({ passcode: 20202021 });
+        expect(changeEvent.on).toHaveBeenCalledTimes(1);
+
+        // Simulate the device-side change (e.g. physical button press)
+        changeEvent.on.mock.calls[0][0](true);
+        expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:attr', nodeId: '7', endpointId: 1, clusterName: 'onOff', attrName: 'onOff', value: true }));
+    });
+
     // ── unpair ────────────────────────────────────────────────────────────────
 
     test('unpair calls decommission on the found node', async () => {

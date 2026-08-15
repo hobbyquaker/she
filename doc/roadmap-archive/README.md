@@ -8,6 +8,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 
 - [B1 — Logs tab stays empty although scripts are logging ✅ fixed](B1.md)
 - [B2 — Cleared retained topics linger in the state store / MQTT tab ✅ fixed](B2.md)
+- [B3 — Matter tab shows stale state until reload after freshly pairing a device ✅ fixed](B3.md)
 
 ## Web UI & Editor
 

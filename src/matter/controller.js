@@ -326,6 +326,11 @@ async function _commissionInner(options) {
     if (!addr) throw new Error('Commission succeeded but node has no peerAddress');
     const nodeId = _nodeIdStr(addr.nodeId);
     _subscribeNodeLifecycle(clientNode, nodeId);
+    // A freshly commissioned node is already online, so the lifecycle 'online'
+    // event (the other place this is wired) will not fire again — attach the
+    // attribute watchers now or the node stays without live updates until the
+    // next daemon restart.
+    _broadcastNodeAttributes(clientNode, nodeId);
     _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
     return nodeId;
 }
@@ -507,7 +512,14 @@ function _broadcastNodeAttributes(node, nodeId) {
                 }
             }
         }
-        _log?.info(`matter: watching ${count} attribute(s) on node ${nodeId}`);
+        if (count === 0) {
+            // Endpoint structure not populated yet (e.g. right after commissioning)
+            // — drop the guard so the next lifecycle 'online' event retries.
+            _attrBroadcastNodes.delete(nodeId);
+            _log?.debug(`matter: no watchable attributes on node ${nodeId} yet, will retry on next online event`);
+        } else {
+            _log?.info(`matter: watching ${count} attribute(s) on node ${nodeId}`);
+        }
     } catch (err) {
         _attrBroadcastNodes.delete(nodeId); // allow retry
         _log?.warn(`matter: attribute broadcast setup failed for ${nodeId}: ${err.message}`);
