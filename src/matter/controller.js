@@ -9,7 +9,11 @@
  * All nodeIds are exposed as decimal strings (BigInt serialization boundary).
  */
 
-const { Environment, ServerNode, ControllerBehavior } = require('@matter/main');
+const { Environment, ServerNode, ControllerBehavior, Logger, LogLevel, LogFormat } = require('@matter/main');
+
+// Upper bound for a commissioning attempt — matter.js has internal retries that
+// can keep an HTTP request (and the pairing wizard) hanging for a very long time.
+const COMMISSION_TIMEOUT_MS = 120000;
 
 /** @type {import('@matter/main').ServerNode | null} */
 let _server = null;
@@ -104,6 +108,17 @@ async function init(storagePath, log, broadcastFn) {
     _broadcast = broadcastFn ?? null;
     if (_server) throw new Error('Matter controller already started');
     _log = log;
+
+    // Route matter.js's own diagnostics into the daemon logger so commissioning
+    // problems (discovery, PASE failures, retries) are visible in the Logs tab —
+    // by default matter.js writes straight to stdout, bypassing she's logging.
+    Logger.format = LogFormat.PLAIN;
+    Logger.level = LogLevel.INFO;
+    Logger.destinations.default.write = (text, message) => {
+        if (message.level >= LogLevel.ERROR) _log.error('matter.js:', text);
+        else if (message.level === LogLevel.WARN) _log.warn('matter.js:', text);
+        else _log.debug('matter.js:', text);
+    };
 
     // Configure storage before anything else touches StorageService
     Environment.default.vars.set('storage.path', storagePath);
@@ -240,6 +255,44 @@ function listPaired() {
  */
 async function commission(options) {
     if (!_server) throw new Error('Matter controller not started');
+
+    // Accept QR-code payloads ("MT:...") — matter.js's pairingCode option only
+    // decodes 11/21-digit manual pairing codes, so decode QR payloads here.
+    if (typeof options.pairingCode === 'string' && options.pairingCode.trim().toUpperCase().startsWith('MT:')) {
+        const { QrPairingCodeCodec } = require('@matter/types');
+        const [decoded] = QrPairingCodeCodec.decode(options.pairingCode.trim());
+        const { pairingCode: _pc, ...rest } = options;
+        options = { ...rest, passcode: decoded.passcode, discriminator: decoded.discriminator };
+        _log.debug('matter: decoded QR pairing code, discriminator', decoded.discriminator);
+    }
+
+    const label = options.pairingCode !== undefined ? 'pairing code' : `passcode${options.discriminator !== undefined ? ' + discriminator ' + options.discriminator : ''}`;
+    _log.info(`matter: commissioning start (${label}${options.discoveryAddress ? ', direct address ' + options.discoveryAddress : ''})`);
+    let timer;
+    try {
+        const nodeId = await Promise.race([
+            _commissionInner(options),
+            new Promise((_resolve, reject) => {
+                timer = setTimeout(
+                    () =>
+                        reject(
+                            new Error(`commissioning timed out after ${COMMISSION_TIMEOUT_MS / 1000} s — check that the pairing window is still open and the device is reachable`),
+                        ),
+                    COMMISSION_TIMEOUT_MS,
+                );
+            }),
+        ]);
+        _log.info('matter: commissioning succeeded, nodeId', nodeId);
+        return nodeId;
+    } catch (err) {
+        _log.error('matter: commissioning failed:', err.message);
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function _commissionInner(options) {
     const { discoveryAddress, ...commissionOpts } = options;
     let clientNode;
     if (discoveryAddress) {

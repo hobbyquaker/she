@@ -62,6 +62,9 @@ describe('matter controller', () => {
                 },
             },
             ServerNode: { create: jest.fn() },
+            Logger: { destinations: { default: {} } },
+            LogLevel: { DEBUG: 0, INFO: 1, NOTICE: 2, WARN: 3, ERROR: 4, FATAL: 5 },
+            LogFormat: { PLAIN: 'plain' },
         }));
 
         // Re-require with fresh modules so _server is reset to null
@@ -71,7 +74,7 @@ describe('matter controller', () => {
 
     afterEach(() => jest.clearAllMocks());
 
-    const fakeLog = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const fakeLog = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 
     // ── init / close ──────────────────────────────────────────────────────────
 

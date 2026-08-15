@@ -537,7 +537,11 @@
     <div class="sidebar">
         <div class="sidebar-header">
             <span class="sidebar-title">Matter Devices</span>
-            <button class="add-btn" onclick={() => (showWizard = !showWizard)} title="Commission new device">＋</button>
+            <button class="add-btn" onclick={() => {
+                showWizard = !showWizard;
+                // Reset state left over from a previous (possibly hung) attempt
+                if (showWizard) { wizardBusy = false; wizardError = null; }
+            }} title="Commission new device">＋</button>
         </div>
 
         {#if showWizard}
@@ -558,7 +562,7 @@
                 {:else}
                     <label>
                         Pairing Code / QR
-                        <input type="text" placeholder="MT:..." bind:value={wizardPairingCode} />
+                        <input type="text" placeholder="MT:… or 11-digit code e.g. 2477-500-3245" bind:value={wizardPairingCode} />
                     </label>
                     <div class="scan-row">
                         <button class="scan-btn" onclick={startCamera} title="Scan QR code with camera">
