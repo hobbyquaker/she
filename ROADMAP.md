@@ -28,6 +28,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [U4 — Find & Replace entry point](#u4--find--replace-entry-point)
 - [U5 — File tree virtualization](#u5--file-tree-virtualization)
 - [U6 — Script-specific configuration UI](#u6--script-specific-configuration-ui) ⚠️ *(questionable idea)*
+- [U7 — Hide the log panel when no file is open in the Scripts tab](#u7--hide-the-log-panel-when-no-file-is-open-in-the-scripts-tab)
 
 **MQTT, Matter & Broker**
 - [M1 — Per-topic value history](#m1--per-topic-value-history)
@@ -251,6 +252,10 @@ Open questions that need resolving before this is worth implementing:
 - **Config files in file tree** — hidden entirely, or visible but styled differently (greyed out, non-editable as text)?
 - **Multi-instance** — the real power of Node-RED's model is running the same node type N times with different configs. With file-based scripts the natural mapping is one file = one config, which means you still need N script files for N instances. Whether a smarter multi-instance model is worth the complexity is unclear.
 - **Interaction with sheDB** — sheDB already provides per-document storage that scripts can read. Is this feature adding enough over `she.db.get('config/myscript')` to justify the complexity?
+
+### U7 — Hide the log panel when no file is open in the Scripts tab
+
+The per-script log panel at the bottom of the Scripts tab is shown even when no editor tab is open, where it can only ever be empty (it displays the active tab's `logEntries`). Hide the panel (and its resize handle / toggle) entirely while no file is open, and show it again when the first tab opens, respecting the persisted open/closed and height state (`she-log-open`, `she-scripts-log-height`). Frontend-only, `Scripts.svelte`.
 
 ## MQTT, Matter & Broker
 
