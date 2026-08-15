@@ -746,9 +746,14 @@ Invoke a cluster command. Returns a Promise.
 // toggle a smart bulb
 await she.matter.send('1', 1, 'onOff', 'toggle');
 
-// set brightness level
+// set brightness level (0–254); transitionTime is in tenths of a second
 await she.matter.send('1', 1, 'levelControl', 'moveToLevel', { level: 128, transitionTime: 10 });
+
+// like moveToLevel, but also turns the device on when it is off
+await she.matter.send('1', 1, 'levelControl', 'moveToLevelWithOnOff', { level: 254 });
 ```
+
+Argument names follow the Matter *command* schema, which differs from the attribute names you read — e.g. the readable attribute is `currentLevel`, but `moveToLevel` takes `level`. Mandatory boilerplate fields are filled with neutral defaults when omitted: `optionsMask`/`optionsOverride` (empty bitmap — "obey the device's options") and `transitionTime` (`0` = instant). Any other mandatory field (like `level`) must be provided or the command fails TLV validation with a `Missing mandatory field` error naming the field.
 
 ---
 

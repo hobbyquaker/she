@@ -158,6 +158,78 @@ describe('matter controller', () => {
         expect(fakeClientNode.decommission).toHaveBeenCalled();
     });
 
+    // ── sendCommand ───────────────────────────────────────────────────────────
+
+    function makeCommandEndpoint(agent) {
+        return { number: 1, act: jest.fn((_label, fn) => fn(agent)) };
+    }
+
+    test('sendCommand fills neutral defaults for mandatory boilerplate fields (ObjectSchema shape)', async () => {
+        const moveToLevel = jest.fn().mockResolvedValue(undefined);
+        const behavior = {
+            moveToLevel,
+            cluster: {
+                commands: {
+                    moveToLevel: {
+                        requestSchema: {
+                            fieldDefinitions: {
+                                level: { id: 0 },
+                                transitionTime: { id: 1 },
+                                optionsMask: { id: 4 },
+                                optionsOverride: { id: 5 },
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        const endpoint = makeCommandEndpoint({ levelControl: behavior });
+        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.sendCommand('42', 1, 'levelControl', 'moveToLevel', { level: 128 });
+        expect(moveToLevel).toHaveBeenCalledWith({ level: 128, transitionTime: 0, optionsMask: {}, optionsOverride: {} });
+    });
+
+    test('sendCommand fills defaults from a CommandModel shape and keeps caller values', async () => {
+        const stop = jest.fn().mockResolvedValue(undefined);
+        const behavior = {
+            stop,
+            cluster: {
+                commands: {
+                    stop: {
+                        schema: {
+                            children: [
+                                { name: 'OptionsMask', effectiveConformance: { isMandatory: true } },
+                                { name: 'OptionsOverride', effectiveConformance: { isMandatory: true } },
+                            ],
+                        },
+                    },
+                },
+            },
+        };
+        const endpoint = makeCommandEndpoint({ levelControl: behavior });
+        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.sendCommand('42', 1, 'levelControl', 'stop', { optionsMask: { executeIfOff: true } });
+        expect(stop).toHaveBeenCalledWith({ optionsMask: { executeIfOff: true }, optionsOverride: {} });
+    });
+
+    test('sendCommand invokes void commands without an argument object', async () => {
+        const toggle = jest.fn().mockResolvedValue(undefined);
+        const behavior = { toggle, cluster: { commands: { toggle: {} } } };
+        const endpoint = makeCommandEndpoint({ onOff: behavior });
+        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.sendCommand('42', 1, 'onOff', 'toggle');
+        expect(toggle).toHaveBeenCalledWith();
+    });
+
     test('unpair falls back to delete when decommission throws', async () => {
         const nodeIdBigInt = BigInt('42');
         const fakeClientNode = makeFakeClientNode(nodeIdBigInt);

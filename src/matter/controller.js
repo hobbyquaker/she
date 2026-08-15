@@ -397,7 +397,40 @@ async function getAttribute(nodeId, endpointId, clusterName, attrName) {
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 /**
+ * Best-effort: list the mandatory field names (camelCase) of a command's
+ * request schema. Handles both shapes matter.js uses: a TLV ObjectSchema
+ * (fieldDefinitions, camelCase keys) and a CommandModel (children with
+ * PascalCase names and conformance flags). Returns [] when unresolvable.
+ * @param {object} cluster      the behavior's cluster definition
+ * @param {string} commandName
+ * @returns {string[]}
+ */
+function _mandatoryCommandFields(cluster, commandName) {
+    try {
+        const cmd = cluster?.commands?.[commandName];
+        const schema = cmd?.schema ?? cmd?.requestSchema;
+        if (schema?.fieldDefinitions) {
+            return Object.entries(schema.fieldDefinitions)
+                .filter(([, def]) => !def?.optional)
+                .map(([name]) => name);
+        }
+        if (schema?.children) {
+            return [...schema.children].filter((c) => c.effectiveConformance?.isMandatory !== false).map((c) => c.name.charAt(0).toLowerCase() + c.name.slice(1));
+        }
+    } catch {
+        /* best-effort — fall through */
+    }
+    return [];
+}
+
+/**
  * Invoke a cluster command.
+ *
+ * Mandatory boilerplate fields that scripts rarely care about are filled with
+ * neutral defaults when omitted: optionsMask/optionsOverride → {} (bitmap 0,
+ * "obey the device's options") and transitionTime → 0 (instant). So
+ * she.matter.send('x', 1, 'levelControl', 'moveToLevel', { level: 128 }) works
+ * without spelling out the full Matter command schema.
  *
  * @param {string}  nodeId
  * @param {number}  endpointId
@@ -416,10 +449,17 @@ async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
         if (!clusterAgent) throw new Error(`Cluster "${clusterName}" not found on endpoint ${endpointId}`);
         const cmd = clusterAgent[commandName];
         if (typeof cmd !== 'function') throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
-        // Only pass args when the caller actually provided non-empty args.
+        // Fill neutral defaults for mandatory boilerplate fields the caller omitted.
+        const merged = args !== undefined && args !== null && typeof args === 'object' ? { ...args } : {};
+        for (const field of _mandatoryCommandFields(clusterAgent.cluster, commandName)) {
+            if (merged[field] !== undefined) continue;
+            if (field === 'optionsMask' || field === 'optionsOverride') merged[field] = {};
+            else if (field === 'transitionTime') merged[field] = 0;
+        }
+        // Only pass args when there is actually a payload.
         // Void commands (e.g. onOff.off) fail TLV validation if passed an empty object.
-        const hasArgs = args !== undefined && args !== null && Object.keys(args).length > 0;
-        return hasArgs ? cmd.call(clusterAgent, args) : cmd.call(clusterAgent);
+        const hasArgs = Object.keys(merged).length > 0;
+        return hasArgs ? cmd.call(clusterAgent, merged) : cmd.call(clusterAgent);
     });
 }
 
