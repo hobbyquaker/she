@@ -53,6 +53,25 @@
         }
     }
 
+    /* Un-leaf a removed topic's node and prune now-empty branches upward. */
+    function removeNode(topic: string) {
+        const parts = topic.split('/');
+        const chain: Array<{ map: Map<string, TreeNode>; node: TreeNode }> = [];
+        let map = roots;
+        for (const seg of parts) {
+            const node = map.get(seg);
+            if (!node) return;
+            chain.push({ map, node });
+            map = node.children;
+        }
+        chain[chain.length - 1].node.isLeaf = false;
+        for (let i = chain.length - 1; i >= 0; i--) {
+            const { map: parent, node } = chain[i];
+            if (!node.isLeaf && node.children.size === 0) parent.delete(node.seg);
+            else break;
+        }
+    }
+
     /* Assign a new Set on each toggle so Svelte detects the change. */
     let expanded = $state(new Set<string>());
 
@@ -187,7 +206,16 @@
     /* Live updates — write directly into the Map, queue topic for ensureNode,
      * then schedule a batched rAF flush that bumps `version` once. */
     const unsubWs = subscribeWs('mqtt', (msg) => {
-        const { topic, val, ts } = msg as { topic: string; val: unknown; ts: number };
+        const { topic, val, ts } = msg as { topic: string; val: unknown; ts: number; deleted?: boolean };
+        if ((msg as { deleted?: boolean }).deleted) {
+            // Retained message cleared — drop the topic everywhere
+            topicMap.delete(topic);
+            liveTopics.delete(topic);
+            pending.delete(topic);
+            removeNode(topic);
+            scheduleFlush();
+            return;
+        }
         topicMap.set(topic, { val, ts });
         liveTopics.add(topic);
         pending.add(topic);

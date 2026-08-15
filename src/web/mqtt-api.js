@@ -12,7 +12,8 @@
  * (or null when no broker is configured).
  *
  * State changes for mqtt:: keys are automatically broadcast to WebSocket clients
- * as { type: 'mqtt', topic, val, ts }.
+ * as { type: 'mqtt', topic, val, ts }; deletions (retained message cleared via
+ * an empty retained publish) as { type: 'mqtt', topic, deleted: true, ts }.
  */
 
 const express = require('express');
@@ -42,6 +43,12 @@ function init(store, getMqttClient) {
         if (BROKER_LOG_TOPICS.has(topic)) {
             broadcastBrokerLog(topic.slice('$SYS/broker/log/'.length), String(obj.val), obj.ts);
         }
+    });
+
+    // Forward deletions (retained message cleared) so clients drop the topic
+    store.on('delete', (key) => {
+        if (!key.startsWith('mqtt::')) return;
+        broadcast({ type: 'mqtt', topic: key.slice(6), deleted: true, ts: Date.now() });
     });
 }
 

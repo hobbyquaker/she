@@ -7,6 +7,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 ## Bugs
 
 - [B1 — Logs tab stays empty although scripts are logging ✅ fixed](B1.md)
+- [B2 — Cleared retained topics linger in the state store / MQTT tab ✅ fixed](B2.md)
 
 ## Web UI & Editor
 

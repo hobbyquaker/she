@@ -154,6 +154,8 @@ she.mqtt.pub('home/sensor/data', { temp: 21.5, hum: 60 }, { retain: true });
 
 Returns the last known value for a topic, or `undefined` if the topic has never been seen.
 
+A message with an **empty payload** removes the topic from the state store (mqtt-smarthome convention — this is also what "clearing" a retained message looks like), so `she.mqtt.get()` returns `undefined` again afterwards. Subscription callbacks still fire for empty-payload messages (they are commonly used as plain triggers) with `''` as the value.
+
 ```js
 if (she.mqtt.get('home/presence') === true) {
     she.log('someone is home');

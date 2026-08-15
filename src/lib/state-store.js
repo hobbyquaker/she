@@ -10,6 +10,7 @@
  *
  * Events:
  *   'change' (key, val, obj, prevObj)
+ *   'delete' (key, prevObj)
  */
 
 const { EventEmitter } = require('events');
@@ -45,6 +46,21 @@ class StateStore extends EventEmitter {
         const prev = this._map.get(key);
         this._map.set(key, obj);
         this.emit('change', key, obj.val, obj, prev);
+    }
+
+    /**
+     * Remove a key from the store (e.g. when a retained MQTT message is
+     * deleted via an empty retained publish). Emits 'delete' (key, prevObj)
+     * when the key existed; a no-op otherwise.
+     * @param {string} key
+     * @returns {boolean} true when the key existed and was removed
+     */
+    delete(key) {
+        const prev = this._map.get(key);
+        if (prev === undefined) return false;
+        this._map.delete(key);
+        this.emit('delete', key, prev);
+        return true;
     }
 
     /**

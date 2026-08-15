@@ -116,6 +116,38 @@ describe('StateStore — change event', () => {
     });
 });
 
+describe('StateStore — delete()', () => {
+    let store;
+    beforeEach(() => {
+        store = new StateStore();
+    });
+
+    it('removes the key and returns true', () => {
+        store.set('mqtt::k', 1);
+        expect(store.delete('mqtt::k')).toBe(true);
+        expect(store.has('mqtt::k')).toBe(false);
+        expect(store.get('mqtt::k')).toBeUndefined();
+    });
+
+    it('returns false for an unknown key and emits nothing', () => {
+        const handler = jest.fn();
+        store.on('delete', handler);
+        expect(store.delete('mqtt::nope')).toBe(false);
+        expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('emits delete with (key, prevObj)', (done) => {
+        store.set('mqtt::k', 42);
+        const prev = store.getObject('mqtt::k');
+        store.on('delete', (key, prevObj) => {
+            expect(key).toBe('mqtt::k');
+            expect(prevObj).toBe(prev);
+            done();
+        });
+        store.delete('mqtt::k');
+    });
+});
+
 describe('StateStore — has() / keys()', () => {
     let store;
     beforeEach(() => {

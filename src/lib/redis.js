@@ -63,6 +63,13 @@ async function init({ url, store, log }) {
         });
     });
 
+    // Write-through: StateStore deletions (e.g. cleared retained messages) → hdel
+    store.on('delete', (key) => {
+        client.hdel('she:state', key).catch((err) => {
+            log.error('redis: hdel failed:', err.message);
+        });
+    });
+
     log.info('redis: connected', url);
 }
 

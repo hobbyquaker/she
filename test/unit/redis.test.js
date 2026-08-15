@@ -8,6 +8,7 @@ function makeRedisMock(hgetallResult = null) {
     mock.connect = jest.fn().mockResolvedValue(undefined);
     mock.hgetall = jest.fn().mockResolvedValue(hgetallResult);
     mock.hset = jest.fn().mockResolvedValue(1);
+    mock.hdel = jest.fn().mockResolvedValue(1);
     return mock;
 }
 
@@ -99,6 +100,17 @@ describe('src/lib/redis', () => {
         // hset is async, wait a tick
         await Promise.resolve();
         expect(mockInstance.hset).toHaveBeenCalledWith('she:state', 'var::counter', JSON.stringify(obj));
+    });
+
+    it('removes deleted store keys from Redis via hdel', async () => {
+        const store = makeStore();
+        const log = makeLog();
+        await redisModule.init({ url: 'redis://localhost:6379', store, log });
+
+        store.emit('delete', 'mqtt::cleared/topic', { val: 1, ts: 1, lc: 1 });
+
+        await Promise.resolve();
+        expect(mockInstance.hdel).toHaveBeenCalledWith('she:state', 'mqtt::cleared/topic');
     });
 
     it('logs error and returns when ioredis not available', async () => {

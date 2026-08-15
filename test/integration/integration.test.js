@@ -543,3 +543,13 @@ describe('she.global — shared mutable object across scripts', () => {
         });
     }, 10000);
 });
+
+describe('empty payload clears the topic from the state store (B2)', () => {
+    // Note: callbacks still firing for empty-payload triggers is covered by the
+    // she.global test above (it publishes an empty payload on test/global/get).
+    it('removes the topic from the state store', (done) => {
+        subscribe('ms', /empty payload, removed topic from state store: test\/retained\/gone/, () => done());
+        mqtt.publish('test/retained/gone', '13', { retain: true });
+        mqtt.publish('test/retained/gone', '', { retain: true });
+    }, 20000);
+});

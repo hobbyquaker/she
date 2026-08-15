@@ -498,6 +498,28 @@ if (config.url) {
 
         if (shedb.handleMqttMessage(topic, payload)) return;
 
+        // An empty payload deletes the topic from the state store (mqtt-smarthome
+        // convention; also how a retained message is cleared per MQTT spec). The
+        // retain flag cannot be used to detect this: MQTT 3.1.1 brokers clear it
+        // when forwarding to established subscriptions, so a retained-clear
+        // arrives here as a plain empty message. Previously an empty payload was
+        // stored as { val: NaN }, so the MQTT tab kept showing cleared topics.
+        // Subscription callbacks are still dispatched (empty publishes are also
+        // used as plain triggers) with val '' — only the stored state is dropped.
+        if (payload.length === 0) {
+            const emptyOld = store.getObject('mqtt::' + topic) || {};
+            if (store.delete('mqtt::' + topic)) {
+                log.debug('empty payload, removed topic from state store:', topic);
+            }
+            const delArr = topic.split('/');
+            if (delArr[0] === config.variablePrefix && delArr[1] === 'status') {
+                store.delete('var::' + delArr.slice(2).join('/'));
+            }
+            const ts = new Date().getTime();
+            stateChange(topic, { val: '', ts, lc: ts }, emptyOld, msg);
+            return;
+        }
+
         const state = require('./lib/parse-payload')(payload);
 
         const topicArr = topic.split('/');
