@@ -34,6 +34,8 @@
         },
     };
 
+    let cmdError: string | null = $state(null);
+
     async function sendCmd(
         nodeId: string,
         endpointId: number,
@@ -41,10 +43,13 @@
         command: string,
         args?: Record<string, unknown>,
     ) {
+        cmdError = null;
         try {
             await sendMatterCommand(nodeId, endpointId, clusterName, command, args);
         } catch (e) {
-            console.error('matter command failed', e);
+            // Surface the failure — silently swallowed errors made broken
+            // attribute-action buttons look like dead buttons.
+            cmdError = `${clusterName}.${command} failed: ${e instanceof Error ? e.message : String(e)}`;
         }
     }
 
@@ -625,6 +630,12 @@
         {:else if error}
             <p class="err">{error}</p>
         {:else if selected}
+            {#if cmdError}
+                <p class="err cmd-err">
+                    {cmdError}
+                    <button class="err-dismiss" onclick={() => (cmdError = null)} title="Dismiss">✕</button>
+                </p>
+            {/if}
             <div class="detail-hdr">
                 <h2>{selected.name ?? `Node ${selected.nodeId}`}</h2>
                 {#if selected.subtitle}
@@ -1230,6 +1241,27 @@
     }
     .err {
         color: var(--fg-err);
+    }
+    .cmd-err {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        border: 1px solid var(--fg-err);
+        border-radius: 3px;
+        padding: 6px 10px;
+        margin: 0 0 10px;
+        word-break: break-word;
+    }
+    .err-dismiss {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: var(--fg-err);
+        cursor: pointer;
+        font-size: 12px;
+        flex-shrink: 0;
+        padding: 0 2px;
     }
 
     /* ── Matter Events stream pane ── */
