@@ -447,18 +447,43 @@ async function rename(nodeId, name) {
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
+/** Lowercase the first character (PascalCase model names → camelCase). */
+function _camelize(s) {
+    return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
 /**
  * Best-effort: list the mandatory field names (camelCase) of a command's
- * request schema. Handles both shapes matter.js uses: a TLV ObjectSchema
- * (fieldDefinitions, camelCase keys) and a CommandModel (children with
- * PascalCase names and conformance flags). Returns [] when unresolvable.
- * @param {object} cluster      the behavior's cluster definition
+ * request schema. Resolution mirrors matter.js's own command lookup:
+ *   1. the behavior's cluster definition (unwrapping a `.cluster`-wrapped
+ *      specifier like @matter/protocol Specifier.clusterFor does), commands as
+ *      a TLV Command (requestSchema/fieldDefinitions) or a model-based command
+ *      ({ schema: CommandModel });
+ *   2. fallback: the behavior's ClusterModel schema — request-direction
+ *      CommandModel children matched by camelized name (the shape generated
+ *      for discovered client clusters).
+ * Returns [] when unresolvable.
+ * @param {object} behavior     the cluster behavior (agent[clusterName])
  * @param {string} commandName
  * @returns {string[]}
  */
-function _mandatoryCommandFields(cluster, commandName) {
+function _mandatoryCommandFields(behavior, commandName) {
     try {
-        const cmd = cluster?.commands?.[commandName];
+        let cluster = behavior?.cluster;
+        if (cluster && typeof cluster === 'object' && 'cluster' in cluster) cluster = cluster.cluster;
+        let cmd = cluster?.commands?.[commandName];
+        if (!cmd) {
+            // Discovered client clusters: command models live on the ClusterModel schema
+            const schemaModel = behavior?.schema ?? behavior?.constructor?.schema;
+            if (schemaModel?.children) {
+                for (const c of schemaModel.children) {
+                    if (c.tag === 'command' && c.name && _camelize(c.name) === commandName && c.direction !== 'response') {
+                        cmd = { schema: c };
+                        break;
+                    }
+                }
+            }
+        }
         const schema = cmd?.schema ?? cmd?.requestSchema;
         if (schema?.fieldDefinitions) {
             return Object.entries(schema.fieldDefinitions)
@@ -466,7 +491,7 @@ function _mandatoryCommandFields(cluster, commandName) {
                 .map(([name]) => name);
         }
         if (schema?.children) {
-            return [...schema.children].filter((c) => c.effectiveConformance?.isMandatory !== false).map((c) => c.name.charAt(0).toLowerCase() + c.name.slice(1));
+            return [...schema.children].filter((c) => c.effectiveConformance?.isMandatory !== false).map((c) => _camelize(c.name));
         }
     } catch {
         /* best-effort — fall through */
@@ -502,7 +527,17 @@ async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
         if (typeof cmd !== 'function') throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
         // Fill neutral defaults for mandatory boilerplate fields the caller omitted.
         const merged = args !== undefined && args !== null && typeof args === 'object' ? { ...args } : {};
-        for (const field of _mandatoryCommandFields(clusterAgent.cluster, commandName)) {
+        let mandatoryFields = _mandatoryCommandFields(clusterAgent, commandName);
+        if (mandatoryFields.length === 0) {
+            _log?.debug(`matter: could not resolve request fields for ${clusterName}.${commandName}`);
+            // Last resort: every LevelControl/ColorControl command carries the two
+            // options bitmaps (and the TLV encoder ignores unknown fields), so
+            // injecting them is safe even for the few commands without them.
+            if (_clusterName(clusterName) === 'levelControl' || _clusterName(clusterName) === 'colorControl') {
+                mandatoryFields = ['optionsMask', 'optionsOverride'];
+            }
+        }
+        for (const field of mandatoryFields) {
             if (merged[field] !== undefined) continue;
             if (field === 'optionsMask' || field === 'optionsOverride') merged[field] = {};
             else if (field === 'transitionTime') merged[field] = 0;

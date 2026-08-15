@@ -273,6 +273,76 @@ describe('matter controller', () => {
         expect(stop).toHaveBeenCalledWith({ optionsMask: { executeIfOff: true }, optionsOverride: {} });
     });
 
+    test('sendCommand unwraps a .cluster-wrapped specifier (Specifier.clusterFor semantics)', async () => {
+        const moveToLevel = jest.fn().mockResolvedValue(undefined);
+        const behavior = {
+            moveToLevel,
+            cluster: {
+                cluster: {
+                    commands: {
+                        moveToLevel: {
+                            requestSchema: {
+                                fieldDefinitions: { level: { id: 0 }, optionsMask: { id: 4 }, optionsOverride: { id: 5 } },
+                            },
+                        },
+                    },
+                },
+            },
+        };
+        const endpoint = makeCommandEndpoint({ levelControl: behavior });
+        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.sendCommand('42', 1, 'levelControl', 'moveToLevel', { level: 128 });
+        expect(moveToLevel).toHaveBeenCalledWith({ level: 128, optionsMask: {}, optionsOverride: {} });
+    });
+
+    test('sendCommand falls back to the ClusterModel schema of discovered client clusters', async () => {
+        const stepWithOnOff = jest.fn().mockResolvedValue(undefined);
+        const behavior = {
+            stepWithOnOff,
+            // no usable .cluster — command models live on the behavior schema
+            schema: {
+                children: [
+                    { tag: 'attribute', name: 'CurrentLevel' },
+                    {
+                        tag: 'command',
+                        name: 'StepWithOnOff',
+                        direction: 'request',
+                        children: [
+                            { name: 'StepMode', effectiveConformance: { isMandatory: true } },
+                            { name: 'StepSize', effectiveConformance: { isMandatory: true } },
+                            { name: 'TransitionTime', effectiveConformance: { isMandatory: true } },
+                            { name: 'OptionsMask', effectiveConformance: { isMandatory: true } },
+                            { name: 'OptionsOverride', effectiveConformance: { isMandatory: true } },
+                        ],
+                    },
+                    { tag: 'command', name: 'StepWithOnOff', direction: 'response', children: [] },
+                ],
+            },
+        };
+        const endpoint = makeCommandEndpoint({ levelControl: behavior });
+        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.sendCommand('42', 1, 'levelControl', 'stepWithOnOff', { stepMode: 1, stepSize: 25 });
+        expect(stepWithOnOff).toHaveBeenCalledWith({ stepMode: 1, stepSize: 25, transitionTime: 0, optionsMask: {}, optionsOverride: {} });
+    });
+
+    test('sendCommand injects options bitmaps for levelControl even when the schema is unresolvable', async () => {
+        const stop = jest.fn().mockResolvedValue(undefined);
+        const behavior = { stop }; // no .cluster, no .schema — nothing to introspect
+        const endpoint = makeCommandEndpoint({ levelControl: behavior });
+        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.sendCommand('42', 1, 'levelControl', 'stop');
+        expect(stop).toHaveBeenCalledWith({ optionsMask: {}, optionsOverride: {} });
+    });
+
     test('sendCommand invokes void commands without an argument object', async () => {
         const toggle = jest.fn().mockResolvedValue(undefined);
         const behavior = { toggle, cluster: { commands: { toggle: {} } } };
