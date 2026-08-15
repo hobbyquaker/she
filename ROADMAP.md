@@ -29,6 +29,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [U5 — File tree virtualization](#u5--file-tree-virtualization)
 - [U6 — Script-specific configuration UI](#u6--script-specific-configuration-ui) ⚠️ *(questionable idea)*
 - [U7 — Hide the log panel when no file is open in the Scripts tab](#u7--hide-the-log-panel-when-no-file-is-open-in-the-scripts-tab)
+- [U8 — Logs tab: clickable script prefix opens the script in the editor](#u8--logs-tab-clickable-script-prefix-opens-the-script-in-the-editor)
 
 **MQTT, Matter & Broker**
 - [M1 — Per-topic value history](#m1--per-topic-value-history)
@@ -256,6 +257,16 @@ Open questions that need resolving before this is worth implementing:
 ### U7 — Hide the log panel when no file is open in the Scripts tab
 
 The per-script log panel at the bottom of the Scripts tab is shown even when no editor tab is open, where it can only ever be empty (it displays the active tab's `logEntries`). Hide the panel (and its resize handle / toggle) entirely while no file is open, and show it again when the first tab opens, respecting the persisted open/closed and height state (`she-log-open`, `she-scripts-log-height`). Frontend-only, `Scripts.svelte`.
+
+### U8 — Logs tab: clickable script prefix opens the script in the editor
+
+Log lines from scripts are prefixed with the script's label (e.g. `licht/hobbyraum.js: …`). Make that prefix a link: clicking it switches to the Scripts tab and opens (or focuses) that script in an editor tab.
+
+Implementation sketch:
+
+- `Logs.svelte` parses the prefix with the same pattern the Scripts tab already uses for log routing (`/^([^:\n]+\.js):\s/`, see `Scripts.svelte`) and renders it as a distinct clickable span, leaving the rest of the message as-is.
+- Navigation: switch tabs via the existing hash navigation, and tell the Scripts page which file to open — e.g. a `window` CustomEvent (`she:open-script` with the path) that `Scripts.svelte` listens for (all pages stay mounted, so the listener is always live), reusing its existing open-file logic including log-history seeding.
+- **Synergy with [I3](#i3--feezal-dashboard-pairing):** I3 wants a stable, documented deep-link URL for a named script (feezal "open adapter in she" links). Implementing this as a real hash route (e.g. `#/scripts/<path>`) instead of an internal event would deliver both at once — preferable if the routing change is not much bigger.
 
 ## MQTT, Matter & Broker
 
