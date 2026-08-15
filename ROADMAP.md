@@ -28,9 +28,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [U4 — Find & Replace entry point](#u4--find--replace-entry-point)
 - [U5 — File tree virtualization](#u5--file-tree-virtualization)
 - [U6 — Script-specific configuration UI](#u6--script-specific-configuration-ui) ⚠️ *(questionable idea)*
-- [U7 — Hide the log panel when no file is open in the Scripts tab](#u7--hide-the-log-panel-when-no-file-is-open-in-the-scripts-tab)
-- [U8 — Logs tab: clickable script prefix opens the script in the editor](#u8--logs-tab-clickable-script-prefix-opens-the-script-in-the-editor)
-- [U9 — Logs tab: show milliseconds in timestamps](#u9--logs-tab-show-milliseconds-in-timestamps)
 
 **MQTT, Matter & Broker**
 - [M1 — Per-topic value history](#m1--per-topic-value-history)
@@ -254,24 +251,6 @@ Open questions that need resolving before this is worth implementing:
 - **Config files in file tree** — hidden entirely, or visible but styled differently (greyed out, non-editable as text)?
 - **Multi-instance** — the real power of Node-RED's model is running the same node type N times with different configs. With file-based scripts the natural mapping is one file = one config, which means you still need N script files for N instances. Whether a smarter multi-instance model is worth the complexity is unclear.
 - **Interaction with sheDB** — sheDB already provides per-document storage that scripts can read. Is this feature adding enough over `she.db.get('config/myscript')` to justify the complexity?
-
-### U7 — Hide the log panel when no file is open in the Scripts tab
-
-The per-script log panel at the bottom of the Scripts tab is shown even when no editor tab is open, where it can only ever be empty (it displays the active tab's `logEntries`). Hide the panel (and its resize handle / toggle) entirely while no file is open, and show it again when the first tab opens, respecting the persisted open/closed and height state (`she-log-open`, `she-scripts-log-height`). Frontend-only, `Scripts.svelte`.
-
-### U8 — Logs tab: clickable script prefix opens the script in the editor
-
-Log lines from scripts are prefixed with the script's label (e.g. `licht/hobbyraum.js: …`). Make that prefix a link: clicking it switches to the Scripts tab and opens (or focuses) that script in an editor tab.
-
-Implementation sketch:
-
-- `Logs.svelte` parses the prefix with the same pattern the Scripts tab already uses for log routing (`/^([^:\n]+\.js):\s/`, see `Scripts.svelte`) and renders it as a distinct clickable span, leaving the rest of the message as-is.
-- Navigation: switch tabs via the existing hash navigation, and tell the Scripts page which file to open — e.g. a `window` CustomEvent (`she:open-script` with the path) that `Scripts.svelte` listens for (all pages stay mounted, so the listener is always live), reusing its existing open-file logic including log-history seeding.
-- **Synergy with [I3](#i3--feezal-dashboard-pairing):** I3 wants a stable, documented deep-link URL for a named script (feezal "open adapter in she" links). Implementing this as a real hash route (e.g. `#/scripts/<path>`) instead of an internal event would deliver both at once — preferable if the routing change is not much bigger.
-
-### U9 — Log views: show milliseconds in timestamps
-
-Log timestamps are rendered with `toLocaleTimeString()` — second resolution only. Entries carry a ms-precision `ts`, and within-one-second ordering matters when debugging bursts, so show milliseconds: `12:13:14.567`. Scope: the **Logs tab** (`Logs.svelte`) and the **log panel in the Scripts tab** (`Scripts.svelte`) alike, plus `broker/MosquittoLogs.svelte` for consistency — all three use an identical `fmt()` helper, so consider extracting it to a shared lib function instead of patching three copies (e.g. `toLocaleTimeString` + `.` + zero-padded `ts % 1000`, or `Intl.DateTimeFormat` with `fractionalSecondDigits: 3`).
 
 ## MQTT, Matter & Broker
 

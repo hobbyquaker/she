@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte';
     import { subscribeLog, getLogBuffer, getHistoryEntries, type LogEntry } from '../lib/ws.js';
+    import { fmtLogTs as fmt } from '../lib/format.js';
 
     const MAX_LINES = 2000;
     let entries = $state<LogEntry[]>(getLogBuffer());
@@ -41,6 +42,18 @@
 
     function clear() { entries = []; }
 
+    // Script-label prefix ("some/path/script.js: message") — same pattern the
+    // Scripts tab uses for log routing. Clicking it opens the script there.
+    const SCRIPT_RE = /^([^:\n]+\.js):\s/;
+    function scriptOf(msg: string): string | null {
+        const m = msg.match(SCRIPT_RE);
+        return m ? m[1] : null;
+    }
+    function openScript(path: string) {
+        location.hash = 'scripts';
+        window.dispatchEvent(new CustomEvent('she:open-script', { detail: { path } }));
+    }
+
     function visible(e: LogEntry): boolean {
         if (filterLevel !== 'all' && levelOrder[e.level] < levelOrder[filterLevel]) return false;
         if (!filterText) return true;
@@ -50,9 +63,6 @@
         return e.msg.toLowerCase().includes(filterText.toLowerCase());
     }
 
-    function fmt(ts: number) {
-        return new Date(ts).toLocaleTimeString();
-    }
 </script>
 
 <div class="page">
@@ -78,10 +88,13 @@
              in a log stream, and duplicate keys make Svelte throw, killing the
              whole list. -->
         {#each entries.filter(visible) as e}
+            {@const script = scriptOf(e.msg)}
             <div class="line {e.level}">
                 <span class="ts">{fmt(e.ts)}</span>
                 <span class="lvl">{e.level.toUpperCase()}</span>
-                <span class="msg">{e.msg}</span>
+                <span class="msg">
+                    {#if script}<button class="script-link" title="Open {script} in the editor" onclick={() => openScript(script)}>{script}:</button>{e.msg.slice(script.length + 1)}{:else}{e.msg}{/if}
+                </span>
             </div>
         {/each}
     </div>
@@ -142,4 +155,9 @@
     .warn .lvl { color: var(--fg-warn); }
     .error .lvl { color: var(--fg-err); }
     .msg { color: var(--fg-text); word-break: break-all; }
+    .script-link {
+        background: none; border: none; padding: 0;
+        font: inherit; color: var(--fg-brand); cursor: pointer;
+    }
+    .script-link:hover { text-decoration: underline; }
 </style>

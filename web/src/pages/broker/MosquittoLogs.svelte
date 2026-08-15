@@ -2,6 +2,7 @@
     import { onMount, onDestroy, tick } from 'svelte';
     import { subscribeWs, getBrokerLogBuffer } from '../../lib/ws.js';
     import { getBrokerConf, getBrokerLogs } from '../../lib/api.js';
+    import { fmtLogTs as fmt } from '../../lib/format.js';
 
     type Level = 'D' | 'I' | 'N' | 'W' | 'E';
 
@@ -75,10 +76,6 @@
 
     let filtered = $derived(entries.filter(e => filterLevels.has(e.level)));
 
-    function fmt(ts: number) {
-        const d = new Date(ts);
-        return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0');
-    }
 </script>
 
 <div class="logs-page">

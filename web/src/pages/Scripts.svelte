@@ -27,6 +27,7 @@
         type SearchResult,
     } from '../lib/api.js';
     import { subscribeLog, subscribeWs, getHistoryEntries, type LogEntry } from '../lib/ws.js';
+    import { fmtLogTs as fmt } from '../lib/format.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import Chat from './Chat.svelte';
@@ -534,9 +535,20 @@ declare const she: {
         const mq = window.matchMedia('(prefers-color-scheme: dark)');
         window.addEventListener('she:theme-changed', syncMonacoTheme);
         mq.addEventListener('change', syncMonacoTheme);
+
+        // Open a script requested by another page (e.g. clicking a script
+        // prefix in the Logs tab). All pages stay mounted, so this is live
+        // even while the Scripts tab is hidden.
+        const onOpenScript = (e: Event) => {
+            const path = (e as CustomEvent).detail?.path;
+            if (typeof path === 'string' && path) openTab(path);
+        };
+        window.addEventListener('she:open-script', onOpenScript);
+
         return () => {
             window.removeEventListener('she:theme-changed', syncMonacoTheme);
             mq.removeEventListener('change', syncMonacoTheme);
+            window.removeEventListener('she:open-script', onOpenScript);
         };
     });
 
@@ -1053,9 +1065,6 @@ declare const she: {
         localStorage.setItem(LOG_KEY, String(logPanelOpen));
     }
 
-    function fmt(ts: number) {
-        return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-    }
 
     /** Map a file path to its Monaco language identifier. */
     function langFromPath(path: string): string {
@@ -1741,6 +1750,7 @@ declare const she: {
                     {/if}
                 </div>
 
+                {#if tabs.length > 0}
                 <div class="log-panel" class:collapsed={!logPanelOpen} style:height={logPanelOpen ? `${logHeight}px` : '26px'}>
                     {#if logPanelOpen}
                         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -1785,6 +1795,7 @@ declare const she: {
                         </div>
                     {/if}
                 </div>
+                {/if}
             </div>
 
             {#if chatOpen}

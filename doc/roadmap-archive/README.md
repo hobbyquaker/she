@@ -8,6 +8,12 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 
 - [B1 — Logs tab stays empty although scripts are logging ✅ fixed](B1.md)
 
+## Web UI & Editor
+
+- [U7 — Hide the log panel when no file is open in the Scripts tab ✅ implemented](U7.md)
+- [U8 — Logs tab: clickable script prefix opens the script in the editor ✅ implemented](U8.md)
+- [U9 — Log views: show milliseconds in timestamps ✅ implemented](U9.md)
+
 ## Integrations
 
 - [I1 — Expose influx config options in the Config UI ✅ implemented](I1.md)
