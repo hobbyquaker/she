@@ -269,9 +269,9 @@ Implementation sketch:
 - Navigation: switch tabs via the existing hash navigation, and tell the Scripts page which file to open — e.g. a `window` CustomEvent (`she:open-script` with the path) that `Scripts.svelte` listens for (all pages stay mounted, so the listener is always live), reusing its existing open-file logic including log-history seeding.
 - **Synergy with [I3](#i3--feezal-dashboard-pairing):** I3 wants a stable, documented deep-link URL for a named script (feezal "open adapter in she" links). Implementing this as a real hash route (e.g. `#/scripts/<path>`) instead of an internal event would deliver both at once — preferable if the routing change is not much bigger.
 
-### U9 — Logs tab: show milliseconds in timestamps
+### U9 — Log views: show milliseconds in timestamps
 
-Log timestamps are rendered with `toLocaleTimeString()` — second resolution only. Entries carry a ms-precision `ts`, and within-one-second ordering matters when debugging bursts, so show milliseconds: `12:13:14.567`. Change `fmt()` in `Logs.svelte` (e.g. `toLocaleTimeString` + `.` + zero-padded `ts % 1000`, or `Intl.DateTimeFormat` with `fractionalSecondDigits: 3`). Apply the same format to the other log panes using the identical `fmt()` helper — the per-script pane in `Scripts.svelte` and `broker/MosquittoLogs.svelte` — so all log views read alike.
+Log timestamps are rendered with `toLocaleTimeString()` — second resolution only. Entries carry a ms-precision `ts`, and within-one-second ordering matters when debugging bursts, so show milliseconds: `12:13:14.567`. Scope: the **Logs tab** (`Logs.svelte`) and the **log panel in the Scripts tab** (`Scripts.svelte`) alike, plus `broker/MosquittoLogs.svelte` for consistency — all three use an identical `fmt()` helper, so consider extracting it to a shared lib function instead of patching three copies (e.g. `toLocaleTimeString` + `.` + zero-padded `ts % 1000`, or `Intl.DateTimeFormat` with `fractionalSecondDigits: 3`).
 
 ## MQTT, Matter & Broker
 
