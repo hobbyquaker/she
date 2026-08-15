@@ -224,3 +224,48 @@ describe('POST /she/matter/devices/:nodeId/command', () => {
         expect(res.status).toBe(400);
     });
 });
+
+describe('POST /she/matter/devices/:nodeId/rename', () => {
+    let srv, port;
+
+    const mockController = {
+        isStarted: jest.fn(() => true),
+        rename: jest.fn().mockResolvedValue(undefined),
+    };
+
+    beforeEach(async () => {
+        jest.resetModules();
+        jest.doMock('../../src/matter/controller', () => mockController);
+        const { router } = require('../../src/web/matter-api');
+        const app = express();
+        app.use(express.json());
+        app.use('/she/matter', router);
+        srv = await startApp(app);
+        port = srv.address().port;
+    });
+
+    afterEach(() => new Promise((resolve) => srv.close(resolve)));
+
+    test('returns 200 and calls rename with the trimmed name', async () => {
+        const res = await httpRequest('POST', port, '/she/matter/devices/7/rename', { name: '  Hexagon Panels  ' });
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true });
+        expect(mockController.rename).toHaveBeenCalledWith('7', 'Hexagon Panels');
+    });
+
+    test('returns 400 when name is missing or empty', async () => {
+        expect((await httpRequest('POST', port, '/she/matter/devices/7/rename', {})).status).toBe(400);
+        expect((await httpRequest('POST', port, '/she/matter/devices/7/rename', { name: '   ' })).status).toBe(400);
+    });
+
+    test('returns 400 when name exceeds 32 characters', async () => {
+        const res = await httpRequest('POST', port, '/she/matter/devices/7/rename', { name: 'x'.repeat(33) });
+        expect(res.status).toBe(400);
+    });
+
+    test('returns 404 when the node is not found', async () => {
+        mockController.rename.mockRejectedValueOnce(new Error('Matter node not found: 7'));
+        const res = await httpRequest('POST', port, '/she/matter/devices/7/rename', { name: 'Panels' });
+        expect(res.status).toBe(404);
+    });
+});

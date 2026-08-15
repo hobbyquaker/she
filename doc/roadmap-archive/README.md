@@ -17,6 +17,10 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [U8 — Logs tab: clickable script prefix opens the script in the editor ✅ implemented](U8.md)
 - [U9 — Log views: show milliseconds in timestamps ✅ implemented](U9.md)
 
+## MQTT, Matter & Broker
+
+- [M8 — Rename Matter devices via context menu ✅ implemented](M8.md)
+
 ## Integrations
 
 - [I1 — Expose influx config options in the Config UI ✅ implemented](I1.md)

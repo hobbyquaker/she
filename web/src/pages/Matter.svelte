@@ -2,8 +2,9 @@
     import { onMount, onDestroy, tick } from 'svelte';
     import jsQR from 'jsqr';
     import { subscribeWs } from '../lib/ws.js';
-    import { listMatterDevices, getMatterDevice, commissionMatter, unpairMatter, sendMatterCommand, type MatterDevice, type MatterNodeDetail } from '../lib/api.js';
+    import { listMatterDevices, getMatterDevice, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, type MatterDevice, type MatterNodeDetail } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
+    import InputDialog from '../lib/InputDialog.svelte';
 
     interface AttrAction { label: string; command: string; args?: Record<string, unknown>; }
     const ATTR_ACTIONS: Record<string, Record<string, AttrAction[]>> = {
@@ -435,6 +436,27 @@
     }
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> };
+    let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
+
+    // Device context menu (sidebar)
+    let ctxMenu = $state<{ x: number; y: number; nodeId: string; name: string | null } | null>(null);
+
+    async function renameDevice(nodeId: string, currentName: string | null) {
+        const name = await inputDialog.show(`Rename ${currentName ?? `node ${nodeId}`} — writes the device's nodeLabel (max 32 characters):`, {
+            placeholder: 'New name',
+            confirm: 'Rename',
+            initial: currentName ?? '',
+        });
+        if (name === null || !name.trim()) return;
+        try {
+            await renameMatterDevice(nodeId, name.trim());
+            nodeDetails.delete(nodeId);
+            await loadDevices();
+            if (selected?.nodeId === nodeId) await selectDevice(nodeId);
+        } catch (e: unknown) {
+            error = `Rename failed: ${e instanceof Error ? e.message : String(e)}`;
+        }
+    }
 
     async function unpair(nodeId: string) {
         if (!(await dialog.show(`Unpair device ${nodeId}?`, { confirm: 'Unpair', danger: true }))) return;
@@ -537,6 +559,7 @@
 </script>
 
 <ConfirmDialog bind:this={dialog} />
+<InputDialog bind:this={inputDialog} />
 <div class="matter-page">
     <div class="matter-main">
     <div class="sidebar">
@@ -600,6 +623,10 @@
                     <button
                         class="device-select-btn"
                         onclick={() => selectDevice(device.nodeId)}
+                        oncontextmenu={(e) => {
+                            e.preventDefault();
+                            ctxMenu = { x: e.clientX, y: e.clientY, nodeId: device.nodeId, name: device.name ?? null };
+                        }}
                     >
                         <span class="status-dot" class:online={device.online}></span>
                         <span class="device-label">
@@ -623,6 +650,17 @@
             {/if}
         </ul>
     </div>
+
+    <!-- Device context menu -->
+    {#if ctxMenu}
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="ctx-bd" onclick={() => (ctxMenu = null)} oncontextmenu={(e) => { e.preventDefault(); ctxMenu = null; }}></div>
+        <div class="ctx-menu" style:left="{ctxMenu.x}px" style:top="{ctxMenu.y}px">
+            <button onclick={() => { const m = ctxMenu!; ctxMenu = null; renameDevice(m.nodeId, m.name); }}>Rename…</button>
+            <button onclick={() => { const m = ctxMenu!; ctxMenu = null; navigator.clipboard.writeText(m.nodeId); }}>Copy node ID</button>
+            <button class="ctx-danger" onclick={() => { const m = ctxMenu!; ctxMenu = null; unpair(m.nodeId); }}>Unpair…</button>
+        </div>
+    {/if}
 
     <div class="detail">
         {#if loading}
@@ -1242,6 +1280,36 @@
     .err {
         color: var(--fg-err);
     }
+    /* ── device context menu ── */
+    .ctx-bd {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+    }
+    .ctx-menu {
+        position: fixed;
+        z-index: 101;
+        background: var(--bg-panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 3px 0;
+        min-width: 152px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .ctx-menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        color: var(--fg);
+        padding: 5px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        border-radius: 0;
+    }
+    .ctx-menu button:hover { background: var(--bg-hover); }
+    .ctx-menu .ctx-danger { color: var(--fg-err); }
     .cmd-err {
         display: flex;
         align-items: center;

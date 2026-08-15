@@ -399,6 +399,39 @@ async function getAttribute(nodeId, endpointId, clusterName, attrName) {
     return clusterState[attrName];
 }
 
+/**
+ * Write a single attribute value (a remote write for client nodes — the
+ * attribute must be writable per the device's Matter data model).
+ *
+ * @param {string}  nodeId
+ * @param {number}  endpointId
+ * @param {string}  clusterName  camelCase cluster name, e.g. "basicInformation"
+ * @param {string}  attrName     camelCase attribute name, e.g. "nodeLabel"
+ * @param {*}       value
+ * @returns {Promise<void>}
+ */
+async function setAttribute(nodeId, endpointId, clusterName, attrName, value) {
+    const node = _findClientNode(nodeId);
+    const endpoint = _resolveEndpoint(node, endpointId);
+    await endpoint.set({ [_clusterName(clusterName)]: { [attrName]: value } });
+}
+
+/**
+ * Rename a device by writing basicInformation.nodeLabel on the root endpoint —
+ * the Matter-standard writable user label (max 32 chars), persisted on the
+ * device itself. she prefers nodeLabel over productName wherever names are
+ * shown or matched, so the new name is immediately usable in scripts.
+ *
+ * @param {string} nodeId
+ * @param {string} name
+ * @returns {Promise<void>}
+ */
+async function rename(nodeId, name) {
+    await setAttribute(nodeId, 0, 'basicInformation', 'nodeLabel', String(name));
+    _log?.info(`matter: renamed node ${nodeId} to "${name}"`);
+    _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
+}
+
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 /**
@@ -638,6 +671,8 @@ module.exports = {
     getEndpoints,
     getDeviceSubtitle,
     getAttribute,
+    setAttribute,
+    rename,
     sendCommand,
     subscribeAttribute,
     unsubscribe,

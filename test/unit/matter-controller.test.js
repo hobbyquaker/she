@@ -167,6 +167,23 @@ describe('matter controller', () => {
         expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:attr', nodeId: '7', endpointId: 1, clusterName: 'onOff', attrName: 'onOff', value: true }));
     });
 
+    // ── rename ────────────────────────────────────────────────────────────────
+
+    test('rename writes basicInformation.nodeLabel on endpoint 0 and broadcasts the device list', async () => {
+        const set = jest.fn().mockResolvedValue(undefined);
+        const endpoint = { number: 0, set };
+        const fakeClientNode = makeFakeClientNode(BigInt('42'), { endpoints: [endpoint] });
+        const fakeServer = makeFakeServer([fakeClientNode]);
+        ServerNode.create.mockResolvedValue(fakeServer);
+        const broadcast = jest.fn();
+        await controller.init('/tmp/matter', fakeLog, broadcast);
+        broadcast.mockClear();
+
+        await controller.rename('42', 'Hexagon Panels');
+        expect(set).toHaveBeenCalledWith({ basicInformation: { nodeLabel: 'Hexagon Panels' } });
+        expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:deviceList' }));
+    });
+
     // ── unpair ────────────────────────────────────────────────────────────────
 
     test('unpair calls decommission on the found node', async () => {

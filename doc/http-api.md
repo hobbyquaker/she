@@ -311,6 +311,18 @@ Unpair a Matter device.
 
 **Response (HTTP 200):** `{ "ok": true }`
 
+### POST /she/matter/devices/:nodeId/rename
+
+Rename a device by writing `basicInformation.nodeLabel` (the Matter-standard writable user label, max 32 characters) on the device. she prefers `nodeLabel` over `productName` wherever device names are shown or matched, so scripts can address the node by the new name (or, as always, by node id).
+
+**Request body:**
+
+```json
+{ "name": "Hexagon Panels" }
+```
+
+**Response (HTTP 200):** `{ "ok": true }`
+
 ### POST /she/matter/devices/:nodeId/command
 
 Invoke a cluster command on a device endpoint.

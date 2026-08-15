@@ -58,6 +58,25 @@ router.post('/commission', async (req, res) => {
     }
 });
 
+// POST /she/matter/devices/:nodeId/rename — { name } → writes basicInformation.nodeLabel
+router.post('/devices/:nodeId/rename', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    const name = req.body?.name;
+    if (typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'body must contain a non-empty name' });
+    }
+    if (name.trim().length > 32) {
+        return res.status(400).json({ error: 'name must be at most 32 characters (Matter nodeLabel limit)' });
+    }
+    try {
+        await getController().rename(req.params.nodeId, name.trim());
+        res.json({ ok: true });
+    } catch (err) {
+        if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // GET /she/matter/devices/:nodeId — node detail
 router.get('/devices/:nodeId', (req, res) => {
     if (!isReady()) return notReady(res);

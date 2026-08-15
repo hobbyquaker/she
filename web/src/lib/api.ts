@@ -430,6 +430,10 @@ export function unpairMatter(nodeId: string): Promise<{ ok: boolean }> {
     return request('DELETE', `/she/matter/devices/${nodeId}`);
 }
 
+export function renameMatterDevice(nodeId: string, name: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/matter/devices/${nodeId}/rename`, { name });
+}
+
 export function sendMatterCommand(
     nodeId: string,
     endpointId: number,
