@@ -159,9 +159,30 @@ async function init(storagePath, log, broadcastFn) {
     // matter.js's default unhandled-error reporter logs the bare value, which
     // renders as "{}" for non-Error throwables and drops cause / AggregateError
     // details. The hook is explicitly replaceable — report full detail (B6).
+    //
+    // matter.js wires this to process.uncaughtExceptionMonitor, which fires for
+    // EVERY uncaught exception in the process — matter internals, sandbox
+    // script errors, and she's own code alike. Attribute by stack:
+    //   - sandbox script errors are skipped entirely (she's per-script domain
+    //     handles and logs them with correct script attribution);
+    //   - only stacks that actually contain matter.js frames get the
+    //     "matter.js:" label — everything else is reported neutrally, since it
+    //     may just as well be a bug in she itself.
     Logger.reportUnhandledError = (error) => {
         try {
-            _log.error('matter.js: unhandled error:', _inspect(error));
+            const stack = typeof error?.stack === 'string' ? error.stack : '';
+            if (stack) {
+                if (stack.includes('Script.runInContext') || stack.includes('node:vm')) return;
+                try {
+                    const config = require('../config');
+                    const dirs = config.dir ? (Array.isArray(config.dir) ? config.dir : [config.dir]) : [];
+                    if (dirs.some((d) => d && stack.includes(d))) return;
+                } catch {
+                    /* config unavailable — fall through to logging */
+                }
+            }
+            const fromMatter = stack.includes('/@matter/') || stack.includes('\\@matter\\') || stack.includes('@project-chip');
+            _log.error(fromMatter ? 'matter.js: unhandled error:' : 'unhandled error:', _inspect(error));
         } catch {
             /* never throw from the error reporter */
         }

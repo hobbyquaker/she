@@ -150,12 +150,39 @@ describe('matter controller', () => {
         expect(fakeLog.error).toHaveBeenCalledWith('matter.js:', expect.stringContaining('Something else broke'));
     });
 
-    test('reportUnhandledError logs full detail for non-Error throwables (B6)', async () => {
+    test('reportUnhandledError logs full detail for non-Error throwables, neutrally labeled (B6)', async () => {
         ServerNode.create.mockResolvedValue(makeFakeServer());
         await controller.init('/tmp/matter', fakeLog);
         const { Logger } = require('@matter/main');
         Logger.reportUnhandledError({ code: 'timeout', peer: 42 });
-        expect(fakeLog.error).toHaveBeenCalledWith('matter.js: unhandled error:', expect.stringContaining('timeout'));
+        expect(fakeLog.error).toHaveBeenCalledWith('unhandled error:', expect.stringContaining('timeout'));
+    });
+
+    test('reportUnhandledError skips sandbox script errors (domain already attributes them)', async () => {
+        ServerNode.create.mockResolvedValue(makeFakeServer());
+        await controller.init('/tmp/matter', fakeLog);
+        const { Logger } = require('@matter/main');
+        const err = new Error('muh');
+        err.stack = 'Error: muh\n    at /var/lib/she/scripts/test/error.js:4:7\n    at Script.runInContext (node:vm:149:12)';
+        Logger.reportUnhandledError(err);
+        expect(fakeLog.error).not.toHaveBeenCalled();
+    });
+
+    test('reportUnhandledError labels matter.js only when the stack contains matter frames', async () => {
+        ServerNode.create.mockResolvedValue(makeFakeServer());
+        await controller.init('/tmp/matter', fakeLog);
+        const { Logger } = require('@matter/main');
+
+        const matterErr = new Error('subscription lost');
+        matterErr.stack = 'Error: subscription lost\n    at Object.x (/usr/local/lib/node_modules/smart-home-engine/node_modules/@matter/protocol/dist/cjs/x.js:1:1)';
+        Logger.reportUnhandledError(matterErr);
+        expect(fakeLog.error).toHaveBeenCalledWith('matter.js: unhandled error:', expect.stringContaining('subscription lost'));
+
+        fakeLog.error.mockClear();
+        const sheErr = new Error('she bug');
+        sheErr.stack = 'Error: she bug\n    at foo (/usr/local/lib/node_modules/smart-home-engine/src/web/server.js:10:5)';
+        Logger.reportUnhandledError(sheErr);
+        expect(fakeLog.error).toHaveBeenCalledWith('unhandled error:', expect.stringContaining('she bug'));
     });
 
     // ── listPaired ────────────────────────────────────────────────────────────

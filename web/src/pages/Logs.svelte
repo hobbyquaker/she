@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte';
-    import { subscribeLog, getLogBuffer, getHistoryEntries, type LogEntry } from '../lib/ws.js';
+    import { subscribeLog, subscribeWs, getLogBuffer, getHistoryEntries, type LogEntry } from '../lib/ws.js';
     import { fmtLogTs as fmt } from '../lib/format.js';
     import { splitLogMessage, scriptResolver, collectScriptPaths } from '../lib/log-links.js';
     import { listScriptsTree } from '../lib/api.js';
@@ -45,13 +45,27 @@
     function clear() { entries = []; }
 
     // Script locations in messages (label prefix and stack-frame positions)
-    // become links into the editor. Known script paths are fetched once so
-    // unrelated .js mentions stay plain text.
-    let resolveScript = $state<(p: string) => string | null>(() => null);
-    onMount(async () => {
+    // become links into the editor. Only known script paths are linkified so
+    // unrelated .js mentions stay plain text — and the known set must follow
+    // script creation/renames, so it refreshes on script:running events.
+    let knownScripts = $state<Set<string>>(new Set());
+    const resolveScript = $derived(scriptResolver(knownScripts));
+    let _treeTimer: ReturnType<typeof setTimeout> | null = null;
+    async function refreshKnownScripts() {
         try {
-            resolveScript = scriptResolver(collectScriptPaths(await listScriptsTree()));
+            knownScripts = collectScriptPaths(await listScriptsTree());
         } catch { /* best-effort — links just stay disabled */ }
+    }
+    onMount(() => {
+        refreshKnownScripts();
+        const unsub = subscribeWs('script:running', () => {
+            if (_treeTimer) clearTimeout(_treeTimer);
+            _treeTimer = setTimeout(refreshKnownScripts, 500);
+        });
+        return () => {
+            unsub();
+            if (_treeTimer) clearTimeout(_treeTimer);
+        };
     });
 
     function openScript(path: string, line?: number, column?: number) {
