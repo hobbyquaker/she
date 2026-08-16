@@ -47,6 +47,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [A4 — Session persistence](#a4--session-persistence)
 - [A5 — Secrets management](#a5--secrets-management)
 - [A6 — AI-generated auto-commit messages](#a6--ai-generated-auto-commit-messages)
+- [A7 — Relicense to AGPL-3.0-or-later](#a7--relicense-to-agpl-30-or-later)
 
 **Testing**
 - [T1 — Auth module unit tests](#t1--auth-module-unit-tests)
@@ -375,6 +376,26 @@ Store secrets (named groups of arbitrary string fields, e.g. `{ "smtp": { "passw
 ### A6 — AI-generated auto-commit messages
 
 When auto-commit is enabled and a script is saved (or renamed/deleted), instead of the generic `"update <path>"` message, ask the configured AI to generate a meaningful commit message based on the diff (`git diff --cached`). Should be best-effort: fall back to the generic message if the AI call fails or times out. Needs a budget-conscious prompt (diff only, no extra context) and a short timeout so saves don't feel sluggish.
+
+### A7 — Relicense to AGPL-3.0-or-later
+
+**Goal:** no cloud hosting / SaaS of *modified* she without copyleft. she is currently `GPL-3.0-or-later`, which has exactly the SaaS loophole this is about: running a modified version as a hosted service is not "conveying" under GPLv3, so a provider could modify she and share nothing. AGPLv3 §13 closes that: anyone letting users interact with a modified version over a network (she's web UI qualifies unambiguously) must offer those users the complete corresponding source.
+
+**Understood limitations (accepted):** AGPL does not forbid SaaS as such — hosting *unmodified* she commercially stays permitted (source obligation satisfied by the public repo), and separate proprietary software talking to she over its APIs (MQTT, HTTP, user scripts) is generally not captured. Preventing all unblessed commercial hosting would require a non-open-source license (SSPL/BSL-style) — explicitly not the goal.
+
+**Facts making the switch clean:**
+
+- Sole copyright holder (LICENSE names Sebastian Raff; AI co-author trailers carry no copyright claim) — relicensing needs no third-party consent. The existing "commercial license available" note remains valid; dual licensing works identically under AGPL.
+- Dependencies (Apache-2.0 matter.js, MIT mqtt, …) are one-way compatible into AGPLv3; AGPLv3 ↔ GPLv3 (feezal) interoperate by design via the mutual §13 clauses.
+- Published versions ≤ the last GPL release keep their license irrevocably; the change applies from the next release.
+
+**Steps when executing:**
+
+1. Replace LICENSE body with the AGPL-3.0 text, keeping the copyright line and the commercial-license paragraph.
+2. `"license": "AGPL-3.0-or-later"` in `package.json` (and `web/package.json` for consistency).
+3. Update the README license section; add a short relicensing note (which version the switch happens at).
+4. Bump at least a minor version so the license boundary is obvious.
+5. Consider adopting a CLA (feezal has `CLA.md`) before accepting outside contributions, to preserve the ability to dual-license.
 
 ## Testing
 
