@@ -12,6 +12,9 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 ## Table of Contents
 
+**Bugs**
+- [B6 — matter.js logs recurring "FATAL Unhandled error detected: {}" — say what actually failed](#b6--matterjs-logs-recurring-fatal-unhandled-error-detected---say-what-actually-failed)
+
 **Script Engine**
 - [S1 — Async callback safety: proper per-dispatch Promise wrapping](#s1--async-callback-safety-proper-per-dispatch-promise-wrapping)
 - [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(heartbeat shipped)*
@@ -57,6 +60,27 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [T4 — Rapid hot-reload integration tests](#t4--rapid-hot-reload-integration-tests)
 
 ---
+
+## Bugs
+
+### B6 — matter.js logs recurring "FATAL Unhandled error detected: {}" — say what actually failed
+
+**Reported (08/2026).** The Logs tab repeatedly shows:
+
+```
+ERROR matter.js: 2026-08-17 16:17:04.727 FATAL Unhandled Unhandled error detected: {}
+```
+
+`{}` says nothing — neither what failed nor where. Two problems to solve: make the report informative, and then find out what is actually failing repeatedly.
+
+**Where it comes from.** matter.js's unhandled-error catcher (the `Unhandled` facility) logs through the Logger destination bridge added with the commissioning-debuggability work (`src/matter/controller.js` init: `Logger.destinations.default.write`). The `{}` means the thrown value rendered empty in matter.js's PLAIN diagnostic format — typically a non-`Error` throwable (plain object / event payload) whose properties the formatter doesn't enumerate, or an `Error` whose details got lost in formatting.
+
+**Improvement plan:**
+
+1. **Enrich the bridge**: the destination `write(text, message)` receives the structured `Diagnostic.Message` — when the formatted text ends in an uninformative value (`{}`, `[object Object]`, empty), inspect `message.values`: serialize `Error`s with `message` + `stack`, other objects via depth-limited `JSON.stringify` (guard cycles), and append that to the logged line.
+2. **Hook the source**: check whether matter.js lets she register its own unhandled-error observer (Environment/runtime hooks) to capture the error object *before* formatting, with stack and facility context.
+3. **Diagnose the repetition**: with real details visible, identify the recurring failure — the periodicity suggests a subscription/reconnect loop for a device (correlate with device online/offline transitions and the Govee node).
+4. Consider rate-limiting identical matter.js error lines in the bridge so a repeating failure doesn't flood the Logs tab.
 
 ## Script Engine
 
