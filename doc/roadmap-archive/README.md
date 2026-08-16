@@ -11,12 +11,14 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [B3 — Matter tab shows stale state until reload after freshly pairing a device ✅ fixed](B3.md)
 - [B4 — Matter tab attribute-action buttons (Step ▲/▼) do nothing ✅ fixed](B4.md)
 - [B5 — she.mqtt.age() intermittently returns NaN ✅ fixed](B5.md)
+- [B6 — matter.js logs recurring "FATAL Unhandled error detected: {}" ✅ fixed](B6.md)
 
 ## Web UI & Editor
 
 - [U7 — Hide the log panel when no file is open in the Scripts tab ✅ implemented](U7.md)
 - [U8 — Logs tab: clickable script prefix opens the script in the editor ✅ implemented](U8.md)
 - [U9 — Log views: show milliseconds in timestamps ✅ implemented](U9.md)
+- [U10 — Log views: script-with-line-number errors link to the editor at that line ✅ implemented](U10.md)
 
 ## MQTT, Matter & Broker
 

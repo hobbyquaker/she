@@ -12,9 +12,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 ## Table of Contents
 
-**Bugs**
-- [B6 — matter.js logs recurring "FATAL Unhandled error detected: {}" — say what actually failed](#b6--matterjs-logs-recurring-fatal-unhandled-error-detected---say-what-actually-failed)
-
 **Script Engine**
 - [S1 — Async callback safety: proper per-dispatch Promise wrapping](#s1--async-callback-safety-proper-per-dispatch-promise-wrapping)
 - [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(heartbeat shipped)*
@@ -31,7 +28,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [U4 — Find & Replace entry point](#u4--find--replace-entry-point)
 - [U5 — File tree virtualization](#u5--file-tree-virtualization)
 - [U6 — Script-specific configuration UI](#u6--script-specific-configuration-ui) ⚠️ *(questionable idea)*
-- [U10 — Log views: script-with-line-number errors link to the editor at that line](#u10--log-views-script-with-line-number-errors-link-to-the-editor-at-that-line)
 
 **MQTT, Matter & Broker**
 - [M1 — Per-topic value history](#m1--per-topic-value-history)
@@ -60,27 +56,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [T4 — Rapid hot-reload integration tests](#t4--rapid-hot-reload-integration-tests)
 
 ---
-
-## Bugs
-
-### B6 — matter.js logs recurring "FATAL Unhandled error detected: {}" — say what actually failed
-
-**Reported (08/2026).** The Logs tab repeatedly shows:
-
-```
-ERROR matter.js: 2026-08-17 16:17:04.727 FATAL Unhandled Unhandled error detected: {}
-```
-
-`{}` says nothing — neither what failed nor where. Two problems to solve: make the report informative, and then find out what is actually failing repeatedly.
-
-**Where it comes from.** matter.js's unhandled-error catcher (the `Unhandled` facility) logs through the Logger destination bridge added with the commissioning-debuggability work (`src/matter/controller.js` init: `Logger.destinations.default.write`). The `{}` means the thrown value rendered empty in matter.js's PLAIN diagnostic format — typically a non-`Error` throwable (plain object / event payload) whose properties the formatter doesn't enumerate, or an `Error` whose details got lost in formatting.
-
-**Improvement plan:**
-
-1. **Enrich the bridge**: the destination `write(text, message)` receives the structured `Diagnostic.Message` — when the formatted text ends in an uninformative value (`{}`, `[object Object]`, empty), inspect `message.values`: serialize `Error`s with `message` + `stack`, other objects via depth-limited `JSON.stringify` (guard cycles), and append that to the logged line.
-2. **Hook the source**: check whether matter.js lets she register its own unhandled-error observer (Environment/runtime hooks) to capture the error object *before* formatting, with stack and facility context.
-3. **Diagnose the repetition**: with real details visible, identify the recurring failure — the periodicity suggests a subscription/reconnect loop for a device (correlate with device online/offline transitions and the Govee node).
-4. Consider rate-limiting identical matter.js error lines in the bridge so a repeating failure doesn't flood the Logs tab.
 
 ## Script Engine
 
@@ -276,17 +251,6 @@ Open questions that need resolving before this is worth implementing:
 - **Config files in file tree** — hidden entirely, or visible but styled differently (greyed out, non-editable as text)?
 - **Multi-instance** — the real power of Node-RED's model is running the same node type N times with different configs. With file-based scripts the natural mapping is one file = one config, which means you still need N script files for N instances. Whether a smarter multi-instance model is worth the complexity is unclear.
 - **Interaction with sheDB** — sheDB already provides per-document storage that scripts can read. Is this feature adding enough over `she.db.get('config/myscript')` to justify the complexity?
-
-### U10 — Log views: script-with-line-number errors link to the editor at that line
-
-When an error in the Logs tab or the Scripts tab log panel carries a script location with a line number (e.g. a stack-trace frame like `licht/hobbyraum.js:12:5`, or a SyntaxError position), render it as a link that switches to the Scripts tab, opens the script, and places the Monaco cursor on that line.
-
-Builds directly on the U8 mechanism (archived — clickable script prefix → `she:open-script` window event → `openTab()` in `Scripts.svelte`):
-
-- **Parsing**: besides the U8 label prefix (`/^([^:\n]+\.js):\s/`), scan the message body for `<path>.js:<line>[:<col>]` occurrences (stack-trace frames, compile-error positions). Only linkify paths that resolve to an existing script (match against the file tree) so external/node-internal frames stay plain text.
-- **Event**: extend the `she:open-script` CustomEvent detail with an optional `line` (and `column`); `Scripts.svelte` after `openTab()`/`switchTab()` calls `editor.revealLineInCenter(line)` + `editor.setPosition({ lineNumber: line, column })` and focuses the editor.
-- **Scope**: the Logs tab (`Logs.svelte`) and the per-script log panel in `Scripts.svelte` (there the prefix is already implicit — the stack-frame locations are the interesting part).
-- **Verify line-number accuracy**: she's error logging filters stack frames (`loadScript` in `src/index.js`); confirm that reported line numbers match the on-disk file (no wrapper offset — the D1 async-IIFE analysis assumed line numbers stay correct, which is a reason this feature can work at all).
 
 ## MQTT, Matter & Broker
 

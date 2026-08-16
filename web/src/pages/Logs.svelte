@@ -2,6 +2,8 @@
     import { onDestroy, onMount } from 'svelte';
     import { subscribeLog, getLogBuffer, getHistoryEntries, type LogEntry } from '../lib/ws.js';
     import { fmtLogTs as fmt } from '../lib/format.js';
+    import { splitLogMessage, scriptResolver, collectScriptPaths } from '../lib/log-links.js';
+    import { listScriptsTree } from '../lib/api.js';
 
     const MAX_LINES = 2000;
     let entries = $state<LogEntry[]>(getLogBuffer());
@@ -42,16 +44,19 @@
 
     function clear() { entries = []; }
 
-    // Script-label prefix ("some/path/script.js: message") — same pattern the
-    // Scripts tab uses for log routing. Clicking it opens the script there.
-    const SCRIPT_RE = /^([^:\n]+\.js):\s/;
-    function scriptOf(msg: string): string | null {
-        const m = msg.match(SCRIPT_RE);
-        return m ? m[1] : null;
-    }
-    function openScript(path: string) {
+    // Script locations in messages (label prefix and stack-frame positions)
+    // become links into the editor. Known script paths are fetched once so
+    // unrelated .js mentions stay plain text.
+    let resolveScript = $state<(p: string) => string | null>(() => null);
+    onMount(async () => {
+        try {
+            resolveScript = scriptResolver(collectScriptPaths(await listScriptsTree()));
+        } catch { /* best-effort — links just stay disabled */ }
+    });
+
+    function openScript(path: string, line?: number, column?: number) {
         location.hash = 'scripts';
-        window.dispatchEvent(new CustomEvent('she:open-script', { detail: { path } }));
+        window.dispatchEvent(new CustomEvent('she:open-script', { detail: { path, line, column } }));
     }
 
     function visible(e: LogEntry): boolean {
@@ -88,12 +93,16 @@
              in a log stream, and duplicate keys make Svelte throw, killing the
              whole list. -->
         {#each entries.filter(visible) as e}
-            {@const script = scriptOf(e.msg)}
             <div class="line {e.level}">
                 <span class="ts">{fmt(e.ts)}</span>
                 <span class="lvl">{e.level.toUpperCase()}</span>
                 <span class="msg">
-                    {#if script}<button class="script-link" title="Open {script} in the editor" onclick={() => openScript(script)}>{script}:</button>{e.msg.slice(script.length + 1)}{:else}{e.msg}{/if}
+                    {#each splitLogMessage(e.msg, resolveScript) as seg}
+                        {#if seg.link}
+                            {@const l = seg.link}
+                            <button class="script-link" title="Open {l.path}{l.line ? ` at line ${l.line}` : ''} in the editor" onclick={() => openScript(l.path, l.line, l.column)}>{seg.text}</button>
+                        {:else}{seg.text}{/if}
+                    {/each}
                 </span>
             </div>
         {/each}

@@ -28,6 +28,7 @@
     } from '../lib/api.js';
     import { subscribeLog, subscribeWs, getHistoryEntries, type LogEntry } from '../lib/ws.js';
     import { fmtLogTs as fmt } from '../lib/format.js';
+    import { splitLogMessage, scriptResolver, collectScriptPaths } from '../lib/log-links.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import Chat from './Chat.svelte';
@@ -217,6 +218,19 @@
     let logAutoscroll = $state(true);
     const LOG_LEVELS = ['all', 'debug', 'info', 'warn', 'error'] as const;
     const LOG_LEVEL_ORDER = { debug: 0, info: 1, warn: 2, error: 3 } as const;
+
+    // Script locations in log messages (stack frames etc.) link into the editor
+    const resolveScript = $derived(scriptResolver(collectScriptPaths(tree)));
+
+    /** Open a script and optionally place the cursor on a line (e.g. from a stack frame). */
+    async function openAtLine(path: string, line?: number, column?: number) {
+        await openTab(path);
+        if (line && editor) {
+            editor.revealLineInCenter(line);
+            editor.setPosition({ lineNumber: line, column: column ?? 1 });
+            editor.focus();
+        }
+    }
 
     function logEntryVisible(e: LogEntry): boolean {
         if (logFilterLevel !== 'all' && LOG_LEVEL_ORDER[e.level] < LOG_LEVEL_ORDER[logFilterLevel]) return false;
@@ -537,11 +551,12 @@ declare const she: {
         mq.addEventListener('change', syncMonacoTheme);
 
         // Open a script requested by another page (e.g. clicking a script
-        // prefix in the Logs tab). All pages stay mounted, so this is live
-        // even while the Scripts tab is hidden.
+        // location in the Logs tab). All pages stay mounted, so this is live
+        // even while the Scripts tab is hidden. Optional line/column place the
+        // Monaco cursor (e.g. stack-frame locations).
         const onOpenScript = (e: Event) => {
-            const path = (e as CustomEvent).detail?.path;
-            if (typeof path === 'string' && path) openTab(path);
+            const { path, line, column } = (e as CustomEvent).detail ?? {};
+            if (typeof path === 'string' && path) openAtLine(path, typeof line === 'number' ? line : undefined, typeof column === 'number' ? column : undefined);
         };
         window.addEventListener('she:open-script', onOpenScript);
 
@@ -1786,7 +1801,14 @@ declare const she: {
                                 <div class="log-line {e.level}">
                                     <span class="ts">{fmt(e.ts)}</span>
                                     <span class="lvl">{e.level.toUpperCase()}</span>
-                                    <span class="msg">{e.msg}</span>
+                                    <span class="msg">
+                                        {#each splitLogMessage(e.msg, resolveScript) as seg}
+                                            {#if seg.link}
+                                                {@const l = seg.link}
+                                                <button class="script-link" title="Open {l.path}{l.line ? ` at line ${l.line}` : ''}" onclick={() => openAtLine(l.path, l.line, l.column)}>{seg.text}</button>
+                                            {:else}{seg.text}{/if}
+                                        {/each}
+                                    </span>
                                 </div>
                             {/each}
                             {#if (currentTab?.logEntries.length ?? 0) === 0}
@@ -2309,6 +2331,11 @@ declare const she: {
     .log-line.warn  .lvl { color: var(--fg-warn); }
     .log-line.error .lvl { color: var(--fg-err); }
     .log-line .msg { color: var(--fg-text); word-break: break-all; }
+    .script-link {
+        background: none; border: none; padding: 0;
+        font: inherit; color: var(--fg-brand); cursor: pointer;
+    }
+    .script-link:hover { text-decoration: underline; }
     .log-empty { color: var(--fg-dim); font-size: 11px; padding: 4px 8px; font-style: italic; }
 
     /* ── Folder selected / drag target ─────────────────────────────────────── */

@@ -124,6 +124,40 @@ describe('matter controller', () => {
         await expect(controller.close()).resolves.toBeUndefined();
     });
 
+    // ── matter.js log bridge (B6) ─────────────────────────────────────────────
+
+    test('log bridge enriches uninformative error lines from message values and rate-limits repeats (B6)', async () => {
+        ServerNode.create.mockResolvedValue(makeFakeServer());
+        await controller.init('/tmp/matter', fakeLog);
+        const { Logger, LogLevel } = require('@matter/main');
+        const write = Logger.destinations.default.write;
+
+        const err = new Error('boom');
+        write('2026-08-17 16:17:04.727 FATAL Unhandled Unhandled error detected: {}', { level: LogLevel.FATAL, values: ['Unhandled error detected:', err] });
+        const call = fakeLog.error.mock.calls.find((c) => c[0] === 'matter.js:');
+        expect(call).toBeDefined();
+        expect(call[1]).toContain('boom'); // detail recovered from the Error value
+        expect(call[1]).not.toMatch(/^\d{4}-/); // embedded matter.js timestamp stripped
+
+        // identical repeat within the window → suppressed
+        fakeLog.error.mockClear();
+        write('2026-08-17 16:17:05.100 FATAL Unhandled Unhandled error detected: {}', { level: LogLevel.FATAL, values: ['Unhandled error detected:', err] });
+        expect(fakeLog.error).not.toHaveBeenCalled();
+
+        // a different error flushes the suppression summary and logs normally
+        write('2026-08-17 16:17:06.000 ERROR Something else broke', { level: LogLevel.ERROR, values: ['Something else broke'] });
+        expect(fakeLog.error).toHaveBeenCalledWith(expect.stringContaining('repeated 1 more time'));
+        expect(fakeLog.error).toHaveBeenCalledWith('matter.js:', expect.stringContaining('Something else broke'));
+    });
+
+    test('reportUnhandledError logs full detail for non-Error throwables (B6)', async () => {
+        ServerNode.create.mockResolvedValue(makeFakeServer());
+        await controller.init('/tmp/matter', fakeLog);
+        const { Logger } = require('@matter/main');
+        Logger.reportUnhandledError({ code: 'timeout', peer: 42 });
+        expect(fakeLog.error).toHaveBeenCalledWith('matter.js: unhandled error:', expect.stringContaining('timeout'));
+    });
+
     // ── listPaired ────────────────────────────────────────────────────────────
 
     test('listPaired returns empty array when not started', () => {

@@ -18,6 +18,13 @@ const COMMISSION_TIMEOUT_MS = 120000;
 /** @type {import('@matter/main').ServerNode | null} */
 let _server = null;
 let _log = null;
+// Rate-limit state for repeating matter.js error lines (B6)
+let _lastMatterErr = { line: '', ts: 0, suppressed: 0 };
+
+/** Depth-limited, cycle-safe rendering of arbitrary throwables/objects. */
+function _inspect(v) {
+    return require('util').inspect(v, { depth: 6, breakLength: 160 });
+}
 /** @type {((msg: object) => void) | null} */
 let _broadcast = null;
 
@@ -115,9 +122,49 @@ async function init(storagePath, log, broadcastFn) {
     Logger.format = LogFormat.PLAIN;
     Logger.level = LogLevel.INFO;
     Logger.destinations.default.write = (text, message) => {
-        if (message.level >= LogLevel.ERROR) _log.error('matter.js:', text);
-        else if (message.level === LogLevel.WARN) _log.warn('matter.js:', text);
-        else _log.debug('matter.js:', text);
+        // she's log adds its own timestamp — drop matter.js's embedded one
+        let line = text.replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\s*/, '');
+        if (message.level >= LogLevel.ERROR) {
+            // PLAIN formatting renders some throwables as "{}" — recover the
+            // detail from the structured message values (B6).
+            if (/(\{\}|\[object \w+\])\s*$/.test(line)) {
+                const details = (message.values ?? [])
+                    .filter((v) => v !== null && typeof v === 'object')
+                    .map((v) => _inspect(v))
+                    .filter((d) => d && d !== '{}');
+                if (details.length) line += ' — ' + details.join(' — ');
+            }
+            // Rate-limit identical repeating error lines (e.g. a failing
+            // reconnect loop): suppress repeats within 30 s, keep a heartbeat.
+            const now = Date.now();
+            if (line === _lastMatterErr.line && now - _lastMatterErr.ts < 30000) {
+                _lastMatterErr.ts = now;
+                _lastMatterErr.suppressed++;
+                if (_lastMatterErr.suppressed % 20 !== 0) return;
+                _log.error(`matter.js: (error repeated ${_lastMatterErr.suppressed} times) ${line}`);
+                return;
+            }
+            if (_lastMatterErr.suppressed % 20 !== 0) {
+                _log.error(`matter.js: (previous error repeated ${_lastMatterErr.suppressed} more times)`);
+            }
+            _lastMatterErr = { line, ts: now, suppressed: 0 };
+            _log.error('matter.js:', line);
+        } else if (message.level === LogLevel.WARN) {
+            _log.warn('matter.js:', line);
+        } else {
+            _log.debug('matter.js:', line);
+        }
+    };
+
+    // matter.js's default unhandled-error reporter logs the bare value, which
+    // renders as "{}" for non-Error throwables and drops cause / AggregateError
+    // details. The hook is explicitly replaceable — report full detail (B6).
+    Logger.reportUnhandledError = (error) => {
+        try {
+            _log.error('matter.js: unhandled error:', _inspect(error));
+        } catch {
+            /* never throw from the error reporter */
+        }
     };
 
     // Configure storage before anything else touches StorageService
