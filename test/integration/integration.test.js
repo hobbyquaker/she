@@ -544,6 +544,21 @@ describe('she.global — shared mutable object across scripts', () => {
     }, 10000);
 });
 
+describe('require of a missing module throws and stops the script', () => {
+    it('logs the error with script attribution and a normalized path', (done) => {
+        subscribe('ms', /test-require-missing\.js: Error: Cannot find module/, () => done());
+    }, 20000);
+
+    it('does not execute code after the failing require', async () => {
+        let leaked = false;
+        subscribe('ms', /unreachable-after-missing-require/, () => {
+            leaked = true;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        expect(leaked).toBe(false);
+    }, 20000);
+});
+
 describe('she.mqtt.age survives repeated identical values (B5)', () => {
     it('returns a finite age after the same value was published twice', (done) => {
         subscribe('ms', /test-age\.js: age-result (\S+)/, (line, m) => {

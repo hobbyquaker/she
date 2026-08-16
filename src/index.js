@@ -1122,42 +1122,33 @@ function runScript(script, name, _origin) {
             if (modules[md]) {
                 return modules[md];
             }
-            try {
-                let result;
-                if (md.match(/^\.\//) || md.match(/^\.\.\//)) {
-                    // Relative import â€” resolve from the script's own directory
-                    const tmp = './' + path.relative(__dirname, path.join(scriptDir, md));
-                    she.debug('require', tmp);
-                    result = require(tmp);
-                } else {
-                    // Absolute import â€” try ~/.she/node_modules/ first (user-installed),
-                    // then fall back to engine's own require (builtins + engine deps).
-                    try {
-                        result = _userRequire(md);
-                        she.debug('require (user)', md);
-                    } catch {
-                        const localMod = path.join(scriptDir, 'node_modules', md, 'package.json');
-                        if (fs.existsSync(localMod)) {
-                            result = require(path.join(scriptDir, 'node_modules', md));
-                            she.debug('require (local)', md);
-                        } else {
-                            result = require(md);
-                            she.debug('require', md);
-                        }
+            // Failures throw (Cannot find module, syntax errors in the required
+            // file, …) and thereby stop the requiring script — a script must not
+            // silently continue with an undefined module.
+            let result;
+            if (md.match(/^\.\//) || md.match(/^\.\.\//)) {
+                // Relative import — resolve from the script's own directory
+                she.debug('require', md);
+                result = require(path.resolve(scriptDir, md));
+            } else {
+                // Absolute import — try ~/.she/node_modules/ first (user-installed),
+                // then fall back to engine's own require (builtins + engine deps).
+                try {
+                    result = _userRequire(md);
+                    she.debug('require (user)', md);
+                } catch {
+                    const localMod = path.join(scriptDir, 'node_modules', md, 'package.json');
+                    if (fs.existsSync(localMod)) {
+                        result = require(path.join(scriptDir, 'node_modules', md));
+                        she.debug('require (local)', md);
+                    } else {
+                        result = require(md);
+                        she.debug('require', md);
                     }
                 }
-                modules[md] = result;
-                return result;
-            } catch (err) {
-                const lines = err.stack.split('\n');
-                const stack = [];
-                lines.forEach((line) => {
-                    if (!line.match(/module\.js:/)) {
-                        stack.push(line);
-                    }
-                });
-                log.error(name + ': ' + stack);
             }
+            modules[md] = result;
+            return result;
         },
 
         console: {
@@ -1212,7 +1203,15 @@ function runScript(script, name, _origin) {
 
     scriptDomain.run(() => {
         log.debug(logLabel, 'running');
-        script.runInContext(context);
+        try {
+            script.runInContext(context);
+        } catch (e) {
+            // Contain top-level script errors: without this, the exception
+            // unwinds through the caller (e.g. the watcher batch loading many
+            // scripts in one tick) and aborts loading of subsequent scripts.
+            // Route through the domain handler for the usual attributed log.
+            scriptDomain.emit('error', e);
+        }
     });
 
     // Log a summary of what was registered — symmetric with the unload summary

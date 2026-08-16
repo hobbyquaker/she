@@ -33,6 +33,8 @@ Scripts use `require()` for all imports. Node.js module resolution proceeds in t
 
 Relative imports (`./helper`, `../lib/utils`) are resolved relative to the directory of the calling script.
 
+A failing `require()` — module not found, or an error thrown while loading the required file — **throws** and thereby stops the requiring script (at top level the script load aborts; inside a callback the domain handler logs it). A script never continues silently with an `undefined` module.
+
 ### No ESM (`import`) support
 
 Scripts run in a **CommonJS VM context**, not as ES modules. Static `import` declarations are **not supported** and will cause a `SyntaxError` at compile time:
