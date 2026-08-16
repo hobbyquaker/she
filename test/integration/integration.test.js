@@ -544,6 +544,18 @@ describe('she.global — shared mutable object across scripts', () => {
     }, 10000);
 });
 
+describe('she.mqtt.age survives repeated identical values (B5)', () => {
+    it('returns a finite age after the same value was published twice', (done) => {
+        subscribe('ms', /test-age\.js: age-result (\S+)/, (line, m) => {
+            expect(Number.isFinite(Number(m[1]))).toBe(true);
+            done();
+        });
+        mqtt.publish('test/age/value', '42');
+        mqtt.publish('test/age/value', '42'); // repeat — used to wipe lc from the stored state
+        mqtt.publish('test/age/trigger', '1');
+    }, 20000);
+});
+
 describe('empty payload clears the topic from the state store (B2)', () => {
     // Note: callbacks still firing for empty-payload triggers is covered by the
     // she.global test above (it publishes an empty payload on test/global/get).

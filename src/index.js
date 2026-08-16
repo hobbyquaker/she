@@ -547,8 +547,13 @@ if (config.url) {
                 state.ts = new Date().getTime();
             }
             oldState = store.getObject('mqtt::' + topic) || {};
-            if (oldState.val !== state.val) {
-                state.lc = state.ts;
+            // lc (last change): prefer a payload-provided value; otherwise set it
+            // on value change and carry the previous lc over when the value is
+            // unchanged. Previously the old lc was simply lost on repeated
+            // identical values, so she.mqtt.age() returned NaN for topics whose
+            // payloads don't carry their own lc (B5).
+            if (state.lc === undefined) {
+                state.lc = oldState.val !== state.val ? state.ts : (oldState.lc ?? state.ts);
             }
             store.setObject('mqtt::' + topic, state);
             stateChange(topic, state, oldState, msg);

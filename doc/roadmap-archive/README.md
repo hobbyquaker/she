@@ -10,6 +10,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [B2 — Cleared retained topics linger in the state store / MQTT tab ✅ fixed](B2.md)
 - [B3 — Matter tab shows stale state until reload after freshly pairing a device ✅ fixed](B3.md)
 - [B4 — Matter tab attribute-action buttons (Step ▲/▼) do nothing ✅ fixed](B4.md)
+- [B5 — she.mqtt.age() intermittently returns NaN ✅ fixed](B5.md)
 
 ## Web UI & Editor
 

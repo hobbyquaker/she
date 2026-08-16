@@ -201,13 +201,18 @@ she.mqtt.link('sensor/temp/raw', 'sensor/temp/celsius', (raw) => (raw - 32) / 1.
 
 ### she.mqtt.age(topic)
 
-Returns the number of **seconds** since the topic's value last changed.
+Returns the number of **seconds** since the topic's value last changed (based on the state's `lc` timestamp). This works for every topic — payloads don't need to carry their own timestamps; she stamps arrival time on every message. Returns `NaN` for topics never seen.
+
+Note the semantics: `age()` measures the last *change*. For "seconds since the last *message*" (e.g. a sensor heartbeat that repeats the same value), use the `ts` property instead:
 
 ```js
 if (she.mqtt.age('home/motion/hall') > 300) {
     she.log('no motion for 5 minutes');
     she.mqtt.pub('home/light/hall', 0);
 }
+
+// seconds since the last message, regardless of value changes
+const sinceLastMsg = (Date.now() - she.mqtt.getProp('home/sensor/temp', 'ts')) / 1000;
 ```
 
 ---
