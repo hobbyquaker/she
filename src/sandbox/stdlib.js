@@ -148,7 +148,8 @@ module.exports = function (she, ctx = {}) {
     she.http = {
         /**
          * Fetch a URL and return a Promise that resolves to the response body.
-         * Resolves to parsed JSON when the Content-Type is application/json, plain text otherwise.
+         * Resolves to parsed JSON when the Content-Type is application/json and
+         * the body parses; falls back to the raw text body when parsing fails.
          * Rejects on non-2xx responses.
          * @param {string} url
          * @param {RequestInit} [options]
@@ -171,7 +172,15 @@ module.exports = function (she, ctx = {}) {
             const promise = fetch(url, { ...options, signal })
                 .then(async (r) => {
                     const ct = r.headers.get('content-type') || '';
-                    const body = ct.includes('json') ? await r.json() : await r.text();
+                    const text = await r.text();
+                    let body = text;
+                    if (ct.includes('json')) {
+                        try {
+                            body = JSON.parse(text);
+                        } catch {
+                            // Content-Type lied — deliver the raw body instead of throwing
+                        }
+                    }
                     const headers = {};
                     r.headers.forEach((v, k) => {
                         headers[k] = v;

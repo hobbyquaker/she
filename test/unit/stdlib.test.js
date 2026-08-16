@@ -428,9 +428,16 @@ describe('she.http.fetch()', () => {
     });
 
     it('returns parsed JSON body when Content-Type is application/json', async () => {
-        global.fetch.mockResolvedValue(mockFetchResponse({ contentType: 'application/json', body: { x: 1 } }));
+        global.fetch.mockResolvedValue(mockFetchResponse({ contentType: 'application/json', body: JSON.stringify({ x: 1 }) }));
         const res = await she.http.fetch('http://example.com/api');
         expect(res.body).toEqual({ x: 1 });
+        expect(res.code).toBe(200);
+    });
+
+    it('falls back to the raw body when a JSON Content-Type carries invalid JSON', async () => {
+        global.fetch.mockResolvedValue(mockFetchResponse({ contentType: 'application/json', body: 'not {json' }));
+        const res = await she.http.fetch('http://example.com/api');
+        expect(res.body).toBe('not {json');
         expect(res.code).toBe(200);
     });
 

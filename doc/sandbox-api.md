@@ -408,7 +408,7 @@ See [Cross-script patterns](examples/cross-script.md) for more patterns includin
 
 ### she.http.fetch(url, [options], [callback])
 
-Makes an HTTP/HTTPS request using the native `fetch` API. Automatically parses the response body: if the server returns a `Content-Type` containing `json`, the response is parsed as JSON; otherwise it is returned as plain text.
+Makes an HTTP/HTTPS request using the native `fetch` API. Automatically parses the response body: if the server returns a `Content-Type` containing `json`, the response is parsed as JSON; otherwise it is returned as plain text. When a JSON `Content-Type` carries a body that does not actually parse, the raw text body is returned instead of throwing.
 
 Rejects / calls `callback(err)` if the response status is not OK (4xx / 5xx). On error the `Error` object additionally carries `body`, `code`, and `headers` from the failed response.
 
