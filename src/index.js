@@ -303,9 +303,32 @@ let _sentinelValue = null; // unique value for this boot's sentinel
 const _STARTUP_TIMEOUT_MS = 10000; // ms to wait for broker before starting anyway
 const _SENTINEL_TIMEOUT_MS = config.sentinelTimeout; // ms to wait for sentinel after connecting
 
-function startOnce(reason) {
-    if (_started) return;
+// Script start waits on two gates: MQTT retained state (sentinel) and — when
+// the Matter controller is enabled — controller startup, so scripts using
+// she.matter.* at top level don't fail with "Matter controller not started".
+let _mqttGate = false;
+let _matterGate = !config.matterStorage; // pre-open when matter is disabled
+
+function _maybeStart() {
+    if (_started || !_mqttGate || !_matterGate) {
+        if (!_started && _mqttGate && !_matterGate) {
+            log.info('waiting for matter controller before starting scripts');
+        }
+        return;
+    }
     _started = true;
+    start();
+}
+
+function matterGateOpen() {
+    if (_matterGate) return;
+    _matterGate = true;
+    _maybeStart();
+}
+
+function startOnce(reason) {
+    if (_started || _mqttGate) return;
+    _mqttGate = true;
     if (_startupTimeout) {
         clearTimeout(_startupTimeout);
         _startupTimeout = null;
@@ -316,7 +339,7 @@ function startOnce(reason) {
     }
     if (reason) log.info(reason);
     broadcast({ type: 'mqtt:status', ready: true, connected });
-    start();
+    _maybeStart();
 }
 
 // Wire up the MQTT API: pass the state store and a getter for the live MQTT client.
@@ -605,9 +628,21 @@ if (config.matterStorage) {
         matterStoragePath = ensureStorageDir('matter');
     }
     log.info('matter controller starting, storage:', matterStoragePath);
-    matterController.init(matterStoragePath, log, broadcast).catch((err) => {
-        log.error('matter controller init failed:', err.message, err.stack);
-    });
+    // Scripts wait for the controller (see _maybeStart) — but never forever:
+    // a hanging start must not block the whole script engine.
+    const _matterStartTimeout = setTimeout(() => {
+        if (!_started) log.warn('matter controller not ready after 30s — starting scripts anyway');
+        matterGateOpen();
+    }, 30000);
+    matterController
+        .init(matterStoragePath, log, broadcast)
+        .catch((err) => {
+            log.error('matter controller init failed:', err.message, err.stack);
+        })
+        .finally(() => {
+            clearTimeout(_matterStartTimeout);
+            matterGateOpen();
+        });
 } else {
     log.warn('matter controller disabled â€” set matterStorage in config.json to enable');
 }
@@ -626,7 +661,10 @@ if (config.url) {
         startOnce();
     }, _STARTUP_TIMEOUT_MS);
 } else {
-    start();
+    // No broker configured — open the MQTT gate directly (scripts may still
+    // wait for the Matter controller, see _maybeStart).
+    _mqttGate = true;
+    _maybeStart();
 }
 
 function stateChange(topic, state, oldState, msg) {
