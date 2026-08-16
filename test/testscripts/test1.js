@@ -59,7 +59,9 @@ she.mqttsub(/regexp/, (topic, val) => {
 
 she.info(require('./lib/libtest.js'));
 she.info(require('dummy'));
-require('./lib/libtest2.js');
+// NOTE: the intentionally-throwing require('./lib/libtest2.js') lives in
+// test-require-error.js — a failing require stops the script, so it must not
+// sit in the middle of this one.
 const suncalc = require('suncalc');
 
 she.schedule('sunrise', { shift: -1620, random: 360 }, () => {

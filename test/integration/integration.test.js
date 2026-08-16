@@ -227,8 +227,8 @@ describe('require()', () => {
     it('should load a module', (done) => {
         subscribe('ms', /Dummy Module/, () => done());
     }, 60000);
-    it('should throw on invalid module', (done) => {
-        subscribe('ms', /ReferenceError: thisDoesNotExist is not defined/, () => done());
+    it('should throw on invalid module and attribute it to the requiring script', (done) => {
+        subscribe('ms', /test-require-error\.js: ReferenceError: thisDoesNotExist is not defined/, () => done());
     }, 60000);
 });
 
@@ -551,7 +551,7 @@ describe('require of a missing module throws and stops the script', () => {
 
     it('does not execute code after the failing require', async () => {
         let leaked = false;
-        subscribe('ms', /unreachable-after-missing-require/, () => {
+        subscribe('ms', /unreachable-after-(missing|failing)-require/, () => {
             leaked = true;
         });
         await new Promise((resolve) => setTimeout(resolve, 1000));
