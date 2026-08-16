@@ -48,6 +48,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [A5 — Secrets management](#a5--secrets-management)
 - [A6 — AI-generated auto-commit messages](#a6--ai-generated-auto-commit-messages)
 - [A7 — Relicense to AGPL-3.0-or-later](#a7--relicense-to-agpl-30-or-later)
+- [A8 — Docker image build on GitHub Actions, published to GHCR](#a8--docker-image-build-on-github-actions-published-to-ghcr)
 
 **Testing**
 - [T1 — Auth module unit tests](#t1--auth-module-unit-tests)
@@ -396,6 +397,17 @@ When auto-commit is enabled and a script is saved (or renamed/deleted), instead 
 3. Update the README license section; add a short relicensing note (which version the switch happens at).
 4. Bump at least a minor version so the license boundary is obvious.
 5. Consider adopting a CLA (feezal has `CLA.md`) before accepting outside contributions, to preserve the ability to dual-license.
+
+### A8 — Docker image build on GitHub Actions, published to GHCR
+
+A `Dockerfile` and `.dockerignore` exist, but images are neither built in CI nor published anywhere — Docker users must build locally. Add a workflow (e.g. `.github/workflows/docker.yml`, or a job in the existing `release.yml`) that builds and pushes to `ghcr.io/hobbyquaker/she`.
+
+- **Trigger:** on release/tag push (aligned with the npm publish flow in `publish.yml`), so image tags track released versions.
+- **Tags:** semver (`1.21.0`, `1.21`, `1`) + `latest` — `docker/metadata-action` generates these from the git tag.
+- **Multi-arch:** `linux/amd64` + `linux/arm64` via `docker/setup-qemu-action` + `docker/build-push-action` with buildx — homelab targets are often Raspberry Pi / ARM boxes. (feezal's `release-docker.yml` and its planned shared GHCR image follow the same pattern — see I3's docker-compose pairing.)
+- **Frontend:** `dist/web` is untracked — the image build must run `cd web && npm ci && npm run build` (either in the workflow before `docker build`, or as a build stage in the Dockerfile; verify what the current Dockerfile assumes).
+- **Auth:** `GITHUB_TOKEN` with `packages: write` permission — no extra secrets needed.
+- **Docs:** README/getting-started gain a `docker run`/`docker compose` example pulling from GHCR instead of building locally; note the volume for `--data-dir` and host networking for Matter (mDNS).
 
 ## Testing
 
