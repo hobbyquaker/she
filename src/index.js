@@ -196,13 +196,30 @@ const _global = {};
 let _blockingScript = null;
 let _blockingScriptTs = 0; // timestamp when the last _dispatch() call finished
 
-/** Wrap a user callback dispatch so the heartbeat can identify the active script. */
+/**
+ * Wrap a user callback dispatch so the heartbeat can identify the active
+ * script — and so async callback errors are caught close to their source with
+ * script attribution (S1): when the callback returns a Promise, a rejection is
+ * logged with the script's label. The global unhandledRejection handler stays
+ * as a last resort but cannot name the script; label-prefixed errors also show
+ * up in the script's log panel in the Scripts tab.
+ */
 function _dispatch(label, fn) {
     _blockingScript = label;
-    fn();
-    // Record end-time synchronously — no setImmediate, which would race with the
-    // heartbeat timer when blocking occurs inside a poll-phase (I/O) callback.
-    _blockingScriptTs = Date.now();
+    let result;
+    try {
+        result = fn();
+    } finally {
+        // Record end-time synchronously — no setImmediate, which would race with the
+        // heartbeat timer when blocking occurs inside a poll-phase (I/O) callback.
+        _blockingScriptTs = Date.now();
+    }
+    if (result && typeof result.then === 'function' && typeof result.catch === 'function') {
+        result.catch((err) => {
+            const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+            log.error(makeLabel(label) + ' async callback error: ' + msg);
+        });
+    }
 }
 
 // Sun scheduling
@@ -867,11 +884,11 @@ function runScript(script, name, _origin) {
                 subscriptions.push({ topic, options, callback: typeof callback === 'function' && scriptDomain.bind(callback), _script: name });
 
                 if (options.retain && store.has('mqtt::' + topic) && typeof callback === 'function') {
-                    callback(topic, store.get('mqtt::' + topic), store.getObject('mqtt::' + topic));
+                    _dispatch(name, () => callback(topic, store.get('mqtt::' + topic), store.getObject('mqtt::' + topic)));
                 } else if (options.retain && (/\/\+\//.test(topic) || /\+$/.test(topic) || /\+/.test(topic) || topic.endsWith('#')) && typeof callback === 'function') {
                     for (const [t, obj] of store.mqttEntries()) {
                         if (mqttWildcards(t, topic)) {
-                            callback(t, obj.val, obj);
+                            _dispatch(name, () => callback(t, obj.val, obj));
                         }
                     }
                 }

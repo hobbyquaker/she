@@ -42,8 +42,21 @@ module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
          * @returns {number}  listenerId
          */
         sub(nodeId, endpointId, clusterName, attrName, callback) {
+            // Wrap so callback errors (sync and async) are logged with the
+            // script's label — she.error carries the label, which also routes
+            // the line into the script's log panel in the Scripts tab (S1).
+            const wrapped = (value, oldValue) => {
+                try {
+                    const result = callback(value, oldValue);
+                    if (result && typeof result.then === 'function' && typeof result.catch === 'function') {
+                        result.catch((err) => she.error('async callback error:', err instanceof Error ? (err.stack ?? err.message) : String(err)));
+                    }
+                } catch (err) {
+                    she.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+                }
+            };
             try {
-                return controller.subscribeAttribute(trackingKey, nodeId, endpointId, clusterName, attrName, callback);
+                return controller.subscribeAttribute(trackingKey, nodeId, endpointId, clusterName, attrName, wrapped);
             } catch (err) {
                 scriptDomain.emit('error', err);
             }

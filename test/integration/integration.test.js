@@ -559,6 +559,13 @@ describe('require of a missing module throws and stops the script', () => {
     }, 20000);
 });
 
+describe('async callback errors are attributed to the script (S1)', () => {
+    it('logs a rejected async subscription callback with the script label', (done) => {
+        subscribe('ms', /test-async-error\.js: async callback error: Error: async-muh/, () => done());
+        mqtt.publish('test/async-error', '1');
+    }, 20000);
+});
+
 describe('she.mqtt.age survives repeated identical values (B5)', () => {
     it('returns a finite age after the same value was published twice', (done) => {
         subscribe('ms', /test-age\.js: age-result (\S+)/, (line, m) => {

@@ -13,7 +13,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 ## Table of Contents
 
 **Script Engine**
-- [S1 — Async callback safety: proper per-dispatch Promise wrapping](#s1--async-callback-safety-proper-per-dispatch-promise-wrapping)
 - [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(heartbeat shipped)*
 - [S3 — Graceful WebSocket shutdown](#s3--graceful-websocket-shutdown)
 - [S4 — Safe mode: start without executing scripts](#s4--safe-mode-start-without-executing-scripts)
@@ -58,10 +57,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 ---
 
 ## Script Engine
-
-### S1 — Async callback safety: proper per-dispatch Promise wrapping
-
-The global `unhandledRejection` handler added in v1.13.0 prevents daemon crashes but cannot attribute the rejection to a specific script. The correct fix is to wrap every user callback dispatch site so that async errors are caught close to their source and logged with the script name. In `stateChange`, `mqttEventCallbacks`, and the sun/schedule dispatch, replace `callback(...)` with `Promise.resolve(callback(...)).catch(err => log.error(scriptLabel, 'async callback error:', err.message))`. Requires touching ~6 dispatch sites but no API changes and no behaviour change for synchronous callbacks. Should also be applied in `stdlib.js` (the timer/or/and/max/min helpers). Estimated effort: ~30 lines.
 
 ### S2 — Per-script resource limits / blocking callback detection
 
