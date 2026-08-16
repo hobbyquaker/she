@@ -2,7 +2,7 @@
     "name": "she-her",
     "description": "her - home ecosystem renderer",
     "private": true,
-    "version": "1.20.8",
+    "version": "1.20.9",
     "type": "module",
     "scripts": {
         "dev": "vite",
