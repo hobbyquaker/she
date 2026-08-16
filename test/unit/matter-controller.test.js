@@ -479,9 +479,12 @@ describe('matter controller', () => {
 
     // ── subscribeAttribute / unsubscribe / cleanup ────────────────────────────
 
-    test('subscribeAttribute registers a listener and returns a listenerId', async () => {
-        const cancel = jest.fn();
-        const changeEventEmitter = { on: jest.fn(() => cancel) };
+    // The fake models the real @matter/general Observable: on() returns VOID,
+    // detaching requires off() with the same observer reference. (The previous
+    // fakes had on() return a cancel fn — encoding the exact wrong assumption
+    // that made cleanup a silent no-op and leaked a listener per hot-reload.)
+    function makeSubscriptionScenario() {
+        const changeEventEmitter = { on: jest.fn(), off: jest.fn() };
         const ep = {
             number: 1,
             state: { onOff: {} },
@@ -489,51 +492,51 @@ describe('matter controller', () => {
         };
         const fakeClientNode = makeFakeClientNode(BigInt('5'), { endpoints: [ep] });
         fakeClientNode.endpoints.for.mockReturnValue(ep);
-        const fakeServer = makeFakeServer([fakeClientNode]);
-        ServerNode.create.mockResolvedValue(fakeServer);
+        return { changeEventEmitter, fakeClientNode };
+    }
+
+    test('subscribeAttribute registers a listener and returns a listenerId', async () => {
+        const { changeEventEmitter, fakeClientNode } = makeSubscriptionScenario();
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
         await controller.init('/tmp/matter', fakeLog);
 
-        const cb = jest.fn();
-        const listenerId = controller.subscribeAttribute('/scripts/test.js', '5', 1, 'onOff', 'onOff', cb);
+        const listenerId = controller.subscribeAttribute('/scripts/test.js', '5', 1, 'onOff', 'onOff', jest.fn());
         expect(typeof listenerId).toBe('number');
-        expect(changeEventEmitter.on).toHaveBeenCalled();
+        expect(changeEventEmitter.on).toHaveBeenCalledWith(expect.any(Function));
     });
 
-    test('cleanup cancels all listeners for a script', async () => {
-        const cancel = jest.fn();
-        const changeEventEmitter = { on: jest.fn(() => cancel) };
-        const ep = {
-            number: 1,
-            state: { onOff: {} },
-            events: { onOff: { onOff$Changed: changeEventEmitter } },
-        };
-        const fakeClientNode = makeFakeClientNode(BigInt('5'), { endpoints: [ep] });
-        fakeClientNode.endpoints.for.mockReturnValue(ep);
-        const fakeServer = makeFakeServer([fakeClientNode]);
-        ServerNode.create.mockResolvedValue(fakeServer);
+    test('cleanup detaches all listeners of a script via off() with the registered observer', async () => {
+        const { changeEventEmitter, fakeClientNode } = makeSubscriptionScenario();
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        controller.subscribeAttribute('/scripts/test.js', '5', 1, 'onOff', 'onOff', jest.fn());
+        const observer = changeEventEmitter.on.mock.calls[0][0];
+        controller.cleanup('/scripts/test.js');
+        expect(changeEventEmitter.off).toHaveBeenCalledWith(observer);
+    });
+
+    test('unsubscribe detaches a single listener via off() with the registered observer', async () => {
+        const { changeEventEmitter, fakeClientNode } = makeSubscriptionScenario();
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        const id = controller.subscribeAttribute('/scripts/test.js', '5', 1, 'onOff', 'onOff', jest.fn());
+        const observer = changeEventEmitter.on.mock.calls[0][0];
+        controller.unsubscribe('/scripts/test.js', id);
+        expect(changeEventEmitter.off).toHaveBeenCalledWith(observer);
+    });
+
+    test('hot-reload cycle does not accumulate listeners (sub → cleanup → sub)', async () => {
+        const { changeEventEmitter, fakeClientNode } = makeSubscriptionScenario();
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
         await controller.init('/tmp/matter', fakeLog);
 
         controller.subscribeAttribute('/scripts/test.js', '5', 1, 'onOff', 'onOff', jest.fn());
         controller.cleanup('/scripts/test.js');
-        expect(cancel).toHaveBeenCalled();
-    });
-
-    test('unsubscribe cancels a single listener', async () => {
-        const cancel = jest.fn();
-        const changeEventEmitter = { on: jest.fn(() => cancel) };
-        const ep = {
-            number: 1,
-            state: { onOff: {} },
-            events: { onOff: { onOff$Changed: changeEventEmitter } },
-        };
-        const fakeClientNode = makeFakeClientNode(BigInt('5'), { endpoints: [ep] });
-        fakeClientNode.endpoints.for.mockReturnValue(ep);
-        const fakeServer = makeFakeServer([fakeClientNode]);
-        ServerNode.create.mockResolvedValue(fakeServer);
-        await controller.init('/tmp/matter', fakeLog);
-
-        const id = controller.subscribeAttribute('/scripts/test.js', '5', 1, 'onOff', 'onOff', jest.fn());
-        controller.unsubscribe('/scripts/test.js', id);
-        expect(cancel).toHaveBeenCalled();
+        controller.subscribeAttribute('/scripts/test.js', '5', 1, 'onOff', 'onOff', jest.fn());
+        // one attach was detached again — net one active listener
+        expect(changeEventEmitter.on).toHaveBeenCalledTimes(2);
+        expect(changeEventEmitter.off).toHaveBeenCalledTimes(1);
     });
 });

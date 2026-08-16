@@ -722,13 +722,18 @@ function subscribeAttribute(scriptFile, nodeId, endpointId, clusterName, attrNam
     if (!changeEvent) throw new Error(`Attribute "${attrName}" on cluster "${clusterName}" has no change event`);
 
     const listenerId = _nextListenerId++;
-    const cancel = changeEvent.on((value, oldValue) => {
+    const observer = (value, oldValue) => {
         try {
             callback(value, oldValue);
         } catch (err) {
             _log?.error(`matter subscriber error in ${scriptFile}:`, err.message);
         }
-    });
+    };
+    // Observable.on() returns void — detaching needs off() with the same
+    // observer reference. (A cancel based on on()'s return value silently did
+    // nothing, leaking one listener per hot-reload.)
+    changeEvent.on(observer);
+    const cancel = () => changeEvent.off(observer);
 
     if (!_listeners.has(scriptFile)) _listeners.set(scriptFile, new Map());
     _listeners.get(scriptFile).set(listenerId, { cancel });
@@ -756,13 +761,18 @@ function unsubscribe(scriptFile, listenerId) {
 function cleanup(scriptFile) {
     const scriptListeners = _listeners.get(scriptFile);
     if (!scriptListeners) return;
+    let cancelled = 0;
     for (const { cancel } of scriptListeners.values()) {
         try {
             cancel();
-        } catch {
-            // ignore
+            cancelled++;
+        } catch (err) {
+            // Don't swallow silently — a broken cancel means a leaked listener
+            // (this hid the on()-returns-void bug above for a long time).
+            _log?.warn(`matter: failed to cancel a subscription of ${scriptFile}: ${err.message}`);
         }
     }
+    if (cancelled > 0) _log?.debug(`matter: cancelled ${cancelled} subscription(s) of ${scriptFile}`);
     _listeners.delete(scriptFile);
 }
 
