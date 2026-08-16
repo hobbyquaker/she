@@ -28,6 +28,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [U4 — Find & Replace entry point](#u4--find--replace-entry-point)
 - [U5 — File tree virtualization](#u5--file-tree-virtualization)
 - [U6 — Script-specific configuration UI](#u6--script-specific-configuration-ui) ⚠️ *(questionable idea)*
+- [U10 — Log views: script-with-line-number errors link to the editor at that line](#u10--log-views-script-with-line-number-errors-link-to-the-editor-at-that-line)
 
 **MQTT, Matter & Broker**
 - [M1 — Per-topic value history](#m1--per-topic-value-history)
@@ -251,6 +252,17 @@ Open questions that need resolving before this is worth implementing:
 - **Config files in file tree** — hidden entirely, or visible but styled differently (greyed out, non-editable as text)?
 - **Multi-instance** — the real power of Node-RED's model is running the same node type N times with different configs. With file-based scripts the natural mapping is one file = one config, which means you still need N script files for N instances. Whether a smarter multi-instance model is worth the complexity is unclear.
 - **Interaction with sheDB** — sheDB already provides per-document storage that scripts can read. Is this feature adding enough over `she.db.get('config/myscript')` to justify the complexity?
+
+### U10 — Log views: script-with-line-number errors link to the editor at that line
+
+When an error in the Logs tab or the Scripts tab log panel carries a script location with a line number (e.g. a stack-trace frame like `licht/hobbyraum.js:12:5`, or a SyntaxError position), render it as a link that switches to the Scripts tab, opens the script, and places the Monaco cursor on that line.
+
+Builds directly on the U8 mechanism (archived — clickable script prefix → `she:open-script` window event → `openTab()` in `Scripts.svelte`):
+
+- **Parsing**: besides the U8 label prefix (`/^([^:\n]+\.js):\s/`), scan the message body for `<path>.js:<line>[:<col>]` occurrences (stack-trace frames, compile-error positions). Only linkify paths that resolve to an existing script (match against the file tree) so external/node-internal frames stay plain text.
+- **Event**: extend the `she:open-script` CustomEvent detail with an optional `line` (and `column`); `Scripts.svelte` after `openTab()`/`switchTab()` calls `editor.revealLineInCenter(line)` + `editor.setPosition({ lineNumber: line, column })` and focuses the editor.
+- **Scope**: the Logs tab (`Logs.svelte`) and the per-script log panel in `Scripts.svelte` (there the prefix is already implicit — the stack-frame locations are the interesting part).
+- **Verify line-number accuracy**: she's error logging filters stack frames (`loadScript` in `src/index.js`); confirm that reported line numbers match the on-disk file (no wrapper offset — the D1 async-IIFE analysis assumed line numbers stay correct, which is a reason this feature can work at all).
 
 ## MQTT, Matter & Broker
 
