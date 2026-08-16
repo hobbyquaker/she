@@ -56,6 +56,22 @@ describe('she.mqtt.age()', () => {
         expect(a).toBeGreaterThanOrEqual(4);
         expect(a).toBeLessThanOrEqual(6);
     });
+
+    it("returns seconds since the last message with mode 'message'", () => {
+        const she = makeShe({ 'test/topic': { val: 1, lc: Date.now() - 60000, ts: Date.now() - 5000 } });
+        const a = she.mqtt.age('test/topic', 'message');
+        expect(a).toBeGreaterThanOrEqual(4);
+        expect(a).toBeLessThanOrEqual(6);
+        // default stays last-change based
+        expect(she.mqtt.age('test/topic')).toBeGreaterThanOrEqual(59);
+    });
+
+    it("accepts 'ts' as alias for 'message'", () => {
+        const she = makeShe({ 'test/topic': { val: 1, lc: Date.now() - 60000, ts: Date.now() - 5000 } });
+        const a = she.mqtt.age('test/topic', 'ts');
+        expect(a).toBeGreaterThanOrEqual(4);
+        expect(a).toBeLessThanOrEqual(6);
+    });
 });
 
 describe('she.mqtt.link()', () => {

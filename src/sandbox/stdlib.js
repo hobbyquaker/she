@@ -52,9 +52,15 @@ module.exports = function (she, ctx = {}) {
                 she.setValue(target, val);
             });
         },
-        /** Seconds since the topic's value last changed. */
-        age: function Sandbox_mqtt_age(topic) {
-            return Math.round((new Date().getTime() - she.getProp(topic, 'lc')) / 1000);
+        /**
+         * Seconds since the topic's value last changed.
+         * Pass 'message' (or 'ts') as second argument to get the seconds since
+         * the last received message instead — repeated identical values reset
+         * that clock, useful for sensor heartbeat checks.
+         */
+        age: function Sandbox_mqtt_age(topic, mode) {
+            const prop = mode === 'message' || mode === 'ts' ? 'ts' : 'lc';
+            return Math.round((new Date().getTime() - she.getProp(topic, prop)) / 1000);
         },
         /**
          * Publish 1 to target when any source is truthy, 0 otherwise.
