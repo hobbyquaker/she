@@ -122,8 +122,8 @@
             <div class="card">
                 <div class="card-head">
                     <span class="dot" class:ok={h.ok} class:err={!h.ok}></span>
-                    <span class="name">{h.name}</span>
-                    <span class="muted">{h.local ? 'this host' : h.ssh?.host}{#if h.hostname} · hostname {h.hostname}{/if}{#if h.node} · node {h.node}{/if}</span>
+                    <span class="name">{h.hostname ?? h.name}</span>
+                    <span class="muted">{h.local ? 'this host' : `${h.ssh?.user ?? ''}@${h.ssh?.host}`}{#if h.node} · node {h.node}{/if}</span>
                     <span class="spacer"></span>
                     {#if h.ok}
                         <span class="muted" title="she-servicectl version">helper v{h.helper}{#if h.helperOutdated} <span class="warn">— outdated{#if h.local}, run sudo she --install{:else}, deploy again{/if}</span>{/if}</span>

@@ -103,7 +103,7 @@
                 <label for="add-host">Host</label>
                 <select id="add-host" bind:value={hostName}>
                     {#each hosts as h (h.name)}
-                        <option value={h.name} disabled={!h.ok}>{h.name}{h.ok ? '' : ` — ${h.code === 'UNSUPPORTED' ? 'remote (I5)' : 'unavailable'}`}</option>
+                        <option value={h.name} disabled={!h.ok}>{h.hostname ?? h.name}{h.ok ? '' : ' — unavailable'}</option>
                     {/each}
                 </select>
                 {#if hosts.length === 0}<span class="muted">No hosts — the she host itself needs <code>sudo she --install</code> for the helper.</span>{/if}

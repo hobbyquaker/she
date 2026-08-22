@@ -150,7 +150,12 @@ function createSshDriver(hostCfg, opts = {}) {
     /** scp a local file to `remotePath` (relative to the SSH user's home unless absolute) */
     function upload(localPath, remotePath) {
         return new Promise((resolve, reject) => {
-            const argv = [...sshDeploy.scpArgs(sshCfg, defaultIdentity), localPath, sshDeploy.sshTarget(sshCfg) + ':' + remotePath];
+            // scp needs IPv6 literals in brackets: user@[fe80::1]:path
+            const target = sshDeploy.sshTarget(sshCfg);
+            const at = target.indexOf('@');
+            const hostPart = target.slice(at + 1);
+            const bracketed = hostPart.includes(':') && !hostPart.startsWith('[') ? target.slice(0, at + 1) + '[' + hostPart + ']' : target;
+            const argv = [...sshDeploy.scpArgs(sshCfg, defaultIdentity), localPath, bracketed + ':' + remotePath];
             execFile(scpBin, argv, { timeout: 60000, env }, (err, stdout, stderr) => {
                 if (err) return reject(new HostError('SSH_FAILED', String(stderr || err.message).trim()));
                 resolve();

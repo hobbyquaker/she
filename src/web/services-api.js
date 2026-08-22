@@ -41,6 +41,7 @@
 const express = require('express');
 const fs = require('fs');
 const crypto = require('crypto');
+const dns = require('dns');
 const { analyzeServices, wipeTopics, LOG_LEVELS } = require('../lib/services-inventory');
 const npmRegistry = require('../lib/npm-registry');
 const os = require('os');
@@ -982,14 +983,26 @@ function callerAddress(req) {
     return addr;
 }
 
+/** Does this name resolve from the she host? Then it is the nicer ssh target than a raw address. */
+async function resolves(name) {
+    try {
+        await dns.promises.lookup(name);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 // POST /she/services/setup/done?token=… { hostname, user } (no auth) — add the host entry
-router.post('/setup/done', (req, res) => {
+router.post('/setup/done', async (req, res) => {
     const t = typeof req.query.token === 'string' ? req.query.token : '';
     const s = _setupTokens.get(t);
     if (!s || s.done || Date.now() - s.created > SETUP_TTL) return res.status(410).json({ error: 'setup token unknown, used or expired' });
     const hostname = req.body && typeof req.body.hostname === 'string' && /^[A-Za-z0-9_.-]{1,253}$/.test(req.body.hostname) ? req.body.hostname : null;
-    const addr = callerAddress(req);
-    if (!addr || !HOST_NAME_RE.test(addr)) return res.status(400).json({ error: 'cannot determine the caller address' });
+    const caller = callerAddress(req);
+    if (!caller || !HOST_NAME_RE.test(caller)) return res.status(400).json({ error: 'cannot determine the caller address' });
+    // ssh target: the host's own name when she can resolve it (readable, survives address changes), else the caller address
+    const addr = hostname && (await resolves(hostname)) ? hostname : caller;
     s.done = true;
     s.host = addr;
     const configPath = req.app.locals.configPath;
@@ -1004,9 +1017,10 @@ router.post('/setup/done', (req, res) => {
             }
             if (!cfg.services || typeof cfg.services !== 'object') cfg.services = {};
             if (!Array.isArray(cfg.services.hosts)) cfg.services.hosts = [{ name: 'local' }];
-            const exists = cfg.services.hosts.find((h) => h && h.ssh && (h.ssh.host === addr || (hostname && h.ssh.host === hostname)));
+            const exists = cfg.services.hosts.find((h) => h && h.ssh && (h.ssh.host === addr || h.ssh.host === caller || (hostname && h.ssh.host === hostname)));
             if (exists) {
                 exists.ssh.user = REMOTE_USER;
+                exists.ssh.host = addr; // a re-run upgrades an address-only entry to the name
                 if (hostname) exists.hostname = hostname;
             } else {
                 cfg.services.hosts.push({ ...(hostname ? { hostname } : {}), ssh: { host: addr, user: REMOTE_USER } });

@@ -573,19 +573,21 @@ describe('remote host bootstrap (I9)', () => {
         expect((await httpRequest('GET', port, `/she/services/setup/token/${token}`)).body).toEqual({ status: 'fetched' });
         expect((await httpRequest('GET', port, `/she/services/setup.sh?token=${token}`)).status).toBe(410); // served once
 
-        r = await httpRequest('POST', port, `/she/services/setup/done?token=${token}`, { hostname: 'zigbee', user: 'she-services' });
+        r = await httpRequest('POST', port, `/she/services/setup/done?token=${token}`, { hostname: 'nope.invalid', user: 'she-services' });
         expect(r.status).toBe(200);
-        expect(r.body).toMatchObject({ ok: true, host: '127.0.0.1', hostname: 'zigbee', user: 'she-services', added: true });
+        expect(r.body).toMatchObject({ ok: true, host: '127.0.0.1', hostname: 'nope.invalid', user: 'she-services', added: true }); // .invalid never resolves → address
         const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-        expect(cfg.services.hosts).toEqual([{ name: 'local' }, { hostname: 'zigbee', ssh: { host: '127.0.0.1', user: 'she-services' } }]);
+        expect(cfg.services.hosts).toEqual([{ name: 'local' }, { hostname: 'nope.invalid', ssh: { host: '127.0.0.1', user: 'she-services' } }]);
         expect((await httpRequest('GET', port, `/she/services/setup/token/${token}`)).body).toEqual({ status: 'done', host: '127.0.0.1' });
-        expect((await httpRequest('POST', port, `/she/services/setup/done?token=${token}`, { hostname: 'zigbee' })).status).toBe(410); // single use
+        expect((await httpRequest('POST', port, `/she/services/setup/done?token=${token}`, { hostname: 'nope.invalid' })).status).toBe(410); // single use
 
-        // a second run for the same host updates instead of duplicating
+        // a second run for the same host updates instead of duplicating; a resolvable hostname becomes the ssh host
         const t2 = (await httpRequest('POST', port, '/she/services/setup/token', { origin: 'http://she:8080' })).body.token;
-        r = await httpRequest('POST', port, `/she/services/setup/done?token=${t2}`, { hostname: 'zigbee2' });
-        expect(r.body.added).toBe(false);
-        expect(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).services.hosts).toHaveLength(2);
+        r = await httpRequest('POST', port, `/she/services/setup/done?token=${t2}`, { hostname: 'localhost' });
+        expect(r.body).toMatchObject({ added: false, host: 'localhost', hostname: 'localhost' });
+        const hosts2 = JSON.parse(fs.readFileSync(cfgPath, 'utf8')).services.hosts;
+        expect(hosts2).toHaveLength(2);
+        expect(hosts2[1]).toEqual({ hostname: 'localhost', ssh: { host: 'localhost', user: 'she-services' } });
     });
 
     test('unknown token → 410 / expired', async () => {
