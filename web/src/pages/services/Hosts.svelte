@@ -2,8 +2,8 @@
     import { onMount } from 'svelte';
     import {
         getServiceHosts, updateServiceAdapter, getServiceBrokerEnv, putServiceBrokerEnv,
-        testServiceHost, deployServiceHelper,
-        type ServiceHost, type HelperDeployResult,
+        testServiceHost, deployServiceHelper, getServiceInstances,
+        type ServiceHost, type HelperDeployResult, type ServiceInstance,
     } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
 
@@ -12,6 +12,7 @@
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
     let hosts    = $state<ServiceHost[]>([]);
+    let mqttInstances = $state<ServiceInstance[]>([]);
     let loading  = $state(true);
     let error    = $state('');
     let busy     = $state<string | null>(null);
@@ -21,7 +22,9 @@
     async function load() {
         loading = true; error = '';
         try {
-            hosts = (await getServiceHosts()).hosts;
+            const [h, inv] = await Promise.all([getServiceHosts(), getServiceInstances().catch(() => null)]);
+            hosts = h.hosts;
+            if (inv) mqttInstances = inv.instances;
         } catch (e: any) {
             error = e.message ?? String(e);
         } finally {
@@ -29,6 +32,17 @@
         }
     }
     onMount(load);
+
+    /** Hosts that adapters report in info.host but that are not configured here (SV-14 correlation by hostname). */
+    let unmanaged = $derived.by(() => {
+        const known = new Set(hosts.map(h => h.hostname).filter(Boolean));
+        const byHost = new Map<string, ServiceInstance[]>();
+        for (const i of mqttInstances) {
+            if (i.legacy || !i.host || known.has(i.host)) continue;
+            byHost.set(i.host, [...(byHost.get(i.host) ?? []), i]);
+        }
+        return [...byHost.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    });
 
     async function update(h: ServiceHost, adapter: string, force = false) {
         busy = `${h.name}/${adapter}`; notice = ''; output = '';
@@ -86,7 +100,7 @@
     }
 
     /* ── broker.env editor ────────────────────────────────────────────────── */
-    const BROKER_KEYS = ['MQTT_URL', 'MQTT_USERNAME', 'MQTT_PASSWORD', 'MQTT_CLIENT_ID_PREFIX', 'MQTT_TLS_CA'];
+    const BROKER_KEYS = ['MQTT_URL', 'MQTT_USERNAME', 'MQTT_PASSWORD', 'MQTT_TLS_CA'];
     let brokerHost = $state<string | null>(null);
     let brokerEnv  = $state<Record<string, string>>({});
     let brokerSecrets = $state<string[]>([]);
@@ -244,6 +258,21 @@
         {#if output}
             <pre class="out mono">{output}</pre>
         {/if}
+
+        {#each unmanaged as [hostname, list] (hostname)}
+            <div class="card unmanaged">
+                <div class="card-head">
+                    <span class="dot"></span>
+                    <span class="name">{hostname}</span>
+                    <span class="muted">seen on MQTT, not managed</span>
+                </div>
+                <div class="muted">
+                    {list.length} instance{list.length === 1 ? '' : 's'} report this host:
+                    {#each list as i, idx (i.instance)}{idx > 0 ? ', ' : ''}<span class="mono">{i.instance}</span> ({i.adapter}){/each}.
+                    To manage them, add <span class="mono">{hostname}</span> under Settings → Services → Remote hosts (ssh host, user), then deploy the helper here.
+                </div>
+            </div>
+        {/each}
     </div>
 </div>
 
@@ -256,6 +285,7 @@
     .warn { color: #d4ac0d; }
     .mono { font-family: var(--font-mono, monospace); font-size: 11px; }
     .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+    .card.unmanaged { border-style: dashed; }
     .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .card-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
     .name { font-weight: 600; font-size: 13px; }
