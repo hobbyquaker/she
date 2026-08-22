@@ -9,6 +9,7 @@
         type ServiceSchema, type ServiceLogEntry, type ServiceInstance, type ServiceHostInstance, type SheBrokerInfo,
     } from '../../lib/api.js';
     import { subscribeWs } from '../../lib/ws.js';
+    import { fmtLogTs } from '../../lib/format.js';
     import SchemaForm from './SchemaForm.svelte';
 
     let {
@@ -69,25 +70,50 @@
         }
     }
 
-    /* ── Logs ─────────────────────────────────────────────────────────────── */
+    /* ── Logs — same controls as the Logs page: level, text/regex filter, auto-scroll; following by default ── */
+    type Level = 'debug' | 'info' | 'warn' | 'error';
+    const LEVELS = ['all', 'debug', 'info', 'warn', 'error'] as const;
+    const LEVEL_ORDER: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+    const LOG_MAX = 3000;
     let entries   = $state<ServiceLogEntry[]>([]);
     let logError  = $state('');
+    let logLoading = $state(false);
     let following = $state(false);
+    let follow    = $state(true);   // wanted state; starts following when the Logs tab is shown
+    let autoscroll = $state(true);
+    let filterLevel = $state<'all' | Level>('all');
+    let filterText  = $state('');
+    let filterRegex = $state(false);
     let logEl     = $state<HTMLDivElement | undefined>(undefined);
+    let logsOpened = $state(false);
     let unsubLog: (() => void) | null = null;
     let renewTimer: ReturnType<typeof setInterval> | null = null;
     let unitName = $derived(`${adapter}@${instance}`);
 
+    let visibleEntries = $derived.by(() => {
+        let re: RegExp | null = null;
+        if (filterText && filterRegex) { try { re = new RegExp(filterText, 'i'); } catch { re = null; } }
+        const q = filterText.toLowerCase();
+        return entries.filter(e => {
+            if (filterLevel !== 'all' && LEVEL_ORDER[e.level] < LEVEL_ORDER[filterLevel]) return false;
+            if (!filterText) return true;
+            return re ? re.test(e.msg) : e.msg.toLowerCase().includes(q);
+        });
+    });
+
     async function loadLogs() {
-        logError = '';
+        logError = ''; logLoading = true;
         try {
-            entries = (await getServiceLogs(host, adapter, instance, 200)).entries;
+            entries = (await getServiceLogs(host, adapter, instance, 500)).entries;
             scrollLogs();
         } catch (e: any) {
             logError = e.message ?? String(e);
+        } finally {
+            logLoading = false;
         }
     }
     function scrollLogs() {
+        if (!autoscroll) return;
         requestAnimationFrame(() => { if (logEl) logEl.scrollTop = logEl.scrollHeight; });
     }
     async function startFollow() {
@@ -97,12 +123,13 @@
             following = true;
             unsubLog = subscribeWs('serviceLog', (msg) => {
                 if (msg.host !== host || msg.unit !== unitName) return;
-                entries = [...entries.slice(-1999), { ts: msg.ts, level: msg.level, msg: msg.msg, pid: msg.pid ?? null }];
+                entries = [...entries.slice(-(LOG_MAX - 1)), { ts: msg.ts, level: msg.level, msg: msg.msg, pid: msg.pid ?? null }];
                 scrollLogs();
             });
             renewTimer = setInterval(() => { followServiceLogs(host, adapter, instance).catch(() => {}); }, 5 * 60 * 1000);
         } catch (e: any) {
             logError = e.message ?? String(e);
+            follow = false;
         }
     }
     function stopFollow() {
@@ -112,21 +139,29 @@
         if (renewTimer) { clearInterval(renewTimer); renewTimer = null; }
         unfollowServiceLogs(host, adapter, instance).catch(() => {});
     }
+    function clearLogs() {
+        entries = [];
+    }
 
+    // first time the Logs tab is shown: tail + follow; the Follow switch drives the follower afterwards
     $effect(() => {
-        if (tab === 'logs' && entries.length === 0 && !logError) loadLogs();
+        if (tab !== 'logs' || logsOpened) return;
+        logsOpened = true;
+        loadLogs();
+    });
+    $effect(() => {
+        if (!logsOpened) return;
+        if (follow) startFollow(); else stopFollow();
+    });
+    $effect(() => {
+        // re-scroll when auto-scroll gets switched on
+        if (autoscroll) scrollLogs();
     });
 
     onMount(() => {
         loadConfig();
         return () => stopFollow();
     });
-
-    function fmtTs(ts: number): string {
-        const d = new Date(ts);
-        const p = (n: number) => String(n).padStart(2, '0');
-        return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-    }
 </script>
 
 <div class="detail">
@@ -162,20 +197,36 @@
         </div>
     {:else if tab === 'logs'}
         <div class="logbar">
-            <button class="ghost sm" onclick={loadLogs}>↺ last 200</button>
-            {#if following}
-                <button class="ghost sm" onclick={stopFollow}>■ stop following</button>
-            {:else}
-                <button class="ghost sm" onclick={startFollow}>▶ follow</button>
-            {/if}
+            <select bind:value={filterLevel}>
+                {#each LEVELS as l (l)}<option value={l}>{l}</option>{/each}
+            </select>
+            <input class="filter-in" type="search" placeholder="Filter messages…" bind:value={filterText} />
+            <label class="check-label" title="Interpret filter as a regular expression">
+                <input type="checkbox" bind:checked={filterRegex} />
+                <span class="checkmark"></span> Regex
+            </label>
+            <label class="check-label" title="Keep receiving new journal lines">
+                <input type="checkbox" bind:checked={follow} />
+                <span class="checkmark"></span> Follow
+            </label>
+            <label class="check-label">
+                <input type="checkbox" bind:checked={autoscroll} />
+                <span class="checkmark"></span> Auto-scroll
+            </label>
+            <button class="ghost sm" onclick={loadLogs} disabled={logLoading} title="Reload the last 500 journal lines">↺</button>
+            <button class="ghost sm" onclick={clearLogs}>Clear</button>
+        </div>
+        <div class="logmeta">
             <span class="muted mono">journalctl -u {unitName}</span>
+            <span class="muted">{visibleEntries.length}{#if visibleEntries.length !== entries.length} / {entries.length}{/if} lines{#if following} · following{/if}</span>
             {#if logError}<span class="err">{logError}</span>{/if}
         </div>
         <div class="log" bind:this={logEl}>
-            {#each entries as e, idx (idx)}
-                <div class="line {e.level}"><span class="ts">{fmtTs(e.ts)}</span><span class="lvl">{e.level}</span><span class="msg">{e.msg}</span></div>
+            <!-- unkeyed on purpose: identical lines are legal in a journal stream -->
+            {#each visibleEntries as e}
+                <div class="line {e.level}"><span class="ts">{fmtLogTs(e.ts)}</span><span class="lvl">{e.level.toUpperCase()}</span><span class="msg">{e.msg}</span></div>
             {/each}
-            {#if entries.length === 0 && !logError}<div class="muted">No journal entries.</div>{/if}
+            {#if entries.length === 0 && !logError && !logLoading}<div class="muted empty">No journal entries.</div>{/if}
         </div>
     {:else}
         <div class="body">
@@ -221,14 +272,28 @@
     .muted { color: var(--fg-muted); font-size: 11px; }
     .err { color: #e74c3c; font-size: 11px; }
     .err-box { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.35); border-radius: 3px; color: #e88; font-size: 12px; padding: 4px 8px; margin-bottom: 10px; }
-    .logbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
-    .log { flex: 1; overflow: auto; padding: 6px 12px; font-family: var(--font-mono, monospace); font-size: 11px; line-height: 1.5; }
-    .line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
-    .line .ts { color: var(--fg-muted); flex-shrink: 0; }
-    .line .lvl { width: 40px; flex-shrink: 0; color: var(--fg-muted); }
-    .line.warn .lvl { color: #d4ac0d; }
-    .line.error .lvl, .line.error .msg { color: #e74c3c; }
-    .line.debug { opacity: 0.7; }
+    /* ── logs: same look as the Logs page ── */
+    .logbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border-sub, var(--border)); background: var(--bg-panel); flex-wrap: wrap; }
+    .logbar select { background: var(--bg-input, var(--bg-app)); color: var(--fg); border: 1px solid var(--border); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+    .filter-in { flex: 1; min-width: 120px; max-width: 320px; background: var(--bg-input, var(--bg-app)); color: var(--fg); border: 1px solid var(--border); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+    .check-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--fg-muted); user-select: none; white-space: nowrap; }
+    .check-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 3px; background: var(--bg-input, var(--bg-app)); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .check-label input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .check-label input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .check-label:hover .checkmark { border-color: var(--accent); }
+    .logmeta { display: flex; align-items: center; gap: 12px; padding: 3px 12px; border-bottom: 1px solid var(--border-sub, var(--border)); }
+    .log { flex: 1; overflow-y: auto; padding: 4px 0; font-family: 'Cascadia Code', 'Fira Code', var(--font-mono, monospace); font-size: 12px; }
+    .log .empty { padding: 8px 12px; }
+    .line { display: flex; gap: 8px; padding: 1px 12px; white-space: pre-wrap; word-break: break-word; }
+    .line:hover { background: var(--bg-hover); }
+    .line .ts { color: var(--fg-dim, var(--fg-muted)); flex-shrink: 0; }
+    .line .lvl { width: 48px; flex-shrink: 0; font-weight: bold; }
+    .line.debug .lvl { color: var(--fg-muted); }
+    .line.info .lvl { color: #4fc1ff; }
+    .line.warn .lvl { color: var(--fg-warn, #d4ac0d); }
+    .line.error .lvl { color: var(--fg-err, #e74c3c); }
+    .line .msg { color: var(--fg-text, var(--fg)); }
     .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 10px; font-size: 11px; }
     .kv dt { color: var(--fg-muted); }
     .kv dd { margin: 0; }

@@ -132,6 +132,22 @@
         if (!r.host || !r.unit) return;
         detailKey = r.key;
     }
+    // drawer width — draggable, remembered (same pattern as the Scripts page panels)
+    const DRAWER_KEY = 'she-services-drawer-width';
+    let drawerWidth = $state(Math.max(360, Math.min(1200, Number(localStorage.getItem(DRAWER_KEY)) || 560)));
+    let drawerResizing = $state(false);
+    let drawerStartX = 0;
+    let drawerStartW = 0;
+    function onDrawerResizeStart(e: MouseEvent) { drawerResizing = true; drawerStartX = e.clientX; drawerStartW = drawerWidth; e.preventDefault(); }
+    function onWinMouseMove(e: MouseEvent) {
+        if (!drawerResizing) return;
+        drawerWidth = Math.max(360, Math.min(Math.max(360, window.innerWidth - 320), drawerStartW - (e.clientX - drawerStartX)));
+    }
+    function onWinMouseUp() {
+        if (!drawerResizing) return;
+        drawerResizing = false;
+        localStorage.setItem(DRAWER_KEY, String(drawerWidth));
+    }
 
     /* ── Actions ──────────────────────────────────────────────────────────── */
     function setBusy(key: string, on: boolean) {
@@ -241,8 +257,9 @@
 </script>
 
 <ConfirmDialog bind:this={dialog} />
+<svelte:window onmousemove={onWinMouseMove} onmouseup={onWinMouseUp} />
 
-<div class="svc" class:with-detail={detail !== null}>
+<div class="svc" class:with-detail={detail !== null} class:resizing={drawerResizing}>
     <div class="main">
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
@@ -390,8 +407,10 @@
     </div>
 
     {#if detail && detail.host && detail.unit}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div class="drawer-resize-handle" role="separator" aria-orientation="vertical" onmousedown={onDrawerResizeStart}></div>
         {#key detail.key}
-            <div class="drawer">
+            <div class="drawer" style:width={`${drawerWidth}px`}>
                 <InstanceDetail host={detail.host.name} adapter={detail.unit.adapter} instance={detail.instance} unit={detail.unit} mqtt={detail.mqtt}
                     onclose={() => (detailKey = null)} onchanged={() => setTimeout(load, 600)} />
             </div>
@@ -402,7 +421,10 @@
 <style>
     .svc { flex: 1; display: flex; overflow: hidden; }
     .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
-    .drawer { width: 46%; min-width: 380px; max-width: 720px; display: flex; flex-direction: column; overflow: hidden; }
+    .drawer { flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .drawer-resize-handle { width: 5px; cursor: col-resize; flex-shrink: 0; background: var(--border-sub, var(--border)); transition: background 0.15s; }
+    .drawer-resize-handle:hover, .drawer-resize-handle:active, .svc.resizing .drawer-resize-handle { background: var(--accent); }
+    .svc.resizing { user-select: none; cursor: col-resize; }
 
     .bar {
         display: flex; align-items: center; gap: 8px;
