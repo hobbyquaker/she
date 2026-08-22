@@ -1204,7 +1204,11 @@ export interface SheBrokerInfo {
     hasPassword: boolean;
 }
 
-export function getServiceSchema(host: string, adapter: string, refresh = false): Promise<{ schema: ServiceSchema; secrets: string[]; envPrefix: string; sheBroker: SheBrokerInfo | null }> {
+export function getServiceSchema(
+    host: string,
+    adapter: string,
+    refresh = false,
+): Promise<{ schema: ServiceSchema; secrets: string[]; envPrefix: string; sheBroker: SheBrokerInfo | null }> {
     return request('GET', `${svcAdapter(host, adapter)}/schema${refresh ? '?refresh=1' : ''}`);
 }
 
@@ -1241,11 +1245,22 @@ export function unfollowServiceLogs(host: string, adapter: string, instance: str
     return request('DELETE', `${svcUnit(host, adapter, instance)}/logs/follow`);
 }
 
-export function getServiceEnv(host: string, adapter: string, instance: string): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null; envPrefix: string; useSheBroker: boolean; sheBroker: SheBrokerInfo | null }> {
+export function getServiceEnv(
+    host: string,
+    adapter: string,
+    instance: string,
+): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null; envPrefix: string; useSheBroker: boolean; sheBroker: SheBrokerInfo | null }> {
     return request('GET', `${svcUnit(host, adapter, instance)}/env`);
 }
 
-export function putServiceEnv(host: string, adapter: string, instance: string, env: Record<string, string>, restart: boolean, useSheBroker?: boolean): Promise<{ ok: boolean; restarted: boolean }> {
+export function putServiceEnv(
+    host: string,
+    adapter: string,
+    instance: string,
+    env: Record<string, string>,
+    restart: boolean,
+    useSheBroker?: boolean,
+): Promise<{ ok: boolean; restarted: boolean }> {
     return request('PUT', `${svcUnit(host, adapter, instance)}/env`, { env, restart, useSheBroker });
 }
 
@@ -1272,7 +1287,12 @@ export function testServiceHost(host: string): Promise<{ ok: boolean; helper?: n
 }
 
 /** Test unsaved host settings from the Config page. */
-export function testServicesSsh(p: { host: string; port?: number | ''; user?: string; identityFile?: string }): Promise<{ ok: boolean; helper?: number | null; code?: string; error?: string }> {
+export function testServicesSsh(p: {
+    host: string;
+    port?: number | '';
+    user?: string;
+    identityFile?: string;
+}): Promise<{ ok: boolean; helper?: number | null; code?: string; error?: string }> {
     return request('POST', '/she/services/ssh/test', p);
 }
 
