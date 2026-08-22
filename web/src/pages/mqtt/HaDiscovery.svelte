@@ -153,7 +153,12 @@
             <table>
                 <thead>
                     <tr>
-                        <th class="c-check"><input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} title="Select all visible" /></th>
+                        <th class="c-check">
+                            <label class="chk" title="Select all visible">
+                                <input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} />
+                                <span class="checkmark"></span>
+                            </label>
+                        </th>
                         <th class="c-exp"></th>
                         <th>Device</th>
                         <th>Model</th>
@@ -167,7 +172,12 @@
                 <tbody>
                     {#each visible as d (d.id)}
                         <tr class:sel={selected.has(d.id)} class:orph={d.orphaned}>
-                            <td class="c-check"><input type="checkbox" checked={selected.has(d.id)} onchange={() => toggleSel(d.id)} /></td>
+                            <td class="c-check">
+                                <label class="chk">
+                                    <input type="checkbox" checked={selected.has(d.id)} onchange={() => toggleSel(d.id)} />
+                                    <span class="checkmark"></span>
+                                </label>
+                            </td>
                             <td class="c-exp">
                                 <button class="exp" onclick={() => toggleExpand(d.id)} title="Show entities">{expanded.has(d.id) ? '▾' : '▸'}</button>
                             </td>
@@ -176,7 +186,7 @@
                                 <div class="dsub" title={d.identifiers.join(', ')}>{d.identifiers.join(', ') || d.id}</div>
                             </td>
                             <td>
-                                {#if d.manufacturer}<span class="muted">{d.manufacturer}</span> {/if}{d.model ?? ''}
+                                {#if d.manufacturer}<span class="muted">{d.manufacturer}</span>{/if}{#if d.manufacturer && d.model}{' '}{/if}{d.model ?? ''}
                             </td>
                             <td class="c-num">{d.entities.length}</td>
                             <td class="mono" title={d.statePrefixes.join('\n')}>
@@ -354,19 +364,21 @@
     .modal-body { font-size: 12px; color: var(--fg); display: flex; flex-direction: column; gap: 8px; }
     .modal-body p { margin: 0; }
     .topic-list { max-height: 180px; overflow: auto; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 4px 6px; }
-    .modal-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg); cursor: pointer; user-select: none; }
+    /* Custom checkboxes (theme-aware; native ones ignore the dark palette) — same pattern as the MQTT page */
+    .modal-check, .chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg); cursor: pointer; user-select: none; }
+    .chk { display: inline-flex; vertical-align: middle; }
     .modal-check.disabled { color: var(--fg-muted); cursor: default; }
-    .modal-check input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
-    .modal-check .checkmark {
+    .modal-check input[type='checkbox'], .chk input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .modal-check .checkmark, .chk .checkmark {
         flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 2px;
         background: var(--bg-app); position: relative; transition: background 0.12s, border-color 0.12s;
     }
-    .modal-check input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
-    .modal-check input:checked + .checkmark::after {
+    .modal-check input:checked + .checkmark, .chk input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .modal-check input:checked + .checkmark::after, .chk input:checked + .checkmark::after {
         content: ''; position: absolute; left: 3px; top: 0; width: 4px; height: 7px;
         border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg);
     }
-    .modal-check:not(.disabled):hover .checkmark { border-color: var(--accent); }
+    .modal-check:not(.disabled):hover .checkmark, .chk:hover .checkmark { border-color: var(--accent); }
     .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
     .btn-cancel { background: none; border: 1px solid var(--border); color: var(--fg-muted); }
     .btn-confirm { background: #c0392b; }
