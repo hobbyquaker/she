@@ -1139,8 +1139,8 @@ export interface ServiceHostAdapter {
 export interface ServiceHostInstance {
     adapter: string;
     instance: string;
-    active: string;   // active | inactive | failed | activating | …
-    sub: string;      // running | dead | auto-restart | …
+    active: string; // active | inactive | failed | activating | …
+    sub: string; // running | dead | auto-restart | …
     unitFile: string; // enabled | disabled | …
     since: string;
     restarts: number;
@@ -1165,20 +1165,20 @@ export interface ServiceHost {
 }
 
 export interface ServiceSchemaProperty {
-    type?: string;
-    description?: string;
-    default?: unknown;
-    enum?: string[];
-    items?: { type?: string };
+    'type'?: string;
+    'description'?: string;
+    'default'?: unknown;
+    'enum'?: string[];
+    'items'?: { type?: string };
     'x-env': string;
     'x-secret'?: boolean;
 }
 
 export interface ServiceSchema {
-    title?: string;
-    description?: string;
-    properties: Record<string, ServiceSchemaProperty>;
-    required?: string[];
+    'title'?: string;
+    'description'?: string;
+    'properties': Record<string, ServiceSchemaProperty>;
+    'required'?: string[];
     'x-adapter'?: { name: string; version: string; envPrefix: string; mqttInterfaces?: Record<string, unknown> };
 }
 
@@ -1206,7 +1206,11 @@ export function installService(host: string, adapter: string, instance: string, 
     return request('POST', `${svcAdapter(host, adapter)}/install`, { instance, env });
 }
 
-export function updateServiceAdapter(host: string, adapter: string, force = false): Promise<{ ok: boolean; output: string; restarted: string[]; failed: { instance: string; error: string }[] }> {
+export function updateServiceAdapter(
+    host: string,
+    adapter: string,
+    force = false,
+): Promise<{ ok: boolean; output: string; restarted: string[]; failed: { instance: string; error: string }[] }> {
     return request('POST', `${svcAdapter(host, adapter)}/update`, { force });
 }
 
