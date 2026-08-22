@@ -39,6 +39,11 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 **Integrations**
 - [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing)
+- [I4 — Services: xyz2mqtt inventory and local host management](#i4--services-xyz2mqtt-inventory-and-local-host-management)
+- [I5 — Services: remote hosts over SSH](#i5--services-remote-hosts-over-ssh)
+- [I6 — Services: broker.env and per-instance dynsec credentials](#i6--services-brokerenv-and-per-instance-dynsec-credentials)
+- [I7 — Services: adapter catalog via npm](#i7--services-adapter-catalog-via-npm)
+- [I8 — Services: docker host driver](#i8--services-docker-host-driver) 💡
 
 **Architecture, Operations & Security**
 - [A1 — Health check endpoint](#a1--health-check-endpoint)
@@ -259,6 +264,8 @@ The MQTT tab shows current state only. A configurable ring buffer (e.g. last 20 
 
 Allow connecting to more than one broker simultaneously. Config: replace the top-level `url` string with a `brokers` map where each key is a broker name and the value is the existing per-broker options object (`url`, `username`, `password`, `ca`, `cert`, `key`, `mqttVersion`). The existing `url` key stays supported as shorthand for a single default broker (backward compat). Script API: `she.broker(name)` returns a broker-scoped object exposing the full `mqtt` sub-API (`sub`, `pub`, `get`, `link`, `or`, `and`, `max`, `min`, `timer`, `age`, `getProp`). `she.mqtt` remains a shorthand alias for `she.broker('default')` (or the sole configured broker). State store keys become `mqtt::brokerName::topic`. WS `mqtt` events carry an additional `broker` field. Each broker runs its own sentinel cycle on connect. `link()` and the stdlib helpers (`or`, `and`, `max`, `min`, `timer`) work within a single broker scope only in this first step — cross-broker bridging is a follow-up. Breaking change — requires a migration note when shipped.
 
+*Note:* the Services inventory ([I4](#i4--services-xyz2mqtt-inventory-and-local-host-management)) keys adapter instances by topic prefix; with multiple brokers it gains a broker dimension (`mqtt::brokerName::topic`), so the Services page needs the same broker filter as the MQTT page below.
+
 **Config page UX** — the broker configuration section uses a file-tab-style switcher (same visual language as the editor's script tabs) sitting above the broker form panel. One tab per configured broker; clicking a tab activates that broker's form. Each tab shows the broker name and a small status dot (green/yellow/red, same `nav-dot` classes). A `+` button at the right end of the tab bar adds a new broker with a generated name and empty fields. Each tab has a `×` delete button (with confirmation). The form fields are: *name* (editable — renaming updates the tab label and the `brokers` map key), *url*, *username*, *password* (masked, with show/hide toggle), *ca*, *cert*, *key*, *mqttVersion*, *sentinelTimeout*. When only one broker is configured the tab bar is still shown (consistent UX, and makes it obvious how to add a second one). The existing single-broker fields (`url`, `mqttUsername`, …) in the form are migrated to the `brokers` map on first save.
 
 **MQTT page UX** — when multiple brokers are configured, a broker filter tab bar appears above the topic list (styled like the Config broker tabs, "All" selected by default). Selecting a broker tab filters the list to that broker's topics only; the "All" tab shows every topic from every broker. In the "All" view each row shows a small broker badge (the broker name in a muted chip, similar to `pane-count`) so the origin is visible at a glance; badges are hidden when only one broker is configured or a single broker tab is active. The publish form gains a broker selector dropdown (defaults to the first/only broker; hidden when only one broker exists). The nav dot on the MQTT tab reflects the worst-case state across all brokers: red if any broker is configured but disconnected, yellow/blinking if any broker is still waiting for the sentinel, green only when all brokers are fully ready. The dot's tooltip lists per-broker status.
@@ -331,6 +338,30 @@ Use she's Generate CSR flow to produce the key and CSR, then use certbot or anot
 **Explicitly rejected (on both sides):** UI embedding — neither side has UI extension points and building them would be a large permanent coupling for a convenience. Deep links are the agreed alternative. Also rejected on feezal's side: a she script spawning the feezal server (hot-reload orphans children; she is not a process supervisor) — feezal gets its own `--install` à la she instead, plus a documented docker-compose pairing.
 
 **Relation to other roadmap items:** the bridge scripts are prime candidates for the doubted "system scripts" concept ([S6](#s6--system-scripts-two-tier-script-loading)) — but they work fine as plain user scripts, so system scripts remain unjustified by this alone. [A2](#a2--script-api-endpoint-authentication) gains urgency: `PUT /she/scripts/…` from feezal must work cleanly under auth (Bearer token support).
+
+### I4 — Services: xyz2mqtt inventory and local host management
+
+Optional **Services** feature (default off, `services.enabled` on the Config page, own nav tab) that manages the `xyz2mqtt` adapter instances built on [mqtt-interfaces-core](https://github.com/hobbyquaker/mqtt-interfaces-core). Full design, decisions SV-1…SV-19 and the remaining open question in [ROADMAP-SERVICES.md](ROADMAP-SERVICES.md); this item is phase 1 of it and ships together with that file's archival.
+
+Scope: **Tier 0** — inventory from the retained `+/info` / `+/connected` topics already in the state store (instance, adapter, version, host, uptime, connected 0/1/2; pre-core adapters shown as *legacy* rows), restart and log level over the `maintenance/set/*` topics, npm update badge, wipe-retained for gone instances (reusing the M10 cleanup path), nav dot. **Local host driver** — the privileged POSIX helper `she-servicectl` (argument allow-list, installed with its sudoers line by `she --install`), systemd unit control, journal tail + follow over the log WebSocket (`serviceLog`), env-file editing with a form generated from the adapter's `--config-schema` (secrets masked via `x-secret` / name heuristic), install/uninstall wizard, adapter update with dev-deploy detection, Node resolved from the adapter's wrapper; Hosts sub-tab (local only). Docs: `doc/services.md` plus a security section on the helper.
+
+Core-side companion change (small, convention-level): `secret: true` → `x-secret` in `configSchema()`.
+
+### I5 — Services: remote hosts over SSH
+
+Second host driver on the generalised [src/lib/ssh-deploy.js](src/lib/ssh-deploy.js): `services.hosts[]` with the same `ssh` shape as `broker.ssh` (kept separate, SV-7), SSH key generation and host list in the Config section, helper deployment to `/usr/local/bin` with the sudoers line printed for the admin (she never edits sudoers remotely), hostname auto-capture for `info.host` correlation (editable), helper version check on the Hosts tab. Depends on [I4](#i4--services-xyz2mqtt-inventory-and-local-host-management).
+
+### I6 — Services: broker.env and per-instance dynsec credentials
+
+`/etc/mqtt-interfaces/broker.env` editor per host with "use she's broker settings"; with Mosquitto management enabled, one click creates a dynsec user for an instance with an ACL limited to `<name>/#` (+ `homeassistant/#` publish) via the existing `she.broker` layer and writes it to the instance's env file. Depends on [I4](#i4--services-xyz2mqtt-inventory-and-local-host-management) (local) / [I5](#i5--services-remote-hosts-over-ssh) (remote) and Mosquitto management.
+
+### I7 — Services: adapter catalog via npm
+
+No catalog file: adapters mark themselves with the npm keyword `mqtt-interfaces` and a `mqttInterfaces` package.json field (spec, envPrefix, serviceExtra, needs). she searches the registry (24 h cache, last-good fallback, exact-keyword filter, deprecated skipped), reads metadata from the packument, and gates *Install* by `services.trustedPublishers` (default `hobbyquaker`; others listed as unverified). Install-from-catalog feeds the Add-instance wizard. Needs the adapters republished with keyword + field (documented in the core README). Depends on [I4](#i4--services-xyz2mqtt-inventory-and-local-host-management).
+
+### I8 — Services: docker host driver
+
+💡 *Idea — designed-for in I4, not built.* Third host driver over the `docker` CLI (compose restart, logs, env) for containerised adapters (ghcr images exist for alexa-remote-mqtt & co.). Until then Docker-hosted instances are covered by Tier 0 only. Depends on [I5](#i5--services-remote-hosts-over-ssh) and actual demand.
 
 ## Architecture, Operations & Security
 
