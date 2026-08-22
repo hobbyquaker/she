@@ -184,6 +184,8 @@ export interface DaemonStatus {
     dataDir?: string;
     startedAt?: number;
     docker?: boolean;
+    /** OS user the daemon runs as */
+    user?: string;
 }
 
 export function getDaemonStatus(): Promise<DaemonStatus> {

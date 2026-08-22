@@ -123,6 +123,7 @@ app.get('/she/status', (req, res) => {
     const s = _getStats ? _getStats() : { scripts: 0, topics: 0 };
     if (_latestNpmVersion) s.latestVersion = _latestNpmVersion;
     s.dataDir = require('../lib/storage').STORAGE_ROOT;
+    s.user = require('os').userInfo().username; // the OS user the daemon runs as (default SSH user for managed hosts)
     s.startedAt = SERVER_START_TIME;
     if (_isDocker) s.docker = true;
     res.json(s);

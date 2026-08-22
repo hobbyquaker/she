@@ -40,6 +40,7 @@
     type RemoteHost = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
     let servicesRemote  = $state<RemoteHost[]>([]);
     let servicesPubkey  = $state<string | null>(null);
+    let daemonUser      = $state('');   // default SSH user for remote hosts = the user she runs as
     let servicesKeyFile = $state('');
     let servicesKeyBusy = $state(false);
     let servicesKeyMsg  = $state('');
@@ -69,6 +70,9 @@
         try {
             const r = await getServicesSshPubkey();
             servicesPubkey = r.publicKey; servicesKeyFile = r.identityFile;
+        } catch { /* best effort */ }
+        try {
+            daemonUser = (await getDaemonStatus()).user ?? '';
         } catch { /* best effort */ }
     }
     async function generateServicesKey() {
@@ -889,7 +893,7 @@
                     <div class="field">
                         <label>
                             Remote hosts
-                            {@render tip('Hosts reached over SSH; a host is identified by its ssh host. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). hostname is detected on first contact and used to match MQTT instances (info.host) to the host — only set it when the two differ. Instances can take she\'s MQTT settings with one switch in their config form.')}
+                            {@render tip('Hosts reached over SSH. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). Leave the user empty to log in as the user she runs as. Instances can take she\'s MQTT settings with one switch in their config form.')}
                         </label>
                         <div class="svc-hosts">
                             {#each servicesRemote as h, i (i)}
@@ -897,9 +901,8 @@
                                     <div class="svc-host-grid">
                                         <label><span>host</span><input type="text" placeholder="zigbee.lan" bind:value={h.host} spellcheck="false" /></label>
                                         <label><span>port</span><input type="number" placeholder="22" bind:value={h.port} /></label>
-                                        <label><span>user</span><input type="text" placeholder="root" bind:value={h.user} spellcheck="false" /></label>
-                                        <label><span>identity file</span><input type="text" placeholder="services key" bind:value={h.identityFile} spellcheck="false" /></label>
-                                        <label class="wide"><span>hostname</span><input type="text" placeholder="auto-detected on first contact" bind:value={h.hostname} spellcheck="false" /></label>
+                                        <label><span>user</span><input type="text" placeholder={daemonUser ? `${daemonUser} (default)` : 'default: user she runs as'} bind:value={h.user} spellcheck="false" /></label>
+                                        <label class="wide"><span>identity file</span><input type="text" placeholder="services key (default)" bind:value={h.identityFile} spellcheck="false" /></label>
                                         <div class="svc-host-test">
                                             <button type="button" class="svc-add" onclick={() => testRemoteHost(i)} disabled={hostTesting !== null}>{hostTesting === i ? 'Testing…' : 'Test connection'}</button>
                                             {#if hostTest[i]}<span class="feature-desc" style="padding-left:0; display:inline" class:svc-ok={hostTest[i].startsWith('ok')}>{hostTest[i]}</span>{/if}
@@ -1579,7 +1582,7 @@
         display: flex; align-items: center; gap: 8px;
         border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; max-width: 640px;
     }
-    .svc-host-grid { flex: 1; display: grid; grid-template-columns: 2fr 64px 1fr 2fr; gap: 4px 8px; min-width: 0; }
+    .svc-host-grid { flex: 1; display: grid; grid-template-columns: 3fr 64px 2fr; gap: 4px 8px; min-width: 0; }
     .svc-host-grid label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .svc-host-grid label.wide { grid-column: 1 / -1; }
     .svc-host-test { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
