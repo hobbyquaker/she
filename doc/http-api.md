@@ -500,6 +500,10 @@ Every configured host (`services.hosts`, default the she host as `local`) with t
 | PUT | `/she/services/hosts/:host/units/:adapter/:instance/env` | `{ env, restart?, useSheBroker? }` | writes the env file (`***` keeps the stored secret, empty removes a variable); `useSheBroker` (default: the stored marker) overwrites the prefixed MQTT URL/username/password with she's; optional restart |
 | GET / PUT | `/she/services/hosts/:host/broker-env` | `{ env }` | `/etc/mqtt-interfaces/broker.env` (core convention, not used by the UI), same masking rules |
 | POST | `/she/services/ssh/test` | `{ host, port?, user?, identityFile? }` | test unsaved host settings: always 200 with `{ ok, helper }` or `{ ok: false, code, error }` |
+| POST | `/she/services/setup/token` | `{ origin }` | mint a one-time remote-host bootstrap: `{ token, command, scriptUrl, sha256, expires, user }` (valid 15 min) |
+| GET | `/she/services/setup/token/:token` | | `{ status: "pending" \| "fetched" \| "done" \| "expired", host? }` |
+| GET | `/she/services/setup.sh?token=…` | **no auth** | the generated POSIX bootstrap script, served once; 410 afterwards |
+| POST | `/she/services/setup/done?token=…` | **no auth**, `{ hostname, user }` | callback from the script: adds `{ hostname, ssh: { host: <caller address>, user: "she-services" } }` to `services.hosts` (or updates an existing entry); single use |
 | POST | `/she/services/hosts/:host/test` | | always 200: `{ ok: true, helper }` or `{ ok: false, code, error }` |
 | POST | `/she/services/hosts/:host/helper/deploy` | | remote hosts only: scp the shipped helper, try `sudo -n install`; `{ ok, uploaded, installed, sudoers, helper?, code?, instructions?, user }` — `instructions` are the commands an admin runs when sudo refused |
 | GET / POST | `/she/services/ssh/pubkey` · `/she/services/ssh/keygen` | | the services SSH identity (`<data-dir>/ssh/services_id_ed25519`): read the public key / generate the keypair |

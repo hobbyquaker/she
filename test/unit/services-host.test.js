@@ -526,3 +526,75 @@ describe("per-instance 'use she broker settings'", () => {
         expect(r.body).toEqual({ ok: true, helper: 2 });
     });
 });
+
+describe('remote host bootstrap (I9)', () => {
+    let server;
+    let port;
+    let cfgPath;
+    let dir;
+
+    beforeAll(async () => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-setup-'));
+        api.setIdentityPath(path.join(dir, 'services_id_ed25519'));
+        api.setDriverFactory((h) => host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name }));
+        api.init(new StateStore(), () => null);
+        const app = express();
+        app.use(express.json());
+        cfgPath = path.join(dir, 'config.json');
+        fs.writeFileSync(cfgPath, JSON.stringify({ services: { enabled: true, hosts: [{ name: 'local' }] } }));
+        app.locals.configPath = cfgPath;
+        app.use('/she/services', api.router);
+        server = http.createServer(app);
+        await new Promise((r) => server.listen(0, '127.0.0.1', r));
+        port = server.address().port;
+    });
+    afterAll(async () => {
+        await new Promise((r) => server.close(r));
+    });
+
+    test('token → script (once) → callback adds the host → status done', async () => {
+        expect((await httpRequest('POST', port, '/she/services/setup/token', { origin: 'not a url' })).status).toBe(400);
+        let r = await httpRequest('POST', port, '/she/services/setup/token', { origin: 'http://she:8080' });
+        expect(r.status).toBe(200);
+        const { token, command, sha256, user } = r.body;
+        expect(user).toBe('she-services');
+        expect(command).toBe(`curl -fsSL 'http://she:8080/she/services/setup.sh?token=${token}' | sudo bash`);
+        expect(fs.existsSync(path.join(dir, 'services_id_ed25519.pub'))).toBe(true); // key generated on demand
+        expect((await httpRequest('GET', port, `/she/services/setup/token/${token}`)).body).toEqual({ status: 'pending' });
+
+        r = await httpRequest('GET', port, `/she/services/setup.sh?token=${token}`);
+        expect(r.status).toBe(200);
+        const script = String(r.body);
+        expect(require('crypto').createHash('sha256').update(script).digest('hex')).toBe(sha256);
+        expect(script).toContain("USER_NAME='she-services'");
+        expect(script).toContain(fs.readFileSync(path.join(dir, 'services_id_ed25519.pub'), 'utf8').trim());
+        expect(script).toContain('SHE_HELPER_EOF');
+        expect(script).toContain(`/she/services/setup/done?token=${token}`);
+        expect((await httpRequest('GET', port, `/she/services/setup/token/${token}`)).body).toEqual({ status: 'fetched' });
+        expect((await httpRequest('GET', port, `/she/services/setup.sh?token=${token}`)).status).toBe(410); // served once
+
+        r = await httpRequest('POST', port, `/she/services/setup/done?token=${token}`, { hostname: 'zigbee', user: 'she-services' });
+        expect(r.status).toBe(200);
+        expect(r.body).toMatchObject({ ok: true, host: '127.0.0.1', hostname: 'zigbee', user: 'she-services', added: true });
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+        expect(cfg.services.hosts).toEqual([{ name: 'local' }, { hostname: 'zigbee', ssh: { host: '127.0.0.1', user: 'she-services' } }]);
+        expect((await httpRequest('GET', port, `/she/services/setup/token/${token}`)).body).toEqual({ status: 'done', host: '127.0.0.1' });
+        expect((await httpRequest('POST', port, `/she/services/setup/done?token=${token}`, { hostname: 'zigbee' })).status).toBe(410); // single use
+
+        // a second run for the same host updates instead of duplicating
+        const t2 = (await httpRequest('POST', port, '/she/services/setup/token', { origin: 'http://she:8080' })).body.token;
+        r = await httpRequest('POST', port, `/she/services/setup/done?token=${t2}`, { hostname: 'zigbee2' });
+        expect(r.body.added).toBe(false);
+        expect(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).services.hosts).toHaveLength(2);
+    });
+
+    test('unknown token → 410 / expired', async () => {
+        expect((await httpRequest('GET', port, '/she/services/setup.sh?token=nope')).status).toBe(410);
+        expect((await httpRequest('POST', port, '/she/services/setup/done?token=nope', {})).status).toBe(410);
+        expect((await httpRequest('GET', port, '/she/services/setup/token/nope')).body).toEqual({ status: 'expired' });
+    });
+
+    test('generated script refuses a helper containing the heredoc delimiter', () => {
+        expect(() => api.buildSetupScript({ publicKey: 'k', helper: 'x\nSHE_HELPER_EOF\ny', callbackUrl: 'http://x', token: 't', user: 'u' })).toThrow(/delimiter/);
+    });
+});

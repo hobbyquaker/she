@@ -29,6 +29,10 @@
  *   POST   /she/services/ssh/keygen                                  generate it
  *   POST   /she/services/hosts/:host/test                            run `she-servicectl version` → ok / code
  *   POST   /she/services/hosts/:host/helper/deploy                   scp the helper to a remote host, install it, print the sudoers line
+ *   POST   /she/services/setup/token                                 mint a one-time token + the curl | bash command (I9)
+ *   GET    /she/services/setup/token/:token                          its state: pending | fetched | done | expired
+ *   GET    /she/services/setup.sh?token=…                            (no auth) the bootstrap script, served once
+ *   POST   /she/services/setup/done?token=…                          (no auth) callback from the script → host entry is added
  *
  * Call init(store, getMqttClient, {getMqttConfig}) once; getMqttConfig returns she's own broker
  * settings ({url, username, password}) so every managed host's broker.env can be kept in sync.
@@ -36,6 +40,7 @@
 
 const express = require('express');
 const fs = require('fs');
+const crypto = require('crypto');
 const { analyzeServices, wipeTopics, LOG_LEVELS } = require('../lib/services-inventory');
 const npmRegistry = require('../lib/npm-registry');
 const os = require('os');
@@ -58,7 +63,13 @@ const { STORAGE_ROOT } = require('../lib/storage');
 const { broadcast } = require('./log-ws');
 
 /** One key for all managed hosts, next to the broker key. */
-const SERVICES_IDENTITY = path.join(STORAGE_ROOT, 'ssh', 'services_id_ed25519');
+let SERVICES_IDENTITY = path.join(STORAGE_ROOT, 'ssh', 'services_id_ed25519');
+/** Test hook: use a throw-away identity path. */
+function setIdentityPath(p) {
+    SERVICES_IDENTITY = p;
+}
+/** The user the bootstrap script creates on remote hosts (I9). */
+const REMOTE_USER = 'she-services';
 
 const router = express.Router();
 
@@ -813,9 +824,209 @@ router.put('/hosts/:host/broker-env', async (req, res) => {
     }
 });
 
+// ── I9: remote host bootstrap ─────────────────────────────────────────────────
+//
+// Settings → "Remote host setup command" mints a one-time token; the admin runs
+//   curl -fsSL '<she>/she/services/setup.sh?token=…' | sudo bash
+// on the target. The script (POSIX sh, everything embedded, no downloads) creates the
+// she-services user, installs she's public key, the helper and the single sudoers rule,
+// then calls back so she adds the host entry. The script is generated when the token is
+// minted so its sha256 can be shown next to the command.
+
+const SETUP_TTL = 15 * 60 * 1000;
+const _setupTokens = new Map(); // token → {script, sha256, created, fetched, done, host}
+
+function sweepSetupTokens() {
+    const now = Date.now();
+    for (const [t, s] of _setupTokens) if (now - s.created > SETUP_TTL && !s.done) _setupTokens.delete(t);
+}
+const _setupSweeper = setInterval(sweepSetupTokens, 60000);
+_setupSweeper.unref();
+
+function setupState(t) {
+    const s = _setupTokens.get(t);
+    if (!s) return { status: 'expired' };
+    if (s.done) return { status: 'done', host: s.host };
+    if (Date.now() - s.created > SETUP_TTL) return { status: 'expired' };
+    return { status: s.fetched ? 'fetched' : 'pending' };
+}
+
+/** POSIX sh bootstrap script for one token. */
+function buildSetupScript({ publicKey, helper, callbackUrl, token, user }) {
+    if (helper.split('\n').some((l) => l === 'SHE_HELPER_EOF')) throw new Error('helper contains the heredoc delimiter');
+    const q = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
+    return `#!/bin/sh
+# she — remote host setup for the Services page (roadmap I9). Generated ${new Date().toISOString()}.
+# Creates the user ${user}, installs she's SSH public key, the she-servicectl helper and its sudoers rule,
+# then tells she about this host. Idempotent; run as root.
+set -eu
+USER_NAME=${q(user)}
+PUBKEY=${q(publicKey)}
+CALLBACK=${q(callbackUrl)}
+HELPER=/usr/local/bin/she-servicectl
+SUDOERS=/etc/sudoers.d/she-services
+
+if [ "$(id -u)" -ne 0 ]; then echo "she setup: run as root (sudo)" >&2; exit 1; fi
+command -v systemctl >/dev/null 2>&1 || echo "she setup: warning: systemd not found - the helper needs it to manage adapters" >&2
+
+# 1. user
+if ! id -u "$USER_NAME" >/dev/null 2>&1; then
+    useradd --system --create-home --home-dir "/home/$USER_NAME" --shell /bin/sh --comment "she service management" "$USER_NAME"
+    echo "she setup: created user $USER_NAME"
+else
+    echo "she setup: user $USER_NAME exists"
+fi
+HOME_DIR=$(getent passwd "$USER_NAME" | cut -d: -f6)
+[ -n "$HOME_DIR" ] || { echo "she setup: no home directory for $USER_NAME" >&2; exit 1; }
+[ -d "$HOME_DIR" ] || mkdir -p "$HOME_DIR"
+
+# 2. ssh key
+install -d -m 700 -o "$USER_NAME" -g "$(id -gn "$USER_NAME")" "$HOME_DIR/.ssh"
+AUTH="$HOME_DIR/.ssh/authorized_keys"
+touch "$AUTH"
+if ! grep -qF "$PUBKEY" "$AUTH"; then printf '%s\\n' "$PUBKEY" >> "$AUTH"; echo "she setup: added she's public key"; else echo "she setup: public key already present"; fi
+chmod 600 "$AUTH"; chown "$USER_NAME:$(id -gn "$USER_NAME")" "$AUTH"
+
+# 3. helper
+TMP=$(mktemp)
+cat > "$TMP" <<'SHE_HELPER_EOF'
+${helper}
+SHE_HELPER_EOF
+install -m 755 -o root -g root "$TMP" "$HELPER"
+rm -f "$TMP"
+echo "she setup: installed $HELPER (v$("$HELPER" version))"
+
+# 4. sudoers: exactly one rule
+printf '%s ALL=(root) NOPASSWD: %s\\n' "$USER_NAME" "$HELPER" > "$SUDOERS.tmp"
+chmod 440 "$SUDOERS.tmp"
+if command -v visudo >/dev/null 2>&1; then visudo -cf "$SUDOERS.tmp" >/dev/null; fi
+mv "$SUDOERS.tmp" "$SUDOERS"
+echo "she setup: wrote $SUDOERS"
+
+# 5. tell she
+HOST_NAME=$(hostname)
+BODY=$(printf '{"hostname":"%s","user":"%s"}' "$HOST_NAME" "$USER_NAME")
+if command -v curl >/dev/null 2>&1; then
+    curl -fsS -X POST -H 'Content-Type: application/json' --data "$BODY" "$CALLBACK" >/dev/null && echo "she setup: registered $HOST_NAME with she" || echo "she setup: could not reach she at $CALLBACK - add the host by hand (user $USER_NAME)" >&2
+elif command -v wget >/dev/null 2>&1; then
+    wget -q -O /dev/null --header='Content-Type: application/json' --post-data="$BODY" "$CALLBACK" && echo "she setup: registered $HOST_NAME with she" || echo "she setup: could not reach she at $CALLBACK - add the host by hand (user $USER_NAME)" >&2
+else
+    echo "she setup: neither curl nor wget - add the host by hand (user $USER_NAME)" >&2
+fi
+echo "she setup: done"
+`;
+}
+
+// POST /she/services/setup/token { origin } → { token, command, sha256, expires }
+router.post('/setup/token', async (req, res) => {
+    const origin = req.body && typeof req.body.origin === 'string' && /^https?:\/\/[^/\s]+$/.test(req.body.origin) ? req.body.origin : null;
+    if (!origin) return res.status(400).json({ error: 'origin required (the URL you reach she at, e.g. http://she:8080)' });
+    let publicKey;
+    try {
+        publicKey = fs.readFileSync(identityPath() + '.pub', 'utf8').trim();
+    } catch {
+        try {
+            publicKey = await sshDeploy.generateKeypair(identityPath(), 'she-services');
+        } catch (err) {
+            return res.status(500).json({ error: 'cannot create the services SSH key: ' + err.message });
+        }
+    }
+    let helper;
+    try {
+        helper = fs.readFileSync(HELPER_SOURCE, 'utf8');
+    } catch (err) {
+        return res.status(500).json({ error: 'helper source missing: ' + err.message });
+    }
+    const token = crypto.randomBytes(24).toString('hex');
+    const callbackUrl = origin + '/she/services/setup/done?token=' + token;
+    let script;
+    try {
+        script = buildSetupScript({ publicKey, helper, callbackUrl, token, user: REMOTE_USER });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+    const sha256 = crypto.createHash('sha256').update(script).digest('hex');
+    sweepSetupTokens();
+    _setupTokens.set(token, { script, sha256, created: Date.now(), fetched: false, done: false, host: null });
+    res.json({
+        token,
+        command: `curl -fsSL '${origin}/she/services/setup.sh?token=${token}' | sudo bash`,
+        scriptUrl: `${origin}/she/services/setup.sh?token=${token}`,
+        sha256,
+        expires: Date.now() + SETUP_TTL,
+        user: REMOTE_USER,
+    });
+});
+
+// GET /she/services/setup/token/:token → { status, host? }
+router.get('/setup/token/:token', (req, res) => {
+    res.json(setupState(req.params.token));
+});
+
+// GET /she/services/setup.sh?token=… (no auth) — served once
+router.get('/setup.sh', (req, res) => {
+    const t = typeof req.query.token === 'string' ? req.query.token : '';
+    const s = _setupTokens.get(t);
+    if (!s || s.done || s.fetched || Date.now() - s.created > SETUP_TTL) {
+        return res.status(410).type('text/plain').send('she: setup token unknown, used or expired - mint a new command in Settings -> Services\n');
+    }
+    s.fetched = true;
+    res.type('text/x-shellscript').send(s.script);
+});
+
+/** Address the callback came from (first X-Forwarded-For entry behind a proxy), IPv4-mapped prefix stripped. */
+function callerAddress(req) {
+    const fwd = req.headers['x-forwarded-for'];
+    let addr = typeof fwd === 'string' && fwd.trim() ? fwd.split(',')[0].trim() : req.socket.remoteAddress || '';
+    if (addr.startsWith('::ffff:')) addr = addr.slice(7);
+    return addr;
+}
+
+// POST /she/services/setup/done?token=… { hostname, user } (no auth) — add the host entry
+router.post('/setup/done', (req, res) => {
+    const t = typeof req.query.token === 'string' ? req.query.token : '';
+    const s = _setupTokens.get(t);
+    if (!s || s.done || Date.now() - s.created > SETUP_TTL) return res.status(410).json({ error: 'setup token unknown, used or expired' });
+    const hostname = req.body && typeof req.body.hostname === 'string' && /^[A-Za-z0-9_.-]{1,253}$/.test(req.body.hostname) ? req.body.hostname : null;
+    const addr = callerAddress(req);
+    if (!addr || !HOST_NAME_RE.test(addr)) return res.status(400).json({ error: 'cannot determine the caller address' });
+    s.done = true;
+    s.host = addr;
+    const configPath = req.app.locals.configPath;
+    let added = false;
+    if (configPath) {
+        try {
+            let cfg = {};
+            try {
+                cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            } catch {
+                /* new file */
+            }
+            if (!cfg.services || typeof cfg.services !== 'object') cfg.services = {};
+            if (!Array.isArray(cfg.services.hosts)) cfg.services.hosts = [{ name: 'local' }];
+            const exists = cfg.services.hosts.find((h) => h && h.ssh && (h.ssh.host === addr || (hostname && h.ssh.host === hostname)));
+            if (exists) {
+                exists.ssh.user = REMOTE_USER;
+                if (hostname) exists.hostname = hostname;
+            } else {
+                cfg.services.hosts.push({ ...(hostname ? { hostname } : {}), ssh: { host: addr, user: REMOTE_USER } });
+                added = true;
+            }
+            fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+            invalidateHosts();
+        } catch (err) {
+            return res.status(500).json({ error: 'cannot update config: ' + err.message });
+        }
+    }
+    res.json({ ok: true, host: addr, hostname, user: REMOTE_USER, added });
+});
+
 module.exports = {
     router,
     init,
+    setIdentityPath,
+    buildSetupScript,
+    REMOTE_USER,
     getServicesConfig,
     validInstance,
     validAdapter,

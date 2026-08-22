@@ -156,13 +156,13 @@
                         {#if h.code === 'HELPER_MISSING' && h.local}
                             <div class="hint">Install the helper on this host: <code>sudo she --install</code> (copies <code>she-servicectl</code> to <code>/usr/local/bin</code> and allows it in <code>/etc/sudoers.d/she</code>).</div>
                         {:else if h.code === 'HELPER_MISSING'}
-                            <div class="hint">The helper is not on this host yet — <em>Deploy helper</em> copies it over and prints the sudoers line to add.</div>
+                            <div class="hint">The helper is not on this host yet — <em>Deploy helper</em> copies it over and prints the sudoers line to add, or run the one-line setup command from Settings → Services on the host as root.</div>
                         {:else if h.code === 'SUDO_DENIED' && h.local}
                             <div class="hint">Add to <code>/etc/sudoers.d/she</code>: <code>she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> — <code>sudo she --install</code> does this.</div>
                         {:else if h.code === 'SUDO_DENIED'}
                             <div class="hint">Allow the helper for <code>{h.ssh?.user}</code> on the host: <code>{h.ssh?.user} ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> in <code>/etc/sudoers.d/she-services</code> — <em>Deploy helper</em> prints the exact commands.</div>
                         {:else if h.code === 'SSH_FAILED'}
-                            <div class="hint">SSH to <code>{h.ssh?.user}@{h.ssh?.host}:{h.ssh?.port}</code> failed — is the services public key (Settings → Services) in that user's <code>~/.ssh/authorized_keys</code>, and the host reachable?</div>
+                            <div class="hint">SSH to <code>{h.ssh?.user}@{h.ssh?.host}:{h.ssh?.port}</code> failed — is the services public key (Settings → Services) in that user's <code>~/.ssh/authorized_keys</code>, and the host reachable? The setup command in Settings → Services does the whole host setup in one go.</div>
                         {:else if h.code === 'UNSUPPORTED'}
                             <div class="hint">The host entry has an <code>ssh</code> block without a <code>host</code> — fix it under Settings → Services.</div>
                         {/if}

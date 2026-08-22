@@ -36,6 +36,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [I2 — InfluxDB v1 compatibility ✅ implemented](I2.md)
 - [I4 — Services: xyz2mqtt inventory and local host management ✅ implemented](I4.md) — design: [ROADMAP-SERVICES.md](ROADMAP-SERVICES.md)
 - [I5 — Services: remote hosts over SSH ✅ implemented](I5.md)
+- [I9 — Services: remote host bootstrap script ✅ implemented](I9.md)
 
 ## Documentation
 

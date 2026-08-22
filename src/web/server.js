@@ -29,7 +29,9 @@ app.use('/she/auth', authRouter);
 
 // Auth middleware for all /she/* routes except the public auth endpoints above.
 // /api/* is intentionally excluded — user scripts control their own auth.
-const OPEN_SHE_PATHS = new Set(['/she/auth/mode', '/she/auth/login', '/she/auth/logout']);
+// The remote-host bootstrap script and its callback are fetched by curl on the target host: no
+// session, but useless without the one-time token they carry (services-api validates it).
+const OPEN_SHE_PATHS = new Set(['/she/auth/mode', '/she/auth/login', '/she/auth/logout', '/she/services/setup.sh', '/she/services/setup/done']);
 app.use('/she', (req, res, next) => {
     if (OPEN_SHE_PATHS.has(req.originalUrl.split('?')[0])) return next();
     authMiddleware(req, res, next);

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getServicesSshPubkey, generateServicesSshKey, testServicesSsh, type AuthMode } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getServicesSshPubkey, generateServicesSshKey, testServicesSsh, createServicesSetupCommand, getServicesSetupState, type AuthMode, type SetupCommand } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
@@ -45,6 +45,60 @@
     let servicesKeyBusy = $state(false);
     let servicesKeyMsg  = $state('');
 
+    // remote host bootstrap (I9): one-time command shown here, polled until the target calls back
+    let setupCmd = $state<SetupCommand | null>(null);
+    let setupState = $state<'pending' | 'fetched' | 'done' | 'expired' | null>(null);
+    let setupHost = $state('');
+    let setupBusy = $state(false);
+    let setupErr = $state('');
+    let setupOrigin = $state(location.origin);
+    let setupPoll: ReturnType<typeof setInterval> | null = null;
+    let setupCopied = $state(false);
+    function stopSetupPoll() { if (setupPoll) { clearInterval(setupPoll); setupPoll = null; } }
+    async function createSetupCommand() {
+        setupBusy = true; setupErr = ''; setupCmd = null; setupState = null; setupHost = ''; setupCopied = false; stopSetupPoll();
+        try {
+            setupCmd = await createServicesSetupCommand(setupOrigin.trim().replace(/\/+$/, ''));
+            setupState = 'pending';
+            servicesPubkey ||= ' '; // the key exists now
+            loadServicesPubkey();
+            setupPoll = setInterval(async () => {
+                if (!setupCmd) return stopSetupPoll();
+                try {
+                    const st = await getServicesSetupState(setupCmd.token);
+                    setupState = st.status;
+                    if (st.status === 'done') {
+                        setupHost = st.host ?? '';
+                        stopSetupPoll();
+                        await reloadServicesHosts();
+                    } else if (st.status === 'expired') {
+                        stopSetupPoll();
+                    }
+                } catch { /* keep polling */ }
+            }, 3000);
+        } catch (e: any) {
+            setupErr = e.message ?? String(e);
+        } finally {
+            setupBusy = false;
+        }
+    }
+    /** the daemon added a host entry → refresh the list from config.json so a later Save keeps it */
+    async function reloadServicesHosts() {
+        try {
+            const cfg = await getConfig();
+            const servicesCfg = cfg.services as Record<string, unknown> | undefined;
+            const hostList = Array.isArray(servicesCfg?.hosts) ? (servicesCfg!.hosts as any[]) : [];
+            servicesRemote = hostList.filter(h => h && h.ssh).map(h => ({
+                host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
+                user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
+            }));
+            if (servicesCfg) extra = { ...extra, services: servicesCfg };
+        } catch { /* best effort */ }
+    }
+    async function copySetupCommand() {
+        if (!setupCmd) return;
+        try { await navigator.clipboard.writeText(setupCmd.command); setupCopied = true; setTimeout(() => (setupCopied = false), 2000); } catch { /* clipboard blocked */ }
+    }
     let hostTest = $state<Record<number, string>>({});
     let hostTesting = $state<number | null>(null);
     async function testRemoteHost(i: number) {
@@ -916,6 +970,35 @@
                     </div>
                     <div class="field">
                         <label>
+                            Set up a remote host
+                            {@render tip('One command to run as root on the target host: creates the user she-services, installs she\'s SSH key, the she-servicectl helper and its single sudoers rule, then registers the host here. The command is valid for 15 minutes and works once. The sha256 lets you verify the script if you prefer to download and read it first.')}
+                        </label>
+                        <div class="svc-setup">
+                            <div class="svc-setup-row">
+                                <span class="feature-desc" style="padding-left:0">she reachable from the host at</span>
+                                <input type="text" bind:value={setupOrigin} spellcheck="false" style="width:260px" />
+                                <button type="button" class="svc-add" onclick={createSetupCommand} disabled={setupBusy}>{setupBusy ? 'Preparing…' : 'Create setup command'}</button>
+                            </div>
+                            {#if setupErr}<div class="feature-desc svc-err" style="padding-left:0">{setupErr}</div>{/if}
+                            {#if setupCmd}
+                                <div class="svc-setup-box">
+                                    <div class="svc-setup-cmd"><code>{setupCmd.command}</code><button type="button" class="svc-add" onclick={copySetupCommand}>{setupCopied ? 'Copied' : 'Copy'}</button></div>
+                                    <div class="feature-desc" style="padding-left:0">
+                                        Run this as root on the target. Creates <code>{setupCmd.user}</code>, valid until {new Date(setupCmd.expires).toLocaleTimeString()}, single use.
+                                        To read it first: <code>curl -fsSL '{setupCmd.scriptUrl}' -o she-setup.sh</code> — sha256 <code class="sha">{setupCmd.sha256}</code>
+                                    </div>
+                                    <div class="feature-desc" style="padding-left:0">
+                                        {#if setupState === 'pending'}⏳ waiting for the host to fetch the script…
+                                        {:else if setupState === 'fetched'}⏳ script fetched, running on the host…
+                                        {:else if setupState === 'done'}<span class="svc-ok">✓ host {setupHost} registered as <code>{setupCmd.user}</code> — it is in the list above; save when done, then check Services → Hosts.</span>
+                                        {:else if setupState === 'expired'}command expired — create a new one.{/if}
+                                    </div>
+                                </div>
+                            {/if}
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>
                             SSH key
                             {@render tip('One Ed25519 key for all managed hosts, stored in the data directory. Add the public key to ~/.ssh/authorized_keys of the SSH user on every remote host.')}
                         </label>
@@ -1586,6 +1669,13 @@
     .svc-host-grid label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .svc-host-grid label.wide { grid-column: 1 / -1; }
     .svc-host-test { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+    .svc-setup { display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
+    .svc-setup-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .svc-setup-box { border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .svc-setup-cmd { display: flex; align-items: center; gap: 8px; }
+    .svc-setup-cmd code { flex: 1; font-family: var(--font-mono, monospace); font-size: 11px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 4px 6px; word-break: break-all; user-select: all; }
+    .svc-setup code.sha { word-break: break-all; }
+    .svc-err { color: var(--fg-err, #e74c3c); }
     .svc-ok { color: var(--fg-ok, #27ae60); }
     .svc-host-grid label > span { font-size: 10px; color: var(--fg-muted); }
     .svc-host-grid input { font-size: 12px; padding: 3px 6px; width: 100%; box-sizing: border-box; }

@@ -1288,6 +1288,26 @@ export function testServiceHost(host: string): Promise<{ ok: boolean; helper?: n
     return request('POST', `${svcHost(host)}/test`);
 }
 
+// ---- Services: remote host bootstrap (I9) ----
+
+export interface SetupCommand {
+    token: string;
+    command: string;
+    scriptUrl: string;
+    sha256: string;
+    expires: number;
+    user: string;
+}
+
+/** Mint a one-time bootstrap command for a remote host; `origin` is the URL the target host can reach she at. */
+export function createServicesSetupCommand(origin: string): Promise<SetupCommand> {
+    return request('POST', '/she/services/setup/token', { origin });
+}
+
+export function getServicesSetupState(token: string): Promise<{ status: 'pending' | 'fetched' | 'done' | 'expired'; host?: string }> {
+    return request('GET', `/she/services/setup/token/${encodeURIComponent(token)}`);
+}
+
 /** Test unsaved host settings from the Config page. */
 export function testServicesSsh(p: {
     host: string;

@@ -66,11 +66,17 @@ Settings → Services holds the enable switch, the host list and the SSH key; ev
 
 ## Remote hosts
 
-Adapter hosts other than the she host are reached over SSH with the system `ssh`/`scp` clients (`BatchMode`, `StrictHostKeyChecking=accept-new` — the same way the Broker page deploys Mosquitto files). Setting one up:
+Adapter hosts other than the she host are reached over SSH with the system `ssh`/`scp` clients (`BatchMode`, `StrictHostKeyChecking=accept-new` — the same way the Broker page deploys Mosquitto files), as a dedicated user `she-services` that may run exactly one command with sudo: the helper.
 
-1. **Settings → Services → SSH key → Generate key.** One Ed25519 key for all managed hosts, `<data-dir>/ssh/services_id_ed25519`; copy the public key into `~/.ssh/authorized_keys` of the SSH user on the host. Any user works; `root` needs no further setup, a normal user needs the sudoers line from step 3.
-2. **Add the host** (ssh host, port, user), *Test connection*, save.
-3. **Services → Hosts → Deploy helper.** she copies `she-servicectl` to the SSH user's home and tries `sudo -n install` — as `root` that is all. Otherwise it prints the two commands an admin runs once on the host: install the helper to `/usr/local/bin`, and allow it for the SSH user in `/etc/sudoers.d/she-services` (she never edits sudoers on remote hosts). *Test* verifies the result.
+**Recommended: the setup command.** Settings → Services → *Set up a remote host* → *Create setup command* gives you one line to run as root on the target:
+
+```
+curl -fsSL 'http://she:8080/she/services/setup.sh?token=…' | sudo bash
+```
+
+The script (POSIX sh, everything embedded, no downloads at run time) creates the system user `she-services`, puts she's public key into its `authorized_keys`, installs `/usr/local/bin/she-servicectl`, writes `/etc/sudoers.d/she-services` (`she-services ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl`, checked with `visudo -c`) and calls she back; she then adds the host entry (ssh host = the address the call came from, user `she-services`, hostname from the host) and the Settings list refreshes. It is idempotent — run it again after a she update to refresh the helper. The token is valid for 15 minutes and works once; the script is served once; the sha256 shown next to the command lets you download and read the script before running it. Prefer HTTPS (a reverse proxy in front of she) when the LAN is not fully trusted — the token protects the endpoint from strangers, not the transfer from tampering.
+
+**By hand** (existing SSH access): generate the key under Settings → Services, put the public key into `~/.ssh/authorized_keys` of the SSH user on the host (`root` needs nothing else; another user needs the sudoers line), add the host (ssh host, port, user — empty user = the user she runs as), *Test connection*, save, then Services → Hosts → *Deploy helper*. she never edits sudoers on a remote host; when sudo refuses it prints the two commands for the admin.
 
 On first contact she stores the host's hostname in the host entry; adapter instances whose `info.host` matches are shown as running on that host.
 
