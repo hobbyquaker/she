@@ -124,18 +124,14 @@
     });
 
     /* ── Detail drawer ────────────────────────────────────────────────────── */
-    let detail = $state<Row | null>(null);
+    // only the key is state; the row is derived so it is always the fresh one after a reload
+    // (holding the row object in $state would proxy it and never compare equal → effect loop)
+    let detailKey = $state<string | null>(null);
+    let detail = $derived(detailKey === null ? null : (rows.find(r => r.key === detailKey) ?? null));
     function openDetail(r: Row) {
         if (!r.host || !r.unit) return;
-        detail = r;
+        detailKey = r.key;
     }
-    // keep the drawer's row fresh after reloads
-    $effect(() => {
-        if (!detail) return;
-        const fresh = rows.find(r => r.key === detail!.key);
-        if (fresh && fresh !== detail) detail = fresh;
-        if (!fresh) detail = null;
-    });
 
     /* ── Actions ──────────────────────────────────────────────────────────── */
     function setBusy(key: string, on: boolean) {
@@ -177,7 +173,7 @@
             { confirm: 'Uninstall', danger: true },
         );
         if (!ok) return;
-        if (detail?.key === r.key) detail = null;
+        if (detailKey === r.key) detailKey = null;
         return run(r, 'Uninstall', () => uninstallService(r.host!.name, r.unit!.adapter, r.instance), `${r.unit.adapter}@${r.instance} removed from ${r.host.name}.`);
     }
     async function wipe(r: Row) {
@@ -397,7 +393,7 @@
         {#key detail.key}
             <div class="drawer">
                 <InstanceDetail host={detail.host.name} adapter={detail.unit.adapter} instance={detail.instance} unit={detail.unit} mqtt={detail.mqtt}
-                    onclose={() => (detail = null)} onchanged={() => setTimeout(load, 600)} />
+                    onclose={() => (detailKey = null)} onchanged={() => setTimeout(load, 600)} />
             </div>
         {/key}
     {/if}
