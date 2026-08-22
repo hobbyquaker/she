@@ -39,7 +39,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 **Integrations**
 - [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing)
-- [I6 — Services: broker.env and per-instance dynsec credentials](#i6--services-brokerenv-and-per-instance-dynsec-credentials)
+- [I6 — Services: broker.env and per-instance dynsec credentials](#i6--services-brokerenv-and-per-instance-dynsec-credentials) 🔨 *(broker.env shipped)*
 - [I7 — Services: adapter catalog via npm](#i7--services-adapter-catalog-via-npm)
 - [I8 — Services: docker host driver](#i8--services-docker-host-driver) 💡
 
@@ -339,7 +339,9 @@ Use she's Generate CSR flow to produce the key and CSR, then use certbot or anot
 
 ### I6 — Services: broker.env and per-instance dynsec credentials
 
-`/etc/mqtt-interfaces/broker.env` editor per host with "use she's broker settings"; with Mosquitto management enabled, one click creates a dynsec user for an instance with an ACL limited to `<name>/#` (+ `homeassistant/#` publish) via the existing `she.broker` layer and writes it to the instance's env file. Depends on [I4](doc/roadmap-archive/I4.md) ✅ (local) / [I5](doc/roadmap-archive/I5.md) ✅ (remote) and Mosquitto management.
+🔨 *Partially done — the broker.env part shipped with I5: she generates `MQTT_URL`/`MQTT_USERNAME`/`MQTT_PASSWORD` in every managed host's `/etc/mqtt-interfaces/broker.env` from its own MQTT settings (`services.brokerEnvSync`), the remaining keys are editable on the Hosts tab. Open: the dynsec part below.*
+
+✅ ~~`/etc/mqtt-interfaces/broker.env` editor per host with "use she's broker settings"~~; with Mosquitto management enabled, one click creates a dynsec user for an instance with an ACL limited to `<name>/#` (+ `homeassistant/#` publish) via the existing `she.broker` layer and writes it to the instance's env file. Depends on [I4](doc/roadmap-archive/I4.md) ✅ (local) / [I5](doc/roadmap-archive/I5.md) ✅ (remote) and Mosquitto management.
 
 ### I7 — Services: adapter catalog via npm
 

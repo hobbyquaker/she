@@ -1158,6 +1158,8 @@ export interface ServiceHost {
     helperOutdated?: boolean;
     node?: string | null;
     brokerEnv?: boolean;
+    brokerEnvManaged?: boolean;
+    brokerEnvError?: string | null;
     adapters?: ServiceHostAdapter[];
     instances?: ServiceHostInstance[];
 }

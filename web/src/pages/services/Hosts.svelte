@@ -214,18 +214,19 @@
                         </tbody>
                     </table>
                     <div class="card-foot">
-                        <span class="muted">/etc/mqtt-interfaces/broker.env: {h.brokerEnv ? 'present' : 'not present'}</span>
-                        <button class="ghost sm" onclick={() => openBrokerEnv(h)}>Edit broker.env</button>
+                        <span class="muted">/etc/mqtt-interfaces/broker.env: {h.brokerEnv ? 'present' : 'not present'}{#if h.brokerEnvManaged} · URL, username and password generated from she's MQTT settings{/if}{#if h.brokerEnvError} · <span class="warn">sync failed: {h.brokerEnvError}</span>{/if}</span>
+                        <button class="ghost sm" onclick={() => openBrokerEnv(h)}>{h.brokerEnvManaged ? 'Other broker.env keys' : 'Edit broker.env'}</button>
                     </div>
                     {#if brokerHost === h.name}
                         <div class="broker-env">
-                            <div class="muted">Shared broker settings for every adapter instance on this host (used when the instance's own env file does not set them).</div>
+                            <div class="muted">Shared broker settings for every adapter instance on this host (used when the instance's own env file does not set them).{#if h.brokerEnvManaged} MQTT_URL, MQTT_USERNAME and MQTT_PASSWORD follow she's MQTT settings and are rewritten on every refresh — change them under Settings → MQTT, or set <span class="mono">services.brokerEnvSync: false</span>.{/if}</div>
                             {#each BROKER_KEYS as k (k)}
+                                {@const managed = !!h.brokerEnvManaged && ['MQTT_URL', 'MQTT_USERNAME', 'MQTT_PASSWORD'].includes(k)}
                                 <label class="be-row">
-                                    <span class="mono">{k}</span>
-                                    <input type={brokerSecrets.includes(k) ? 'password' : 'text'} spellcheck="false"
+                                    <span class="mono">{k}{#if managed} <span class="muted">(managed)</span>{/if}</span>
+                                    <input type={brokerSecrets.includes(k) ? 'password' : 'text'} spellcheck="false" disabled={managed}
                                         value={brokerEnv[k] === '***' ? '' : (brokerEnv[k] ?? '')}
-                                        placeholder={brokerEnv[k] === '***' ? '(unchanged — type to replace)' : ''}
+                                        placeholder={brokerEnv[k] === '***' ? (managed ? '(set)' : '(unchanged — type to replace)') : ''}
                                         oninput={(e) => setBroker(k, (e.target as HTMLInputElement).value)} />
                                 </label>
                             {/each}

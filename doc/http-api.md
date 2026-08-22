@@ -483,7 +483,7 @@ What a wipe would clear — `{ "own": ["cul/connected", "cul/info", "cul/status/
 
 ### GET /she/services/hosts
 
-Every configured host (`services.hosts`, default the she host as `local`) with the helper's `list`: `{ "hosts": [ { "name": "local", "local": true, "ok": true, "hostname": "zigbee", "helper": 1, "helperOutdated": false, "node": "v22.12.0", "brokerEnv": true, "adapters": [ { "name": "cul2mqtt", "version": "1.1.1", "origin": "registry" | "manual", "path": "/usr/local/lib/node_modules/cul2mqtt", "node": "/usr/bin/node" } ], "instances": [ { "adapter": "cul2mqtt", "instance": "cul", "active": "active", "sub": "running", "unitFile": "enabled", "since": "…", "restarts": 0 } ] } ] }`; unreachable hosts carry `ok: false, code, error`.
+Every configured host (`services.hosts`, default the she host as `local`) with the helper's `list`: `{ "hosts": [ { "name": "local", "local": true, "ok": true, "hostname": "zigbee", "helper": 1, "helperOutdated": false, "node": "v22.12.0", "brokerEnv": true, "adapters": [ { "name": "cul2mqtt", "version": "1.1.1", "origin": "registry" | "manual", "path": "/usr/local/lib/node_modules/cul2mqtt", "node": "/usr/bin/node" } ], "instances": [ { "adapter": "cul2mqtt", "instance": "cul", "active": "active", "sub": "running", "unitFile": "enabled", "since": "…", "restarts": 0 } ] } ] }`; unreachable hosts carry `ok: false, code, error`. Each successful listing also syncs the host's `broker.env` with she's MQTT settings unless `services.brokerEnvSync` is `false` (`brokerEnvManaged`, `brokerEnvError`). A remote entry without `name` is addressed by its ssh host.
 
 ### Host routes
 

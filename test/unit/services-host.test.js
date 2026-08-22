@@ -416,3 +416,64 @@ describe('ssh driver (fake ssh/scp)', () => {
         });
     });
 });
+
+describe('broker.env sync from she settings', () => {
+    let server;
+    let port;
+    let logFile;
+    const calls = () =>
+        fs
+            .readFileSync(logFile, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => JSON.parse(l));
+
+    beforeAll(async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-benv-'));
+        logFile = path.join(dir, 'calls.log');
+        const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: path.join(dir, 'state.json') };
+        fs.writeFileSync(path.join(dir, 'state.json'), '{}');
+        api.setDriverFactory((h) => {
+            const d = host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env });
+            if (h.ssh) d.local = false;
+            return d;
+        });
+        api.init(new StateStore(), () => null, { getMqttConfig: () => ({ url: 'mqtt://localhost:1883', username: 'she', password: 'pw' }) });
+        const app = express();
+        app.use(express.json());
+        const cfgPath = path.join(dir, 'config.json');
+        fs.writeFileSync(cfgPath, JSON.stringify({ services: { enabled: true, hosts: [{ name: 'local' }, { ssh: { host: 'zigbee.lan' } }] } }));
+        app.locals.configPath = cfgPath;
+        app.use('/she/services', api.router);
+        server = http.createServer(app);
+        await new Promise((r) => server.listen(0, '127.0.0.1', r));
+        port = server.address().port;
+    });
+    afterAll(async () => {
+        api.init(new StateStore(), () => null);
+        await new Promise((r) => server.close(r));
+    });
+
+    test('desiredBrokerEnv rewrites loopback for remote hosts only', () => {
+        expect(api.desiredBrokerEnv(true).MQTT_URL).toBe('mqtt://localhost:1883');
+        expect(api.desiredBrokerEnv(false).MQTT_URL).toBe('mqtt://' + os.hostname() + ':1883');
+    });
+
+    test('GET /hosts names a nameless ssh entry after its host and writes broker.env when it differs', async () => {
+        fs.writeFileSync(logFile, '');
+        const r = await httpRequest('GET', port, '/she/services/hosts');
+        expect(r.body.hosts.map((h) => [h.name, h.ok, h.brokerEnvManaged])).toEqual([
+            ['local', true, true],
+            ['zigbee.lan', true, true],
+        ]);
+        const writes = calls().filter((c) => c.args[0] === 'broker-env' && c.args[1] === 'write');
+        expect(writes).toHaveLength(2); // fake returns MQTT_URL=mqtt://broker + MQTT_PASSWORD=pw → url and username differ
+        // hosts are synced concurrently — match the writes by content, not by order
+        const local = writes.find((w) => w.stdin.includes('MQTT_URL=mqtt://localhost:1883\n'));
+        const remote = writes.find((w) => w.stdin.includes('MQTT_URL=mqtt://' + os.hostname() + ':1883\n'));
+        expect(local).toBeDefined();
+        expect(remote).toBeDefined();
+        expect(local.stdin).toContain('MQTT_USERNAME=she\n');
+        expect(local.stdin).toContain('MQTT_PASSWORD=pw\n');
+    });
+});

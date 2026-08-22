@@ -37,7 +37,7 @@
     // Services (xyz2mqtt adapter instances)
     let servicesEnabled = $state(false);
     let servicesLocal   = $state(true);   // manage the she host itself
-    type RemoteHost = { name: string; host: string; port: number | ''; user: string; identityFile: string; hostname: string };
+    type RemoteHost = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
     let servicesRemote  = $state<RemoteHost[]>([]);
     let servicesPubkey  = $state<string | null>(null);
     let servicesKeyFile = $state('');
@@ -45,7 +45,7 @@
     let servicesKeyMsg  = $state('');
 
     function addRemoteHost() {
-        servicesRemote = [...servicesRemote, { name: '', host: '', port: '', user: '', identityFile: '', hostname: '' }];
+        servicesRemote = [...servicesRemote, { host: '', port: '', user: '', identityFile: '', hostname: '' }];
     }
     function removeRemoteHost(i: number) {
         servicesRemote = servicesRemote.filter((_, idx) => idx !== i);
@@ -383,7 +383,7 @@
             const hostList = Array.isArray(servicesCfg?.hosts) ? (servicesCfg!.hosts as any[]) : null;
             servicesLocal = hostList ? hostList.some(h => h && !h.ssh) : true;
             servicesRemote = (hostList ?? []).filter(h => h && h.ssh).map(h => ({
-                name: String(h.name ?? ''), host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
+                host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
                 user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
             }));
             if (servicesEnabled) loadServicesPubkey();
@@ -563,12 +563,13 @@
         const hostsOut: Record<string, unknown>[] = [];
         if (servicesLocal) hostsOut.push({ name: 'local' });
         for (const h of servicesRemote) {
-            if (!h.name.trim() || !h.host.trim()) continue;
+            if (!h.host.trim()) continue;
             const ssh: Record<string, unknown> = { host: h.host.trim() };
             if (h.port !== '' && Number(h.port) > 0) ssh.port = Number(h.port);
             if (h.user.trim()) ssh.user = h.user.trim();
             if (h.identityFile.trim()) ssh.identityFile = h.identityFile.trim();
-            hostsOut.push({ name: h.name.trim(), ...(h.hostname.trim() ? { hostname: h.hostname.trim() } : {}), ssh });
+            // the entry is identified by its ssh host (the daemon names nameless entries after it)
+            hostsOut.push({ ...(h.hostname.trim() ? { hostname: h.hostname.trim() } : {}), ssh });
         }
         const hostsChanged = !servicesLocal || hostsOut.length > 1 || Array.isArray(servicesExtra.hosts);
         const servicesOut: Record<string, unknown> = { ...servicesRest, ...(hostsChanged ? { hosts: hostsOut } : {}) };
@@ -873,17 +874,18 @@
                     <div class="field">
                         <label>
                             Remote hosts
-                            {@render tip('Hosts reached over SSH. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). The hostname column is filled automatically on first contact and used to match MQTT instances (info.host) to the host.')}
+                            {@render tip('Hosts reached over SSH; a host is identified by its ssh host. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). hostname is detected on first contact and used to match MQTT instances (info.host) to the host — only set it when the two differ. /etc/mqtt-interfaces/broker.env on every managed host is generated from the MQTT settings above.')}
                         </label>
                         <div class="svc-hosts">
                             {#each servicesRemote as h, i (i)}
-                                <div class="svc-host-row">
-                                    <input type="text" placeholder="name" bind:value={h.name} spellcheck="false" style="width:110px" />
-                                    <input type="text" placeholder="ssh host" bind:value={h.host} spellcheck="false" style="width:160px" />
-                                    <input type="number" placeholder="22" bind:value={h.port} style="width:64px" />
-                                    <input type="text" placeholder="user" bind:value={h.user} spellcheck="false" style="width:90px" />
-                                    <input type="text" placeholder="identity file (default: services key)" bind:value={h.identityFile} spellcheck="false" style="width:200px" />
-                                    <input type="text" placeholder="hostname (auto)" bind:value={h.hostname} spellcheck="false" style="width:120px" />
+                                <div class="svc-host">
+                                    <div class="svc-host-grid">
+                                        <label><span>host</span><input type="text" placeholder="zigbee.lan" bind:value={h.host} spellcheck="false" /></label>
+                                        <label><span>port</span><input type="number" placeholder="22" bind:value={h.port} /></label>
+                                        <label><span>user</span><input type="text" placeholder="root" bind:value={h.user} spellcheck="false" /></label>
+                                        <label><span>identity file</span><input type="text" placeholder="services key" bind:value={h.identityFile} spellcheck="false" /></label>
+                                        <label class="wide"><span>hostname</span><input type="text" placeholder="auto-detected on first contact" bind:value={h.hostname} spellcheck="false" /></label>
+                                    </div>
                                     <button type="button" class="svc-rm" title="Remove host" onclick={() => removeRemoteHost(i)}>×</button>
                                 </div>
                             {/each}
@@ -1554,12 +1556,20 @@
 
     /* ── Services: remote host list + key ───────────────────────────── */
     .svc-hosts { display: flex; flex-direction: column; gap: 6px; }
-    .svc-host-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-    .svc-host-row input { font-size: 12px; padding: 4px 6px; }
+    .svc-host {
+        display: flex; align-items: center; gap: 8px;
+        border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; max-width: 640px;
+    }
+    .svc-host-grid { flex: 1; display: grid; grid-template-columns: 2fr 64px 1fr 2fr; gap: 4px 8px; min-width: 0; }
+    .svc-host-grid label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .svc-host-grid label.wide { grid-column: 1 / -1; }
+    .svc-host-grid label > span { font-size: 10px; color: var(--fg-muted); }
+    .svc-host-grid input { font-size: 12px; padding: 3px 6px; width: 100%; box-sizing: border-box; }
     .svc-rm, .svc-add {
         background: none; border: 1px solid var(--border); color: var(--fg-muted);
         border-radius: 3px; font-size: 12px; padding: 3px 8px; cursor: pointer;
     }
+    .svc-rm { align-self: center; flex-shrink: 0; width: 26px; height: 26px; padding: 0; line-height: 1; font-size: 15px; }
     .svc-rm:hover, .svc-add:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     .svc-add { align-self: flex-start; }
     .svc-add:disabled { opacity: 0.5; cursor: default; }

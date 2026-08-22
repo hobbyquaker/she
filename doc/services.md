@@ -49,7 +49,7 @@ The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secre
     "enabled": true,
     "hosts": [
       { "name": "local" },
-      { "name": "zigbee", "hostname": "zigbee", "ssh": { "host": "zigbee.lan", "port": 22, "user": "she", "identityFile": "~/.she/ssh/services_id_ed25519" } }
+      { "hostname": "zigbee", "ssh": { "host": "zigbee.lan", "port": 22, "user": "she", "identityFile": "~/.she/ssh/services_id_ed25519" } }
     ]
   }
 }
@@ -58,9 +58,10 @@ The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secre
 | Key | Default | Description |
 | --- | --- | --- |
 | `services.enabled` | `false` | show the Services page |
-| `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself (untick *This host* in Settings when she runs in Docker) |
+| `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself (untick *This host* in Settings when she runs in Docker). Remote entries are identified by their ssh host; an optional `name` overrides the label |
 | `services.hosts[].ssh` | — | `host` (required), `port` (22), `user` (the daemon's OS user), `identityFile` (the services key) — same shape as `broker.ssh` |
 | `services.hosts[].hostname` | — | filled automatically on first contact; what the host's adapters report as `info.host`; edit it when the two differ |
+| `services.brokerEnvSync` | `true` | keep `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD` in every managed host's `/etc/mqtt-interfaces/broker.env` equal to she's own MQTT settings (see below) |
 
 Settings → Services holds the enable switch, the host list and the SSH key; everything operational is on the Services page.
 
@@ -72,7 +73,9 @@ Adapter hosts other than the she host are reached over SSH with the system `ssh`
 2. **Add the host** (name, ssh host, port, user) and save.
 3. **Services → Hosts → Deploy helper.** she copies `she-servicectl` to the SSH user's home and tries `sudo -n install` — as `root` that is all. Otherwise it prints the two commands an admin runs once on the host: install the helper to `/usr/local/bin`, and allow it for the SSH user in `/etc/sudoers.d/she-services` (she never edits sudoers on remote hosts). *Test* verifies the result.
 
-On first contact she stores the host's hostname in the host entry; adapter instances whose `info.host` matches are shown as running on that host. Adapters that need a newer Node than the system one keep working: the helper uses whatever node the adapter's wrapper in `/usr/local/bin` points to.
+On first contact she stores the host's hostname in the host entry; adapter instances whose `info.host` matches are shown as running on that host.
+
+**broker.env is generated.** Whenever she looks at a managed host (Hosts tab, Instances tab) it makes sure `/etc/mqtt-interfaces/broker.env` carries she's broker URL, username and password (Settings → MQTT), so a freshly installed instance connects without any broker options. A loopback URL (`mqtt://localhost`) is rewritten to she's hostname for remote hosts. Other keys in the file (`MQTT_CLIENT_ID_PREFIX`, `MQTT_TLS_CA`) are left alone and can be edited on the Hosts tab. Set `services.brokerEnvSync: false` to manage the file yourself. Adapters that need a newer Node than the system one keep working: the helper uses whatever node the adapter's wrapper in `/usr/local/bin` points to.
 
 ## The helper: `she-servicectl`
 

@@ -30,7 +30,8 @@
  *   POST   /she/services/hosts/:host/test                            run `she-servicectl version` → ok / code
  *   POST   /she/services/hosts/:host/helper/deploy                   scp the helper to a remote host, install it, print the sudoers line
  *
- * Call init(store, getMqttClient) once (same signature as mqtt-api).
+ * Call init(store, getMqttClient, {getMqttConfig}) once; getMqttConfig returns she's own broker
+ * settings ({url, username, password}) so every managed host's broker.env can be kept in sync.
  */
 
 const express = require('express');
@@ -63,10 +64,12 @@ const router = express.Router();
 
 let _store = null;
 let _getMqtt = () => null;
+let _getMqttConfig = () => null;
 
-function init(store, getMqttClient) {
+function init(store, getMqttClient, { getMqttConfig } = {}) {
     _store = store;
     _getMqtt = getMqttClient;
+    _getMqttConfig = typeof getMqttConfig === 'function' ? getMqttConfig : () => null;
 }
 
 /** Live `services` block from config.json (like broker-api's getBrokerConfig). */
@@ -213,11 +216,55 @@ function setDriverFactory(fn) {
     _driverFactory = fn;
 }
 
-/** Configured hosts; without any, the she host itself. Entries with ssh need the I5 driver. */
+const HOST_NAME_RE = /^[A-Za-z0-9_.:[\]-]+$/;
+
+/**
+ * Configured hosts; without any, the she host itself. A remote entry without a name is
+ * named after its ssh host.
+ */
 function hostEntries(req) {
     const cfg = getServicesConfig(req);
     const list = Array.isArray(cfg.hosts) && cfg.hosts.length > 0 ? cfg.hosts : [{ name: 'local' }];
-    return list.filter((h) => h && typeof h.name === 'string' && /^[A-Za-z0-9_.-]+$/.test(h.name)).map((h) => ({ cfg: h, driver: _driverFactory(h) }));
+    const seen = new Set();
+    return list
+        .filter((h) => h && typeof h === 'object')
+        .map((h) => ({ ...h, name: typeof h.name === 'string' && h.name ? h.name : h.ssh && typeof h.ssh.host === 'string' ? h.ssh.host : 'local' }))
+        .filter((h) => HOST_NAME_RE.test(h.name) && !seen.has(h.name) && seen.add(h.name))
+        .map((h) => ({ cfg: h, driver: _driverFactory(h) }));
+}
+
+/** broker.env keys she manages on every host from its own MQTT settings. */
+const BROKER_ENV_HEADER = [
+    'Shared broker settings for all mqtt-interfaces adapters on this host.',
+    'MQTT_URL, MQTT_USERNAME and MQTT_PASSWORD are managed by she (Settings → MQTT); other keys are kept.',
+];
+
+function desiredBrokerEnv(local) {
+    const mqtt = _getMqttConfig();
+    if (!mqtt || typeof mqtt.url !== 'string' || !mqtt.url) return null;
+    let url = mqtt.url;
+    if (!local) {
+        // she's broker URL is written from she's point of view — a loopback address means "the she host"
+        url = url.replace(/\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?=[:/]|$)/, '//' + os.hostname());
+    }
+    return { MQTT_URL: url, MQTT_USERNAME: mqtt.username ? String(mqtt.username) : '', MQTT_PASSWORD: mqtt.password ? String(mqtt.password) : '' };
+}
+
+/** Bring the host's broker.env in line with she's settings; {managed, changed}. */
+async function syncBrokerEnv(driver, local) {
+    const desired = desiredBrokerEnv(local);
+    if (!desired) return { managed: false };
+    const current = parseEnvFile((await driver.exec(['broker-env', 'read'])).stdout);
+    const merged = { ...current };
+    let changed = false;
+    for (const [k, v] of Object.entries(desired)) {
+        if ((current[k] || '') === v) continue;
+        changed = true;
+        if (v === '') delete merged[k];
+        else merged[k] = v;
+    }
+    if (changed) await driver.exec(['broker-env', 'write'], { stdin: formatEnvFile(merged, BROKER_ENV_HEADER) });
+    return { managed: true, changed };
 }
 
 function hostError(res, err) {
@@ -300,7 +347,7 @@ function saveHostname(req, name, hostname) {
     try {
         const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         const hosts = cfg.services && Array.isArray(cfg.services.hosts) ? cfg.services.hosts : null;
-        const entry = hosts && hosts.find((h) => h && h.name === name);
+        const entry = hosts && hosts.find((h) => h && (h.name === name || (!h.name && h.ssh && h.ssh.host === name)));
         if (!entry || entry.hostname) return;
         entry.hostname = hostname;
         fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
@@ -324,7 +371,18 @@ router.get('/hosts', async (req, res) => {
                 const { stdout } = await driver.exec(['list']);
                 const list = parseList(stdout);
                 if (!cfg.hostname && list.hostname) saveHostname(req, cfg.name, list.hostname);
-                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list };
+                let brokerEnvManaged = false;
+                let brokerEnvError = null;
+                if (getServicesConfig(req).brokerEnvSync !== false) {
+                    try {
+                        const r = await syncBrokerEnv(driver, driver.local === true);
+                        brokerEnvManaged = r.managed;
+                        if (r.changed) list.brokerEnv = true;
+                    } catch (err) {
+                        brokerEnvError = err.message;
+                    }
+                }
+                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list, brokerEnvManaged, brokerEnvError };
             } catch (err) {
                 return { ...base, ok: false, code: err.code || 'ERROR', error: err.message };
             }
@@ -668,4 +726,4 @@ router.put('/hosts/:host/broker-env', async (req, res) => {
     }
 });
 
-module.exports = { router, init, getServicesConfig, validInstance, validAdapter, setDriverFactory, stopAllFollowers, mergeEnv, maskEnv, SERVICES_IDENTITY };
+module.exports = { router, init, getServicesConfig, validInstance, validAdapter, setDriverFactory, stopAllFollowers, mergeEnv, maskEnv, desiredBrokerEnv, SERVICES_IDENTITY };
