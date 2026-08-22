@@ -1193,8 +1193,9 @@ const svcHost = (host: string) => `/she/services/hosts/${encodeURIComponent(host
 const svcUnit = (host: string, adapter: string, instance: string) => `${svcHost(host)}/units/${encodeURIComponent(adapter)}/${encodeURIComponent(instance)}`;
 const svcAdapter = (host: string, adapter: string) => `${svcHost(host)}/adapters/${encodeURIComponent(adapter)}`;
 
-export function getServiceHosts(): Promise<{ hosts: ServiceHost[] }> {
-    return request('GET', '/she/services/hosts');
+/** Cached for a minute on the daemon (tab switches are free); refresh=true runs the helper on every host again. */
+export function getServiceHosts(refresh = false): Promise<{ hosts: ServiceHost[]; cached: boolean }> {
+    return request('GET', refresh ? '/she/services/hosts?refresh=1' : '/she/services/hosts');
 }
 
 export function getServiceSchema(host: string, adapter: string, refresh = false): Promise<{ schema: ServiceSchema; secrets: string[] }> {

@@ -303,9 +303,11 @@
                 <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
             </svg>
             Services
+            <!-- the dot box is always there so the button keeps its width when the status is unknown -->
             {#if servicesStatus === 'ok'}<span class="nav-dot nav-dot--ok" title={servicesTitle}></span>
             {:else if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
             {:else if servicesStatus === 'err'}<span class="nav-dot nav-dot--err" title={servicesTitle}></span>
+            {:else}<span class="nav-dot nav-dot--none"></span>
             {/if}
         </button>
         {/if}
@@ -661,6 +663,7 @@
         flex-shrink: 0;
     }
     .nav-dot--ok   { background: var(--fg-ok); }
+    .nav-dot--none { visibility: hidden; }
     .nav-dot--warn { background: #f90; }
     .nav-dot--err  { background: var(--fg-err); }
     .nav-dot--blink { animation: navDotBlink 0.9s ease-in-out infinite; }

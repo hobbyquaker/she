@@ -250,6 +250,24 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         );
     });
 
+    test('host listing is cached; refresh and mutations invalidate it', async () => {
+        await httpRequest('GET', port, '/she/services/hosts'); // warm
+        fs.writeFileSync(logFile, '');
+        let r = await httpRequest('GET', port, '/she/services/hosts');
+        expect(r.body.cached).toBe(true);
+        expect(calls().filter((c) => c.args[0] === 'list')).toHaveLength(0);
+        r = await httpRequest('GET', port, '/she/services/hosts?refresh=1');
+        expect(r.body.cached).toBe(false);
+        expect(calls().filter((c) => c.args[0] === 'list')).toHaveLength(1);
+        await httpRequest('POST', port, '/she/services/hosts/local/units/cul2mqtt/cul/restart');
+        r = await httpRequest('GET', port, '/she/services/hosts');
+        expect(r.body.cached).toBe(false);
+        expect(calls().filter((c) => c.args[0] === 'list')).toHaveLength(2);
+        // a GET under /hosts/ does not invalidate
+        await httpRequest('GET', port, '/she/services/hosts/local/adapters/cul2mqtt/schema');
+        expect((await httpRequest('GET', port, '/she/services/hosts')).body.cached).toBe(true);
+    });
+
     test('follow: start, renew, stop', async () => {
         let r = await httpRequest('POST', port, '/she/services/hosts/local/units/cul2mqtt/cul/logs/follow');
         expect(r.body).toEqual({ ok: true, following: true, renewed: false });

@@ -23,13 +23,10 @@
         <button class:active={tab === 'add'} onclick={() => (tab = 'add')}>Add instance</button>
     </div>
 
-    {#if tab === 'instances'}
-        <Instances {onstatus} {generation} />
-    {:else if tab === 'hosts'}
-        <Hosts onchanged={() => generation++} />
-    {:else}
-        <AddInstance oninstalled={() => { generation++; }} />
-    {/if}
+    <!-- tabs stay mounted: switching must not re-run the host listing -->
+    <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances {onstatus} {generation} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => generation++} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'add'}><AddInstance oninstalled={() => { generation++; }} /></div>
 </div>
 
 <style>
@@ -64,4 +61,7 @@
         color: var(--text, #eee);
         border-bottom-color: var(--accent, #569cd6);
     }
+
+    .tab-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+    .tab-wrap.hidden { display: none; }
 </style>

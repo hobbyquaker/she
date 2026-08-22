@@ -19,10 +19,10 @@
     let notice   = $state('');
     let output   = $state('');
 
-    async function load() {
+    async function load(refresh = false) {
         loading = true; error = '';
         try {
-            const [h, inv] = await Promise.all([getServiceHosts(), getServiceInstances().catch(() => null)]);
+            const [h, inv] = await Promise.all([getServiceHosts(refresh), getServiceInstances().catch(() => null)]);
             hosts = h.hosts;
             if (inv) mqttInstances = inv.instances;
         } catch (e: any) {
@@ -31,7 +31,7 @@
             loading = false;
         }
     }
-    onMount(load);
+    onMount(() => { load(); });
 
     /** Hosts that adapters report in info.host but that are not configured here (SV-14 correlation by hostname). */
     let unmanaged = $derived.by(() => {
@@ -140,7 +140,7 @@
 
 <div class="hosts">
     <div class="bar">
-        <button class="ghost" onclick={load} disabled={loading} title="Reload">↺</button>
+        <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask every host again (otherwise the listing is cached for a minute)">↺</button>
         <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — add remote hosts under Settings → Services</span>
         <span class="spacer"></span>
         {#if notice}<span class="muted">{notice}</span>{/if}

@@ -356,9 +356,34 @@ function saveHostname(req, name, hostname) {
     }
 }
 
-// GET /she/services/hosts
+/**
+ * The host listing runs the helper (and the broker.env sync) on every host — cached for a
+ * minute so tab switches and WS-triggered reloads do not hit the hosts; `?refresh=1` and every
+ * mutating route bypass/invalidate it. Keyed by the services config so config edits are seen.
+ */
+const HOSTS_TTL = 60 * 1000;
+let _hostsCache = null; // {key, ts, promise}
+function hostsCacheKey(req) {
+    return String(req.app.locals.configPath) + ':' + JSON.stringify(getServicesConfig(req));
+}
+function invalidateHosts() {
+    _hostsCache = null;
+}
+
+// GET /she/services/hosts[?refresh=1]
 router.get('/hosts', async (req, res) => {
-    const result = await Promise.all(
+    const key = hostsCacheKey(req);
+    const fresh = req.query.refresh === '1';
+    if (!fresh && _hostsCache && _hostsCache.key === key && Date.now() - _hostsCache.ts < HOSTS_TTL) {
+        return res.json({ hosts: await _hostsCache.promise, cached: true });
+    }
+    const promise = listHosts(req);
+    _hostsCache = { key, ts: Date.now(), promise };
+    res.json({ hosts: await promise, cached: false });
+});
+
+async function listHosts(req) {
+    return Promise.all(
         hostEntries(req).map(async ({ cfg, driver }) => {
             const base = {
                 name: cfg.name,
@@ -388,7 +413,16 @@ router.get('/hosts', async (req, res) => {
             }
         }),
     );
-    res.json({ hosts: result });
+}
+
+// every mutating host route changes what the listing would show
+router.use((req, res, next) => {
+    if (req.method !== 'GET') {
+        res.on('finish', () => {
+            if (req.path.startsWith('/hosts/')) invalidateHosts();
+        });
+    }
+    next();
 });
 
 // ── I5: ssh identity, connection test, helper deploy ─────────────────────────
@@ -726,4 +760,17 @@ router.put('/hosts/:host/broker-env', async (req, res) => {
     }
 });
 
-module.exports = { router, init, getServicesConfig, validInstance, validAdapter, setDriverFactory, stopAllFollowers, mergeEnv, maskEnv, desiredBrokerEnv, SERVICES_IDENTITY };
+module.exports = {
+    router,
+    init,
+    getServicesConfig,
+    validInstance,
+    validAdapter,
+    setDriverFactory,
+    stopAllFollowers,
+    invalidateHosts,
+    mergeEnv,
+    maskEnv,
+    desiredBrokerEnv,
+    SERVICES_IDENTITY,
+};

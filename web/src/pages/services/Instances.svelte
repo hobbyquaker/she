@@ -39,10 +39,10 @@
         unit: ServiceHostInstance | null;
     };
 
-    async function load() {
+    async function load(refresh = false) {
         loading = true; loadError = null;
         try {
-            const [inv, h] = await Promise.all([getServiceInstances(), getServiceHosts().catch(() => ({ hosts: [] as ServiceHost[] }))]);
+            const [inv, h] = await Promise.all([getServiceInstances(), getServiceHosts(refresh).catch(() => ({ hosts: [] as ServiceHost[] }))]);
             mqttInstances = inv.instances;
             hosts = h.hosts;
         } catch (e: unknown) {
@@ -60,7 +60,7 @@
 
     onMount(() => {
         load();
-        // retained <x>/info and <x>/connected changes arrive on the mqtt WS feed
+        // retained <x>/info and <x>/connected changes arrive on the mqtt WS feed (host listing stays cached)
         const unsub = subscribeWs('mqtt', (msg) => {
             const t = typeof msg.topic === 'string' ? msg.topic : '';
             const parts = t.split('/');
@@ -250,7 +250,7 @@
     <div class="main">
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
-            <button class="ghost" onclick={load} disabled={loading} title="Reload">↺</button>
+            <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again">↺</button>
             <span class="count">{visible.length}{#if filter} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}{#if updateCount > 0} · {updateCount} update{updateCount === 1 ? '' : 's'} available{/if}</span>
             <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
                 <input type="checkbox" bind:checked={showLegacy} />
