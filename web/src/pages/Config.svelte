@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getServicesSshPubkey, generateServicesSshKey, type AuthMode } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getServicesSshPubkey, generateServicesSshKey, testServicesSsh, type AuthMode } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
@@ -44,6 +44,21 @@
     let servicesKeyBusy = $state(false);
     let servicesKeyMsg  = $state('');
 
+    let hostTest = $state<Record<number, string>>({});
+    let hostTesting = $state<number | null>(null);
+    async function testRemoteHost(i: number) {
+        const h = servicesRemote[i];
+        if (!h?.host.trim()) { hostTest = { ...hostTest, [i]: 'enter a host first' }; return; }
+        hostTesting = i;
+        try {
+            const r = await testServicesSsh({ host: h.host.trim(), port: h.port, user: h.user.trim(), identityFile: h.identityFile.trim() });
+            hostTest = { ...hostTest, [i]: r.ok ? `ok — helper v${r.helper ?? '?'}` : `${r.code}: ${r.error}` };
+        } catch (e: any) {
+            hostTest = { ...hostTest, [i]: e.message ?? String(e) };
+        } finally {
+            hostTesting = null;
+        }
+    }
     function addRemoteHost() {
         servicesRemote = [...servicesRemote, { host: '', port: '', user: '', identityFile: '', hostname: '' }];
     }
@@ -874,7 +889,7 @@
                     <div class="field">
                         <label>
                             Remote hosts
-                            {@render tip('Hosts reached over SSH; a host is identified by its ssh host. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). hostname is detected on first contact and used to match MQTT instances (info.host) to the host — only set it when the two differ. /etc/mqtt-interfaces/broker.env on every managed host is generated from the MQTT settings above.')}
+                            {@render tip('Hosts reached over SSH; a host is identified by its ssh host. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). hostname is detected on first contact and used to match MQTT instances (info.host) to the host — only set it when the two differ. Instances can take she\'s MQTT settings with one switch in their config form.')}
                         </label>
                         <div class="svc-hosts">
                             {#each servicesRemote as h, i (i)}
@@ -885,6 +900,10 @@
                                         <label><span>user</span><input type="text" placeholder="root" bind:value={h.user} spellcheck="false" /></label>
                                         <label><span>identity file</span><input type="text" placeholder="services key" bind:value={h.identityFile} spellcheck="false" /></label>
                                         <label class="wide"><span>hostname</span><input type="text" placeholder="auto-detected on first contact" bind:value={h.hostname} spellcheck="false" /></label>
+                                        <div class="svc-host-test">
+                                            <button type="button" class="svc-add" onclick={() => testRemoteHost(i)} disabled={hostTesting !== null}>{hostTesting === i ? 'Testing…' : 'Test connection'}</button>
+                                            {#if hostTest[i]}<span class="feature-desc" style="padding-left:0; display:inline" class:svc-ok={hostTest[i].startsWith('ok')}>{hostTest[i]}</span>{/if}
+                                        </div>
                                     </div>
                                     <button type="button" class="svc-rm" title="Remove host" onclick={() => removeRemoteHost(i)}>×</button>
                                 </div>
@@ -1563,6 +1582,8 @@
     .svc-host-grid { flex: 1; display: grid; grid-template-columns: 2fr 64px 1fr 2fr; gap: 4px 8px; min-width: 0; }
     .svc-host-grid label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .svc-host-grid label.wide { grid-column: 1 / -1; }
+    .svc-host-test { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+    .svc-ok { color: var(--fg-ok, #27ae60); }
     .svc-host-grid label > span { font-size: 10px; color: var(--fg-muted); }
     .svc-host-grid input { font-size: 12px; padding: 3px 6px; width: 100%; box-sizing: border-box; }
     .svc-rm, .svc-add {

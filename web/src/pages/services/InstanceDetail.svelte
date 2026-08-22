@@ -6,7 +6,7 @@
     import { onMount } from 'svelte';
     import {
         getServiceEnv, putServiceEnv, getServiceLogs, followServiceLogs, unfollowServiceLogs,
-        type ServiceSchema, type ServiceLogEntry, type ServiceInstance, type ServiceHostInstance,
+        type ServiceSchema, type ServiceLogEntry, type ServiceInstance, type ServiceHostInstance, type SheBrokerInfo,
     } from '../../lib/api.js';
     import { subscribeWs } from '../../lib/ws.js';
     import SchemaForm from './SchemaForm.svelte';
@@ -36,6 +36,8 @@
     let env      = $state<Record<string, string>>({});
     let secrets  = $state<string[]>([]);
     let schema   = $state<ServiceSchema | null>(null);
+    let sheBroker = $state<SheBrokerInfo | null>(null);
+    let useSheBroker = $state(false);
     let cfgLoading = $state(true);
     let cfgError = $state('');
     let saving   = $state(false);
@@ -45,7 +47,7 @@
         cfgLoading = true; cfgError = '';
         try {
             const r = await getServiceEnv(host, adapter, instance);
-            env = r.env; secrets = r.secrets; schema = r.schema;
+            env = r.env; secrets = r.secrets; schema = r.schema; sheBroker = r.sheBroker; useSheBroker = r.useSheBroker;
         } catch (e: any) {
             cfgError = e.message ?? String(e);
         } finally {
@@ -56,7 +58,7 @@
     async function save(restart: boolean) {
         saving = true; saveMsg = ''; cfgError = '';
         try {
-            const r = await putServiceEnv(host, adapter, instance, env, restart);
+            const r = await putServiceEnv(host, adapter, instance, env, restart, useSheBroker);
             saveMsg = r.restarted ? 'Saved and restarted.' : 'Saved — takes effect on the next restart.';
             onchanged?.();
             await loadConfig();
@@ -150,7 +152,7 @@
                 <div class="muted">Loading /etc/{adapter}/{instance}.env…</div>
             {:else}
                 {#if cfgError}<div class="err-box">{cfgError}</div>{/if}
-                <SchemaForm {schema} bind:env {secrets} mode="edit" />
+                <SchemaForm {schema} bind:env {secrets} mode="edit" {sheBroker} bind:useSheBroker />
                 <div class="actions">
                     <button onclick={() => save(false)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
                     <button onclick={() => save(true)} disabled={saving}>Save &amp; restart</button>

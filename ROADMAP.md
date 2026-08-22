@@ -39,7 +39,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 **Integrations**
 - [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing)
-- [I6 — Services: broker.env and per-instance dynsec credentials](#i6--services-brokerenv-and-per-instance-dynsec-credentials) 🔨 *(broker.env shipped)*
+- [I6 — Services: broker.env and per-instance dynsec credentials](#i6--services-brokerenv-and-per-instance-dynsec-credentials) 🔨 *(broker settings per instance shipped)*
 - [I7 — Services: adapter catalog via npm](#i7--services-adapter-catalog-via-npm)
 - [I8 — Services: docker host driver](#i8--services-docker-host-driver) 💡
 
@@ -339,7 +339,7 @@ Use she's Generate CSR flow to produce the key and CSR, then use certbot or anot
 
 ### I6 — Services: broker.env and per-instance dynsec credentials
 
-🔨 *Partially done — the broker.env part shipped with I5: she generates `MQTT_URL`/`MQTT_USERNAME`/`MQTT_PASSWORD` in every managed host's `/etc/mqtt-interfaces/broker.env` from its own MQTT settings (`services.brokerEnvSync`), the remaining keys are editable on the Hosts tab. Open: the dynsec part below.*
+🔨 *Partially done — the broker-settings part shipped with I5 in a simpler form than planned: instead of managing `broker.env`, every instance's config form (and the Add-instance wizard, on by default) has a **Use she's broker settings** switch that writes she's MQTT URL/username/password into the instance's env file and re-applies them on each save (`SHE_USE_BROKER=1` marker). `broker.env` stays a core convention she does not touch. Open: the dynsec part below.*
 
 ✅ ~~`/etc/mqtt-interfaces/broker.env` editor per host with "use she's broker settings"~~; with Mosquitto management enabled, one click creates a dynsec user for an instance with an ACL limited to `<name>/#` (+ `homeassistant/#` publish) via the existing `she.broker` layer and writes it to the instance's env file. Depends on [I4](doc/roadmap-archive/I4.md) ✅ (local) / [I5](doc/roadmap-archive/I5.md) ✅ (remote) and Mosquitto management.
 

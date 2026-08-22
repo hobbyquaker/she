@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import {
-        getServiceHosts, updateServiceAdapter, getServiceBrokerEnv, putServiceBrokerEnv,
+        getServiceHosts, updateServiceAdapter,
         testServiceHost, deployServiceHelper, getServiceInstances,
         type ServiceHost, type HelperDeployResult, type ServiceInstance,
     } from '../../lib/api.js';
@@ -99,41 +99,6 @@
         }
     }
 
-    /* ── broker.env editor ────────────────────────────────────────────────── */
-    const BROKER_KEYS = ['MQTT_URL', 'MQTT_USERNAME', 'MQTT_PASSWORD', 'MQTT_TLS_CA'];
-    let brokerHost = $state<string | null>(null);
-    let brokerEnv  = $state<Record<string, string>>({});
-    let brokerSecrets = $state<string[]>([]);
-    let brokerMsg  = $state('');
-    let brokerBusy = $state(false);
-
-    async function openBrokerEnv(h: ServiceHost) {
-        brokerHost = h.name; brokerMsg = ''; brokerBusy = true;
-        try {
-            const r = await getServiceBrokerEnv(h.name);
-            brokerEnv = r.env; brokerSecrets = r.secrets;
-        } catch (e: any) {
-            brokerMsg = e.message ?? String(e);
-        } finally {
-            brokerBusy = false;
-        }
-    }
-    async function saveBrokerEnv() {
-        if (!brokerHost) return;
-        brokerBusy = true; brokerMsg = '';
-        try {
-            await putServiceBrokerEnv(brokerHost, brokerEnv);
-            brokerMsg = 'Saved — restart the instances to apply.';
-            await load();
-        } catch (e: any) {
-            brokerMsg = e.message ?? String(e);
-        } finally {
-            brokerBusy = false;
-        }
-    }
-    function setBroker(k: string, v: string) {
-        brokerEnv = { ...brokerEnv, [k]: v };
-    }
 </script>
 
 <ConfirmDialog bind:this={dialog} />
@@ -203,12 +168,13 @@
                         {/if}
                     </div>
                 {:else}
-                    <table>
+                    <table class="adapters">
+                        <colgroup><col class="c-adapter" /><col class="c-version" /><col class="c-origin" /><col class="c-instances" /><col class="c-actions" /></colgroup>
                         <thead><tr><th>Adapter</th><th>Installed</th><th>Origin</th><th>Instances</th><th class="c-act"></th></tr></thead>
                         <tbody>
                             {#each h.adapters ?? [] as a (a.name)}
                                 <tr>
-                                    <td class="mono">{a.name}{#if a.brokerEnv === false}<span class="badge warn-b" style="margin-left:6px" title="The template unit {a.name}@.service was written by an older mqtt-interfaces-core and does not read /etc/mqtt-interfaces/broker.env — instances need their own MQTT settings. Reinstalling any instance of this adapter (Add instance, same name) rewrites the unit.">no broker.env</span>{/if}</td>
+                                    <td class="mono">{a.name}</td>
                                     <td>{a.version ?? '—'}</td>
                                     <td>
                                         {#if a.origin === 'manual'}<span class="badge warn-b" title="Deployed by tarball / deploy.sh, not npm install -g — path: {a.path}">manual</span>
@@ -227,30 +193,6 @@
                             {/if}
                         </tbody>
                     </table>
-                    <div class="card-foot">
-                        <span class="muted">/etc/mqtt-interfaces/broker.env: {h.brokerEnv ? 'present' : 'not present'}{#if h.brokerEnvManaged} · URL, username and password generated from she's MQTT settings{/if}{#if h.brokerEnvError} · <span class="warn">sync failed: {h.brokerEnvError}</span>{/if}</span>
-                        <button class="ghost sm" onclick={() => openBrokerEnv(h)}>{h.brokerEnvManaged ? 'Other broker.env keys' : 'Edit broker.env'}</button>
-                    </div>
-                    {#if brokerHost === h.name}
-                        <div class="broker-env">
-                            <div class="muted">Shared broker settings for every adapter instance on this host (used when the instance's own env file does not set them).{#if h.brokerEnvManaged} MQTT_URL, MQTT_USERNAME and MQTT_PASSWORD follow she's MQTT settings and are rewritten on every refresh — change them under Settings → MQTT, or set <span class="mono">services.brokerEnvSync: false</span>.{/if}</div>
-                            {#each BROKER_KEYS as k (k)}
-                                {@const managed = !!h.brokerEnvManaged && ['MQTT_URL', 'MQTT_USERNAME', 'MQTT_PASSWORD'].includes(k)}
-                                <label class="be-row">
-                                    <span class="mono">{k}{#if managed} <span class="muted">(managed)</span>{/if}</span>
-                                    <input type={brokerSecrets.includes(k) ? 'password' : 'text'} spellcheck="false" disabled={managed}
-                                        value={brokerEnv[k] === '***' ? '' : (brokerEnv[k] ?? '')}
-                                        placeholder={brokerEnv[k] === '***' ? (managed ? '(set)' : '(unchanged — type to replace)') : ''}
-                                        oninput={(e) => setBroker(k, (e.target as HTMLInputElement).value)} />
-                                </label>
-                            {/each}
-                            <div class="actions">
-                                <button onclick={saveBrokerEnv} disabled={brokerBusy}>Save</button>
-                                <button class="ghost" onclick={() => (brokerHost = null)}>Close</button>
-                                {#if brokerMsg}<span class="muted">{brokerMsg}</span>{/if}
-                            </div>
-                        </div>
-                    {/if}
                 {/if}
             </div>
         {/each}
@@ -287,12 +229,17 @@
     .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
     .card.unmanaged { border-style: dashed; }
     .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .card-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
     .name { font-weight: 600; font-size: 13px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); }
     .dot.ok { background: #27ae60; }
     .dot.err { background: #e74c3c; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    /* identical column widths in every card so the tables line up across hosts */
+    table.adapters { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+    col.c-adapter { width: 26%; }
+    col.c-version { width: 14%; }
+    col.c-origin { width: 12%; }
+    col.c-actions { width: 96px; }
+    td { overflow: hidden; text-overflow: ellipsis; }
     th { text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
     td { padding: 4px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); }
     .c-act { text-align: right; }
@@ -309,9 +256,5 @@
     .deploy-box { background: rgba(230,126,34,0.10); border: 1px solid rgba(230,126,34,0.35); border-radius: 3px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; }
     .deploy-box.deploy-ok { background: rgba(39,174,96,0.12); border-color: rgba(39,174,96,0.35); }
     .deploy-box pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; }
-    .broker-env { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
-    .be-row { display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 8px; max-width: 640px; }
-    .be-row input { background: var(--bg-input, var(--bg-app)); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 4px 7px; font-size: 12px; }
-    .actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
     pre.out { margin: 0; max-height: 240px; overflow: auto; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; white-space: pre-wrap; }
 </style>

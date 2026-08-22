@@ -233,38 +233,53 @@ function hostEntries(req) {
         .map((h) => ({ cfg: h, driver: _driverFactory(h) }));
 }
 
-/** broker.env keys she manages on every host from its own MQTT settings. */
-const BROKER_ENV_HEADER = [
-    'Shared broker settings for all mqtt-interfaces adapters on this host.',
-    'MQTT_URL, MQTT_USERNAME and MQTT_PASSWORD are managed by she (Settings → MQTT); other keys are kept.',
-];
+/** Marker in an instance's env file: she keeps the MQTT_URL/USERNAME/PASSWORD of this instance equal to her own. */
+const SHE_BROKER_MARKER = 'SHE_USE_BROKER';
 
-function desiredBrokerEnv(local) {
+/**
+ * she's own broker settings as an adapter on the she host (local) or another host would need them;
+ * a loopback URL means "the she host" and is rewritten to she's hostname for remote hosts.
+ * @returns {{url: string, username: string, password: string}|null}
+ */
+function sheBrokerSettings(local) {
     const mqtt = _getMqttConfig();
     if (!mqtt || typeof mqtt.url !== 'string' || !mqtt.url) return null;
     let url = mqtt.url;
-    if (!local) {
-        // she's broker URL is written from she's point of view — a loopback address means "the she host"
-        url = url.replace(/\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?=[:/]|$)/, '//' + os.hostname());
-    }
-    return { MQTT_URL: url, MQTT_USERNAME: mqtt.username ? String(mqtt.username) : '', MQTT_PASSWORD: mqtt.password ? String(mqtt.password) : '' };
+    if (!local) url = url.replace(/\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?=[:/]|$)/, '//' + os.hostname());
+    return { url, username: mqtt.username ? String(mqtt.username) : '', password: mqtt.password ? String(mqtt.password) : '' };
 }
 
-/** Bring the host's broker.env in line with she's settings; {managed, changed}. */
-async function syncBrokerEnv(driver, local) {
-    const desired = desiredBrokerEnv(local);
-    if (!desired) return { managed: false };
-    const current = parseEnvFile((await driver.exec(['broker-env', 'read'])).stdout);
-    const merged = { ...current };
-    let changed = false;
-    for (const [k, v] of Object.entries(desired)) {
-        if ((current[k] || '') === v) continue;
-        changed = true;
-        if (v === '') delete merged[k];
-        else merged[k] = v;
+/** What the UI shows next to the "use she's broker settings" switch (no password). */
+function sheBrokerInfo(local) {
+    const b = sheBrokerSettings(local);
+    return b ? { url: b.url, username: b.username, hasPassword: b.password !== '' } : null;
+}
+
+/** Env prefix of an adapter: from its schema, else the core's default (name upper-cased). */
+function envPrefixOf(schema, adapter) {
+    const p = schema && schema['x-adapter'] && schema['x-adapter'].envPrefix;
+    return typeof p === 'string' && p ? p : adapter.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+}
+
+/**
+ * Apply the "use she's broker settings" switch to an instance env: sets/removes the marker and,
+ * when on, overwrites the prefixed MQTT_URL/USERNAME/PASSWORD with she's values.
+ */
+function applySheBroker(env, prefix, useSheBroker, local) {
+    const out = { ...env };
+    if (!useSheBroker) {
+        delete out[SHE_BROKER_MARKER];
+        return out;
     }
-    if (changed) await driver.exec(['broker-env', 'write'], { stdin: formatEnvFile(merged, BROKER_ENV_HEADER) });
-    return { managed: true, changed };
+    const b = sheBrokerSettings(local);
+    if (!b) throw new HostError('HELPER_FAILED', 'she has no MQTT broker configured (Settings → MQTT)');
+    out[SHE_BROKER_MARKER] = '1';
+    out[prefix + '_MQTT_URL'] = b.url;
+    if (b.username) out[prefix + '_MQTT_USERNAME'] = b.username;
+    else delete out[prefix + '_MQTT_USERNAME'];
+    if (b.password) out[prefix + '_MQTT_PASSWORD'] = b.password;
+    else delete out[prefix + '_MQTT_PASSWORD'];
+    return out;
 }
 
 function hostError(res, err) {
@@ -396,18 +411,7 @@ async function listHosts(req) {
                 const { stdout } = await driver.exec(['list']);
                 const list = parseList(stdout);
                 if (!cfg.hostname && list.hostname) saveHostname(req, cfg.name, list.hostname);
-                let brokerEnvManaged = false;
-                let brokerEnvError = null;
-                if (getServicesConfig(req).brokerEnvSync !== false) {
-                    try {
-                        const r = await syncBrokerEnv(driver, driver.local === true);
-                        brokerEnvManaged = r.managed;
-                        if (r.changed) list.brokerEnv = true;
-                    } catch (err) {
-                        brokerEnvError = err.message;
-                    }
-                }
-                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list, brokerEnvManaged, brokerEnvError };
+                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list };
             } catch (err) {
                 return { ...base, ok: false, code: err.code || 'ERROR', error: err.message };
             }
@@ -448,6 +452,31 @@ router.post('/ssh/keygen', async (req, res) => {
         res.json({ publicKey, identityFile: identityPath() });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/services/ssh/test { host, port?, user?, identityFile? } — test unsaved host settings from the Config page
+router.post('/ssh/test', async (req, res) => {
+    const b = req.body || {};
+    if (typeof b.host !== 'string' || !/^[A-Za-z0-9_.:[\]-]+$/.test(b.host)) return res.status(400).json({ error: 'invalid host' });
+    const ssh = { host: b.host };
+    if (b.port !== undefined && b.port !== '' && b.port !== null) {
+        const port = Number(b.port);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) return res.status(400).json({ error: 'invalid port' });
+        ssh.port = port;
+    }
+    if (typeof b.user === 'string' && b.user) {
+        if (!/^[A-Za-z0-9_.-]+$/.test(b.user)) return res.status(400).json({ error: 'invalid user' });
+        ssh.user = b.user;
+    }
+    if (typeof b.identityFile === 'string' && b.identityFile) ssh.identityFile = b.identityFile;
+    const driver = _driverFactory({ name: b.host, ssh });
+    if (!driver) return res.status(400).json({ error: 'no driver' });
+    try {
+        const { stdout } = await driver.exec(['version'], { timeout: 20000 });
+        res.json({ ok: true, helper: Number(String(stdout).trim()) || null });
+    } catch (err) {
+        res.json({ ok: false, code: err.code || 'ERROR', error: err.message });
     }
 });
 
@@ -511,7 +540,7 @@ router.get('/hosts/:host/adapters/:adapter/schema', async (req, res) => {
     if (!entry) return;
     try {
         const schema = await loadSchema(entry.driver, req.params.adapter, { force: req.query.refresh === '1' });
-        res.json({ schema, secrets: [...secretEnvVars(schema)] });
+        res.json({ schema, secrets: [...secretEnvVars(schema)], envPrefix: envPrefixOf(schema, req.params.adapter), sheBroker: sheBrokerInfo(entry.driver.local === true) });
     } catch (err) {
         hostError(res, err);
     }
@@ -521,10 +550,19 @@ router.get('/hosts/:host/adapters/:adapter/schema', async (req, res) => {
 router.post('/hosts/:host/adapters/:adapter/install', async (req, res) => {
     const entry = resolve(req, res, { adapter: true });
     if (!entry) return;
-    const { instance, env } = req.body || {};
+    const { instance, env, useSheBroker } = req.body || {};
     if (!validInstance(instance)) return res.status(400).json({ error: 'invalid instance name' });
     try {
-        const merged = mergeEnv({}, env || {});
+        let merged = mergeEnv({}, env || {});
+        if (useSheBroker === true) {
+            let schema = null;
+            try {
+                schema = await loadSchema(entry.driver, req.params.adapter);
+            } catch {
+                /* default prefix */
+            }
+            merged = applySheBroker(merged, envPrefixOf(schema, req.params.adapter), true, entry.driver.local === true);
+        }
         const { stdout } = await entry.driver.exec(['install', req.params.adapter, instance], { stdin: formatEnvFile(merged), timeout: 120000 });
         res.json({ ok: true, output: stdout });
     } catch (err) {
@@ -701,7 +739,14 @@ router.get('/hosts/:host/units/:adapter/:instance/env', async (req, res) => {
             /* form falls back to raw key/value editing */
         }
         const secrets = secretEnvVars(schema, Object.keys(env));
-        res.json({ env: maskEnv(env, secrets), secrets: [...secrets], schema });
+        res.json({
+            env: maskEnv(env, secrets),
+            secrets: [...secrets],
+            schema,
+            envPrefix: envPrefixOf(schema, req.params.adapter),
+            useSheBroker: env[SHE_BROKER_MARKER] === '1',
+            sheBroker: sheBrokerInfo(entry.driver.local === true),
+        });
     } catch (err) {
         hostError(res, err);
     }
@@ -714,7 +759,15 @@ router.put('/hosts/:host/units/:adapter/:instance/env', async (req, res) => {
     const { adapter, instance } = req.params;
     try {
         const current = parseEnvFile((await entry.driver.exec(['env', adapter, instance, 'read'])).stdout);
-        const merged = mergeEnv(current, req.body && req.body.env);
+        let merged = mergeEnv(current, req.body && req.body.env);
+        const useSheBroker = req.body && typeof req.body.useSheBroker === 'boolean' ? req.body.useSheBroker : current[SHE_BROKER_MARKER] === '1';
+        let schema = null;
+        try {
+            schema = await loadSchema(entry.driver, adapter);
+        } catch {
+            /* default prefix */
+        }
+        merged = applySheBroker(merged, envPrefixOf(schema, adapter), useSheBroker, entry.driver.local === true);
         const header = [
             adapter + ' instance "' + instance + '" - read by ' + adapter + '@' + instance + '.service.',
             'Edited via she. Edit and run: systemctl restart ' + adapter + '@' + instance + '.service',
@@ -771,6 +824,8 @@ module.exports = {
     invalidateHosts,
     mergeEnv,
     maskEnv,
-    desiredBrokerEnv,
+    sheBrokerSettings,
+    applySheBroker,
+    SHE_BROKER_MARKER,
     SERVICES_IDENTITY,
 };

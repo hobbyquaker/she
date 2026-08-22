@@ -9,7 +9,7 @@ Enable it under **Settings → Services**; the **Services** page then appears in
 | Tier | Needs | Gives |
 | --- | --- | --- |
 | **MQTT** (always) | nothing — she already sees every retained topic on the broker | inventory of all instances (adapter, version, host, pid, uptime, connected state), restart and log level over the adapters' maintenance topics, "update available" badge (npm registry, checked once a day), wiping the retained topics of an instance that is gone |
-| **Host** | the `she-servicectl` helper on the host — installed by `sudo she --install` on the she host, deployed over SSH to other hosts | systemd control (start/stop/restart/enable/disable), journal logs (tail + live follow), editing the instance's env file with a form generated from the adapter's `--config-schema`, installing and uninstalling instances, updating adapters via npm, editing the shared `broker.env` |
+| **Host** | the `she-servicectl` helper on the host — installed by `sudo she --install` on the she host, deployed over SSH to other hosts | systemd control (start/stop/restart/enable/disable), journal logs (tail + live follow), editing the instance's env file with a form generated from the adapter's `--config-schema` (with a *use she's broker settings* switch), installing and uninstalling instances, updating adapters via npm |
 
 Per-instance broker credentials and an adapter catalog are on the [roadmap](../ROADMAP.md) (I6, I7).
 
@@ -28,7 +28,7 @@ On a host the core's `--install` leaves:
 | --- | --- |
 | `/etc/systemd/system/<adapter>@.service` | template unit (one per adapter; she recognises it by its `EnvironmentFile=/etc/<adapter>/%i.env` line). Units written by early core versions do not read the shared `broker.env`; the Hosts tab marks those *no broker.env* — reinstalling one instance of the adapter rewrites the unit |
 | `/etc/<adapter>/<name>.env` | the instance's options as `<ADAPTER>_*` variables — what the config form edits |
-| `/etc/mqtt-interfaces/broker.env` | optional `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD`, … shared by all instances on the host |
+| `/etc/mqtt-interfaces/broker.env` | optional `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_TLS_CA` shared by all instances on the host — a core convention she does not manage; use the *use she's broker settings* switch per instance instead |
 | `/var/lib/<adapter>/<name>/` | per-instance state (pairing keys, cookies) — shown, never touched |
 
 An MQTT instance and a host instance are the same row when the instance names match and `info.host` equals the host's hostname.
@@ -36,10 +36,10 @@ An MQTT instance and a host instance are the same row when the instance names ma
 ## The Services page
 
 - **Instances** — one row per instance: adapter and version (with the npm update badge), host, state (connected dot plus the systemd state when the host is managed), uptime, a log-level selector, and the actions the row supports: *Config / Logs* (opens the drawer), *Restart*, *Stop*/*Start*, *Enable*, *Uninstall*, *Wipe* (only while `connected = 0`). The nav dot is the worst case over all instances.
-- **Hosts** — per managed host: helper status with *Test* (runs `she-servicectl version`) and, for remote hosts, *Deploy helper*; installed adapters with version and origin, *Update* (`npm install -g <adapter>@latest`, then restarts the adapter's instances), and the `broker.env` editor. Hosts that adapters report in `info.host` but that are not configured are listed underneath as *seen on MQTT, not managed*, with their instances. Adapters that were deployed manually (a tarball extracted to `/usr/local/lib/node_modules`, e.g. by an adapter's `deploy.sh`) are marked *manual*; updating them asks first because the npm version replaces the manual deploy.
-- **Add instance** — pick host and adapter, choose the instance name, fill in the options (required ones first, the shared MQTT options collapsed — leave them empty to use `broker.env`), *Install*. The wizard runs `<adapter> --install --name <instance>` with the options passed as environment variables, so secrets never show up in a process list.
+- **Hosts** — per managed host: helper status with *Test* (runs `she-servicectl version`) and, for remote hosts, *Deploy helper*; installed adapters with version and origin, *Update* (`npm install -g <adapter>@latest`, then restarts the adapter's instances). Hosts that adapters report in `info.host` but that are not configured are listed underneath as *seen on MQTT, not managed*, with their instances. Adapters that were deployed manually (a tarball extracted to `/usr/local/lib/node_modules`, e.g. by an adapter's `deploy.sh`) are marked *manual*; updating them asks first because the npm version replaces the manual deploy.
+- **Add instance** — pick host and adapter, choose the instance name, fill in the options (required ones first, the shared MQTT options collapsed; *Use she's broker settings* is on by default so the instance connects to the same broker as she), *Install*. The wizard runs `<adapter> --install --name <instance>` with the options passed as environment variables, so secrets never show up in a process list.
 
-The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secret` in the schema, or names containing password/token/secret/cookie/key) are masked; they stay unchanged unless you type a new value. *Save & restart* applies immediately. **Logs** shows the last 200 journal lines and can follow the journal live.
+The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secret` in the schema, or names containing password/token/secret/cookie/key) are masked; they stay unchanged unless you type a new value. **Use she's broker settings** (in the MQTT section) writes she's own broker URL, username and password into the instance's env file (`<PREFIX>_MQTT_URL`, `…_USERNAME`, `…_PASSWORD`; a loopback URL is rewritten to she's hostname for remote hosts), shows them read-only, and remembers the switch with a `SHE_USE_BROKER=1` line so every later save re-applies the current settings. *Save & restart* applies immediately. **Logs** shows the last 200 journal lines and can follow the journal live.
 
 ## Configuration
 
@@ -61,7 +61,6 @@ The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secre
 | `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself (untick *This host* in Settings when she runs in Docker). Remote entries are identified by their ssh host; an optional `name` overrides the label |
 | `services.hosts[].ssh` | — | `host` (required), `port` (22), `user` (the daemon's OS user), `identityFile` (the services key) — same shape as `broker.ssh` |
 | `services.hosts[].hostname` | — | filled automatically on first contact; what the host's adapters report as `info.host`; edit it when the two differ |
-| `services.brokerEnvSync` | `true` | keep `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD` in every managed host's `/etc/mqtt-interfaces/broker.env` equal to she's own MQTT settings (see below) |
 
 Settings → Services holds the enable switch, the host list and the SSH key; everything operational is on the Services page.
 
@@ -70,12 +69,10 @@ Settings → Services holds the enable switch, the host list and the SSH key; ev
 Adapter hosts other than the she host are reached over SSH with the system `ssh`/`scp` clients (`BatchMode`, `StrictHostKeyChecking=accept-new` — the same way the Broker page deploys Mosquitto files). Setting one up:
 
 1. **Settings → Services → SSH key → Generate key.** One Ed25519 key for all managed hosts, `<data-dir>/ssh/services_id_ed25519`; copy the public key into `~/.ssh/authorized_keys` of the SSH user on the host. Any user works; `root` needs no further setup, a normal user needs the sudoers line from step 3.
-2. **Add the host** (name, ssh host, port, user) and save.
+2. **Add the host** (ssh host, port, user), *Test connection*, save.
 3. **Services → Hosts → Deploy helper.** she copies `she-servicectl` to the SSH user's home and tries `sudo -n install` — as `root` that is all. Otherwise it prints the two commands an admin runs once on the host: install the helper to `/usr/local/bin`, and allow it for the SSH user in `/etc/sudoers.d/she-services` (she never edits sudoers on remote hosts). *Test* verifies the result.
 
 On first contact she stores the host's hostname in the host entry; adapter instances whose `info.host` matches are shown as running on that host.
-
-**broker.env is generated.** Whenever she looks at a managed host (Hosts tab, Instances tab) it makes sure `/etc/mqtt-interfaces/broker.env` carries she's broker URL, username and password (Settings → MQTT), so a freshly installed instance connects without any broker options. A loopback URL (`mqtt://localhost`) is rewritten to she's hostname for remote hosts. Other keys in the file (`MQTT_TLS_CA`) are left alone and can be edited on the Hosts tab. (A client id prefix is per instance — `<ADAPTER>_MQTT_CLIENT_ID_PREFIX` in the instance's env file — not a shared setting; mqtt-interfaces-core 0.5.0 dropped the shared fallback.) Set `services.brokerEnvSync: false` to manage the file yourself. Adapters that need a newer Node than the system one keep working: the helper uses whatever node the adapter's wrapper in `/usr/local/bin` points to.
 
 ## The helper: `she-servicectl`
 

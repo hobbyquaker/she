@@ -4,7 +4,7 @@
      * from `--config-schema` → `<adapter> --install --name <instance>` via the helper.
      */
     import { onMount } from 'svelte';
-    import { getServiceHosts, getServiceSchema, installService, type ServiceHost, type ServiceSchema } from '../../lib/api.js';
+    import { getServiceHosts, getServiceSchema, installService, type ServiceHost, type ServiceSchema, type SheBrokerInfo } from '../../lib/api.js';
     import SchemaForm from './SchemaForm.svelte';
 
     let { oninstalled }: { oninstalled?: (host: string, adapter: string, instance: string) => void } = $props();
@@ -16,6 +16,8 @@
     let env       = $state<Record<string, string>>({});
     let schema    = $state<ServiceSchema | null>(null);
     let secrets   = $state<string[]>([]);
+    let sheBroker = $state<SheBrokerInfo | null>(null);
+    let useSheBroker = $state(false);
     let schemaErr = $state('');
     let loadingSchema = $state(false);
     let installing = $state(false);
@@ -55,7 +57,8 @@
         loadingSchema = true;
         try {
             const r = await getServiceSchema(hostName, name);
-            schema = r.schema; secrets = r.secrets;
+            schema = r.schema; secrets = r.secrets; sheBroker = r.sheBroker;
+            useSheBroker = !!r.sheBroker; // new instances connect to she's broker unless told otherwise
             const def = schema.properties?.name?.default;
             if (!instance && typeof def === 'string') instance = existing.includes(def) ? def + '2' : def;
         } catch (e: any) {
@@ -69,7 +72,7 @@
         if (!hostName || !adapter || !nameOk || missingRequired.length) return;
         installing = true; error = ''; output = '';
         try {
-            const r = await installService(hostName, adapter, instance, env);
+            const r = await installService(hostName, adapter, instance, env, useSheBroker);
             output = r.output;
             done = true;
             oninstalled?.(hostName, adapter, instance);
@@ -134,7 +137,7 @@
                 {:else if schemaErr}
                     <div class="err-box">{schemaErr}</div>
                 {:else if schema}
-                    <SchemaForm {schema} bind:env {secrets} mode="install" />
+                    <SchemaForm {schema} bind:env {secrets} mode="install" {sheBroker} bind:useSheBroker />
                     <div class="actions">
                         <button onclick={install} disabled={installing || !nameOk || missingRequired.length > 0}>
                             {installing ? 'Installing…' : `Install ${adapter}@${instance || '…'}`}

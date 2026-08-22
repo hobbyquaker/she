@@ -483,22 +483,23 @@ What a wipe would clear — `{ "own": ["cul/connected", "cul/info", "cul/status/
 
 ### GET /she/services/hosts
 
-Every configured host (`services.hosts`, default the she host as `local`) with the helper's `list`: `{ "hosts": [ { "name": "local", "local": true, "ok": true, "hostname": "zigbee", "helper": 1, "helperOutdated": false, "node": "v22.12.0", "brokerEnv": true, "adapters": [ { "name": "cul2mqtt", "version": "1.1.1", "origin": "registry" | "manual", "path": "/usr/local/lib/node_modules/cul2mqtt", "node": "/usr/bin/node" } ], "instances": [ { "adapter": "cul2mqtt", "instance": "cul", "active": "active", "sub": "running", "unitFile": "enabled", "since": "…", "restarts": 0 } ] } ] }`; unreachable hosts carry `ok: false, code, error`. Each successful listing also syncs the host's `broker.env` with she's MQTT settings unless `services.brokerEnvSync` is `false` (`brokerEnvManaged`, `brokerEnvError`). A remote entry without `name` is addressed by its ssh host.
+Every configured host (`services.hosts`, default the she host as `local`) with the helper's `list`: `{ "hosts": [ { "name": "local", "local": true, "ok": true, "hostname": "zigbee", "helper": 1, "helperOutdated": false, "node": "v22.12.0", "brokerEnv": true, "adapters": [ { "name": "cul2mqtt", "version": "1.1.1", "origin": "registry" | "manual", "path": "/usr/local/lib/node_modules/cul2mqtt", "node": "/usr/bin/node" } ], "instances": [ { "adapter": "cul2mqtt", "instance": "cul", "active": "active", "sub": "running", "unitFile": "enabled", "since": "…", "restarts": 0 } ] } ] }`; unreachable hosts carry `ok: false, code, error`. A remote entry without `name` is addressed by its ssh host. Cached for a minute; `?refresh=1` asks every host again.
 
 ### Host routes
 
 | Method | Path | Body / query | Result |
 | --- | --- | --- | --- |
-| GET | `/she/services/hosts/:host/adapters/:adapter/schema` | `?refresh=1` | `{ schema, secrets }` — the adapter's `--config-schema` (cached 10 min) and the env variable names to mask |
-| POST | `/she/services/hosts/:host/adapters/:adapter/install` | `{ instance, env: { "<ADAPTER>_X": "…" } }` | `<adapter> --install --name <instance>` with the options as environment; `{ ok, output }` |
+| GET | `/she/services/hosts/:host/adapters/:adapter/schema` | `?refresh=1` | `{ schema, secrets, envPrefix, sheBroker }` — the adapter's `--config-schema` (cached 10 min), the env variable names to mask, she's broker settings as the host would need them (`{ url, username, hasPassword }`) |
+| POST | `/she/services/hosts/:host/adapters/:adapter/install` | `{ instance, env: { "<ADAPTER>_X": "…" }, useSheBroker? }` | `<adapter> --install --name <instance>` with the options as environment; `useSheBroker` adds she's broker URL/username/password and the `SHE_USE_BROKER=1` marker; `{ ok, output }` |
 | POST | `/she/services/hosts/:host/adapters/:adapter/update` | `{ force? }` | `npm install -g <adapter>@latest`, then restarts the adapter's active instances; **409** `{ code: "MANUAL_DEPLOY" }` for manually deployed adapters unless `force` |
 | POST | `/she/services/hosts/:host/units/:adapter/:instance/:action` | action `start|stop|restart|enable|disable` | `systemctl <action> <adapter>@<instance>` |
 | DELETE | `/she/services/hosts/:host/units/:adapter/:instance` | | `<adapter> --uninstall --name <instance>` |
 | GET | `/she/services/hosts/:host/units/:adapter/:instance/logs` | `?n=200` | `{ entries: [ { ts, level, msg, pid } ] }` from `journalctl -o json` |
 | POST / DELETE | `/she/services/hosts/:host/units/:adapter/:instance/logs/follow` | | start/renew (expires after 10 min without renewal) / stop a journal follower; lines arrive on the WebSocket as `serviceLog` |
-| GET | `/she/services/hosts/:host/units/:adapter/:instance/env` | | `{ env, secrets, schema }` — the env file with secrets masked as `***` |
-| PUT | `/she/services/hosts/:host/units/:adapter/:instance/env` | `{ env, restart? }` | writes the env file (`***` keeps the stored secret, empty removes a variable), optional restart |
-| GET / PUT | `/she/services/hosts/:host/broker-env` | `{ env }` | `/etc/mqtt-interfaces/broker.env`, same masking rules |
+| GET | `/she/services/hosts/:host/units/:adapter/:instance/env` | | `{ env, secrets, schema, envPrefix, useSheBroker, sheBroker }` — the env file with secrets masked as `***`, and whether the instance follows she's broker settings |
+| PUT | `/she/services/hosts/:host/units/:adapter/:instance/env` | `{ env, restart?, useSheBroker? }` | writes the env file (`***` keeps the stored secret, empty removes a variable); `useSheBroker` (default: the stored marker) overwrites the prefixed MQTT URL/username/password with she's; optional restart |
+| GET / PUT | `/she/services/hosts/:host/broker-env` | `{ env }` | `/etc/mqtt-interfaces/broker.env` (core convention, not used by the UI), same masking rules |
+| POST | `/she/services/ssh/test` | `{ host, port?, user?, identityFile? }` | test unsaved host settings: always 200 with `{ ok, helper }` or `{ ok: false, code, error }` |
 | POST | `/she/services/hosts/:host/test` | | always 200: `{ ok: true, helper }` or `{ ok: false, code, error }` |
 | POST | `/she/services/hosts/:host/helper/deploy` | | remote hosts only: scp the shipped helper, try `sudo -n install`; `{ ok, uploaded, installed, sudoers, helper?, code?, instructions?, user }` — `instructions` are the commands an admin runs when sudo refused |
 | GET / POST | `/she/services/ssh/pubkey` · `/she/services/ssh/keygen` | | the services SSH identity (`<data-dir>/ssh/services_id_ed25519`): read the public key / generate the keypair |

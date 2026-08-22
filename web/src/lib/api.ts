@@ -1160,8 +1160,6 @@ export interface ServiceHost {
     helperOutdated?: boolean;
     node?: string | null;
     brokerEnv?: boolean;
-    brokerEnvManaged?: boolean;
-    brokerEnvError?: string | null;
     adapters?: ServiceHostAdapter[];
     instances?: ServiceHostInstance[];
 }
@@ -1200,12 +1198,18 @@ export function getServiceHosts(refresh = false): Promise<{ hosts: ServiceHost[]
     return request('GET', refresh ? '/she/services/hosts?refresh=1' : '/she/services/hosts');
 }
 
-export function getServiceSchema(host: string, adapter: string, refresh = false): Promise<{ schema: ServiceSchema; secrets: string[] }> {
+export interface SheBrokerInfo {
+    url: string;
+    username: string;
+    hasPassword: boolean;
+}
+
+export function getServiceSchema(host: string, adapter: string, refresh = false): Promise<{ schema: ServiceSchema; secrets: string[]; envPrefix: string; sheBroker: SheBrokerInfo | null }> {
     return request('GET', `${svcAdapter(host, adapter)}/schema${refresh ? '?refresh=1' : ''}`);
 }
 
-export function installService(host: string, adapter: string, instance: string, env: Record<string, string>): Promise<{ ok: boolean; output: string }> {
-    return request('POST', `${svcAdapter(host, adapter)}/install`, { instance, env });
+export function installService(host: string, adapter: string, instance: string, env: Record<string, string>, useSheBroker = false): Promise<{ ok: boolean; output: string }> {
+    return request('POST', `${svcAdapter(host, adapter)}/install`, { instance, env, useSheBroker });
 }
 
 export function updateServiceAdapter(
@@ -1237,12 +1241,12 @@ export function unfollowServiceLogs(host: string, adapter: string, instance: str
     return request('DELETE', `${svcUnit(host, adapter, instance)}/logs/follow`);
 }
 
-export function getServiceEnv(host: string, adapter: string, instance: string): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null }> {
+export function getServiceEnv(host: string, adapter: string, instance: string): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null; envPrefix: string; useSheBroker: boolean; sheBroker: SheBrokerInfo | null }> {
     return request('GET', `${svcUnit(host, adapter, instance)}/env`);
 }
 
-export function putServiceEnv(host: string, adapter: string, instance: string, env: Record<string, string>, restart: boolean): Promise<{ ok: boolean; restarted: boolean }> {
-    return request('PUT', `${svcUnit(host, adapter, instance)}/env`, { env, restart });
+export function putServiceEnv(host: string, adapter: string, instance: string, env: Record<string, string>, restart: boolean, useSheBroker?: boolean): Promise<{ ok: boolean; restarted: boolean }> {
+    return request('PUT', `${svcUnit(host, adapter, instance)}/env`, { env, restart, useSheBroker });
 }
 
 export function getServiceBrokerEnv(host: string): Promise<{ env: Record<string, string>; secrets: string[] }> {
@@ -1265,6 +1269,11 @@ export function generateServicesSshKey(): Promise<{ publicKey: string; identityF
 
 export function testServiceHost(host: string): Promise<{ ok: boolean; helper?: number | null; code?: string; error?: string }> {
     return request('POST', `${svcHost(host)}/test`);
+}
+
+/** Test unsaved host settings from the Config page. */
+export function testServicesSsh(p: { host: string; port?: number | ''; user?: string; identityFile?: string }): Promise<{ ok: boolean; helper?: number | null; code?: string; error?: string }> {
+    return request('POST', '/she/services/ssh/test', p);
 }
 
 export interface HelperDeployResult {

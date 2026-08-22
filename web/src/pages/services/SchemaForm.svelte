@@ -5,19 +5,27 @@
      * what ends up in /etc/<adapter>/<instance>.env. Secrets arrive masked as '***'
      * and stay masked unless the user types a new value.
      */
-    import type { ServiceSchema, ServiceSchemaProperty } from '../../lib/api.js';
+    import type { ServiceSchema, ServiceSchemaProperty, SheBrokerInfo } from '../../lib/api.js';
 
     let {
         schema,
         env = $bindable({}),
         secrets = [],
         mode = 'edit',
+        sheBroker = null,
+        useSheBroker = $bindable(false),
     }: {
         schema: ServiceSchema | null;
         env: Record<string, string>;
         secrets?: string[];
         mode?: 'edit' | 'install';
+        /** she's own broker settings — enables the "use she's broker settings" switch */
+        sheBroker?: SheBrokerInfo | null;
+        useSheBroker?: boolean;
     } = $props();
+
+    const SHE_BROKER_KEYS = new Set(['mqtt-url', 'mqtt-username', 'mqtt-password']);
+    const MARKER = 'SHE_USE_BROKER';
 
     const MASK = '***';
     // options every core adapter shares — collapsed by default; `name` is the instance name and not part of the env file
@@ -38,7 +46,14 @@
     let adapterFields  = $derived(fields.filter(f => !f.required && !SHARED.has(f.key)));
     let sharedFields   = $derived(fields.filter(f => !f.required && SHARED.has(f.key)));
     let knownEnv       = $derived(new Set(fields.map(f => f.envName)));
-    let extraEnv       = $derived(Object.entries(env).filter(([k]) => !knownEnv.has(k)));
+    let extraEnv       = $derived(Object.entries(env).filter(([k]) => !knownEnv.has(k) && k !== MARKER));
+    /** value shown for a broker field while she's settings are in charge */
+    function sheValue(f: Field): string {
+        if (!sheBroker) return '';
+        if (f.key === 'mqtt-url') return sheBroker.url;
+        if (f.key === 'mqtt-username') return sheBroker.username;
+        return sheBroker.hasPassword ? '••••••••' : '';
+    }
 
     // initial value only — the user toggles it afterwards
     // svelte-ignore state_referenced_locally
@@ -70,7 +85,9 @@
             {#if f.required}<span class="sf-req" title="required">*</span>{/if}
             <span class="sf-env" title="environment variable in the instance's env file">{f.envName}</span>
         </label>
-        {#if f.prop.enum}
+        {#if useSheBroker && sheBroker && SHE_BROKER_KEYS.has(f.key)}
+            <input id={'sf-' + f.envName} type="text" value={sheValue(f)} disabled title="from she's MQTT settings" />
+        {:else if f.prop.enum}
             <select id={'sf-' + f.envName} value={env[f.envName] ?? ''} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; v === '' ? unset(f.envName) : set(f.envName, v); }}>
                 <option value="">default{f.prop.default !== undefined ? ` (${fmtDefault(f.prop.default)})` : ''}</option>
                 {#each f.prop.enum as o (o)}<option value={o}>{o}</option>{/each}
@@ -120,8 +137,15 @@
             <div class="sf-group">
                 <button type="button" class="sf-group-title sf-toggle" onclick={() => (showShared = !showShared)}>
                     {showShared ? '▾' : '▸'} MQTT &amp; common options
-                    <span class="sf-hint">— empty fields fall back to /etc/mqtt-interfaces/broker.env and the adapter defaults</span>
+                    <span class="sf-hint">— empty fields use the adapter defaults</span>
                 </button>
+                {#if sheBroker}
+                    <label class="sf-check" title="Write she's MQTT URL, username and password into this instance's env file and keep them there on every save">
+                        <input type="checkbox" bind:checked={useSheBroker} />
+                        <span class="sf-checkmark"></span>
+                        Use she's broker settings <span class="sf-hint">({sheBroker.url}{sheBroker.username ? ', user ' + sheBroker.username : ''})</span>
+                    </label>
+                {/if}
                 {#if showShared}
                     {#each sharedFields as f (f.envName)}{@render field(f)}{/each}
                 {/if}
@@ -162,6 +186,12 @@
         border-radius: 3px; padding: 4px 7px; font-size: 12px; max-width: 480px;
     }
     input:focus, select:focus { outline: none; border-color: var(--accent); }
+    input:disabled { opacity: 0.6; }
+    .sf-check { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .sf-check input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .sf-checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 2px; background: var(--bg-app); position: relative; }
+    .sf-check input:checked + .sf-checkmark { background: var(--accent); border-color: var(--accent); }
+    .sf-check input:checked + .sf-checkmark::after { content: ''; position: absolute; left: 3px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
     .sf-secret { display: flex; gap: 6px; align-items: center; }
     .sf-secret input { flex: 1; }
     .sf-clear { background: none; border: 1px solid var(--border); color: var(--fg-muted); border-radius: 3px; font-size: 11px; padding: 2px 7px; cursor: pointer; }

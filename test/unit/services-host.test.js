@@ -435,7 +435,7 @@ describe('ssh driver (fake ssh/scp)', () => {
     });
 });
 
-describe('broker.env sync from she settings', () => {
+describe("per-instance 'use she broker settings'", () => {
     let server;
     let port;
     let logFile;
@@ -447,7 +447,7 @@ describe('broker.env sync from she settings', () => {
             .map((l) => JSON.parse(l));
 
     beforeAll(async () => {
-        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-benv-'));
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-sb-'));
         logFile = path.join(dir, 'calls.log');
         const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: path.join(dir, 'state.json') };
         fs.writeFileSync(path.join(dir, 'state.json'), '{}');
@@ -471,27 +471,58 @@ describe('broker.env sync from she settings', () => {
         api.init(new StateStore(), () => null);
         await new Promise((r) => server.close(r));
     });
+    beforeEach(() => fs.writeFileSync(logFile, ''));
 
-    test('desiredBrokerEnv rewrites loopback for remote hosts only', () => {
-        expect(api.desiredBrokerEnv(true).MQTT_URL).toBe('mqtt://localhost:1883');
-        expect(api.desiredBrokerEnv(false).MQTT_URL).toBe('mqtt://' + os.hostname() + ':1883');
+    test('sheBrokerSettings rewrites loopback for remote hosts only; applySheBroker sets marker + prefixed vars', () => {
+        expect(api.sheBrokerSettings(true).url).toBe('mqtt://localhost:1883');
+        expect(api.sheBrokerSettings(false).url).toBe('mqtt://' + os.hostname() + ':1883');
+        const on = api.applySheBroker({ X_SERIALPORT: '/dev/x', X_MQTT_URL: 'mqtt://old' }, 'X', true, true);
+        expect(on).toEqual({ X_SERIALPORT: '/dev/x', X_MQTT_URL: 'mqtt://localhost:1883', X_MQTT_USERNAME: 'she', X_MQTT_PASSWORD: 'pw', SHE_USE_BROKER: '1' });
+        expect(api.applySheBroker(on, 'X', false, true)).toEqual({ X_SERIALPORT: '/dev/x', X_MQTT_URL: 'mqtt://localhost:1883', X_MQTT_USERNAME: 'she', X_MQTT_PASSWORD: 'pw' });
     });
 
-    test('GET /hosts names a nameless ssh entry after its host and writes broker.env when it differs', async () => {
-        fs.writeFileSync(logFile, '');
-        const r = await httpRequest('GET', port, '/she/services/hosts');
-        expect(r.body.hosts.map((h) => [h.name, h.ok, h.brokerEnvManaged])).toEqual([
-            ['local', true, true],
-            ['zigbee.lan', true, true],
+    test('GET /hosts no longer touches broker.env; a nameless ssh entry is named after its host', async () => {
+        const r = await httpRequest('GET', port, '/she/services/hosts?refresh=1');
+        expect(r.body.hosts.map((h) => [h.name, h.ok])).toEqual([
+            ['local', true],
+            ['zigbee.lan', true],
         ]);
-        const writes = calls().filter((c) => c.args[0] === 'broker-env' && c.args[1] === 'write');
-        expect(writes).toHaveLength(2); // fake returns MQTT_URL=mqtt://broker + MQTT_PASSWORD=pw → url and username differ
-        // hosts are synced concurrently — match the writes by content, not by order
-        const local = writes.find((w) => w.stdin.includes('MQTT_URL=mqtt://localhost:1883\n'));
-        const remote = writes.find((w) => w.stdin.includes('MQTT_URL=mqtt://' + os.hostname() + ':1883\n'));
-        expect(local).toBeDefined();
-        expect(remote).toBeDefined();
-        expect(local.stdin).toContain('MQTT_USERNAME=she\n');
-        expect(local.stdin).toContain('MQTT_PASSWORD=pw\n');
+        expect(calls().filter((c) => c.args[0] === 'broker-env')).toHaveLength(0);
+    });
+
+    test('GET env reports the switch and she broker info; PUT env applies it', async () => {
+        let r = await httpRequest('GET', port, '/she/services/hosts/local/units/cul2mqtt/cul/env');
+        expect(r.body).toMatchObject({ useSheBroker: false, envPrefix: 'CUL2MQTT', sheBroker: { url: 'mqtt://localhost:1883', username: 'she', hasPassword: true } });
+        fs.writeFileSync(logFile, '');
+        r = await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/env', {
+            env: { CUL2MQTT_SERIALPORT: '/dev/ttyACM0', CUL2MQTT_MQTT_URL: 'mqtt://typed-by-user', CUL2MQTT_MQTT_PASSWORD: '***' },
+            useSheBroker: true,
+        });
+        expect(r.status).toBe(200);
+        const written = calls().find((c) => c.args[1] === 'cul2mqtt' && c.args[3] === 'write').stdin;
+        expect(written).toContain('SHE_USE_BROKER=1\n');
+        expect(written).toContain('CUL2MQTT_MQTT_URL=mqtt://localhost:1883\n');
+        expect(written).toContain('CUL2MQTT_MQTT_USERNAME=she\n');
+        expect(written).toContain('CUL2MQTT_MQTT_PASSWORD=pw\n');
+        expect(written).not.toContain('typed-by-user');
+    });
+
+    test('install with useSheBroker passes she broker settings (remote → she hostname)', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/zigbee.lan/adapters/cul2mqtt/install', {
+            instance: 'cul2',
+            env: { CUL2MQTT_SERIALPORT: '/dev/ttyACM1' },
+            useSheBroker: true,
+        });
+        expect(r.status).toBe(200);
+        const inst = calls().find((c) => c.args[0] === 'install');
+        expect(inst.stdin).toContain('CUL2MQTT_MQTT_URL=mqtt://' + os.hostname() + ':1883\n');
+        expect(inst.stdin).toContain('SHE_USE_BROKER=1\n');
+    });
+
+    test('POST /ssh/test validates and answers ok/code', async () => {
+        expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
+        expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
+        const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
+        expect(r.body).toEqual({ ok: true, helper: 2 });
     });
 });
