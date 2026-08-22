@@ -208,7 +208,7 @@
                         <tbody>
                             {#each h.adapters ?? [] as a (a.name)}
                                 <tr>
-                                    <td class="mono">{a.name}</td>
+                                    <td class="mono">{a.name}{#if a.brokerEnv === false}<span class="badge warn-b" style="margin-left:6px" title="The template unit {a.name}@.service was written by an older mqtt-interfaces-core and does not read /etc/mqtt-interfaces/broker.env — instances need their own MQTT settings. Reinstalling any instance of this adapter (Add instance, same name) rewrites the unit.">no broker.env</span>{/if}</td>
                                     <td>{a.version ?? '—'}</td>
                                     <td>
                                         {#if a.origin === 'manual'}<span class="badge warn-b" title="Deployed by tarball / deploy.sh, not npm install -g — path: {a.path}">manual</span>
@@ -223,7 +223,7 @@
                                 </tr>
                             {/each}
                             {#if (h.adapters ?? []).length === 0}
-                                <tr><td colspan="5" class="muted">No mqtt-interfaces adapters installed on this host (template units with the broker.env fingerprint).</td></tr>
+                                <tr><td colspan="5" class="muted">No mqtt-interfaces adapters installed on this host (no <span class="mono">&lt;adapter&gt;@.service</span> template unit reading <span class="mono">/etc/&lt;adapter&gt;/%i.env</span>).</td></tr>
                             {/if}
                         </tbody>
                     </table>

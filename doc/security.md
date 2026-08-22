@@ -81,7 +81,7 @@ With the optional Services feature ([doc/services.md](services.md)) she manages 
 she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl
 ```
 
-The script is the complete list of what she can do as root: it accepts a fixed set of subcommands, validates every argument against a pattern (adapter names must correspond to a template unit installed by mqtt-interfaces-core, instance names are `[A-Za-z0-9_.-]+`, actions come from a short allow-list) and takes free-form data — env files, install options — only on stdin. Review it once ([service/she-servicectl](../service/she-servicectl)); it has no dependencies beyond systemd, journalctl and npm.
+The script is the complete list of what she can do as root: it accepts a fixed set of subcommands, validates every argument against a pattern (adapter names must correspond to a template unit with mqtt-interfaces-core's `/etc/<adapter>/%i.env` layout, instance names are `[A-Za-z0-9_.-]+`, actions come from a short allow-list) and takes free-form data — env files, install options — only on stdin. Review it once ([service/she-servicectl](../service/she-servicectl)); it has no dependencies beyond systemd, journalctl and npm.
 
 Consequences to keep in mind:
 

@@ -149,7 +149,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 1, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 2, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -404,7 +404,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 1 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 2 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -415,7 +415,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 1, user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 2, user: 'she' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             expect((await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy')).status).toBe(400);
             await new Promise((res) => server.close(res));

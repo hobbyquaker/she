@@ -1134,6 +1134,8 @@ export interface ServiceHostAdapter {
     origin: 'registry' | 'manual';
     path: string | null;
     node: string;
+    /** the template unit reads /etc/mqtt-interfaces/broker.env (false for units written by early cores) */
+    brokerEnv?: boolean;
 }
 
 export interface ServiceHostInstance {

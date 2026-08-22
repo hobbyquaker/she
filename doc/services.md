@@ -26,7 +26,7 @@ On a host the core's `--install` leaves:
 
 | Path | Purpose |
 | --- | --- |
-| `/etc/systemd/system/<adapter>@.service` | template unit (one per adapter; she recognises it by its `EnvironmentFile=-/etc/mqtt-interfaces/broker.env` line) |
+| `/etc/systemd/system/<adapter>@.service` | template unit (one per adapter; she recognises it by its `EnvironmentFile=/etc/<adapter>/%i.env` line). Units written by early core versions do not read the shared `broker.env`; the Hosts tab marks those *no broker.env* — reinstalling one instance of the adapter rewrites the unit |
 | `/etc/<adapter>/<name>.env` | the instance's options as `<ADAPTER>_*` variables — what the config form edits |
 | `/etc/mqtt-interfaces/broker.env` | optional `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD`, … shared by all instances on the host |
 | `/var/lib/<adapter>/<name>/` | per-instance state (pairing keys, cookies) — shown, never touched |
@@ -85,7 +85,7 @@ she runs as its own system user and never gets a blanket `sudo`. All privileged 
 she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl
 ```
 
-The script validates every argument against fixed patterns (adapter name = a template unit with the broker.env fingerprint, instance name = letters, digits, `_ . -`, actions from a short list) before it executes anything; free-form data (env files, install options) is passed on stdin. Reading it tells you exactly what she can do on the host:
+The script validates every argument against fixed patterns (adapter name = a template unit with the core's `/etc/<adapter>/%i.env` layout, instance name = letters, digits, `_ . -`, actions from a short list) before it executes anything; free-form data (env files, install options) is passed on stdin. Reading it tells you exactly what she can do on the host:
 
 ```
 she-servicectl list                                        JSON: hostname, node, adapters, instances, unit states

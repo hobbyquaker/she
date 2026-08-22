@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log('1');
+        console.log('2');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: 1,
+                helper: 2,
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,

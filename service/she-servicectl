@@ -10,8 +10,9 @@
 # (env files, install options) travels on stdin, never on the command line.
 #
 # Adapters are npm packages built on mqtt-interfaces-core: a template unit
-# /etc/systemd/system/<adapter>@.service (fingerprint: EnvironmentFile line for
-# /etc/mqtt-interfaces/broker.env), instances = /etc/<adapter>/<instance>.env,
+# /etc/systemd/system/<adapter>@.service (fingerprint: an EnvironmentFile line for
+# /etc/<adapter>/%i.env — units written by older cores lack the shared broker.env
+# line, "list" reports that per adapter), instances = /etc/<adapter>/<instance>.env,
 # a wrapper or symlink /usr/local/bin/<adapter>.
 #
 #   she-servicectl version
@@ -27,7 +28,7 @@
 
 set -eu
 
-VERSION=1
+VERSION=2
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -38,9 +39,14 @@ die() { printf 'she-servicectl: %s\n' "$*" >&2; exit 2; }
 valid_adapter() { printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9._-]{0,213}$'; }
 valid_instance() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$'; }
 
-# a template unit written by mqtt-interfaces-core's installer
+# a template unit written by mqtt-interfaces-core's installer: per-instance env file under /etc/<adapter>/
 installed_adapter() {
-    [ -f "$UNIT_DIR/$1@.service" ] && grep -q "mqtt-interfaces/broker.env" "$UNIT_DIR/$1@.service"
+    [ -f "$UNIT_DIR/$1@.service" ] && grep -Eq "^EnvironmentFile=-?/etc/$1/%i\.env" "$UNIT_DIR/$1@.service"
+}
+
+# does the template unit read the shared /etc/mqtt-interfaces/broker.env? (cores since 0.1 write it; older units do not)
+unit_reads_broker_env() {
+    grep -q "mqtt-interfaces/broker.env" "$UNIT_DIR/$1@.service" 2>/dev/null && printf 'true' || printf 'false'
 }
 
 need_adapter() {
@@ -163,10 +169,10 @@ cmd_list() {
         [ $first -eq 1 ] || printf ','
         first=0
         dir=$(adapter_dir "$a" 2>/dev/null || true)
-        printf '{"name":"%s","version":%s,"origin":"%s","path":%s,"node":"%s"}' \
+        printf '{"name":"%s","version":%s,"origin":"%s","path":%s,"node":"%s","brokerEnv":%s}' \
             "$a" "$(adapter_version "$a")" "$(adapter_origin "$a")" \
             "$([ -n "$dir" ] && printf '"%s"' "$(json_escape "$dir")" || printf 'null')" \
-            "$(json_escape "$(adapter_node "$a")")"
+            "$(json_escape "$(adapter_node "$a")")" "$(unit_reads_broker_env "$a")"
     done
     printf '],"instances":['
     first=1

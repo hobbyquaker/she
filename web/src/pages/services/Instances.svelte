@@ -313,7 +313,7 @@
                                 </td>
                                 <td>
                                     {r.mqtt?.host ?? r.host?.hostname ?? ''}
-                                    {#if r.host}<span class="badge b-host" title="managed via {r.host.name}: systemd {r.unit?.active}/{r.unit?.sub}, {r.unit?.unitFile}">{r.host.name}</span>{/if}
+                                    {#if r.host}<span class="badge b-host" title="managed via {r.host.name}: systemd {r.unit?.active}/{r.unit?.sub}, {r.unit?.unitFile}">{r.host.name === (r.mqtt?.host ?? r.host.hostname) ? 'managed' : r.host.name}</span>{/if}
                                     {#if r.mqtt?.pid}<span class="muted"> · pid {r.mqtt.pid}</span>{/if}
                                 </td>
                                 <td title={r.mqtt?.connectedLc ? 'since ' + fmtDate(r.mqtt.connectedLc) : ''}>
