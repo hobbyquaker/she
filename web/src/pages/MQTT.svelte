@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy, untrack } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
+    import HaDiscovery from './mqtt/HaDiscovery.svelte';
     import {
         fetchMqttState, publishMqtt,
         getBrokerStatus, listBrokerRoles, checkBrokerAcl,
@@ -323,6 +324,8 @@
 
     let dynsecAvail  = $state(false);
     let aclMode      = $state(false);
+    /* ── HA discovery view (M10) ─────────────────────────────────────────── */
+    let haMode       = $state(false);
     let aclLoading   = $state(false);
     let aclData      = $state<AclData | null>(null);
     let aclInspect   = $state<string | null>(null);
@@ -482,7 +485,11 @@
     <!-- Toolbar -->
     <div class="toolbar">
         <h2>MQTT</h2>
-        {#if dynsecAvail}
+        <div class="view-tabs">
+            <button class="vt" class:active={!haMode} onclick={() => (haMode = false)}>Topics</button>
+            <button class="vt" class:active={haMode} onclick={() => (haMode = true)} title="Home Assistant MQTT discovery: list announced devices, delete stale announcements">HA Discovery</button>
+        </div>
+        {#if dynsecAvail && !haMode}
         <button class="acl-btn" class:active={aclMode} onclick={toggleAclMode} disabled={aclLoading} title="Show ACL coverage for topics">
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
             ACL{#if aclLoading}…{/if}
@@ -493,6 +500,9 @@
         {/if}
     </div>
 
+    {#if haMode}
+    <HaDiscovery />
+    {:else}
     <!-- Grouped panel: publish + filter + tree -->
     <div class="main-group">
         <!-- Publish bar -->
@@ -597,6 +607,8 @@
             </div>
         {/if}
     </div>
+
+    {/if}
 
     <!-- Context menu -->
     {#if ctxMenu}
@@ -1093,6 +1105,26 @@
     .btn-confirm:hover { opacity: 0.85; }
 
     /* ── ACL overlay ── */
+    .view-tabs {
+        display: flex;
+        gap: 2px;
+        margin-left: 8px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 1px;
+    }
+    .vt {
+        background: none;
+        border: none;
+        color: var(--fg-muted);
+        padding: 1px 8px;
+        border-radius: 2px;
+        font-size: 11px;
+        cursor: pointer;
+    }
+    .vt:hover { color: var(--fg); }
+    .vt.active { background: rgba(86,156,214,0.12); color: var(--accent, #569cd6); }
+
     .acl-btn {
         background: none;
         border: 1px solid var(--border);

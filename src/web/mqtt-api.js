@@ -6,6 +6,8 @@
  * Routes:
  *   GET  /she/mqtt/state    → snapshot of all retained MQTT topic values
  *   POST /she/mqtt/publish  → publish a message to a topic
+ *   GET  /she/mqtt/ha-discovery?prefix= → Home Assistant discovery devices (grouped announcements)
+ *   DELETE /she/mqtt/ha-discovery { topics } → clear retained messages on the given topics
  *
  * Call init(store, getMqttClient) once after the state store is created.
  * The getMqttClient callback is a zero-arg function returning the live mqtt client
@@ -18,6 +20,7 @@
 
 const express = require('express');
 const { broadcast, broadcastBrokerLog } = require('./log-ws');
+const { analyzeDiscovery, DEFAULT_PREFIX } = require('../lib/ha-discovery');
 
 const BROKER_LOG_TOPICS = new Set(['D', 'I', 'N', 'W', 'E'].map((l) => `$SYS/broker/log/${l}`));
 
@@ -73,6 +76,36 @@ router.post('/publish', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ ok: true });
     });
+});
+
+// GET /she/mqtt/ha-discovery?prefix=homeassistant — devices announced via HA MQTT discovery
+router.get('/ha-discovery', (req, res) => {
+    if (!_store) return res.json({ prefix: DEFAULT_PREFIX, devices: [], entityCount: 0 });
+    const prefix = typeof req.query.prefix === 'string' && req.query.prefix.trim() ? req.query.prefix.trim() : DEFAULT_PREFIX;
+    if (/[+#]/.test(prefix)) return res.status(400).json({ error: 'prefix must not contain wildcards' });
+    res.json(analyzeDiscovery(_store.mqttEntries(), { prefix }));
+});
+
+// DELETE /she/mqtt/ha-discovery — { topics: string[] } → clear the retained message on each topic
+router.delete('/ha-discovery', async (req, res) => {
+    const mqtt = _getMqtt();
+    if (!mqtt) return res.status(503).json({ error: 'MQTT not connected' });
+    const topics = req.body && req.body.topics;
+    if (!Array.isArray(topics) || topics.length === 0) return res.status(400).json({ error: 'topics[] required' });
+    const bad = topics.find((t) => typeof t !== 'string' || !t || /[+#]/.test(t));
+    if (bad !== undefined) return res.status(400).json({ error: 'invalid topic: ' + String(bad) });
+
+    const unique = [...new Set(topics)];
+    const errors = [];
+    for (const t of unique) {
+        await new Promise((resolve) => {
+            mqtt.publish(t, '', { retain: true, qos: 0 }, (err) => {
+                if (err) errors.push({ topic: t, error: err.message });
+                resolve();
+            });
+        });
+    }
+    res.json({ ok: errors.length === 0, cleared: unique.length - errors.length, errors });
 });
 
 module.exports = { router, init };

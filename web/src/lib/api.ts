@@ -460,6 +460,50 @@ export function publishMqtt(topic: string, payload: string, retain = false, qos:
     return request('POST', '/she/mqtt/publish', { topic, payload, retain, qos });
 }
 
+// ---- Home Assistant discovery (M10) ----
+
+export interface HaEntity {
+    component: string;
+    objectId: string;
+    name: string;
+    uniqueId: string | null;
+    configTopic: string;
+    ts: number;
+    topics: string[];
+}
+
+export interface HaDevice {
+    id: string;
+    name: string | null;
+    manufacturer: string | null;
+    model: string | null;
+    identifiers: string[];
+    entities: HaEntity[];
+    configTopics: string[];
+    refTopics: string[];
+    statePrefixes: string[];
+    stateTopics: string[];
+    orphaned: boolean;
+    duplicate: boolean;
+    lastSeen: number | null;
+    configTs: number | null;
+}
+
+export interface HaDiscoveryResult {
+    prefix: string;
+    devices: HaDevice[];
+    entityCount: number;
+}
+
+export function fetchHaDiscovery(prefix?: string): Promise<HaDiscoveryResult> {
+    const q = prefix ? `?prefix=${encodeURIComponent(prefix)}` : '';
+    return request('GET', `/she/mqtt/ha-discovery${q}`);
+}
+
+export function clearHaDiscoveryTopics(topics: string[]): Promise<{ ok: boolean; cleared: number; errors: { topic: string; error: string }[] }> {
+    return request('DELETE', '/she/mqtt/ha-discovery', { topics });
+}
+
 // ---- AI Assistant API ----
 
 export interface AiMessage {

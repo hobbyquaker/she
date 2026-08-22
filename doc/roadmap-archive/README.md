@@ -28,6 +28,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 
 - [M8 — Rename Matter devices via context menu ✅ implemented](M8.md)
 - [M9 — Script start waits for the Matter controller ✅ implemented](M9.md)
+- [M10 — Home Assistant discovery cleanup: delete orphaned device announcements ✅ implemented](M10.md)
 
 ## Integrations
 

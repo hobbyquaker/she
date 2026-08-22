@@ -172,6 +172,48 @@ Publish a message to the MQTT broker.
 
 **Response (HTTP 200):** `{ "ok": true }`
 
+### GET /she/mqtt/ha-discovery
+
+Analyse the retained Home Assistant MQTT discovery announcements (`<prefix>/<component>/[<node_id>/]<object_id>/config`, plus the device-level `<prefix>/device/<id>/config` format) and group them by device. Query parameter `prefix` (default `homeassistant`) selects the discovery prefix; wildcards are rejected.
+
+**Response (HTTP 200):**
+
+```json
+{
+  "prefix": "homeassistant",
+  "entityCount": 2,
+  "devices": [
+    {
+      "id": "zigbee2mqtt_0x00124b001f8e2a11",
+      "name": "Kitchen Lamp",
+      "manufacturer": "IKEA", "model": "LED1545G12",
+      "identifiers": ["zigbee2mqtt_0x00124b001f8e2a11"],
+      "entities": [ { "component": "light", "objectId": "light", "name": "Kitchen Lamp", "uniqueId": "…", "configTopic": "homeassistant/light/0x00124b001f8e2a11/light/config", "ts": 1700000000000, "topics": ["zigbee2mqtt/kitchen_lamp", "zigbee2mqtt/kitchen_lamp/set"] } ],
+      "configTopics": ["homeassistant/light/0x00124b001f8e2a11/light/config"],
+      "refTopics": ["zigbee2mqtt/bridge/state", "zigbee2mqtt/kitchen_lamp", "zigbee2mqtt/kitchen_lamp/set"],
+      "statePrefixes": ["zigbee2mqtt/kitchen_lamp"],
+      "stateTopics": ["zigbee2mqtt/kitchen_lamp", "zigbee2mqtt/kitchen_lamp/availability"],
+      "orphaned": false,
+      "duplicate": false,
+      "lastSeen": 1700000000000,
+      "configTs": 1700000000000
+    }
+  ]
+}
+```
+
+- `stateTopics` — retained topics that can be wiped together with the device: the device's own state/command topics plus everything below its derived topic prefix(es). Availability topics and any topic or prefix referenced by more than one device (e.g. `zigbee2mqtt/bridge/state`) are never included; prefixes must have at least two segments.
+- `orphaned` — none of the device's own state/command topics exist in the retained state any more.
+- `duplicate` — another announced device has the same name (typical after a `*2mqtt` base-topic change).
+
+### DELETE /she/mqtt/ha-discovery
+
+Clear retained messages by publishing an empty retained payload to every listed topic (used by the *HA Discovery* view of the MQTT page).
+
+**Request body:** `{ "topics": ["homeassistant/light/0x…/light/config", "zigbee2mqtt/kitchen_lamp"] }` — topics must not contain wildcards.
+
+**Response (HTTP 200):** `{ "ok": true, "cleared": 2, "errors": [] }` — `errors` lists `{ topic, error }` for topics whose publish failed; HTTP 503 when not connected to a broker.
+
 ---
 
 ## sheDB — `/she/db`
