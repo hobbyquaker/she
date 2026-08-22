@@ -20,6 +20,10 @@
     let loading   = $state(false);
     let loadError = $state<string | null>(null);
     let filter    = $state('');
+    // legacy rows (only a <name>/connected topic — ESPHome & co. publish one too) are hidden by default
+    const LEGACY_KEY = 'she-services-show-legacy';
+    let showLegacy = $state(localStorage.getItem(LEGACY_KEY) === '1');
+    $effect(() => { localStorage.setItem(LEGACY_KEY, showLegacy ? '1' : '0'); });
     let expanded  = $state(new Set<string>());
     let busy      = $state(new Set<string>());
     let notice    = $state<string | null>(null);
@@ -91,11 +95,14 @@
         }
         return [...out.values()].sort((a, b) => a.instance.localeCompare(b.instance));
     });
+    let legacyCount = $derived(rows.filter(r => r.mqtt?.legacy && !r.unit).length);
+    // what the table, the counters and the nav dot work on
+    let shown = $derived(showLegacy ? rows : rows.filter(r => !(r.mqtt?.legacy && !r.unit)));
 
     let visible = $derived.by(() => {
         const q = filter.trim().toLowerCase();
-        if (!q) return rows;
-        return rows.filter(r =>
+        if (!q) return shown;
+        return shown.filter(r =>
             r.instance.toLowerCase().includes(q) ||
             (r.adapter ?? '').toLowerCase().includes(q) ||
             (r.mqtt?.host ?? r.host?.hostname ?? '').toLowerCase().includes(q) ||
@@ -108,12 +115,12 @@
     // Nav dot: worst case — any 0/unknown → err, any 1 → warn, all 2 → ok
     $effect(() => {
         if (!onstatus) return;
-        if (rows.length === 0) { onstatus('none', ''); return; }
-        const down = rows.filter(r => (r.mqtt ? r.mqtt.connected === 0 || r.mqtt.connected === null : r.unit?.active !== 'active')).map(r => r.instance);
-        const half = rows.filter(r => r.mqtt?.connected === 1).map(r => r.instance);
+        if (shown.length === 0) { onstatus('none', ''); return; }
+        const down = shown.filter(r => (r.mqtt ? r.mqtt.connected === 0 || r.mqtt.connected === null : r.unit?.active !== 'active')).map(r => r.instance);
+        const half = shown.filter(r => r.mqtt?.connected === 1).map(r => r.instance);
         if (down.length) onstatus('err', `Down: ${down.join(', ')}`);
         else if (half.length) onstatus('warn', `Device offline: ${half.join(', ')}`);
-        else onstatus('ok', `${rows.length} service${rows.length === 1 ? '' : 's'} online`);
+        else onstatus('ok', `${shown.length} service${shown.length === 1 ? '' : 's'} online`);
     });
 
     /* ── Detail drawer ────────────────────────────────────────────────────── */
@@ -244,7 +251,12 @@
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
             <button class="ghost" onclick={load} disabled={loading} title="Reload">↺</button>
-            <span class="count">{visible.length}{#if filter} / {rows.length}{/if} instance{rows.length === 1 ? '' : 's'}{#if updateCount > 0} · {updateCount} update{updateCount === 1 ? '' : 's'} available{/if}</span>
+            <span class="count">{visible.length}{#if filter} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}{#if updateCount > 0} · {updateCount} update{updateCount === 1 ? '' : 's'} available{/if}</span>
+            <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
+                <input type="checkbox" bind:checked={showLegacy} />
+                <span class="checkmark"></span>
+                show legacy ({legacyCount})
+            </label>
             <span class="spacer"></span>
             {#if notice}<span class="result">{notice}</span>{/if}
         </div>
@@ -260,9 +272,9 @@
             <div class="info">Loading…</div>
         {:else if loadError}
             <div class="info err">{loadError}</div>
-        {:else if rows.length === 0}
+        {:else if shown.length === 0}
             <div class="info">
-                No xyz2mqtt services seen. Adapters built on
+                No xyz2mqtt services seen{#if legacyCount > 0} — {legacyCount} legacy row{legacyCount === 1 ? '' : 's'} hidden (only a <code>&lt;name&gt;/connected</code> topic; tick <em>show legacy</em>){/if}. Adapters built on
                 <a href="https://github.com/hobbyquaker/mqtt-interfaces-core" target="_blank" rel="noopener">mqtt-interfaces-core</a>
                 publish a retained <code>&lt;name&gt;/info</code> and <code>&lt;name&gt;/connected</code>; older adapters with only
                 <code>&lt;name&gt;/connected</code> show up as <em>legacy</em>. Instances installed on a managed host appear even before they connect.
@@ -409,6 +421,13 @@
         padding: 3px 6px; font-size: 12px; border-radius: 3px; width: 220px;
     }
     .count, .muted { color: var(--fg-muted); font-size: 11px; white-space: nowrap; }
+    /* themed checkbox — same pattern as the MQTT / HA discovery views */
+    .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-muted); cursor: pointer; user-select: none; white-space: nowrap; }
+    .chk input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .chk .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 2px; background: var(--bg-app); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .chk input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .chk input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .chk:hover .checkmark { border-color: var(--accent); }
     .result { color: var(--fg-muted); font-size: 11px; white-space: normal; }
 
     button {
