@@ -1,4 +1,4 @@
-﻿# Sandbox API Reference
+# Sandbox API Reference
 
 Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox methods live on the `she` object injected into every script.
 

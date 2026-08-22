@@ -1,4 +1,4 @@
-﻿[Unit]
+[Unit]
 Description=Smart Home Engine (she)
 Documentation=https://github.com/hobbyquaker/she
 After=network-online.target

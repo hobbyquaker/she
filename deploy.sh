@@ -65,6 +65,8 @@ ssh "$REMOTE" bash -s -- "$TARBALL" "$REMOTE_DIR" <<'EOF'
     mkdir -p "$REMOTE_DIR"
     tar -xzf "/tmp/$TARBALL" --strip-components=1 -C "$REMOTE_DIR"
     cp /tmp/package-lock.json "$REMOTE_DIR/"
+    # npm pack copies the local file modes — make sure the bin entry stays executable
+    chmod 755 "$REMOTE_DIR/src/index.js"
     rm -f "/tmp/$TARBALL" /tmp/package-lock.json
     cd "$REMOTE_DIR"
     npm ci --omit=dev

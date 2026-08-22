@@ -1,4 +1,4 @@
-﻿# she - smart home engine
+# she - smart home engine
 
 Your home, your rules - written in plain JavaScript.
 

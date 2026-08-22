@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # install.sh - set up the smart-home-engine system service
 # Run as root after: npm install -g smart-home-engine
 set -euo pipefail
