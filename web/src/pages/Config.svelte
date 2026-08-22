@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, type AuthMode } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getServicesSshPubkey, generateServicesSshKey, type AuthMode } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
@@ -36,6 +36,39 @@
 
     // Services (xyz2mqtt adapter instances)
     let servicesEnabled = $state(false);
+    let servicesLocal   = $state(true);   // manage the she host itself
+    type RemoteHost = { name: string; host: string; port: number | ''; user: string; identityFile: string; hostname: string };
+    let servicesRemote  = $state<RemoteHost[]>([]);
+    let servicesPubkey  = $state<string | null>(null);
+    let servicesKeyFile = $state('');
+    let servicesKeyBusy = $state(false);
+    let servicesKeyMsg  = $state('');
+
+    function addRemoteHost() {
+        servicesRemote = [...servicesRemote, { name: '', host: '', port: '', user: '', identityFile: '', hostname: '' }];
+    }
+    function removeRemoteHost(i: number) {
+        servicesRemote = servicesRemote.filter((_, idx) => idx !== i);
+    }
+    async function loadServicesPubkey() {
+        try {
+            const r = await getServicesSshPubkey();
+            servicesPubkey = r.publicKey; servicesKeyFile = r.identityFile;
+        } catch { /* best effort */ }
+    }
+    async function generateServicesKey() {
+        if (servicesPubkey && !await dialog.show('A services SSH key already exists. Generating a new one replaces it — every managed host needs the new public key afterwards.', { confirm: 'Replace key', danger: true })) return;
+        servicesKeyBusy = true; servicesKeyMsg = '';
+        try {
+            const r = await generateServicesSshKey();
+            servicesPubkey = r.publicKey; servicesKeyFile = r.identityFile;
+            servicesKeyMsg = 'Key generated — add the public key to ~/.ssh/authorized_keys of the SSH user on each host.';
+        } catch (e: any) {
+            servicesKeyMsg = e.message ?? String(e);
+        } finally {
+            servicesKeyBusy = false;
+        }
+    }
 
     // Matter controller
     let matterEnabled  = $state(false);
@@ -347,6 +380,13 @@
             const servicesCfg = cfg.services as Record<string, unknown> | undefined;
             servicesEnabled = servicesCfg?.enabled === true;
             if (servicesCfg) extra = { ...extra, services: servicesCfg };
+            const hostList = Array.isArray(servicesCfg?.hosts) ? (servicesCfg!.hosts as any[]) : null;
+            servicesLocal = hostList ? hostList.some(h => h && !h.ssh) : true;
+            servicesRemote = (hostList ?? []).filter(h => h && h.ssh).map(h => ({
+                name: String(h.name ?? ''), host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
+                user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
+            }));
+            if (servicesEnabled) loadServicesPubkey();
         } catch (e: any) {
             errMsg = e.message;
         } finally {
@@ -518,11 +558,24 @@
         }
         // services.enabled — merge into the existing services block (preserves hosts etc.)
         const servicesExtra = (extra.services as Record<string, unknown> | undefined) ?? {};
-        const { enabled: _sIgnored, ...servicesRest } = servicesExtra;
+        const { enabled: _sIgnored, hosts: _hIgnored, ...servicesRest } = servicesExtra;
+        // host list: the she host (unless unticked) plus the remote entries; hostname captured by the daemon is kept
+        const hostsOut: Record<string, unknown>[] = [];
+        if (servicesLocal) hostsOut.push({ name: 'local' });
+        for (const h of servicesRemote) {
+            if (!h.name.trim() || !h.host.trim()) continue;
+            const ssh: Record<string, unknown> = { host: h.host.trim() };
+            if (h.port !== '' && Number(h.port) > 0) ssh.port = Number(h.port);
+            if (h.user.trim()) ssh.user = h.user.trim();
+            if (h.identityFile.trim()) ssh.identityFile = h.identityFile.trim();
+            hostsOut.push({ name: h.name.trim(), ...(h.hostname.trim() ? { hostname: h.hostname.trim() } : {}), ssh });
+        }
+        const hostsChanged = !servicesLocal || hostsOut.length > 1 || Array.isArray(servicesExtra.hosts);
+        const servicesOut: Record<string, unknown> = { ...servicesRest, ...(hostsChanged ? { hosts: hostsOut } : {}) };
         if (servicesEnabled) {
-            cfg.services = { ...servicesRest, enabled: true };
-        } else if (Object.keys(servicesRest).length > 0) {
-            cfg.services = servicesRest;
+            cfg.services = { ...servicesOut, enabled: true };
+        } else if (Object.keys(servicesOut).length > 0) {
+            cfg.services = servicesOut;
         }
         // matter-storage
         if (matterEnabled) {
@@ -800,11 +853,62 @@
                             {@render tip('Shows the Services page: inventory of the xyz2mqtt adapter instances seen on the broker (mqtt-interfaces-core convention), restart and log level over their maintenance topics, update check, and management of the instances installed on this host via systemd.')}
                         </label>
                         <label class="check-label">
-                            <input type="checkbox" bind:checked={servicesEnabled} />
+                            <input type="checkbox" bind:checked={servicesEnabled} onchange={() => { if (servicesEnabled) loadServicesPubkey(); }} />
                             <span class="checkmark"></span>
                             Service management
                         </label>
                     </div>
+                    {#if servicesEnabled}
+                    <div class="field field--check">
+                        <label>
+                            This host
+                            {@render tip('Manage the adapter instances installed on the she host itself through the she-servicectl helper (installed by sudo she --install). Untick e.g. when she runs in Docker.')}
+                        </label>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={servicesLocal} />
+                            <span class="checkmark"></span>
+                            Manage adapters on this host
+                        </label>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Remote hosts
+                            {@render tip('Hosts reached over SSH. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). The hostname column is filled automatically on first contact and used to match MQTT instances (info.host) to the host.')}
+                        </label>
+                        <div class="svc-hosts">
+                            {#each servicesRemote as h, i (i)}
+                                <div class="svc-host-row">
+                                    <input type="text" placeholder="name" bind:value={h.name} spellcheck="false" style="width:110px" />
+                                    <input type="text" placeholder="ssh host" bind:value={h.host} spellcheck="false" style="width:160px" />
+                                    <input type="number" placeholder="22" bind:value={h.port} style="width:64px" />
+                                    <input type="text" placeholder="user" bind:value={h.user} spellcheck="false" style="width:90px" />
+                                    <input type="text" placeholder="identity file (default: services key)" bind:value={h.identityFile} spellcheck="false" style="width:200px" />
+                                    <input type="text" placeholder="hostname (auto)" bind:value={h.hostname} spellcheck="false" style="width:120px" />
+                                    <button type="button" class="svc-rm" title="Remove host" onclick={() => removeRemoteHost(i)}>×</button>
+                                </div>
+                            {/each}
+                            <button type="button" class="svc-add" onclick={addRemoteHost}>+ Add remote host</button>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>
+                            SSH key
+                            {@render tip('One Ed25519 key for all managed hosts, stored in the data directory. Add the public key to ~/.ssh/authorized_keys of the SSH user on every remote host.')}
+                        </label>
+                        <div class="svc-key">
+                            {#if servicesPubkey}
+                                <textarea readonly rows="2" spellcheck="false">{servicesPubkey}</textarea>
+                                <div class="feature-desc" style="padding-left:0">{servicesKeyFile}</div>
+                            {:else}
+                                <div class="feature-desc" style="padding-left:0">No services key yet ({servicesKeyFile || 'data-dir/ssh/services_id_ed25519'}).</div>
+                            {/if}
+                            <div>
+                                <button type="button" class="svc-add" onclick={generateServicesKey} disabled={servicesKeyBusy}>{servicesKeyBusy ? 'Generating…' : servicesPubkey ? 'Regenerate key' : 'Generate key'}</button>
+                                {#if servicesKeyMsg}<span class="feature-desc" style="padding-left:8px; display:inline">{servicesKeyMsg}</span>{/if}
+                            </div>
+                        </div>
+                    </div>
+                    {/if}
                 </section>
                 {/if}
 
@@ -1447,6 +1551,20 @@
         line-height: 1.5;
         padding-left: 23px; /* align under label text: 15px checkmark + 8px gap */
     }
+
+    /* ── Services: remote host list + key ───────────────────────────── */
+    .svc-hosts { display: flex; flex-direction: column; gap: 6px; }
+    .svc-host-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .svc-host-row input { font-size: 12px; padding: 4px 6px; }
+    .svc-rm, .svc-add {
+        background: none; border: 1px solid var(--border); color: var(--fg-muted);
+        border-radius: 3px; font-size: 12px; padding: 3px 8px; cursor: pointer;
+    }
+    .svc-rm:hover, .svc-add:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
+    .svc-add { align-self: flex-start; }
+    .svc-add:disabled { opacity: 0.5; cursor: default; }
+    .svc-key { display: flex; flex-direction: column; gap: 6px; }
+    .svc-key textarea { font-family: var(--font-mono, monospace); font-size: 11px; width: 100%; max-width: 640px; resize: vertical; }
 
     /* ── feature toggle (enable/disable sections) ─────────────────── */
     .feature-toggle {

@@ -16,14 +16,21 @@
  *   HELPER_MISSING  the helper is not installed on the host
  *   SUDO_DENIED     sudoers does not allow the helper for this user
  *   HELPER_FAILED   the helper rejected the call (exit 2, message in stderr)
+ *   SSH_FAILED      the ssh connection itself failed (exit 255: auth, host key, unreachable)
  *   EXEC_FAILED     the underlying command failed (non-zero exit)
  */
 
 const fs = require('fs');
+const path = require('path');
 const { execFile, spawn } = require('child_process');
+const sshDeploy = require('./ssh-deploy');
 
 const HELPER = '/usr/local/bin/she-servicectl';
 const HELPER_VERSION = 1; // must match VERSION in service/she-servicectl
+/** Default identity for services.hosts[].ssh — one key for all managed hosts (I5). */
+const DEFAULT_SERVICES_IDENTITY = '~/.she/ssh/services_id_ed25519';
+/** The helper as shipped with this she version (copied to remote hosts by the deploy route). */
+const HELPER_SOURCE = path.join(__dirname, '..', '..', 'service', 'she-servicectl');
 
 class HostError extends Error {
     constructor(code, message, extra = {}) {
@@ -33,9 +40,12 @@ class HostError extends Error {
     }
 }
 
-function classify(err, stdout, stderr, code) {
+function classify(err, stdout, stderr, code, { ssh = false } = {}) {
     const text = String(stderr || '').trim();
-    if (err && (err.code === 'ENOENT' || code === 127)) return new HostError('HELPER_MISSING', 'she-servicectl is not installed on this host');
+    if (ssh && code === 255) return new HostError('SSH_FAILED', text || 'ssh connection failed');
+    if ((err && err.code === 'ENOENT') || code === 127 || /she-servicectl: (command )?not found|she-servicectl: No such file/i.test(text)) {
+        return new HostError('HELPER_MISSING', 'she-servicectl is not installed on this host');
+    }
     if (/a password is required|not allowed to execute|not in the sudoers/i.test(text)) {
         return new HostError('SUDO_DENIED', 'sudo does not allow she-servicectl for this user: ' + text);
     }
@@ -84,6 +94,71 @@ function createLocalDriver(opts = {}) {
     }
 
     return { name, local: true, helperPath: helper, exec, spawn: spawnHelper };
+}
+
+/** Quote a word for a POSIX shell (the remote side runs the helper through the login shell). */
+function shellQuote(s) {
+    return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * Driver for a remote host: `ssh <host> sudo -n she-servicectl …` with the system ssh/scp
+ * clients (BatchMode, accept-new — like the broker deploy). stdin is passed through.
+ * @param {{name: string, ssh: {host: string, port?: number, user?: string, identityFile?: string}}} hostCfg
+ * @param {{helper?: string, sudo?: boolean, defaultIdentity?: string, sshBin?: string, scpBin?: string, env?: object}} [opts]
+ */
+function createSshDriver(hostCfg, opts = {}) {
+    const helper = opts.helper || HELPER;
+    const useSudo = opts.sudo !== false;
+    const sshCfg = hostCfg.ssh || {};
+    const defaultIdentity = opts.defaultIdentity || DEFAULT_SERVICES_IDENTITY;
+    const sshBin = opts.sshBin || 'ssh';
+    const scpBin = opts.scpBin || 'scp';
+    const env = { ...(opts.env || process.env), LC_ALL: 'C' };
+    const name = hostCfg.name;
+
+    function remoteCommand(args) {
+        return [...(useSudo ? ['sudo', '-n'] : []), helper, ...args].map(shellQuote).join(' ');
+    }
+    function sshArgv(command) {
+        return [...sshDeploy.sshArgs(sshCfg, defaultIdentity), sshDeploy.sshTarget(sshCfg), command];
+    }
+    function runSsh(command, { stdin, timeout = 45000, maxBuffer = 16 * 1024 * 1024 } = {}) {
+        return new Promise((resolve, reject) => {
+            const child = execFile(sshBin, sshArgv(command), { timeout, env, maxBuffer }, (err, stdout, stderr) => {
+                const code = err && typeof err.code === 'number' ? err.code : err ? null : 0;
+                if (err) return reject(classify(err, stdout, stderr, code, { ssh: true }));
+                resolve({ stdout, stderr, code: 0 });
+            });
+            child.stdin.on('error', () => {});
+            child.stdin.end(stdin === undefined ? '' : stdin);
+        });
+    }
+
+    /** helper call */
+    function exec(args, options) {
+        return runSsh(remoteCommand(args), options);
+    }
+    /** long-running helper call (logs --follow) */
+    function spawnHelper(args) {
+        return spawn(sshBin, sshArgv(remoteCommand(args)), { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    }
+    /** arbitrary command on the host — only used by the helper deploy */
+    function run(command, options) {
+        return runSsh(command, options);
+    }
+    /** scp a local file to `remotePath` (relative to the SSH user's home unless absolute) */
+    function upload(localPath, remotePath) {
+        return new Promise((resolve, reject) => {
+            const argv = [...sshDeploy.scpArgs(sshCfg, defaultIdentity), localPath, sshDeploy.sshTarget(sshCfg) + ':' + remotePath];
+            execFile(scpBin, argv, { timeout: 60000, env }, (err, stdout, stderr) => {
+                if (err) return reject(new HostError('SSH_FAILED', String(stderr || err.message).trim()));
+                resolve();
+            });
+        });
+    }
+
+    return { name, local: false, helperPath: helper, target: sshDeploy.sshTarget(sshCfg), exec, spawn: spawnHelper, run, upload };
 }
 
 /** Parse the JSON of `she-servicectl list`. */
@@ -178,8 +253,12 @@ function secretEnvVars(schema, envNames = []) {
 module.exports = {
     HELPER,
     HELPER_VERSION,
+    HELPER_SOURCE,
+    DEFAULT_SERVICES_IDENTITY,
     HostError,
     createLocalDriver,
+    createSshDriver,
+    shellQuote,
     parseList,
     parseJournal,
     parseEnvFile,

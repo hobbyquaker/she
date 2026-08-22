@@ -2,7 +2,8 @@
     import { onMount } from 'svelte';
     import {
         getServiceHosts, updateServiceAdapter, getServiceBrokerEnv, putServiceBrokerEnv,
-        type ServiceHost,
+        testServiceHost, deployServiceHelper,
+        type ServiceHost, type HelperDeployResult,
     } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
 
@@ -55,6 +56,35 @@
         }
     }
 
+    /* ── I5: connection test + helper deploy ───────────────────────────────── */
+    let testResult = $state<Record<string, string>>({});
+    let deployResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
+    let hostBusy = $state<string | null>(null);
+
+    async function testHost(h: ServiceHost) {
+        hostBusy = h.name;
+        try {
+            const r = await testServiceHost(h.name);
+            testResult = { ...testResult, [h.name]: r.ok ? `ok — helper v${r.helper ?? '?'}` : `${r.code}: ${r.error}` };
+        } catch (e: any) {
+            testResult = { ...testResult, [h.name]: e.message ?? String(e) };
+        } finally {
+            hostBusy = null;
+        }
+    }
+    async function deployHelper(h: ServiceHost) {
+        hostBusy = h.name;
+        try {
+            const r = await deployServiceHelper(h.name);
+            deployResult = { ...deployResult, [h.name]: r };
+            if (r.ok) await load();
+        } catch (e: any) {
+            deployResult = { ...deployResult, [h.name]: { error: e.message ?? String(e) } };
+        } finally {
+            hostBusy = null;
+        }
+    }
+
     /* ── broker.env editor ────────────────────────────────────────────────── */
     const BROKER_KEYS = ['MQTT_URL', 'MQTT_USERNAME', 'MQTT_PASSWORD', 'MQTT_CLIENT_ID_PREFIX', 'MQTT_TLS_CA'];
     let brokerHost = $state<string | null>(null);
@@ -97,7 +127,7 @@
 <div class="hosts">
     <div class="bar">
         <button class="ghost" onclick={load} disabled={loading} title="Reload">↺</button>
-        <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — configure more under Settings → Services (remote hosts over SSH: roadmap I5)</span>
+        <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — add remote hosts under Settings → Services</span>
         <span class="spacer"></span>
         {#if notice}<span class="muted">{notice}</span>{/if}
     </div>
@@ -117,19 +147,45 @@
                     <span class="muted">{h.local ? 'this host' : h.ssh?.host}{#if h.hostname} · hostname {h.hostname}{/if}{#if h.node} · node {h.node}{/if}</span>
                     <span class="spacer"></span>
                     {#if h.ok}
-                        <span class="muted" title="she-servicectl version">helper v{h.helper}{#if h.helperOutdated} <span class="warn">— outdated, run sudo she --install</span>{/if}</span>
+                        <span class="muted" title="she-servicectl version">helper v{h.helper}{#if h.helperOutdated} <span class="warn">— outdated{#if h.local}, run sudo she --install{:else}, deploy again{/if}</span>{/if}</span>
+                    {/if}
+                    <button class="ghost sm" onclick={() => testHost(h)} disabled={hostBusy !== null} title="Run she-servicectl version on the host">Test</button>
+                    {#if !h.local && (!h.ok || h.helperOutdated)}
+                        <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title="Copy she-servicectl to the host and install it">Deploy helper</button>
                     {/if}
                 </div>
+                {#if testResult[h.name]}<div class="muted" style="margin-bottom:6px">test: {testResult[h.name]}</div>{/if}
+                {#if deployResult[h.name]}
+                    {@const d = deployResult[h.name]}
+                    <div class="deploy-box" class:deploy-ok={'ok' in d && d.ok}>
+                        {#if 'error' in d}
+                            {d.error}
+                        {:else if d.ok}
+                            Helper v{d.helper} installed on {h.name} and allowed for <span class="mono">{d.user}</span>.
+                        {:else}
+                            {#if d.installed}Helper installed, but <span class="mono">sudo</span> does not allow it for <span class="mono">{d.user}</span> yet.{:else}Helper uploaded to the SSH user's home; installing it needs root.{/if}
+                            Run on the host as an admin:
+                            <pre class="mono">{(d.instructions ?? []).join('\n')}</pre>
+                            {#if d.error}<div class="muted">{d.error}</div>{/if}
+                        {/if}
+                    </div>
+                {/if}
 
                 {#if !h.ok}
                     <div class="err-box">
                         {h.error}
-                        {#if h.code === 'HELPER_MISSING'}
+                        {#if h.code === 'HELPER_MISSING' && h.local}
                             <div class="hint">Install the helper on this host: <code>sudo she --install</code> (copies <code>she-servicectl</code> to <code>/usr/local/bin</code> and allows it in <code>/etc/sudoers.d/she</code>).</div>
-                        {:else if h.code === 'SUDO_DENIED'}
+                        {:else if h.code === 'HELPER_MISSING'}
+                            <div class="hint">The helper is not on this host yet — <em>Deploy helper</em> copies it over and prints the sudoers line to add.</div>
+                        {:else if h.code === 'SUDO_DENIED' && h.local}
                             <div class="hint">Add to <code>/etc/sudoers.d/she</code>: <code>she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> — <code>sudo she --install</code> does this.</div>
+                        {:else if h.code === 'SUDO_DENIED'}
+                            <div class="hint">Allow the helper for <code>{h.ssh?.user}</code> on the host: <code>{h.ssh?.user} ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> in <code>/etc/sudoers.d/she-services</code> — <em>Deploy helper</em> prints the exact commands.</div>
+                        {:else if h.code === 'SSH_FAILED'}
+                            <div class="hint">SSH to <code>{h.ssh?.user}@{h.ssh?.host}:{h.ssh?.port}</code> failed — is the services public key (Settings → Services) in that user's <code>~/.ssh/authorized_keys</code>, and the host reachable?</div>
                         {:else if h.code === 'UNSUPPORTED'}
-                            <div class="hint">Remote hosts arrive with roadmap item I5.</div>
+                            <div class="hint">The host entry has an <code>ssh</code> block without a <code>host</code> — fix it under Settings → Services.</div>
                         {/if}
                     </div>
                 {:else}
@@ -219,6 +275,9 @@
     .err-box { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.35); border-radius: 3px; color: #e88; padding: 6px 10px; }
     .hint { margin-top: 4px; color: var(--fg-muted); }
     .hint code { color: var(--accent); }
+    .deploy-box { background: rgba(230,126,34,0.10); border: 1px solid rgba(230,126,34,0.35); border-radius: 3px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; }
+    .deploy-box.deploy-ok { background: rgba(39,174,96,0.12); border-color: rgba(39,174,96,0.35); }
+    .deploy-box pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; }
     .broker-env { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
     .be-row { display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 8px; max-width: 640px; }
     .be-row input { background: var(--bg-input, var(--bg-app)); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 4px 7px; font-size: 12px; }

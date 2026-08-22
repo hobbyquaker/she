@@ -25,6 +25,10 @@
  *   PUT    /she/services/hosts/:host/units/:adapter/:instance/env    { env, restart? }
  *   GET    /she/services/hosts/:host/broker-env                      /etc/mqtt-interfaces/broker.env
  *   PUT    /she/services/hosts/:host/broker-env                      { env }
+ *   GET    /she/services/ssh/pubkey                                  public key of the services identity (I5)
+ *   POST   /she/services/ssh/keygen                                  generate it
+ *   POST   /she/services/hosts/:host/test                            run `she-servicectl version` → ok / code
+ *   POST   /she/services/hosts/:host/helper/deploy                   scp the helper to a remote host, install it, print the sudoers line
  *
  * Call init(store, getMqttClient) once (same signature as mqtt-api).
  */
@@ -33,8 +37,27 @@ const express = require('express');
 const fs = require('fs');
 const { analyzeServices, wipeTopics, LOG_LEVELS } = require('../lib/services-inventory');
 const npmRegistry = require('../lib/npm-registry');
-const { createLocalDriver, parseList, parseJournal, parseEnvFile, formatEnvFile, secretEnvVars, HostError } = require('../lib/services-host');
+const os = require('os');
+const path = require('path');
+const {
+    createLocalDriver,
+    createSshDriver,
+    parseList,
+    parseJournal,
+    parseEnvFile,
+    formatEnvFile,
+    secretEnvVars,
+    shellQuote,
+    HostError,
+    HELPER,
+    HELPER_SOURCE,
+} = require('../lib/services-host');
+const sshDeploy = require('../lib/ssh-deploy');
+const { STORAGE_ROOT } = require('../lib/storage');
 const { broadcast } = require('./log-ws');
+
+/** One key for all managed hosts, next to the broker key. */
+const SERVICES_IDENTITY = path.join(STORAGE_ROOT, 'ssh', 'services_id_ed25519');
 
 const router = express.Router();
 
@@ -180,7 +203,12 @@ function validEnvName(name) {
 }
 
 /** Drivers are created per request from the live config; tests inject a factory. */
-let _driverFactory = (hostCfg) => (hostCfg.ssh ? null : createLocalDriver({ name: hostCfg.name }));
+let _driverFactory = (hostCfg) =>
+    hostCfg.ssh && typeof hostCfg.ssh.host === 'string' && hostCfg.ssh.host
+        ? createSshDriver(hostCfg, { defaultIdentity: SERVICES_IDENTITY })
+        : hostCfg.ssh
+          ? null
+          : createLocalDriver({ name: hostCfg.name });
 function setDriverFactory(fn) {
     _driverFactory = fn;
 }
@@ -194,7 +222,7 @@ function hostEntries(req) {
 
 function hostError(res, err) {
     if (err instanceof HostError) {
-        const status = err.code === 'HELPER_MISSING' ? 503 : err.code === 'SUDO_DENIED' ? 403 : err.code === 'HELPER_FAILED' ? 400 : 500;
+        const status = err.code === 'HELPER_MISSING' ? 503 : err.code === 'SUDO_DENIED' ? 403 : err.code === 'HELPER_FAILED' ? 400 : err.code === 'SSH_FAILED' ? 502 : 500;
         return res.status(status).json({ error: err.message, code: err.code, ...(err.stdout ? { output: err.stdout } : {}) });
     }
     return res.status(500).json({ error: err.message });
@@ -208,7 +236,7 @@ function resolve(req, res, { adapter = false, instance = false } = {}) {
         return null;
     }
     if (!entry.driver) {
-        res.status(501).json({ error: 'remote hosts are not supported yet (roadmap I5)', code: 'UNSUPPORTED' });
+        res.status(400).json({ error: 'host entry has an ssh block without a host', code: 'UNSUPPORTED' });
         return null;
     }
     if (adapter && !validAdapter(req.params.adapter)) {
@@ -262,15 +290,40 @@ function mergeEnv(current, submitted) {
     return out;
 }
 
+/**
+ * SV-14: remember the hostname a host reported so MQTT instances (info.host) can be
+ * matched to it; only fills an empty field, best effort.
+ */
+function saveHostname(req, name, hostname) {
+    const configPath = req.app.locals.configPath;
+    if (!configPath || !hostname) return;
+    try {
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const hosts = cfg.services && Array.isArray(cfg.services.hosts) ? cfg.services.hosts : null;
+        const entry = hosts && hosts.find((h) => h && h.name === name);
+        if (!entry || entry.hostname) return;
+        entry.hostname = hostname;
+        fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    } catch {
+        /* config not writable — the UI still correlates via the live value */
+    }
+}
+
 // GET /she/services/hosts
 router.get('/hosts', async (req, res) => {
     const result = await Promise.all(
         hostEntries(req).map(async ({ cfg, driver }) => {
-            const base = { name: cfg.name, local: !cfg.ssh, ssh: cfg.ssh ? { host: cfg.ssh.host } : null, hostname: cfg.hostname || null };
-            if (!driver) return { ...base, ok: false, code: 'UNSUPPORTED', error: 'remote hosts are not supported yet (roadmap I5)' };
+            const base = {
+                name: cfg.name,
+                local: !cfg.ssh,
+                ssh: cfg.ssh ? { host: cfg.ssh.host, port: cfg.ssh.port || 22, user: cfg.ssh.user || os.userInfo().username } : null,
+                hostname: cfg.hostname || null,
+            };
+            if (!driver) return { ...base, ok: false, code: 'UNSUPPORTED', error: 'host entry has an ssh block without a host' };
             try {
                 const { stdout } = await driver.exec(['list']);
                 const list = parseList(stdout);
+                if (!cfg.hostname && list.hostname) saveHostname(req, cfg.name, list.hostname);
                 return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list };
             } catch (err) {
                 return { ...base, ok: false, code: err.code || 'ERROR', error: err.message };
@@ -278,6 +331,86 @@ router.get('/hosts', async (req, res) => {
         }),
     );
     res.json({ hosts: result });
+});
+
+// ── I5: ssh identity, connection test, helper deploy ─────────────────────────
+
+function identityPath() {
+    return sshDeploy.expandHome(SERVICES_IDENTITY);
+}
+
+// GET /she/services/ssh/pubkey
+router.get('/ssh/pubkey', (req, res) => {
+    try {
+        const publicKey = fs.readFileSync(identityPath() + '.pub', 'utf8').trim();
+        res.json({ publicKey, identityFile: identityPath() });
+    } catch {
+        res.json({ publicKey: null, identityFile: identityPath() });
+    }
+});
+
+// POST /she/services/ssh/keygen
+router.post('/ssh/keygen', async (req, res) => {
+    try {
+        const publicKey = await sshDeploy.generateKeypair(identityPath(), 'she-services');
+        res.json({ publicKey, identityFile: identityPath() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/services/hosts/:host/test — always 200 with ok/code so the UI can explain
+router.post('/hosts/:host/test', async (req, res) => {
+    const entry = resolve(req, res);
+    if (!entry) return;
+    try {
+        const { stdout } = await entry.driver.exec(['version'], { timeout: 20000 });
+        res.json({ ok: true, helper: Number(String(stdout).trim()) || null });
+    } catch (err) {
+        res.json({ ok: false, code: err.code || 'ERROR', error: err.message });
+    }
+});
+
+/** Commands an admin runs when she itself is not allowed to (SV-4: she never edits sudoers remotely). */
+function deployInstructions(user, tmpName) {
+    return [
+        `sudo install -m 755 -o root -g root ~/${tmpName} ${HELPER} && rm -f ~/${tmpName}`,
+        `echo '${user} ALL=(root) NOPASSWD: ${HELPER}' | sudo tee /etc/sudoers.d/she-services >/dev/null && sudo chmod 440 /etc/sudoers.d/she-services`,
+    ];
+}
+
+// POST /she/services/hosts/:host/helper/deploy
+router.post('/hosts/:host/helper/deploy', async (req, res) => {
+    const entry = resolve(req, res);
+    if (!entry) return;
+    const { driver, cfg } = entry;
+    if (driver.local) return res.status(400).json({ error: 'on the she host the helper is installed by: sudo she --install', code: 'LOCAL' });
+    const user = (cfg.ssh && cfg.ssh.user) || os.userInfo().username;
+    const tmpName = 'she-servicectl.tmp';
+    const instructions = deployInstructions(user, tmpName);
+    try {
+        await driver.upload(HELPER_SOURCE, tmpName);
+    } catch (err) {
+        return hostError(res, err);
+    }
+    // try to install it right away — works when the ssh user is root or already sudo-capable
+    let installed = false;
+    try {
+        await driver.run(`sudo -n install -m 755 -o root -g root ./${shellQuote(tmpName)} ${shellQuote(HELPER)} && rm -f ./${shellQuote(tmpName)}`, { timeout: 30000 });
+        installed = true;
+    } catch (err) {
+        if (err.code === 'SSH_FAILED') return hostError(res, err);
+    }
+    if (!installed) {
+        return res.json({ ok: false, uploaded: true, installed: false, sudoers: false, code: 'SUDO_DENIED', instructions, user });
+    }
+    // installed — is the helper callable through sudo for this user?
+    try {
+        const { stdout } = await driver.exec(['version'], { timeout: 20000 });
+        return res.json({ ok: true, uploaded: true, installed: true, sudoers: true, helper: Number(String(stdout).trim()) || null, user });
+    } catch (err) {
+        return res.json({ ok: false, uploaded: true, installed: true, sudoers: false, code: err.code || 'ERROR', error: err.message, instructions: [instructions[1]], user });
+    }
 });
 
 // GET /she/services/hosts/:host/adapters/:adapter/schema
@@ -535,4 +668,4 @@ router.put('/hosts/:host/broker-env', async (req, res) => {
     }
 });
 
-module.exports = { router, init, getServicesConfig, validInstance, validAdapter, setDriverFactory, stopAllFollowers, mergeEnv, maskEnv };
+module.exports = { router, init, getServicesConfig, validInstance, validAdapter, setDriverFactory, stopAllFollowers, mergeEnv, maskEnv, SERVICES_IDENTITY };

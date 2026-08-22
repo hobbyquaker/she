@@ -460,7 +460,7 @@ The connection will drop immediately after the response. The daemon is typically
 
 ## Services — `/she/services`
 
-Management of xyz2mqtt adapter instances (see [services.md](services.md)). Available whether or not `services.enabled` is set; the flag only controls the page. Host routes go through the `she-servicectl` helper and answer **503** `{ code: "HELPER_MISSING" }` when it is not installed, **403** `{ code: "SUDO_DENIED" }` when sudoers does not allow it, **400** `{ code: "HELPER_FAILED" }` when the helper rejected the arguments, **501** `{ code: "UNSUPPORTED" }` for SSH hosts (roadmap I5). Instance names are `[A-Za-z0-9_.-]+`, adapter names lower-case npm names.
+Management of xyz2mqtt adapter instances (see [services.md](services.md)). Available whether or not `services.enabled` is set; the flag only controls the page. Host routes go through the `she-servicectl` helper — locally via `sudo`, on remote hosts via `ssh` — and answer **503** `{ code: "HELPER_MISSING" }` when it is not installed, **403** `{ code: "SUDO_DENIED" }` when sudoers does not allow it, **400** `{ code: "HELPER_FAILED" }` when the helper rejected the arguments, **502** `{ code: "SSH_FAILED" }` when the SSH connection fails. Instance names are `[A-Za-z0-9_.-]+`, adapter names lower-case npm names.
 
 ### GET /she/services/instances
 
@@ -499,6 +499,9 @@ Every configured host (`services.hosts`, default the she host as `local`) with t
 | GET | `/she/services/hosts/:host/units/:adapter/:instance/env` | | `{ env, secrets, schema }` — the env file with secrets masked as `***` |
 | PUT | `/she/services/hosts/:host/units/:adapter/:instance/env` | `{ env, restart? }` | writes the env file (`***` keeps the stored secret, empty removes a variable), optional restart |
 | GET / PUT | `/she/services/hosts/:host/broker-env` | `{ env }` | `/etc/mqtt-interfaces/broker.env`, same masking rules |
+| POST | `/she/services/hosts/:host/test` | | always 200: `{ ok: true, helper }` or `{ ok: false, code, error }` |
+| POST | `/she/services/hosts/:host/helper/deploy` | | remote hosts only: scp the shipped helper, try `sudo -n install`; `{ ok, uploaded, installed, sudoers, helper?, code?, instructions?, user }` — `instructions` are the commands an admin runs when sudo refused |
+| GET / POST | `/she/services/ssh/pubkey` · `/she/services/ssh/keygen` | | the services SSH identity (`<data-dir>/ssh/services_id_ed25519`): read the public key / generate the keypair |
 
 ---
 

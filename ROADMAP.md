@@ -39,7 +39,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 **Integrations**
 - [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing)
-- [I5 — Services: remote hosts over SSH](#i5--services-remote-hosts-over-ssh)
 - [I6 — Services: broker.env and per-instance dynsec credentials](#i6--services-brokerenv-and-per-instance-dynsec-credentials)
 - [I7 — Services: adapter catalog via npm](#i7--services-adapter-catalog-via-npm)
 - [I8 — Services: docker host driver](#i8--services-docker-host-driver) 💡
@@ -338,13 +337,9 @@ Use she's Generate CSR flow to produce the key and CSR, then use certbot or anot
 
 **Relation to other roadmap items:** the bridge scripts are prime candidates for the doubted "system scripts" concept ([S6](#s6--system-scripts-two-tier-script-loading)) — but they work fine as plain user scripts, so system scripts remain unjustified by this alone. [A2](#a2--script-api-endpoint-authentication) gains urgency: `PUT /she/scripts/…` from feezal must work cleanly under auth (Bearer token support).
 
-### I5 — Services: remote hosts over SSH
-
-Second host driver on the generalised [src/lib/ssh-deploy.js](src/lib/ssh-deploy.js): `services.hosts[]` with the same `ssh` shape as `broker.ssh` (kept separate, SV-7), SSH key generation and host list in the Config section, helper deployment to `/usr/local/bin` with the sudoers line printed for the admin (she never edits sudoers remotely), hostname auto-capture for `info.host` correlation (editable), helper version check on the Hosts tab. Depends on [I4](doc/roadmap-archive/I4.md) ✅.
-
 ### I6 — Services: broker.env and per-instance dynsec credentials
 
-`/etc/mqtt-interfaces/broker.env` editor per host with "use she's broker settings"; with Mosquitto management enabled, one click creates a dynsec user for an instance with an ACL limited to `<name>/#` (+ `homeassistant/#` publish) via the existing `she.broker` layer and writes it to the instance's env file. Depends on [I4](doc/roadmap-archive/I4.md) ✅ (local) / [I5](#i5--services-remote-hosts-over-ssh) (remote) and Mosquitto management.
+`/etc/mqtt-interfaces/broker.env` editor per host with "use she's broker settings"; with Mosquitto management enabled, one click creates a dynsec user for an instance with an ACL limited to `<name>/#` (+ `homeassistant/#` publish) via the existing `she.broker` layer and writes it to the instance's env file. Depends on [I4](doc/roadmap-archive/I4.md) ✅ (local) / [I5](doc/roadmap-archive/I5.md) ✅ (remote) and Mosquitto management.
 
 ### I7 — Services: adapter catalog via npm
 
@@ -352,7 +347,7 @@ No catalog file: adapters mark themselves with the npm keyword `mqtt-interfaces`
 
 ### I8 — Services: docker host driver
 
-💡 *Idea — designed-for in I4, not built.* Third host driver over the `docker` CLI (compose restart, logs, env) for containerised adapters (ghcr images exist for alexa-remote-mqtt & co.). Until then Docker-hosted instances are covered by Tier 0 only. Depends on [I5](#i5--services-remote-hosts-over-ssh) and actual demand.
+💡 *Idea — designed-for in I4, not built.* Third host driver over the `docker` CLI (compose restart, logs, env) for containerised adapters (ghcr images exist for alexa-remote-mqtt & co.). Until then Docker-hosted instances are covered by Tier 0 only. Depends on [I5](doc/roadmap-archive/I5.md) ✅ and actual demand.
 
 ## Architecture, Operations & Security
 

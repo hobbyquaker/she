@@ -9,9 +9,9 @@ Enable it under **Settings → Services**; the **Services** page then appears in
 | Tier | Needs | Gives |
 | --- | --- | --- |
 | **MQTT** (always) | nothing — she already sees every retained topic on the broker | inventory of all instances (adapter, version, host, pid, uptime, connected state), restart and log level over the adapters' maintenance topics, "update available" badge (npm registry, checked once a day), wiping the retained topics of an instance that is gone |
-| **Host** | the `she-servicectl` helper on the she host (installed by `sudo she --install`) | systemd control (start/stop/restart/enable/disable), journal logs (tail + live follow), editing the instance's env file with a form generated from the adapter's `--config-schema`, installing and uninstalling instances, updating adapters via npm, editing the shared `broker.env` |
+| **Host** | the `she-servicectl` helper on the host — installed by `sudo she --install` on the she host, deployed over SSH to other hosts | systemd control (start/stop/restart/enable/disable), journal logs (tail + live follow), editing the instance's env file with a form generated from the adapter's `--config-schema`, installing and uninstalling instances, updating adapters via npm, editing the shared `broker.env` |
 
-Remote hosts over SSH, per-instance broker credentials and an adapter catalog are on the [roadmap](../ROADMAP.md) (I5–I7).
+Per-instance broker credentials and an adapter catalog are on the [roadmap](../ROADMAP.md) (I6, I7).
 
 ## How adapters look to she
 
@@ -36,7 +36,7 @@ An MQTT instance and a host instance are the same row when the instance names ma
 ## The Services page
 
 - **Instances** — one row per instance: adapter and version (with the npm update badge), host, state (connected dot plus the systemd state when the host is managed), uptime, a log-level selector, and the actions the row supports: *Config / Logs* (opens the drawer), *Restart*, *Stop*/*Start*, *Enable*, *Uninstall*, *Wipe* (only while `connected = 0`). The nav dot is the worst case over all instances.
-- **Hosts** — per managed host: helper status, installed adapters with version and origin, *Update* (`npm install -g <adapter>@latest`, then restarts the adapter's instances), and the `broker.env` editor. Adapters that were deployed manually (a tarball extracted to `/usr/local/lib/node_modules`, e.g. by an adapter's `deploy.sh`) are marked *manual*; updating them asks first because the npm version replaces the manual deploy.
+- **Hosts** — per managed host: helper status with *Test* (runs `she-servicectl version`) and, for remote hosts, *Deploy helper*; installed adapters with version and origin, *Update* (`npm install -g <adapter>@latest`, then restarts the adapter's instances), and the `broker.env` editor. Adapters that were deployed manually (a tarball extracted to `/usr/local/lib/node_modules`, e.g. by an adapter's `deploy.sh`) are marked *manual*; updating them asks first because the npm version replaces the manual deploy.
 - **Add instance** — pick host and adapter, choose the instance name, fill in the options (required ones first, the shared MQTT options collapsed — leave them empty to use `broker.env`), *Install*. The wizard runs `<adapter> --install --name <instance>` with the options passed as environment variables, so secrets never show up in a process list.
 
 The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secret` in the schema, or names containing password/token/secret/cookie/key) are masked; they stay unchanged unless you type a new value. *Save & restart* applies immediately. **Logs** shows the last 200 journal lines and can follow the journal live.
@@ -47,7 +47,10 @@ The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secre
 {
   "services": {
     "enabled": true,
-    "hosts": [{ "name": "local" }]
+    "hosts": [
+      { "name": "local" },
+      { "name": "zigbee", "hostname": "zigbee", "ssh": { "host": "zigbee.lan", "port": 22, "user": "she", "identityFile": "~/.she/ssh/services_id_ed25519" } }
+    ]
   }
 }
 ```
@@ -55,9 +58,21 @@ The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secre
 | Key | Default | Description |
 | --- | --- | --- |
 | `services.enabled` | `false` | show the Services page |
-| `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself. SSH entries are accepted but not driven yet (roadmap I5) |
+| `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself (untick *This host* in Settings when she runs in Docker) |
+| `services.hosts[].ssh` | — | `host` (required), `port` (22), `user` (the daemon's OS user), `identityFile` (the services key) — same shape as `broker.ssh` |
+| `services.hosts[].hostname` | — | filled automatically on first contact; what the host's adapters report as `info.host`; edit it when the two differ |
 
-The Settings page only holds the enable switch; everything operational is on the Services page.
+Settings → Services holds the enable switch, the host list and the SSH key; everything operational is on the Services page.
+
+## Remote hosts
+
+Adapter hosts other than the she host are reached over SSH with the system `ssh`/`scp` clients (`BatchMode`, `StrictHostKeyChecking=accept-new` — the same way the Broker page deploys Mosquitto files). Setting one up:
+
+1. **Settings → Services → SSH key → Generate key.** One Ed25519 key for all managed hosts, `<data-dir>/ssh/services_id_ed25519`; copy the public key into `~/.ssh/authorized_keys` of the SSH user on the host. Any user works; `root` needs no further setup, a normal user needs the sudoers line from step 3.
+2. **Add the host** (name, ssh host, port, user) and save.
+3. **Services → Hosts → Deploy helper.** she copies `she-servicectl` to the SSH user's home and tries `sudo -n install` — as `root` that is all. Otherwise it prints the two commands an admin runs once on the host: install the helper to `/usr/local/bin`, and allow it for the SSH user in `/etc/sudoers.d/she-services` (she never edits sudoers on remote hosts). *Test* verifies the result.
+
+On first contact she stores the host's hostname in the host entry; adapter instances whose `info.host` matches are shown as running on that host. Adapters that need a newer Node than the system one keep working: the helper uses whatever node the adapter's wrapper in `/usr/local/bin` points to.
 
 ## The helper: `she-servicectl`
 
@@ -83,7 +98,7 @@ she-servicectl version
 
 For adapters that run with a non-system Node (a wrapper in `/usr/local/bin` pointing at e.g. `/opt/node22/bin/node`), the helper uses that node and its npm.
 
-Existing installations: re-run `sudo she --install` once to get the helper and the sudoers line. Inside the she Docker image there is no helper — the MQTT tier still works, the host tier reports "helper not installed".
+Existing installations: re-run `sudo she --install` once to get the helper and the sudoers line. Inside the she Docker image there is no local helper — untick *This host* in Settings, or leave it and the host tier reports "helper not installed"; remote hosts work from Docker as long as `ssh`/`scp` are in the image.
 
 ## For adapter authors
 

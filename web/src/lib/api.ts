@@ -1149,7 +1149,7 @@ export interface ServiceHostInstance {
 export interface ServiceHost {
     name: string;
     local: boolean;
-    ssh: { host: string } | null;
+    ssh: { host: string; port?: number; user?: string } | null;
     hostname: string | null;
     ok: boolean;
     code?: string;
@@ -1242,4 +1242,34 @@ export function getServiceBrokerEnv(host: string): Promise<{ env: Record<string,
 
 export function putServiceBrokerEnv(host: string, env: Record<string, string>): Promise<{ ok: boolean }> {
     return request('PUT', `${svcHost(host)}/broker-env`, { env });
+}
+
+// ---- Services: remote hosts (I5) ----
+
+export function getServicesSshPubkey(): Promise<{ publicKey: string | null; identityFile: string }> {
+    return request('GET', '/she/services/ssh/pubkey');
+}
+
+export function generateServicesSshKey(): Promise<{ publicKey: string; identityFile: string }> {
+    return request('POST', '/she/services/ssh/keygen');
+}
+
+export function testServiceHost(host: string): Promise<{ ok: boolean; helper?: number | null; code?: string; error?: string }> {
+    return request('POST', `${svcHost(host)}/test`);
+}
+
+export interface HelperDeployResult {
+    ok: boolean;
+    uploaded: boolean;
+    installed: boolean;
+    sudoers: boolean;
+    helper?: number | null;
+    code?: string;
+    error?: string;
+    instructions?: string[];
+    user: string;
+}
+
+export function deployServiceHelper(host: string): Promise<HelperDeployResult> {
+    return request('POST', `${svcHost(host)}/helper/deploy`);
 }

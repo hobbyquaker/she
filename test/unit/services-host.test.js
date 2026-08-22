@@ -262,12 +262,12 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(calls()[0].args).toEqual(['logs', 'cul2mqtt', 'cul', '-n', '0', '--follow']);
     });
 
-    test('remote host entries are reported as unsupported (I5)', async () => {
+    test('an ssh block without a host is reported as unsupported', async () => {
         const app = express();
         app.use(express.json());
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-cfg-'));
         const cfgPath = path.join(dir, 'config.json');
-        fs.writeFileSync(cfgPath, JSON.stringify({ services: { enabled: true, hosts: [{ name: 'local' }, { name: 'zigbee', ssh: { host: 'zigbee.lan' } }] } }));
+        fs.writeFileSync(cfgPath, JSON.stringify({ services: { enabled: true, hosts: [{ name: 'local' }, { name: 'zigbee', ssh: {} }] } }));
         app.locals.configPath = cfgPath;
         app.use('/she/services', api.router);
         const s = http.createServer(app);
@@ -278,9 +278,141 @@ describe('services-api Tier 1 routes (fake helper)', () => {
                 ['local', true, null],
                 ['zigbee', false, 'UNSUPPORTED'],
             ]);
-            expect((await httpRequest('GET', s.address().port, '/she/services/hosts/zigbee/broker-env')).status).toBe(501);
+            expect((await httpRequest('GET', s.address().port, '/she/services/hosts/zigbee/broker-env')).status).toBe(400);
         } finally {
             await new Promise((r) => s.close(r));
         }
+    });
+});
+
+describe('ssh driver (fake ssh/scp)', () => {
+    const FAKE_SSH = path.join(__dirname, 'fixtures', 'fake-ssh.sh');
+    const FAKE_SCP = path.join(__dirname, 'fixtures', 'fake-scp.sh');
+    let dir;
+    let sshLog;
+    let logFile;
+    let stateFile;
+    let env;
+    const sshLines = () => fs.readFileSync(sshLog, 'utf8').split('\n').filter(Boolean);
+    const calls = () =>
+        fs
+            .readFileSync(logFile, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => JSON.parse(l));
+
+    beforeAll(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ssh-'));
+        sshLog = path.join(dir, 'ssh.log');
+        logFile = path.join(dir, 'calls.log');
+        stateFile = path.join(dir, 'state.json');
+        fs.writeFileSync(stateFile, '{}');
+        env = { ...process.env, FAKE_SSH_LOG: sshLog, FAKE_LOG: logFile, FAKE_STATE: stateFile, FAKE_HOME: dir, FAKE_HELPER_TARGET: path.join(dir, 'installed-helper') };
+    });
+    beforeEach(() => {
+        fs.writeFileSync(sshLog, '');
+        fs.writeFileSync(logFile, '');
+    });
+
+    const mk = (extra = {}) =>
+        host.createSshDriver(
+            { name: 'zigbee', ssh: { host: 'zigbee.lan', user: 'she', port: 2222, identityFile: '/k/id' } },
+            { sshBin: FAKE_SSH, scpBin: FAKE_SCP, helper: FAKE, sudo: false, env: { ...env, ...extra } },
+        );
+
+    test('exec runs the quoted helper command on the target, stdin passes through', async () => {
+        const d = mk();
+        expect(d.target).toBe('she@zigbee.lan');
+        const { stdout } = await d.exec(['list']);
+        expect(JSON.parse(stdout).hostname).toBe('zigbee');
+        await d.exec(['env', 'cul2mqtt', "it's", 'write'], { stdin: 'A=1\n' });
+        const lines = sshLines();
+        expect(lines[0]).toBe(`ssh she@zigbee.lan '${FAKE}' 'list'`);
+        expect(lines[1]).toBe(`ssh she@zigbee.lan '${FAKE}' 'env' 'cul2mqtt' 'it'\\''s' 'write'`);
+        expect(calls()[1]).toEqual({ args: ['env', 'cul2mqtt', "it's", 'write'], stdin: 'A=1\n' });
+    });
+
+    test('sudo prefix when enabled', async () => {
+        const d = host.createSshDriver({ name: 'z', ssh: { host: 'h' } }, { sshBin: FAKE_SSH, helper: 'true', sudo: true, env });
+        await expect(d.exec(['x'])).rejects.toBeDefined(); // `sudo -n true x` fails or prompts — only the command line matters here
+        expect(sshLines()[0]).toMatch(/^ssh \S+@h 'sudo' '-n' 'true' 'x'$/);
+    });
+
+    test('connection failure → SSH_FAILED, helper missing → HELPER_MISSING', async () => {
+        await expect(mk({ FAKE_SSH_FAIL: '1' }).exec(['list'])).rejects.toMatchObject({ code: 'SSH_FAILED' });
+        const d = host.createSshDriver({ name: 'z', ssh: { host: 'h' } }, { sshBin: FAKE_SSH, helper: '/usr/local/bin/she-servicectl-nope', sudo: false, env });
+        await expect(d.exec(['version'])).rejects.toMatchObject({ code: 'HELPER_MISSING' });
+    });
+
+    test('upload copies via scp', async () => {
+        const d = mk();
+        await d.upload(FAKE, 'she-servicectl.tmp');
+        expect(fs.existsSync(path.join(dir, 'she-servicectl.tmp'))).toBe(true);
+        expect(sshLines()[0]).toMatch(/^scp .*fake-servicectl\.js .*she-servicectl\.tmp$/);
+    });
+
+    describe('routes', () => {
+        let server;
+        let port;
+        let cfgPath;
+        const setup = async (extraEnv = {}) => {
+            api.setDriverFactory((h) =>
+                h.ssh
+                    ? host.createSshDriver(h, { sshBin: FAKE_SSH, scpBin: FAKE_SCP, helper: FAKE, sudo: false, env: { ...env, ...extraEnv } })
+                    : host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env }),
+            );
+            const app = express();
+            app.use(express.json());
+            cfgPath = path.join(dir, 'config-' + Math.random().toString(36).slice(2) + '.json');
+            fs.writeFileSync(cfgPath, JSON.stringify({ services: { enabled: true, hosts: [{ name: 'local' }, { name: 'zigbee', ssh: { host: 'zigbee.lan', user: 'she' } }] } }));
+            app.locals.configPath = cfgPath;
+            app.use('/she/services', api.router);
+            server = http.createServer(app);
+            await new Promise((r) => server.listen(0, '127.0.0.1', r));
+            port = server.address().port;
+        };
+        afterEach(async () => {
+            if (server) await new Promise((r) => server.close(r));
+            server = null;
+        });
+
+        test('GET /hosts drives the ssh host and captures its hostname', async () => {
+            await setup();
+            const r = await httpRequest('GET', port, '/she/services/hosts');
+            const z = r.body.hosts.find((h) => h.name === 'zigbee');
+            expect(z).toMatchObject({ ok: true, local: false, ssh: { host: 'zigbee.lan', user: 'she', port: 22 }, hostname: 'zigbee' });
+            expect(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).services.hosts[1].hostname).toBe('zigbee');
+        });
+
+        test('POST /hosts/:host/test reports ok or code', async () => {
+            await setup();
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 1 });
+            await new Promise((r) => server.close(r));
+            server = null;
+            await setup({ FAKE_SSH_FAIL: '1' });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toMatchObject({ ok: false, code: 'SSH_FAILED' });
+        });
+
+        test('helper deploy: upload + install, sudoers instructions when sudo refuses', async () => {
+            await setup();
+            let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
+            expect(r.status).toBe(200);
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 1, user: 'she' });
+            expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
+            expect((await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy')).status).toBe(400);
+            await new Promise((res) => server.close(res));
+            server = null;
+            await setup({ FAKE_SUDO_FAIL: '1' });
+            r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
+            expect(r.body).toMatchObject({ ok: false, uploaded: true, installed: false, code: 'SUDO_DENIED', user: 'she' });
+            expect(r.body.instructions[1]).toContain('she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl');
+        });
+
+        test('ssh pubkey endpoint answers without a key', async () => {
+            await setup();
+            const r = await httpRequest('GET', port, '/she/services/ssh/pubkey');
+            expect(r.status).toBe(200);
+            expect(r.body).toHaveProperty('identityFile');
+        });
     });
 });

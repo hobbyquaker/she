@@ -28,13 +28,16 @@ function expandHome(p) {
     return p;
 }
 
+const DEFAULT_IDENTITY = '~/.she/ssh/broker_id_ed25519';
+
 /**
  * Build the common ssh argument list (flags only, no target/command).
- * @param {object} sshConfig - config.broker.ssh
+ * @param {object} sshConfig - config.broker.ssh (or services.hosts[].ssh)
+ * @param {string} [defaultIdentity] identity file used when sshConfig has none
  * @returns {string[]}
  */
-function sshArgs(sshConfig) {
-    const identityFile = expandHome(sshConfig.identityFile || '~/.she/ssh/broker_id_ed25519');
+function sshArgs(sshConfig, defaultIdentity = DEFAULT_IDENTITY) {
+    const identityFile = expandHome(sshConfig.identityFile || defaultIdentity);
     return ['-i', identityFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-p', String(sshConfig.port || 22)];
 }
 
@@ -42,10 +45,11 @@ function sshArgs(sshConfig) {
  * Build the scp argument list prefix.
  * scp uses -P (capital) for port, unlike ssh which uses -p.
  * @param {object} sshConfig
+ * @param {string} [defaultIdentity]
  * @returns {string[]}
  */
-function scpArgs(sshConfig) {
-    const identityFile = expandHome(sshConfig.identityFile || '~/.she/ssh/broker_id_ed25519');
+function scpArgs(sshConfig, defaultIdentity = DEFAULT_IDENTITY) {
+    const identityFile = expandHome(sshConfig.identityFile || defaultIdentity);
     return ['-i', identityFile, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-P', String(sshConfig.port || 22)];
 }
 
@@ -131,9 +135,10 @@ async function testConnection(sshConfig) {
 /**
  * Generate an Ed25519 SSH keypair using the system ssh-keygen binary.
  * @param {string} identityFile - path for the private key (e.g. ~/.she/broker_id_ed25519)
+ * @param {string} [comment] key comment (default she-broker)
  * @returns {Promise<string>} the public key text
  */
-async function generateKeypair(identityFile) {
+async function generateKeypair(identityFile, comment = 'she-broker') {
     const expandedPath = expandHome(identityFile || '~/.she/ssh/broker_id_ed25519');
     const dir = path.dirname(expandedPath);
     fs.mkdirSync(dir, { recursive: true });
@@ -149,7 +154,7 @@ async function generateKeypair(identityFile) {
         /* ok */
     }
 
-    await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-f', expandedPath, '-N', '', '-C', 'she-broker'], { timeout: 15000 });
+    await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-f', expandedPath, '-N', '', '-C', comment], { timeout: 15000 });
 
     try {
         fs.chmodSync(expandedPath, 0o600);
@@ -160,4 +165,4 @@ async function generateKeypair(identityFile) {
     return fs.readFileSync(expandedPath + '.pub', 'utf8').trim();
 }
 
-module.exports = { expandHome, runCommand, readRemoteFile, uploadFile, uploadContent, testConnection, generateKeypair };
+module.exports = { expandHome, sshArgs, scpArgs, sshTarget, runCommand, readRemoteFile, uploadFile, uploadContent, testConnection, generateKeypair };
