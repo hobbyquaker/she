@@ -484,11 +484,8 @@
 <div class="page">
     <!-- Toolbar -->
     <div class="toolbar">
-        <h2>MQTT</h2>
-        <div class="view-tabs">
-            <button class="vt" class:active={!haMode} onclick={() => (haMode = false)}>Topics</button>
-            <button class="vt" class:active={haMode} onclick={() => (haMode = true)} title="Home Assistant MQTT discovery: list announced devices, delete stale announcements">HA Discovery</button>
-        </div>
+        <button class="vt" class:active={!haMode} onclick={() => (haMode = false)}>Topics</button>
+        <button class="vt" class:active={haMode} onclick={() => (haMode = true)} title="Home Assistant MQTT discovery: list announced devices, delete stale announcements">HA Discovery</button>
         {#if dynsecAvail && !haMode}
         <button class="acl-btn" class:active={aclMode} onclick={toggleAclMode} disabled={aclLoading} title="Show ACL coverage for topics">
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
@@ -666,16 +663,10 @@
     .toolbar {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 6px 12px;
-        border-bottom: 1px solid var(--border);
+        gap: 4px;
+        padding: 4px 8px;
+        border-bottom: 1px solid var(--border-sub);
         flex-shrink: 0;
-    }
-    .toolbar h2 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--fg);
     }
 
     /* ── Grouped panel (publish + filter + tree) ── */
@@ -1105,25 +1096,19 @@
     .btn-confirm:hover { opacity: 0.85; }
 
     /* ── ACL overlay ── */
-    .view-tabs {
-        display: flex;
-        gap: 2px;
-        margin-left: 8px;
-        border: 1px solid var(--border);
-        border-radius: 3px;
-        padding: 1px;
-    }
+    /* View switcher — same look as the DB page's Documents / Views panel tabs */
     .vt {
         background: none;
-        border: none;
-        color: var(--fg-muted);
-        padding: 1px 8px;
-        border-radius: 2px;
-        font-size: 11px;
+        border: 1px solid var(--border);
+        color: var(--fg);
+        padding: 3px 12px;
+        border-radius: 4px;
         cursor: pointer;
     }
-    .vt:hover { color: var(--fg); }
-    .vt.active { background: rgba(86,156,214,0.12); color: var(--accent, #569cd6); }
+    .vt.active {
+        background: var(--bg-active);
+        color: var(--fg-text);
+    }
 
     .acl-btn {
         background: none;
