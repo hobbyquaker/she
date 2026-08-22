@@ -24,6 +24,7 @@ Planned work lives in [ROADMAP.md](ROADMAP.md); completed and closed items live 
 
 ## Working notes
 
+- Also follow [.github/copilot-instructions.md](.github/copilot-instructions.md) — in particular the **versioning policy**: keep the root `package.json` and `web/package.json` versions in sync (bump both, plus the lockfiles), and create a `v<version>` git tag after every bump.
 - Shell commands: use WSL (`wsl -e bash -c '…'`), not PowerShell — PowerShell causes problems with binary npm dependencies and CRLF line endings.
 - The daemon serves the prebuilt frontend from `dist/web` (untracked). After frontend changes, rebuild with `cd web && npm run build` so a locally running daemon picks them up.
 - Run `npm test` (unit tests) and `npm run lint` before committing; for frontend changes also `cd web && npx svelte-check --threshold error` (compare against the pre-existing error count — do not introduce new errors).
