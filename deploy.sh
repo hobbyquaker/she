@@ -47,7 +47,8 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
 fi
 
 echo "==> Packing..."
-TARBALL=$(npm pack --quiet)
+# --ignore-scripts keeps the `prepare` hook's output out of the tarball name
+TARBALL=$(npm pack --quiet --ignore-scripts 2>/dev/null | tail -n 1)
 trap 'rm -f "$TARBALL"' EXIT
 echo "    created $TARBALL"
 

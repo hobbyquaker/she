@@ -40,7 +40,9 @@
     let knownEnv       = $derived(new Set(fields.map(f => f.envName)));
     let extraEnv       = $derived(Object.entries(env).filter(([k]) => !knownEnv.has(k)));
 
-    let showShared = $state(mode === 'install' ? false : true);
+    // initial value only — the user toggles it afterwards
+    // svelte-ignore state_referenced_locally
+    let showShared = $state(mode !== 'install');
 
     function set(envName: string, value: string) {
         env = { ...env, [envName]: value };

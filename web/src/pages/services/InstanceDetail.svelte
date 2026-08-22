@@ -74,7 +74,7 @@
     let logEl     = $state<HTMLDivElement | undefined>(undefined);
     let unsubLog: (() => void) | null = null;
     let renewTimer: ReturnType<typeof setInterval> | null = null;
-    const unitName = `${adapter}@${instance}`;
+    let unitName = $derived(`${adapter}@${instance}`);
 
     async function loadLogs() {
         logError = '';
