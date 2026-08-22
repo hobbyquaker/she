@@ -36,12 +36,21 @@ fi
 install -d -o "$SHE_USER" -g "$SHE_USER" -m 750 /var/lib/she
 echo "created /var/lib/she"
 
+# --- service management helper (she-servicectl, roadmap I4) -------------
+# The only privileged command the Services page uses; every argument is validated
+# inside the script. See doc/services.md.
+HELPER_SRC="$(dirname "$SERVICE_SRC")/she-servicectl"
+HELPER_DST=/usr/local/bin/she-servicectl
+install -m 755 -o root -g root "$HELPER_SRC" "$HELPER_DST"
+echo "installed $HELPER_DST"
+
 # --- sudoers rules -------------------------------------------------------
 NPM_BIN="$(command -v npm)"
 SUDOERS_FILE=/etc/sudoers.d/she
 cat > "$SUDOERS_FILE" <<EOF
 she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine
 she ALL=(root) NOPASSWD: $NPM_BIN install -g smart-home-engine
+she ALL=(root) NOPASSWD: $HELPER_DST
 EOF
 chmod 440 "$SUDOERS_FILE"
 echo "created $SUDOERS_FILE"

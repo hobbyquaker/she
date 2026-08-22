@@ -1074,3 +1074,172 @@ export function setBrokerServerCertPath(body: { certPath: string; keyPath: strin
 export function addTrustedCertFromPath(filePath: string): Promise<{ ok: boolean; filename: string; fingerprint: string }> {
     return request('POST', '/she/broker/ca/trusted/addpath', { path: filePath });
 }
+
+// ---- Services (xyz2mqtt adapter instances) ----
+
+export interface ServiceInstance {
+    instance: string;
+    legacy: boolean;
+    adapter: string | null;
+    version: string | null;
+    spec: string | null;
+    host: string | null;
+    node: string | null;
+    pid: number | null;
+    started: number | null;
+    uptime: number | null;
+    maintenance: boolean;
+    connected: 0 | 1 | 2 | null;
+    connectedTs: number | null;
+    connectedLc: number | null;
+    infoTs: number | null;
+    statusTopics: number;
+    info: Record<string, unknown> | null;
+    latestVersion: string | null;
+    updateAvailable: boolean | null;
+}
+
+export interface ServicesInventory {
+    enabled: boolean;
+    instances: ServiceInstance[];
+    coreCount: number;
+    legacyCount: number;
+}
+
+export function getServiceInstances(): Promise<ServicesInventory> {
+    return request('GET', '/she/services/instances');
+}
+
+export function restartServiceInstance(name: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/services/instances/${encodeURIComponent(name)}/restart`);
+}
+
+export function setServiceLogLevel(name: string, level: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/services/instances/${encodeURIComponent(name)}/loglevel`, { level });
+}
+
+export function getServiceRetained(name: string): Promise<{ own: string[]; discovery: string[] }> {
+    return request('GET', `/she/services/instances/${encodeURIComponent(name)}/retained`);
+}
+
+export function wipeServiceRetained(name: string, discovery = true): Promise<{ ok: boolean; cleared: number; errors: { topic: string; error: string }[] }> {
+    return request('DELETE', `/she/services/instances/${encodeURIComponent(name)}/retained`, { discovery });
+}
+
+// ---- Services: hosts (Tier 1, via she-servicectl) ----
+
+export interface ServiceHostAdapter {
+    name: string;
+    version: string | null;
+    origin: 'registry' | 'manual';
+    path: string | null;
+    node: string;
+}
+
+export interface ServiceHostInstance {
+    adapter: string;
+    instance: string;
+    active: string;   // active | inactive | failed | activating | …
+    sub: string;      // running | dead | auto-restart | …
+    unitFile: string; // enabled | disabled | …
+    since: string;
+    restarts: number;
+}
+
+export interface ServiceHost {
+    name: string;
+    local: boolean;
+    ssh: { host: string } | null;
+    hostname: string | null;
+    ok: boolean;
+    code?: string;
+    error?: string;
+    helper?: number;
+    helperOutdated?: boolean;
+    node?: string | null;
+    brokerEnv?: boolean;
+    adapters?: ServiceHostAdapter[];
+    instances?: ServiceHostInstance[];
+}
+
+export interface ServiceSchemaProperty {
+    type?: string;
+    description?: string;
+    default?: unknown;
+    enum?: string[];
+    items?: { type?: string };
+    'x-env': string;
+    'x-secret'?: boolean;
+}
+
+export interface ServiceSchema {
+    title?: string;
+    description?: string;
+    properties: Record<string, ServiceSchemaProperty>;
+    required?: string[];
+    'x-adapter'?: { name: string; version: string; envPrefix: string; mqttInterfaces?: Record<string, unknown> };
+}
+
+export interface ServiceLogEntry {
+    ts: number;
+    level: 'error' | 'warn' | 'info' | 'debug';
+    msg: string;
+    pid: number | null;
+}
+
+const svcHost = (host: string) => `/she/services/hosts/${encodeURIComponent(host)}`;
+const svcUnit = (host: string, adapter: string, instance: string) => `${svcHost(host)}/units/${encodeURIComponent(adapter)}/${encodeURIComponent(instance)}`;
+const svcAdapter = (host: string, adapter: string) => `${svcHost(host)}/adapters/${encodeURIComponent(adapter)}`;
+
+export function getServiceHosts(): Promise<{ hosts: ServiceHost[] }> {
+    return request('GET', '/she/services/hosts');
+}
+
+export function getServiceSchema(host: string, adapter: string, refresh = false): Promise<{ schema: ServiceSchema; secrets: string[] }> {
+    return request('GET', `${svcAdapter(host, adapter)}/schema${refresh ? '?refresh=1' : ''}`);
+}
+
+export function installService(host: string, adapter: string, instance: string, env: Record<string, string>): Promise<{ ok: boolean; output: string }> {
+    return request('POST', `${svcAdapter(host, adapter)}/install`, { instance, env });
+}
+
+export function updateServiceAdapter(host: string, adapter: string, force = false): Promise<{ ok: boolean; output: string; restarted: string[]; failed: { instance: string; error: string }[] }> {
+    return request('POST', `${svcAdapter(host, adapter)}/update`, { force });
+}
+
+export type ServiceUnitAction = 'start' | 'stop' | 'restart' | 'enable' | 'disable';
+export function serviceUnitAction(host: string, adapter: string, instance: string, action: ServiceUnitAction): Promise<{ ok: boolean; output: string }> {
+    return request('POST', `${svcUnit(host, adapter, instance)}/${action}`);
+}
+
+export function uninstallService(host: string, adapter: string, instance: string): Promise<{ ok: boolean; output: string }> {
+    return request('DELETE', svcUnit(host, adapter, instance));
+}
+
+export function getServiceLogs(host: string, adapter: string, instance: string, n = 200): Promise<{ entries: ServiceLogEntry[] }> {
+    return request('GET', `${svcUnit(host, adapter, instance)}/logs?n=${n}`);
+}
+
+export function followServiceLogs(host: string, adapter: string, instance: string): Promise<{ ok: boolean; following: boolean }> {
+    return request('POST', `${svcUnit(host, adapter, instance)}/logs/follow`);
+}
+
+export function unfollowServiceLogs(host: string, adapter: string, instance: string): Promise<{ ok: boolean; following: boolean }> {
+    return request('DELETE', `${svcUnit(host, adapter, instance)}/logs/follow`);
+}
+
+export function getServiceEnv(host: string, adapter: string, instance: string): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null }> {
+    return request('GET', `${svcUnit(host, adapter, instance)}/env`);
+}
+
+export function putServiceEnv(host: string, adapter: string, instance: string, env: Record<string, string>, restart: boolean): Promise<{ ok: boolean; restarted: boolean }> {
+    return request('PUT', `${svcUnit(host, adapter, instance)}/env`, { env, restart });
+}
+
+export function getServiceBrokerEnv(host: string): Promise<{ env: Record<string, string>; secrets: string[] }> {
+    return request('GET', `${svcHost(host)}/broker-env`);
+}
+
+export function putServiceBrokerEnv(host: string, env: Record<string, string>): Promise<{ ok: boolean }> {
+    return request('PUT', `${svcHost(host)}/broker-env`, { env });
+}

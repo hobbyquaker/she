@@ -14,6 +14,7 @@ const { router: depsRouter } = require('./deps-api');
 const { router: gitRouter } = require('./git-api');
 const { router: aiRouter } = require('./ai-api');
 const { router: brokerRouter } = require('./broker-api');
+const { router: servicesRouter } = require('./services-api');
 const { attachWss, closeWss } = require('./log-ws');
 const { init: initAuth, authMiddleware, checkAuth, router: authRouter } = require('./auth');
 
@@ -60,6 +61,9 @@ app.use('/she/ai', aiRouter);
 
 // Broker management: /she/broker/*
 app.use('/she/broker', brokerRouter);
+
+// xyz2mqtt service management: /she/services/*
+app.use('/she/services', servicesRouter);
 
 // Graceful daemon restart
 // When running under systemd, delegate to `sudo systemctl restart` so the

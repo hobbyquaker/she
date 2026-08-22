@@ -15,7 +15,7 @@ sudo she --install
 sudo systemctl start smart-home-engine
 ```
 
-`she --install` creates a dedicated `she` system user and installs + enables the systemd unit. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**
+`she --install` creates a dedicated `she` system user, installs + enables the systemd unit and puts the `she-servicectl` helper for the optional [Services](services.md) feature in place. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**
 
 ### Docker 
 

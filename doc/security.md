@@ -73,6 +73,23 @@ npm is a large, open ecosystem. The vast majority of packages are written in goo
 
 You are responsible for every piece of code that runs in your smart home. A compromised script has access to your presence sensors, locks, alarms, and anything else connected to your broker. Treat npm installs in this context with the same caution you would apply to running an unknown binary as root.
 
+## Service management helper (`she-servicectl`)
+
+With the optional Services feature ([doc/services.md](services.md)) she manages xyz2mqtt adapter instances on the host: systemd units, env files under `/etc/<adapter>/`, `npm install -g`. The daemon user does **not** get a general `sudo` for this. `sudo she --install` installs one POSIX shell script, `/usr/local/bin/she-servicectl`, and allows exactly that binary in `/etc/sudoers.d/she`:
+
+```
+she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl
+```
+
+The script is the complete list of what she can do as root: it accepts a fixed set of subcommands, validates every argument against a pattern (adapter names must correspond to a template unit installed by mqtt-interfaces-core, instance names are `[A-Za-z0-9_.-]+`, actions come from a short allow-list) and takes free-form data — env files, install options — only on stdin. Review it once ([service/she-servicectl](../service/she-servicectl)); it has no dependencies beyond systemd, journalctl and npm.
+
+Consequences to keep in mind:
+
+- Whoever can use she's web UI can (re)configure, restart and uninstall adapter instances on the host and install newer adapter versions from npm — the Services feature is an admin feature; keep it behind she's authentication or a trusted network.
+- Env files are written `0640 root:<adapter>`; the API masks secrets (`x-secret` in the adapter's schema plus a name heuristic) in its responses, and install options travel as environment variables, not command-line arguments.
+- `npm install -g <adapter>@latest` runs as root on the host, like she's own self-update. It only touches packages that are already installed as mqtt-interfaces adapters.
+- Adapters' maintenance topics (`<name>/maintenance/set/restart`, `…/loglevel`) are plain MQTT; restrict them with broker ACLs if the broker is reachable from untrusted networks, or run the adapter with `--no-maintenance` (she then hides those actions).
+
 ## Mosquitto Dynamic Security
 
 If you run Mosquitto as your MQTT broker, the **Dynamic Security plugin** lets you define per-client ACLs that control which topics each client may publish or subscribe to. This limits blast radius if a script or IoT device misbehaves — a device that should only publish its own sensor data cannot subscribe to lock commands.

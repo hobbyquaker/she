@@ -1,0 +1,323 @@
+#!/bin/sh
+# she-servicectl — the one privileged helper she uses to manage xyz2mqtt adapter
+# instances on a host (roadmap I4, decision SV-4). Installed to /usr/local/bin and
+# allowed for the she user (or the SSH user on remote hosts) via sudoers:
+#
+#   she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl
+#
+# Everything she can do on this host is what this script allows. Every argument is
+# validated against a fixed pattern before anything is executed; free-form data
+# (env files, install options) travels on stdin, never on the command line.
+#
+# Adapters are npm packages built on mqtt-interfaces-core: a template unit
+# /etc/systemd/system/<adapter>@.service (fingerprint: EnvironmentFile line for
+# /etc/mqtt-interfaces/broker.env), instances = /etc/<adapter>/<instance>.env,
+# a wrapper or symlink /usr/local/bin/<adapter>.
+#
+#   she-servicectl version
+#   she-servicectl list
+#   she-servicectl unit   <adapter> <instance> start|stop|restart|enable|disable|status
+#   she-servicectl logs   <adapter> <instance> [-n N] [--follow]
+#   she-servicectl env    <adapter> <instance> read|write        (write: file on stdin)
+#   she-servicectl broker-env read|write                          (write: file on stdin)
+#   she-servicectl schema <adapter>
+#   she-servicectl install   <adapter> <instance>                 (options as KEY=VALUE lines on stdin)
+#   she-servicectl uninstall <adapter> <instance>
+#   she-servicectl npm    <adapter> version|origin|install|update
+
+set -eu
+
+VERSION=1
+BROKER_ENV=/etc/mqtt-interfaces/broker.env
+UNIT_DIR=/etc/systemd/system
+
+die() { printf 'she-servicectl: %s\n' "$*" >&2; exit 2; }
+
+# ── validation ──────────────────────────────────────────────────────────────────
+
+valid_adapter() { printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9._-]{0,213}$'; }
+valid_instance() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$'; }
+
+# a template unit written by mqtt-interfaces-core's installer
+installed_adapter() {
+    [ -f "$UNIT_DIR/$1@.service" ] && grep -q "mqtt-interfaces/broker.env" "$UNIT_DIR/$1@.service"
+}
+
+need_adapter() {
+    valid_adapter "$1" || die "invalid adapter name: $1"
+}
+need_installed() {
+    need_adapter "$1"
+    installed_adapter "$1" || die "no mqtt-interfaces template unit for $1"
+}
+need_instance() {
+    valid_instance "$1" || die "invalid instance name: $1"
+}
+
+# ── helpers ─────────────────────────────────────────────────────────────────────
+
+json_escape() {
+    # minimal JSON string escaping for the few free-form values (timestamps, paths)
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n\r'
+}
+
+# the adapter's command: /usr/local/bin/<adapter> (wrapper or symlink), else PATH
+adapter_cmd() {
+    if [ -x "/usr/local/bin/$1" ]; then
+        printf '/usr/local/bin/%s' "$1"
+    else
+        command -v "$1" 2>/dev/null || return 1
+    fi
+}
+
+# node the adapter runs with (SV-17): parsed from a wrapper script, else PATH
+adapter_node() {
+    cmd=$(adapter_cmd "$1") || { command -v node; return; }
+    node=""
+    if [ ! -L "$cmd" ]; then
+        node=$(grep -o '[^" ]*/bin/node' "$cmd" 2>/dev/null | head -n 1 || true)
+    fi
+    if [ -n "$node" ] && [ -x "$node" ]; then
+        printf '%s' "$node"
+    else
+        command -v node
+    fi
+}
+
+adapter_npm() {
+    node=$(adapter_node "$1")
+    npm="$(dirname "$node")/npm"
+    if [ -x "$npm" ]; then printf '%s' "$npm"; else command -v npm; fi
+}
+
+# where the adapter's package lives (resolved through wrapper/symlink)
+adapter_dir() {
+    cmd=$(adapter_cmd "$1") || return 1
+    if [ -L "$cmd" ]; then
+        target=$(readlink -f "$cmd")
+    else
+        target=$(grep -o '[^" ]*\.js' "$cmd" 2>/dev/null | head -n 1 || true)
+        [ -n "$target" ] || target="$cmd"
+    fi
+    d=$(dirname "$target")
+    while [ "$d" != "/" ]; do
+        if [ -f "$d/package.json" ]; then printf '%s' "$d"; return 0; fi
+        d=$(dirname "$d")
+    done
+    return 1
+}
+
+adapter_version() {
+    cmd=$(adapter_cmd "$1") || { printf 'null'; return; }
+    v=$("$cmd" --version 2>/dev/null | tail -n 1 || true)
+    if [ -n "$v" ]; then printf '"%s"' "$(json_escape "$v")"; else printf 'null'; fi
+}
+
+# registry: the global npm tree knows the package; manual: deployed by tarball (SV-16)
+adapter_origin() {
+    npm=$(adapter_npm "$1")
+    root=$("$npm" root -g 2>/dev/null || true)
+    lock="$root/.package-lock.json"
+    if [ -n "$root" ] && [ -f "$lock" ] && grep -q "\"node_modules/$1\"" "$lock"; then
+        printf 'registry'
+    else
+        printf 'manual'
+    fi
+}
+
+adapter_user() {
+    if id -u "$1" >/dev/null 2>&1; then printf '%s' "$1"; else printf 'root'; fi
+}
+
+# validate an env file on stdin (KEY=VALUE, comments, blank lines) into $1
+read_env_stdin() {
+    tmp=$1
+    cat > "$tmp"
+    if grep -Evq '^([A-Z][A-Z0-9_]*=.*|#.*|[[:space:]]*)$' "$tmp"; then
+        rm -f "$tmp"
+        die "env file: only KEY=VALUE lines and comments are allowed"
+    fi
+}
+
+# ── commands ────────────────────────────────────────────────────────────────────
+
+cmd_version() {
+    printf '%s\n' "$VERSION"
+}
+
+cmd_list() {
+    hostname=$(hostname 2>/dev/null || uname -n)
+    node=$(command -v node >/dev/null 2>&1 && node --version 2>/dev/null || true)
+    printf '{"helper":%s,"hostname":"%s","node":%s,"brokerEnv":%s,"adapters":[' \
+        "$VERSION" "$(json_escape "$hostname")" \
+        "$([ -n "$node" ] && printf '"%s"' "$node" || printf 'null')" \
+        "$([ -f "$BROKER_ENV" ] && printf 'true' || printf 'false')"
+    first=1
+    adapters=""
+    for unit in "$UNIT_DIR"/*@.service; do
+        [ -f "$unit" ] || continue
+        a=$(basename "$unit" @.service)
+        valid_adapter "$a" || continue
+        installed_adapter "$a" || continue
+        adapters="$adapters $a"
+        [ $first -eq 1 ] || printf ','
+        first=0
+        dir=$(adapter_dir "$a" 2>/dev/null || true)
+        printf '{"name":"%s","version":%s,"origin":"%s","path":%s,"node":"%s"}' \
+            "$a" "$(adapter_version "$a")" "$(adapter_origin "$a")" \
+            "$([ -n "$dir" ] && printf '"%s"' "$(json_escape "$dir")" || printf 'null')" \
+            "$(json_escape "$(adapter_node "$a")")"
+    done
+    printf '],"instances":['
+    first=1
+    for a in $adapters; do
+        for envf in "/etc/$a"/*.env; do
+            [ -f "$envf" ] || continue
+            i=$(basename "$envf" .env)
+            valid_instance "$i" || continue
+            [ $first -eq 1 ] || printf ','
+            first=0
+            show=$(systemctl show -p ActiveState -p SubState -p UnitFileState -p ExecMainStartTimestamp -p NRestarts "$a@$i.service" 2>/dev/null || true)
+            active=$(printf '%s\n' "$show" | sed -n 's/^ActiveState=//p')
+            sub=$(printf '%s\n' "$show" | sed -n 's/^SubState=//p')
+            uf=$(printf '%s\n' "$show" | sed -n 's/^UnitFileState=//p')
+            since=$(printf '%s\n' "$show" | sed -n 's/^ExecMainStartTimestamp=//p')
+            nr=$(printf '%s\n' "$show" | sed -n 's/^NRestarts=//p')
+            printf '{"adapter":"%s","instance":"%s","active":"%s","sub":"%s","unitFile":"%s","since":"%s","restarts":%s}' \
+                "$a" "$i" "$(json_escape "$active")" "$(json_escape "$sub")" "$(json_escape "$uf")" \
+                "$(json_escape "$since")" "${nr:-0}"
+        done
+    done
+    printf ']}\n'
+}
+
+cmd_unit() {
+    [ $# -eq 3 ] || die "usage: unit <adapter> <instance> <action>"
+    need_installed "$1"; need_instance "$2"
+    case "$3" in
+        start|stop|restart|enable|disable) systemctl "$3" "$1@$2.service" ;;
+        status) systemctl show -p ActiveState -p SubState -p UnitFileState -p ExecMainStartTimestamp -p NRestarts -p MainPID "$1@$2.service" ;;
+        *) die "unknown unit action: $3" ;;
+    esac
+}
+
+cmd_logs() {
+    [ $# -ge 2 ] || die "usage: logs <adapter> <instance> [-n N] [--follow]"
+    need_installed "$1"; need_instance "$2"
+    unit="$1@$2.service"; shift 2
+    lines=200; follow=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -n) shift; printf '%s' "${1:-}" | grep -Eq '^[0-9]{1,5}$' || die "-n needs a number"; lines=$1 ;;
+            --follow) follow=1 ;;
+            *) die "unknown logs option: $1" ;;
+        esac
+        shift
+    done
+    if [ $follow -eq 1 ]; then
+        exec journalctl -u "$unit" -n "$lines" -o json --no-pager -f
+    else
+        exec journalctl -u "$unit" -n "$lines" -o json --no-pager
+    fi
+}
+
+cmd_env() {
+    [ $# -eq 3 ] || die "usage: env <adapter> <instance> read|write"
+    need_installed "$1"; need_instance "$2"
+    f="/etc/$1/$2.env"
+    case "$3" in
+        read)
+            [ -f "$f" ] || die "no such instance: $1@$2"
+            cat "$f" ;;
+        write)
+            [ -f "$f" ] || die "no such instance: $1@$2 (use install)"
+            tmp=$(mktemp "/etc/$1/.$2.env.XXXXXX")
+            read_env_stdin "$tmp"
+            cp -p "$f" "$f.bak"
+            chown "root:$(adapter_user "$1")" "$tmp"
+            chmod 0640 "$tmp"
+            mv "$tmp" "$f"
+            printf 'wrote %s\n' "$f" ;;
+        *) die "unknown env action: $3" ;;
+    esac
+}
+
+cmd_broker_env() {
+    [ $# -eq 1 ] || die "usage: broker-env read|write"
+    case "$1" in
+        read)
+            if [ -f "$BROKER_ENV" ]; then cat "$BROKER_ENV"; fi ;;
+        write)
+            mkdir -p "$(dirname "$BROKER_ENV")"
+            tmp=$(mktemp "$(dirname "$BROKER_ENV")/.broker.env.XXXXXX")
+            read_env_stdin "$tmp"
+            [ -f "$BROKER_ENV" ] && cp -p "$BROKER_ENV" "$BROKER_ENV.bak"
+            chown root:root "$tmp"
+            chmod 0640 "$tmp"
+            mv "$tmp" "$BROKER_ENV"
+            printf 'wrote %s\n' "$BROKER_ENV" ;;
+        *) die "unknown broker-env action: $1" ;;
+    esac
+}
+
+cmd_schema() {
+    [ $# -eq 1 ] || die "usage: schema <adapter>"
+    need_adapter "$1"
+    cmd=$(adapter_cmd "$1") || die "adapter not installed: $1"
+    exec "$cmd" --config-schema
+}
+
+cmd_install() {
+    [ $# -eq 2 ] || die "usage: install <adapter> <instance>  (KEY=VALUE lines on stdin)"
+    need_adapter "$1"; need_instance "$2"
+    cmd=$(adapter_cmd "$1") || die "adapter not installed: $1"
+    tmp=$(mktemp)
+    read_env_stdin "$tmp"
+    # options become environment variables; the core reads <PREFIX>_* as defaults and
+    # --install writes them to /etc/<adapter>/<instance>.env
+    set -a
+    # shellcheck disable=SC1090
+    . "$tmp"
+    set +a
+    rm -f "$tmp"
+    exec "$cmd" --install --name "$2"
+}
+
+cmd_uninstall() {
+    [ $# -eq 2 ] || die "usage: uninstall <adapter> <instance>"
+    need_installed "$1"; need_instance "$2"
+    cmd=$(adapter_cmd "$1") || die "adapter not installed: $1"
+    exec "$cmd" --uninstall --name "$2"
+}
+
+cmd_npm() {
+    [ $# -eq 2 ] || die "usage: npm <adapter> version|origin|install|update"
+    need_adapter "$1"
+    case "$2" in
+        version) adapter_version "$1"; printf '\n' ;;
+        origin) adapter_origin "$1"; printf '\n' ;;
+        install|update)
+            npm=$(adapter_npm "$1")
+            node=$(adapter_node "$1")
+            PATH="$(dirname "$node"):$PATH" exec "$npm" install -g "$1@latest" --no-audit --no-fund ;;
+        *) die "unknown npm action: $2" ;;
+    esac
+}
+
+# ── dispatch ────────────────────────────────────────────────────────────────────
+
+[ $# -ge 1 ] || die "usage: she-servicectl <command> …"
+c=$1; shift
+case "$c" in
+    version) cmd_version "$@" ;;
+    list) cmd_list "$@" ;;
+    unit) cmd_unit "$@" ;;
+    logs) cmd_logs "$@" ;;
+    env) cmd_env "$@" ;;
+    broker-env) cmd_broker_env "$@" ;;
+    schema) cmd_schema "$@" ;;
+    install) cmd_install "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    npm) cmd_npm "$@" ;;
+    *) die "unknown command: $c" ;;
+esac

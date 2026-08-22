@@ -12,8 +12,9 @@ Your home, your rules - written in plain JavaScript.
 - **Script HTTP routes** — scripts can register their own REST endpoints under `/api/<scriptName>/`
 - **`require()`** — load npm packages from `~/.she/node_modules/` or relative files inside scripts
 - Supports **InfluxDB**, **Elasticsearch** and **Redis** — convenience methods for time series, full text indexing, shared states across multiple she instances
+- **Services** — optional management of the `xyz2mqtt` adapter instances of your home (mqtt-interfaces-core convention): inventory, restart and log level over MQTT, systemd control, journal logs, config forms generated from the adapter's `--config-schema`, install/uninstall/update on the she host
 - **Broker management** — optional Mosquitto management: dynamic user/ACL management via the dynsec plugin (`she.broker.*` script API), listener and TLS configuration, TLS certificate management (server cert self-signed / CSR / import, trusted CA store), SSH-based remote file deployment
-- **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer, broker manager
+- **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer, broker manager, services manager
 
 ## Documentation
 
@@ -36,6 +37,7 @@ Your home, your rules - written in plain JavaScript.
 ### Operations & integration
 - [Security](doc/security.md) — trust model, auth modes, reverse proxy, Mosquitto ACLs, network segmentation
 - [Broker management](doc/broker-management.md) — Mosquitto, dynsec, TLS, certificates, SSH deploy
+- [Services](doc/services.md) — managing xyz2mqtt adapter instances: MQTT inventory, systemd, config forms, the `she-servicectl` helper
 - [HTTP API](doc/http-api.md) — REST API reference
 - [CLI](doc/cli.md) — all command-line flags
 

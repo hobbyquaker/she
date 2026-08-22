@@ -34,6 +34,9 @@
     let brokerEnabled  = $state(false);
     let brokerChecking = $state(false);
 
+    // Services (xyz2mqtt adapter instances)
+    let servicesEnabled = $state(false);
+
     // Matter controller
     let matterEnabled  = $state(false);
     let matterStorage  = $state('');   // path; empty = use daemon default (<data-dir>/matter)
@@ -166,6 +169,7 @@
         'influx',
         'ai',
         'broker', // handled explicitly in load/save for broker.enabled
+        'services', // handled explicitly in load/save for services.enabled
         'matter-storage', // handled explicitly
     ]);
 
@@ -232,6 +236,7 @@
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
         { id: 'broker',  label: 'Mosquitto',        terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
+        { id: 'services', label: 'Services',        terms: ['services','adapter','xyz2mqtt','2mqtt','interfaces','instances','systemd','fleet'] },
         { id: 'matter',  label: 'Matter controller', terms: ['matter','thread','zigbee','iot','devices','smart home controller'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
         { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
@@ -339,6 +344,9 @@
             extra = Object.fromEntries(Object.entries(cfg).filter(([k]) => !KNOWN.has(k)));
             // Keep the full broker object in extra so non-enabled fields survive a save
             if (brokerCfg) extra = { ...extra, broker: brokerCfg };
+            const servicesCfg = cfg.services as Record<string, unknown> | undefined;
+            servicesEnabled = servicesCfg?.enabled === true;
+            if (servicesCfg) extra = { ...extra, services: servicesCfg };
         } catch (e: any) {
             errMsg = e.message;
         } finally {
@@ -507,6 +515,14 @@
             cfg.broker = { ...brokerRest, enabled: true };
         } else if (Object.keys(brokerRest).length > 0) {
             cfg.broker = brokerRest;
+        }
+        // services.enabled — merge into the existing services block (preserves hosts etc.)
+        const servicesExtra = (extra.services as Record<string, unknown> | undefined) ?? {};
+        const { enabled: _sIgnored, ...servicesRest } = servicesExtra;
+        if (servicesEnabled) {
+            cfg.services = { ...servicesRest, enabled: true };
+        } else if (Object.keys(servicesRest).length > 0) {
+            cfg.services = servicesRest;
         }
         // matter-storage
         if (matterEnabled) {
@@ -769,6 +785,24 @@
                                 onchange={(e) => onBrokerEnabledChange((e.target as HTMLInputElement).checked)} />
                             <span class="checkmark"></span>
                             Mosquitto management{#if brokerChecking} — checking…{/if}
+                        </label>
+                    </div>
+                </section>
+                {/if}
+
+                <!-- ── Services ──────────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'services')}
+                <section id="sec-services">
+                    <h3>Services</h3>
+                    <div class="field field--check">
+                        <label>
+                            Enable
+                            {@render tip('Shows the Services page: inventory of the xyz2mqtt adapter instances seen on the broker (mqtt-interfaces-core convention), restart and log level over their maintenance topics, update check, and management of the instances installed on this host via systemd.')}
+                        </label>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={servicesEnabled} />
+                            <span class="checkmark"></span>
+                            Service management
                         </label>
                     </div>
                 </section>

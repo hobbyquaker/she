@@ -362,6 +362,7 @@ function startOnce(reason) {
 // Wire up the MQTT API: pass the state store and a getter for the live MQTT client.
 // The getter always returns the current value of `mqtt` (null until connected).
 require('./web/mqtt-api').init(store, () => mqtt);
+require('./web/services-api').init(store, () => mqtt);
 require('./web/ai-api').init(store);
 
 // MQTT message rate counter â€” reset on each stats poll

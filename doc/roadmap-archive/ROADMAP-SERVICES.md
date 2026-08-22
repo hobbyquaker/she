@@ -1,6 +1,8 @@
-# she — Services roadmap (xyz2mqtt management)
+# she — Services design (xyz2mqtt management)
 
-*Design document, refined 2026-08-25. Replaces the "fleet manager" that the mqtt-interfaces master roadmap planned as a standalone management UI: that UI is not built; the functionality moves into she as an optional feature (default off, enabled from the Config page). The phases are adopted as ROADMAP.md items [I4](ROADMAP.md#i4--services-xyz2mqtt-inventory-and-local-host-management)–[I8](ROADMAP.md#i8--services-docker-host-driver) (Integrations), which link here for the full design; this file is archived together with I4.*
+*Archived design document — Integrations. Open items: [../../ROADMAP.md](../../ROADMAP.md) · Index: [README.md](README.md). Archived together with [I4](I4.md); I5–I8 in ROADMAP.md link here for the full design.*
+
+*Design document, refined 2026-08-25. Replaces the "fleet manager" that the mqtt-interfaces master roadmap planned as a standalone management UI: that UI is not built; the functionality moves into she as an optional feature (default off, enabled from the Config page). The phases are adopted as ROADMAP.md items I4 (shipped, [I4.md](I4.md)) to I8 (Integrations).*
 
 Decisions are numbered **SV-n**, open questions **SQ-n**, so they do not collide with the letter+number item IDs of ROADMAP.md or the D-/B-/OQ- numbering of the mqtt-interfaces roadmaps.
 
@@ -36,7 +38,7 @@ Everything below is shipped in mqtt-interfaces-core 0.3.0 and used by lgtv2mqtt 
 | `sudo <adapter> --install --name <n> [options]` / `--uninstall --name <n>` | host | create/remove an instance (writes env file + template unit, enables + starts) |
 | `/etc/systemd/system/<adapter>@.service` containing `EnvironmentFile=-/etc/mqtt-interfaces/broker.env` | host | reliable fingerprint "this unit was installed by the core" |
 
-she already subscribes to `#` and keeps every retained topic in its state store ([src/index.js:479](src/index.js#L479)), so `+/info` and `+/connected` are available with no new subscription. Host access reuses [src/lib/ssh-deploy.js](src/lib/ssh-deploy.js) (system `ssh`/`scp`, `BatchMode`, `accept-new`) — its functions already take an `sshConfig` object, only the broker-specific default identity path needs to become a parameter.
+she already subscribes to `#` and keeps every retained topic in its state store ([src/index.js:479](../../src/index.js#L479)), so `+/info` and `+/connected` are available with no new subscription. Host access reuses [src/lib/ssh-deploy.js](../../src/lib/ssh-deploy.js) (system `ssh`/`scp`, `BatchMode`, `accept-new`) — its functions already take an `sshConfig` object, only the broker-specific default identity path needs to become a parameter.
 
 ### 2.1 Changes needed in the core / the adapters (small, all useful beyond she)
 
@@ -62,10 +64,10 @@ Backend `src/lib/services-inventory.js` (pure functions over the state store, li
 
 - Scan `mqtt::<x>/info` for every single-level `<x>`; parse JSON; an entry is an instance if the payload has `name` and `version`. Pair with `mqtt::<x>/connected`.
 - Entries with `connected` but no `info` are **legacy instances** (pre-core adapters: hm2mqtt, hue2mqtt, …): shown, marked *legacy*, with instance name and connected state only; the only action is "wipe retained topics" (SV-12).
-- Derived per instance: `instance` (topic prefix), `adapter` (`info.name`), `version`, `host` (`info.host`), `uptime` (now − `info.started`; only meaningful while `connected > 0`), `maintenance` (bool), `latestVersion` (npm registry lookup per adapter name, cached 24 h like she's own check in [src/web/server.js](src/web/server.js)).
+- Derived per instance: `instance` (topic prefix), `adapter` (`info.name`), `version`, `host` (`info.host`), `uptime` (now − `info.started`; only meaningful while `connected > 0`), `maintenance` (bool), `latestVersion` (npm registry lookup per adapter name, cached 24 h like she's own check in [src/web/server.js](../../src/web/server.js)).
 - Actions over MQTT: `restart` (`<x>/maintenance/set/restart`), `loglevel` (`<x>/maintenance/set/loglevel`), disabled when `maintenance === false`.
 - Live updates: the existing `mqtt` WebSocket events already carry `<x>/info` and `<x>/connected` changes; the page re-derives on those topics (no new WS message type needed).
-- "Wipe retained": clear `<x>/info`, `<x>/connected`, `<x>/status/#` and the instance's HA discovery announcements — reuse the M10 cleanup code path ([src/lib/ha-discovery.js](src/lib/ha-discovery.js)) for the discovery part. Offered for instances with `connected = 0` (typically after an uninstall or a rename).
+- "Wipe retained": clear `<x>/info`, `<x>/connected`, `<x>/status/#` and the instance's HA discovery announcements — reuse the M10 cleanup code path ([src/lib/ha-discovery.js](../../src/lib/ha-discovery.js)) for the discovery part. Offered for instances with `connected = 0` (typically after an uninstall or a rename).
 
 ### Tier 1 — hosts over systemd (local or SSH)
 
@@ -136,7 +138,7 @@ Sub-tabs (Broker-page style):
 
 ## 7. Privileges and security (SV-4)
 
-she runs as user `she` (systemd unit, [service/smart-home-engine.service](service/smart-home-engine.service)); today's sudoers only allow `systemctl restart smart-home-engine` and the self-update. Remote hosts are reached as a normal SSH user. Neither gets root.
+she runs as user `she` (systemd unit, [service/smart-home-engine.service](../../service/smart-home-engine.service)); today's sudoers only allow `systemctl restart smart-home-engine` and the self-update. Remote hosts are reached as a normal SSH user. Neither gets root.
 
 **One privileged helper, `she-servicectl`** — a POSIX shell script (no Node dependency on the host; readable in one screen), shipped in `service/`, versioned:
 
@@ -159,7 +161,7 @@ she-servicectl version
 
 Node resolution (SV-17): for every adapter command the helper reads the interpreter from the adapter's wrapper (`/usr/local/bin/<adapter>` — a `#!/bin/sh` `exec /opt/node22/bin/node …` wrapper or a symlink to the package's bin) and uses that node and its sibling npm, so hosts with a non-system Node work without configuration.
 
-The Hosts tab warns when a host runs an older helper than she ships. Everything she can do on a host is enumerable by reading one script — documented in [doc/security.md](doc/security.md).
+The Hosts tab warns when a host runs an older helper than she ships. Everything she can do on a host is enumerable by reading one script — documented in [doc/security.md](../security.md).
 
 Also: all `/she/services/*` routes sit behind the existing auth middleware; MQTT maintenance actions are only offered when `info.maintenance` is true (adapters run with `--no-maintenance` on untrusted brokers by design); `npm install` from the catalog only for trusted publishers (SV-11); secrets masked per SV-10; SSH host keys use `accept-new` as the broker deploy does.
 
@@ -207,7 +209,7 @@ Everything else is decided (§9). Questions that come up during implementation g
 
 ## 11. Explicitly out of scope
 
-- Building or replacing supervisors (no she-spawned adapter processes — hot reload orphans children; same reasoning as rejected for feezal in [I3](ROADMAP.md#i3--feezal-dashboard-pairing)).
+- Building or replacing supervisors (no she-spawned adapter processes — hot reload orphans children; same reasoning as rejected for feezal in [I3](../../ROADMAP.md#i3--feezal-dashboard-pairing)).
 - Editing the adapter's *state* directory (pairing keys, cookies) — shown as a path only.
 - Managing non-mqtt-smarthome services (zigbee2mqtt, Home Assistant, …) — outside the convention; they may appear as legacy rows if they publish a `connected`-like topic, nothing more.
 - Device discovery (`--discover`, core B-2) from the UI — later, once the core has it; would slot into the Add-instance wizard as an "address" picker.
@@ -242,4 +244,4 @@ broker.env editor in `Hosts.svelte`; `POST /hosts/:host/instances/:name/broker-c
 
 - The public `mqtt-interfaces` repository is **empty** (no commits); the master roadmap with D-1…D-13, B-1…B-8, OQ-* that the core, cul2mqtt and alexa-remote-mqtt roadmaps link to is not published (it exists only on another machine). This document therefore reconstructs the fleet-manager intent from the core's README/ROADMAP (`--config-schema` "consumed by the fleet manager", installer layout, `info`/`maintenance` topics). When the umbrella repo gets pushed, its fleet-manager item should point here, and SV-1/SV-4/SV-6 should be checked against whatever it decided.
 - Core adapters on npm today: lgtv2mqtt 3.0.0, cul2mqtt 1.1.1; alexa-remote-mqtt 2.0 is tagged locally but not yet released; lgsb2mqtt 2.0 is next. Legacy (pre-core) adapters by the same author still on npm: hm2mqtt, homekit2mqtt, airtunes2mqtt, mqttdb, influx4mqtt (and hue2mqtt & co. outside the search window) — these are the legacy rows of SV-12.
-- she internals reused: `broker.enabled` → nav-tab gating in [web/src/App.svelte](web/src/App.svelte); Config-page feature toggle pattern ([web/src/pages/Config.svelte](web/src/pages/Config.svelte) *Mosquitto management* section); `ssh-deploy.js`; `ha-discovery.js` for wiping announcements; the npm-version check and `sudo` spawn pattern in `server.js`; `brokerLog` WS message shape in [src/web/log-ws.js](src/web/log-ws.js); `service/install.sh` for the sudoers/helper installation.
+- she internals reused: `broker.enabled` → nav-tab gating in [web/src/App.svelte](../../web/src/App.svelte); Config-page feature toggle pattern ([web/src/pages/Config.svelte](../../web/src/pages/Config.svelte) *Mosquitto management* section); `ssh-deploy.js`; `ha-discovery.js` for wiping announcements; the npm-version check and `sudo` spawn pattern in `server.js`; `brokerLog` WS message shape in [src/web/log-ws.js](../../src/web/log-ws.js); `service/install.sh` for the sudoers/helper installation.

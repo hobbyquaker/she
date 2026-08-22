@@ -37,6 +37,7 @@ The following integrations are activated only when configured:
 | `redis.url` | Redis URL — enables write-through cache for the state store |
 | `influx` | InfluxDB connection config — enables time-series write-through. 2.x: `url`, `token`, `org`, `bucket`. 1.x: `url`, `database`, optional `username`, `password`, `retentionPolicy`, `timeout` (ms, default 10000; version inferred from the keys, or forced with `version: 1`) |
 | `elastic` | Elasticsearch connection config — enables search index write-through |
+| `services.enabled` | Shows the Services page — management of xyz2mqtt adapter instances (MQTT inventory, systemd via the `she-servicectl` helper); `services.hosts[]` lists managed hosts, default the she host. See [services.md](services.md) |
 
 ## Environment variables
 

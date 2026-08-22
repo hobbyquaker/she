@@ -458,6 +458,50 @@ The connection will drop immediately after the response. The daemon is typically
 
 ---
 
+## Services — `/she/services`
+
+Management of xyz2mqtt adapter instances (see [services.md](services.md)). Available whether or not `services.enabled` is set; the flag only controls the page. Host routes go through the `she-servicectl` helper and answer **503** `{ code: "HELPER_MISSING" }` when it is not installed, **403** `{ code: "SUDO_DENIED" }` when sudoers does not allow it, **400** `{ code: "HELPER_FAILED" }` when the helper rejected the arguments, **501** `{ code: "UNSUPPORTED" }` for SSH hosts (roadmap I5). Instance names are `[A-Za-z0-9_.-]+`, adapter names lower-case npm names.
+
+### GET /she/services/instances
+
+Inventory derived from the retained `<name>/info` and `<name>/connected` topics, one entry per instance, sorted by name; `legacy` rows have only a `connected` topic. `latestVersion`/`updateAvailable` come from the npm registry (cached 24 h, `null` when unknown).
+
+```json
+{
+  "enabled": true, "coreCount": 1, "legacyCount": 0,
+  "instances": [ { "instance": "cul", "legacy": false, "adapter": "cul2mqtt", "version": "1.1.1", "spec": "2.0", "host": "zigbee", "node": "v22.12.0", "pid": 1234, "started": 1700000000000, "uptime": 5400000, "maintenance": true, "connected": 2, "connectedTs": 1700000000000, "connectedLc": 1700000000000, "infoTs": 1700000000000, "statusTopics": 12, "info": { "…": "…" }, "latestVersion": "1.2.0", "updateAvailable": true } ]
+}
+```
+
+### POST /she/services/instances/:name/restart · POST /she/services/instances/:name/loglevel
+
+Publish to `<name>/maintenance/set/restart` / `…/loglevel` (body `{ "level": "error" | "warn" | "info" | "debug" }`). **409** for legacy instances and instances running with `--no-maintenance`, **404** unknown instance, **503** without MQTT.
+
+### GET /she/services/instances/:name/retained · DELETE /she/services/instances/:name/retained
+
+What a wipe would clear — `{ "own": ["cul/connected", "cul/info", "cul/status/…"], "discovery": ["homeassistant/device/cul2mqtt_cul/config"] }` — and the wipe itself (empty retained publishes; body `{ "discovery": false }` keeps the HA announcements; `haPrefix` selects a non-default discovery prefix). **409** while the instance is connected.
+
+### GET /she/services/hosts
+
+Every configured host (`services.hosts`, default the she host as `local`) with the helper's `list`: `{ "hosts": [ { "name": "local", "local": true, "ok": true, "hostname": "zigbee", "helper": 1, "helperOutdated": false, "node": "v22.12.0", "brokerEnv": true, "adapters": [ { "name": "cul2mqtt", "version": "1.1.1", "origin": "registry" | "manual", "path": "/usr/local/lib/node_modules/cul2mqtt", "node": "/usr/bin/node" } ], "instances": [ { "adapter": "cul2mqtt", "instance": "cul", "active": "active", "sub": "running", "unitFile": "enabled", "since": "…", "restarts": 0 } ] } ] }`; unreachable hosts carry `ok: false, code, error`.
+
+### Host routes
+
+| Method | Path | Body / query | Result |
+| --- | --- | --- | --- |
+| GET | `/she/services/hosts/:host/adapters/:adapter/schema` | `?refresh=1` | `{ schema, secrets }` — the adapter's `--config-schema` (cached 10 min) and the env variable names to mask |
+| POST | `/she/services/hosts/:host/adapters/:adapter/install` | `{ instance, env: { "<ADAPTER>_X": "…" } }` | `<adapter> --install --name <instance>` with the options as environment; `{ ok, output }` |
+| POST | `/she/services/hosts/:host/adapters/:adapter/update` | `{ force? }` | `npm install -g <adapter>@latest`, then restarts the adapter's active instances; **409** `{ code: "MANUAL_DEPLOY" }` for manually deployed adapters unless `force` |
+| POST | `/she/services/hosts/:host/units/:adapter/:instance/:action` | action `start|stop|restart|enable|disable` | `systemctl <action> <adapter>@<instance>` |
+| DELETE | `/she/services/hosts/:host/units/:adapter/:instance` | | `<adapter> --uninstall --name <instance>` |
+| GET | `/she/services/hosts/:host/units/:adapter/:instance/logs` | `?n=200` | `{ entries: [ { ts, level, msg, pid } ] }` from `journalctl -o json` |
+| POST / DELETE | `/she/services/hosts/:host/units/:adapter/:instance/logs/follow` | | start/renew (expires after 10 min without renewal) / stop a journal follower; lines arrive on the WebSocket as `serviceLog` |
+| GET | `/she/services/hosts/:host/units/:adapter/:instance/env` | | `{ env, secrets, schema }` — the env file with secrets masked as `***` |
+| PUT | `/she/services/hosts/:host/units/:adapter/:instance/env` | `{ env, restart? }` | writes the env file (`***` keeps the stored secret, empty removes a variable), optional restart |
+| GET / PUT | `/she/services/hosts/:host/broker-env` | `{ env }` | `/etc/mqtt-interfaces/broker.env`, same masking rules |
+
+---
+
 ## WebSocket — `ws://host/she/ws`
 
 Connect to the WebSocket endpoint for a live stream of logs, MQTT state changes, and sheDB events.
@@ -475,6 +519,7 @@ All messages are JSON.
 | `mqtt` | `topic`, `val`, `ts` | MQTT topic state changed |
 | `db:ids` | `ids` | Full list of sheDB document IDs (sent on connect and on any change) |
 | `db:change` | `id`, `doc` | A sheDB document was created, updated, or deleted (`doc` is `null` on delete) |
+| `serviceLog` | `host`, `unit`, `level`, `msg`, `ts`, `pid` | Journal line of an adapter instance while a follower is active (`POST …/logs/follow`, see Services) |
 
 ### Example
 
