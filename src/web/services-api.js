@@ -1278,6 +1278,33 @@ router.post('/hosts/:host/units/:adapter/:instance/file/create', async (req, res
 });
 
 // ── I7: adapter catalog ───────────────────────────────────────────────────────
+// persisted under the data dir; a daily timer keeps it fresh so the page never waits for npm
+try {
+    catalog.init({ file: path.join(require('../lib/storage').getStoragePath('services'), 'catalog.json') });
+} catch {
+    /* memory only */
+}
+let _catalogConfigPath = null;
+router.use((req, res, next) => {
+    if (req.app && req.app.locals && req.app.locals.configPath) _catalogConfigPath = req.app.locals.configPath;
+    next();
+});
+const _catalogTimer = setInterval(
+    () => {
+        if (!_catalogConfigPath) return;
+        try {
+            const cfg = JSON.parse(fs.readFileSync(_catalogConfigPath, 'utf8'));
+            const svc = cfg.services || {};
+            if (svc.enabled !== true) return;
+            const list = Array.isArray(svc.trustedPublishers) ? svc.trustedPublishers : ['hobbyquaker'];
+            catalog.catalog(list.filter(catalog.validPublisher)).catch(() => {}); // refreshes only when older than a day
+        } catch {
+            /* unreadable config */
+        }
+    },
+    60 * 60 * 1000,
+);
+_catalogTimer.unref();
 
 const DEFAULT_PUBLISHERS = ['hobbyquaker'];
 function trustedPublishers(req) {
@@ -1289,6 +1316,7 @@ function trustedPublishers(req) {
 // GET /she/services/catalog[?refresh=1]
 router.get('/catalog', async (req, res) => {
     try {
+        // answers from the cache at once; a refresh (older than a day, or ?refresh=1) runs in the background and the client asks again while `refreshing`
         const r = await catalog.catalog(trustedPublishers(req), { force: req.query.refresh === '1' });
         res.json(r);
     } catch (err) {

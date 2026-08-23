@@ -51,7 +51,7 @@ const STATE = {
     },
 };
 
-beforeEach(() => catalog.clearCache());
+beforeEach(() => catalog.init({ file: null }));
 
 describe('services-catalog', () => {
     test("members = trusted publishers' packages whose latest depends on the core; deprecated skipped", async () => {
@@ -84,7 +84,7 @@ describe('services-catalog', () => {
         r = await catalog.catalog(['hobbyquaker', 'someone'], { now: 2000 });
         expect(r.cached).toBe(true);
         expect(calls).toBe(n);
-        r = await catalog.catalog(['hobbyquaker', 'someone'], { now: 3000, force: true });
+        r = await catalog.catalog(['hobbyquaker', 'someone'], { now: 3000, force: true, wait: true });
         expect(r.cached).toBe(false);
         expect(calls).toBeGreaterThan(n);
         expect((await catalog.catalog([], { now: 1 })).packages).toEqual([]);
@@ -96,7 +96,7 @@ describe('services-catalog', () => {
         expect(r.packages.map((p) => p.name)).toEqual(['cul2mqtt', 'lgtv2mqtt']);
         expect(r.errors).toEqual([{ publisher: 'someone', error: expect.stringMatching(/500/) }]);
         catalog.setFetch(async () => ({ ok: false, status: 503 }));
-        r = await catalog.catalog(['hobbyquaker', 'someone'], { now: 5000, force: true });
+        r = await catalog.catalog(['hobbyquaker', 'someone'], { now: 5000, force: true, wait: true });
         expect(r.stale).toBe(true);
         expect(r.packages.map((p) => p.name)).toEqual(['cul2mqtt', 'lgtv2mqtt']);
     });

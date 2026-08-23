@@ -1516,6 +1516,8 @@ export interface Catalog {
     fetchedAt: number;
     cached: boolean;
     stale?: boolean;
+    /** a background sweep of the npm registry is running — ask again in a moment */
+    refreshing?: boolean;
 }
 
 /** Trusted publishers' packages on npm whose latest version depends on mqtt-interfaces-core (cached 24 h). */

@@ -10,9 +10,13 @@
  *      package when `versions[dist-tags.latest].dependencies` has mqtt-interfaces-core
  *   3. full packument for the members only → description, homepage, repository, `mqttInterfaces`
  *
- * Cached for 24 h with the last good result kept on failure; `refresh` forces a new sweep.
+ * Cached for 24 h in memory and on disk (the data dir), answered from the cache at once and
+ * refreshed in the background — see catalog(); the last good result is kept on failure.
  * Best effort throughout: a publisher that fails is reported in `errors`, the rest still lists.
  */
+
+const fs = require('fs');
+const path = require('path');
 
 const CORE = 'mqtt-interfaces-core';
 const REGISTRY = 'https://registry.npmjs.org';
@@ -23,10 +27,33 @@ function setFetch(fn) {
     _fetch = fn;
 }
 
-/** @type {{key: string, ts: number, result: object, promise?: Promise<object>} | null} */
+/** @type {{key: string, ts: number, result: object|null, promise?: Promise<object>} | null} */
 let _cache = null;
+let _file = null;
 function clearCache() {
     _cache = null;
+}
+
+/** Persist the catalog under the data dir so a restarted daemon answers at once (best effort). */
+function init({ file } = {}) {
+    _file = file || null;
+    _cache = null;
+    if (!_file) return;
+    try {
+        const saved = JSON.parse(fs.readFileSync(_file, 'utf8'));
+        if (saved && typeof saved.key === 'string' && saved.result && Array.isArray(saved.result.packages)) _cache = { key: saved.key, ts: saved.ts || 0, result: saved.result };
+    } catch {
+        /* no cache yet */
+    }
+}
+function persist() {
+    if (!_file || !_cache || !_cache.result) return;
+    try {
+        fs.mkdirSync(path.dirname(_file), { recursive: true });
+        fs.writeFileSync(_file, JSON.stringify({ key: _cache.key, ts: _cache.ts, result: _cache.result }), 'utf8');
+    } catch {
+        /* read-only data dir — the in-memory copy still works */
+    }
 }
 
 function validPublisher(p) {
@@ -107,38 +134,57 @@ async function sweep(publishers, now) {
     return { packages, publishers, errors, fetchedAt: now };
 }
 
+/** A sweep in the background; the last good list survives a failed one. */
+function startSweep(list, key, now) {
+    const previous = _cache && _cache.key === key ? _cache.result : null;
+    const promise = sweep(list, now)
+        .then((r) => {
+            // keep the last good list when the whole sweep produced nothing but errors
+            if (r.packages.length === 0 && r.errors.length > 0 && previous && previous.packages.length > 0) return { ...previous, errors: r.errors, stale: true };
+            return r;
+        })
+        .then((result) => {
+            _cache = { key, ts: now, result };
+            persist();
+            return result;
+        })
+        .catch((err) => {
+            _cache = previous ? { key, ts: now, result: previous } : null;
+            if (previous) return { ...previous, errors: [{ error: err.message }], stale: true };
+            throw err;
+        });
+    _cache = { key, ts: now, result: previous, promise };
+    promise.finally(() => {
+        if (_cache && _cache.promise === promise) delete _cache.promise;
+    });
+    return promise;
+}
+
 /**
- * The catalog for the given trusted publishers (cached).
+ * The catalog for the given trusted publishers. Answers from the cache (memory, or the file from a
+ * previous run) at once and refreshes in the background when the cache is older than a day or
+ * `force` is set — `refreshing: true` tells the caller to ask again. Only the very first sweep (no
+ * cache at all) or `wait: true` makes the call wait for the registry.
  * @param {string[]} publishers
- * @param {{force?: boolean, now?: number}} [opts]
+ * @param {{force?: boolean, wait?: boolean, now?: number}} [opts]
  */
 async function catalog(publishers, opts = {}) {
     const list = [...new Set((publishers || []).filter(validPublisher).map((p) => p.toLowerCase()))];
     const now = opts.now ?? Date.now();
     const key = list.join(',');
-    if (list.length === 0) return { packages: [], publishers: [], errors: [], fetchedAt: now, cached: false };
-    if (_cache && _cache.key === key && !opts.force) {
-        if (_cache.promise) return { ...(await _cache.promise), cached: true };
-        if (now - _cache.ts < TTL) return { ..._cache.result, cached: true };
-    }
-    const previous = _cache && _cache.key === key ? _cache.result : null;
-    const promise = sweep(list, now).then((r) => {
-        // keep the last good list when the whole sweep produced nothing but errors
-        if (r.packages.length === 0 && r.errors.length > 0 && previous && previous.packages.length > 0) {
-            return { ...previous, errors: r.errors, stale: true };
-        }
-        return r;
-    });
-    _cache = { key, ts: now, result: previous, promise };
-    try {
-        const result = await promise;
-        _cache = { key, ts: now, result };
-        return { ...result, cached: false };
-    } catch (err) {
-        _cache = previous ? { key, ts: now, result: previous } : null;
-        if (previous) return { ...previous, errors: [{ error: err.message }], stale: true, cached: true };
-        throw err;
-    }
+    if (list.length === 0) return { packages: [], publishers: [], errors: [], fetchedAt: now, cached: false, refreshing: false };
+    const entry = _cache && _cache.key === key ? _cache : null;
+    const fresh = entry && entry.result && now - entry.ts < TTL;
+    if ((!fresh || opts.force) && !(entry && entry.promise)) startSweep(list, key, now);
+    const cur = _cache;
+    if (cur.result && !opts.wait) return { ...cur.result, cached: true, refreshing: Boolean(cur.promise) };
+    const result = await (cur.promise || Promise.resolve(cur.result));
+    return { ...result, cached: !cur.promise, refreshing: false };
 }
 
-module.exports = { catalog, sweep, packagesOf, coreDependency, details, validPublisher, setFetch, clearCache, CORE, REGISTRY };
+/** Whether a background sweep is running. */
+function refreshing() {
+    return Boolean(_cache && _cache.promise);
+}
+
+module.exports = { catalog, sweep, packagesOf, coreDependency, details, validPublisher, setFetch, clearCache, init, refreshing, CORE, REGISTRY, TTL };

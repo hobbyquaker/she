@@ -18,18 +18,24 @@
     let notice  = $state('');
     let output  = $state('');
 
+    let poll: ReturnType<typeof setTimeout> | null = null;
+    // the daemon answers from its cache at once and sweeps npm in the background — ask again while it does
     async function load(refresh = false) {
-        loading = true; error = '';
+        loading = !cat; error = '';
+        if (poll) { clearTimeout(poll); poll = null; }
         try {
             const [c, h] = await Promise.all([getServicesCatalog(refresh), getServiceHosts().catch(() => ({ hosts: [] as ServiceHost[] }))]);
             cat = c; hosts = h.hosts;
+            if (c.refreshing) poll = setTimeout(() => load(false), 2000);
         } catch (e: any) {
             error = e.message ?? String(e);
         } finally {
             loading = false;
         }
     }
-    onMount(() => { load(); });
+    onMount(() => { load(); return () => { if (poll) clearTimeout(poll); }; });
+    const refreshing = $derived(Boolean(cat?.refreshing));
+    function fmtWhen(ts?: number) { return ts ? new Date(ts).toLocaleString() : ''; }
 
     let okHosts = $derived(hosts.filter(h => h.ok));
     let visible = $derived.by(() => {
@@ -80,8 +86,9 @@
 <div class="catalog">
     <div class="bar">
         <input class="filter-in" type="search" placeholder="Filter adapters…" bind:value={filter} />
-        <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask the npm registry again (otherwise cached for a day)"><span class:spinning={loading}>↺</span></button>
-        {#if loading && cat}<span class="muted"><span class="spinner"></span> asking the npm registry…</span>{/if}
+        <button class="ghost" onclick={() => load(true)} disabled={loading || refreshing} title="Ask the npm registry now (it is swept once a day anyway)"><span class:spinning={loading || refreshing}>↺</span></button>
+        {#if refreshing}<span class="muted"><span class="spinner"></span> asking the npm registry — the list below is the last known state</span>
+        {:else if cat?.fetchedAt}<span class="muted" title={cat.stale ? 'the last sweep failed — this is the previous list' : 'swept once a day'}>updated {fmtWhen(cat.fetchedAt)}{#if cat.stale} (stale){/if}</span>{/if}
         {#if cat}
             <span class="muted">{visible.length} adapter{visible.length === 1 ? '' : 's'} by {cat.publishers.join(', ') || '—'}{#if cat.stale} · <span class="warn">stale — registry unreachable</span>{/if}</span>
         {/if}
@@ -116,7 +123,7 @@
                             </a>
                         {/if}
                         <span class="muted">{p.version}{#if p.published} · {fmtDate(p.published)}{/if} · by {p.publisher}</span>
-                        {#each p.mqttInterfaces?.needs ?? [] as n (n)}<span class="badge" title="what the adapter talks to (mqttInterfaces.needs)">{n}</span>{/each}
+                        {#each p.mqttInterfaces?.needs ?? [] as n (n)}<span class="badge n-{n}" title="what the adapter talks to (mqttInterfaces.needs)">{n}</span>{/each}
                         <span class="spacer"></span>
                     </div>
                     <div class="desc">{p.description}</div>
@@ -169,6 +176,9 @@
     .desc { color: var(--fg); }
     .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; background: rgba(230,126,34,0.18); color: #e67e22; }
     .badge + .badge { margin-left: 4px; }
+    .badge.n-cloud { background: rgba(86,156,214,0.18); color: #569cd6; }
+    .badge.n-bluetooth { background: rgba(155,89,182,0.18); color: #9b59b6; }
+    .badge.n-serial, .badge.n-usb { background: rgba(127,140,141,0.22); color: var(--fg-muted); }
     select { background: var(--bg-app); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; padding: 2px 4px; }
     button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: default; }
