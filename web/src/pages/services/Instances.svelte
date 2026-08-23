@@ -375,7 +375,7 @@
                             </tr>
                             {#if expanded.has(r.key)}
                                 <tr class="detail-row">
-                                    <td colspan="8">
+                                    <td colspan="8"><div class="detail-inner">
                                         {#if r.mqtt?.info}
                                             <dl class="kv">
                                                 <dt>spec</dt><dd>{r.mqtt.spec ?? '—'}</dd>
@@ -396,7 +396,7 @@
                                                 <dt>since</dt><dd>{r.unit.since || '—'}</dd>
                                             </dl>
                                         {/if}
-                                    </td>
+                                    </div></td>
                                 </tr>
                             {/if}
                         {/each}
@@ -457,7 +457,8 @@
     button.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     button.sm { padding: 1px 7px; font-size: 11px; margin-left: 4px; }
     button.danger-text:hover:not(:disabled) { color: #e74c3c; border-color: #e74c3c; }
-    button.exp { background: none; border: none; color: var(--fg-muted); padding: 0 4px; font-size: 11px; }
+    /* fixed box: ▸ and ▾ have different advance widths, which would shift the whole table by a pixel */
+    button.exp { background: none; border: none; color: var(--fg-muted); padding: 0; font-size: 11px; width: 16px; height: 16px; line-height: 16px; text-align: center; display: inline-block; }
 
     .info { padding: 16px; color: var(--fg-muted); font-size: 12px; line-height: 1.5; }
     .info.err { color: #e74c3c; }
@@ -474,7 +475,7 @@
     td { padding: 5px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); vertical-align: top; white-space: nowrap; }
     tr.down .dname { color: #e74c3c; }
     tr.selected td { background: rgba(86,156,214,0.08); }
-    .c-exp { width: 24px; text-align: center; }
+    .c-exp { width: 24px; min-width: 24px; max-width: 24px; text-align: center; box-sizing: border-box; }
     .c-act { text-align: right; white-space: nowrap; }
     .dname { font-weight: 600; display: inline-block; margin-right: 6px; }
     .mono { font-family: var(--font-mono, monospace); font-size: 11px; }
@@ -498,6 +499,8 @@
     }
 
     .detail-row > td { background: var(--bg-panel); padding: 8px 8px 10px 32px; white-space: normal; }
+    /* the expanded content must not participate in column sizing (width:0 + min-width:100% keeps it inside the table width) */
+    .detail-inner { width: 0; min-width: 100%; }
     .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 8px; font-size: 11px; }
     .kv dt { color: var(--fg-muted); }
     .kv dd { margin: 0; }
