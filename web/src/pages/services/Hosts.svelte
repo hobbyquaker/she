@@ -190,13 +190,14 @@
                                         {#if a.origin === 'manual'}<span class="badge warn-b" title="Deployed by tarball / deploy.sh, not npm install -g — path: {a.path}">manual</span>
                                         {:else}<span class="muted">npm</span>{/if}
                                     </td>
-                                    <td>{#if names.length}{names.join(', ')}{:else}<button class="ghost sm" onclick={() => onaddinstance?.(h.name, a.name)} title={a.unit === false ? 'installed with npm, no instance yet — create the first one' : 'no instance — create one'}>+ add instance</button>{/if}</td>
+                                    <td>{#if names.length}{names.join(', ')}{:else}<span class="muted">{a.unit === false ? 'none yet' : '—'}</span>{/if}</td>
                                     <td class="c-act">
                                         {#if a.updateAvailable}
                                             <button class="ghost sm" onclick={() => update(h, a.name)} disabled={busy !== null} title="npm install -g {a.name}@latest, then restart its instances">
                                                 {busy === `${h.name}/${a.name}` ? 'Updating…' : 'Update'}
                                             </button>
                                         {/if}
+                                        <button class="ghost sm" onclick={() => onaddinstance?.(h.name, a.name)} disabled={busy !== null} title={names.length ? `Add another ${a.name} instance on ${h.hostname ?? h.name}` : `Create the first ${a.name} instance on ${h.hostname ?? h.name}`}>+ instance</button>
                                     </td>
                                 </tr>
                             {/each}
@@ -253,11 +254,12 @@
     col.c-adapter { width: 26%; }
     col.c-version { width: 14%; }
     col.c-origin { width: 12%; }
-    col.c-actions { width: 96px; }
+    col.c-actions { width: 168px; }
     td { overflow: hidden; text-overflow: ellipsis; }
     th { text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
     td { padding: 4px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); }
-    .c-act { text-align: right; }
+    .c-act { text-align: right; white-space: nowrap; }
+    td.c-act button + button { margin-left: 4px; }
     .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; }
     .ver { display: inline-flex; align-items: center; gap: 5px; }
     .warn-b { background: rgba(230,126,34,0.18); color: #e67e22; }

@@ -46,7 +46,7 @@
         }
     });
 
-    // a preset (Hosts tab "+ add instance", Catalog install) selects host and adapter; hosts are re-read first
+    // a preset (Adapters tab "+ instance", Catalog install) selects host and adapter; hosts are re-read first
     let presetSeen = -1;
     $effect(() => {
         if (preset && preset.n !== presetSeen) {

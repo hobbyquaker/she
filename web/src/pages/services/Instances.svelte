@@ -353,7 +353,7 @@
                                     {#if r.adapter}
                                         <span class="mono">{r.adapter}</span>
                                         {#if r.mqtt?.version}<span class="muted"> @{r.mqtt.version}</span>{/if}
-                                        {#if r.mqtt?.updateAvailable}<span class="badge b-upd" title="npm has {r.mqtt.latestVersion} — update on the Hosts tab">{r.mqtt.latestVersion}</span>{/if}
+                                        {#if r.mqtt?.updateAvailable}<span class="badge b-upd" title="npm has {r.mqtt.latestVersion} — update on the Adapters tab">{r.mqtt.latestVersion}</span>{/if}
                                     {:else}<span class="muted">—</span>{/if}
                                 </td>
                                 <td>

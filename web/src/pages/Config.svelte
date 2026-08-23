@@ -1002,7 +1002,7 @@
                                     <div class="feature-desc" style="padding-left:0">
                                         {#if setupState === 'pending'}⏳ waiting for the host to fetch the script…
                                         {:else if setupState === 'fetched'}⏳ script fetched, running on the host…
-                                        {:else if setupState === 'done'}<span class="svc-ok">✓ host {setupHost} registered as <code>{setupCmd.user}</code> — it is in the list above; save when done, then check Services → Hosts.</span>
+                                        {:else if setupState === 'done'}<span class="svc-ok">✓ host {setupHost} registered as <code>{setupCmd.user}</code> — it is in the list above; save when done, then check Services → Adapters.</span>
                                         {:else if setupState === 'expired'}command expired — create a new one.{/if}
                                     </div>
                                 </div>

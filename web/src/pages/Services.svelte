@@ -11,7 +11,7 @@
     const TAB_KEY = 'she-services-tab';
     const stored = localStorage.getItem(TAB_KEY) as SubTab | null;
     let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? stored : 'instances');
-    // Hosts tab "+ add instance" / Catalog install → open the add panel in the Instances tab with host + adapter preselected
+    // Adapters tab "+ instance" / Catalog install → open the add panel in the Instances tab with host + adapter preselected
     let addRequest = $state<AddPreset | null>(null);
     let addN = 0;
     function requestAdd(host: string, adapter: string) {
@@ -27,7 +27,7 @@
 <div class="services-page">
     <div class="sub-nav">
         <button class:active={tab === 'instances'} onclick={() => (tab = 'instances')}>Instances</button>
-        <button class:active={tab === 'hosts'} onclick={() => (tab = 'hosts')}>Hosts</button>
+        <button class:active={tab === 'hosts'} onclick={() => (tab = 'hosts')}>Adapters</button>
         <button class:active={tab === 'catalog'} onclick={() => (tab = 'catalog')}>Catalog</button>
     </div>
 
