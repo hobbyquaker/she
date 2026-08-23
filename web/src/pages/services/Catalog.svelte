@@ -42,6 +42,17 @@
     function installedOn(p: CatalogPackage): { host: string; version: string | null }[] {
         return okHosts.flatMap(h => (h.adapters ?? []).filter(a => a.name === p.name).map(a => ({ host: h.hostname ?? h.name, version: a.version })));
     }
+    /** -1 older, 0 same, 1 newer (numeric dotted compare; unparsable → 0) */
+    function cmpVersion(a: string | null, b: string): number {
+        if (!a) return -1;
+        const pa = a.split(/[.-]/).map(Number), pb = b.split(/[.-]/).map(Number);
+        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+            const x = pa[i] ?? 0, y = pb[i] ?? 0;
+            if (Number.isNaN(x) || Number.isNaN(y)) return 0;
+            if (x !== y) return x < y ? -1 : 1;
+        }
+        return 0;
+    }
     function hostFor(p: CatalogPackage): string {
         return target[p.name] ?? okHosts[0]?.name ?? '';
     }
@@ -92,6 +103,9 @@
             <div class="muted intro">Packages of the trusted npm publishers whose latest version depends on <span class="mono">mqtt-interfaces-core</span>. Installing runs <span class="mono">npm install -g &lt;adapter&gt;@latest</span> on the host through the helper; instances are created afterwards under <em>Add instance</em>.</div>
             {#each visible as p (p.name)}
                 {@const on = installedOn(p)}
+                {@const sel = okHosts.find(h => h.name === hostFor(p))}
+                {@const cur = on.find(o => o.host === (sel?.hostname ?? sel?.name))}
+                {@const rel = cur ? cmpVersion(cur.version, p.version) : -1}
                 <div class="pkg">
                     <div class="pkg-head">
                         <a class="name mono" href={'https://www.npmjs.com/package/' + p.name} target="_blank" rel="noopener" title="{p.name} on npm">{p.name}</a>
@@ -116,7 +130,13 @@
                             <select value={hostFor(p)} onchange={(e) => (target = { ...target, [p.name]: (e.target as HTMLSelectElement).value })}>
                                 {#each okHosts as h (h.name)}<option value={h.name}>{h.hostname ?? h.name}</option>{/each}
                             </select>
-                            <button onclick={() => install(p)} disabled={busy !== null}>{busy === p.name ? 'Installing…' : on.some(o => o.host === (okHosts.find(h => h.name === hostFor(p))?.hostname ?? hostFor(p))) ? 'Update' : 'Install'}</button>
+                            {#if cur && rel === 0}
+                                <span class="muted" title="{cur.version} installed on {cur.host}">up to date</span>
+                            {:else if cur && rel > 0}
+                                <span class="muted" title="{cur.version} installed on {cur.host}, npm has {p.version}">newer than npm</span>
+                            {:else}
+                                <button onclick={() => install(p)} disabled={busy !== null}>{busy === p.name ? 'Installing…' : cur ? 'Update' : 'Install'}</button>
+                            {/if}
                         {:else}
                             <span class="muted">no reachable host</span>
                         {/if}
