@@ -27,7 +27,7 @@ Usage: she [options]
 | | `--matter-storage` | — | Enable the Matter controller. Pass a directory path or `true` (uses `~/.she/matter`). |
 | `-h` | `--help` | — | Show help. |
 | | `--version` | — | Print version. |
-| | `--secret-set <group>/<field>` | — | Store a secret; the value is read from stdin (`printf '%s' 'pw' \| she --secret-set smtp/password`). See [Secrets](sandbox-api.md#shesecrets). |
+| | `--secret-set <group>/<field> [--plain]` | — | Store a secret; the value is read from stdin (`printf '%s' 'pw' \| she --secret-set smtp/password`). `--plain` creates a field whose value the UI shows in clear (a user name, a host). See [Secrets](sandbox-api.md#shesecrets). |
 | | `--secret-delete <group>[/<field>]` | — | Delete one secret or a whole group. |
 | | `--secret-list` | — | List secret names and change times (never values). |
 

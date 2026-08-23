@@ -79,8 +79,8 @@ describe('secrets store', () => {
                 name: 'smtp',
                 changed: 2000,
                 fields: [
-                    { name: 'host', changed: 2000 },
-                    { name: 'password', changed: 1000 },
+                    { name: 'host', changed: 2000, secret: true },
+                    { name: 'password', changed: 1000, secret: true },
                 ],
             },
         ]);
@@ -146,6 +146,28 @@ describe('secrets store', () => {
         expect(secrets.status().error).toMatch(/wrong key/);
     });
 
+    test('plain vs secret fields: kind on creation, listed values for plain only, one-way mark', () => {
+        secrets.set('smtp', 'user', 'alice@example.org', { secret: false, now: 10 });
+        secrets.set('smtp', 'password', 'hunter22', { now: 20 }); // default: secret
+        expect(secrets.list()[0].fields).toEqual([
+            { name: 'password', changed: 20, secret: true },
+            { name: 'user', changed: 10, secret: false, value: 'alice@example.org' },
+        ]);
+        // plain values are not redacted, secrets are
+        expect(secrets.redact('alice@example.org hunter22')).toBe('alice@example.org ***');
+        // a secret cannot be downgraded by a later set
+        secrets.set('smtp', 'password', 'hunter23', { secret: false });
+        expect(secrets.list()[0].fields[0]).toMatchObject({ name: 'password', secret: true });
+        expect(secrets.get('smtp/password')).toBe('hunter23');
+        // marking is one-way and survives a reload
+        expect(secrets.mark('smtp', 'nope')).toBe(false);
+        expect(secrets.mark('smtp', 'user')).toBe(true);
+        expect(fresh().status).toBe('ok');
+        expect(secrets.list()[0].fields.find((f) => f.name === 'user')).toEqual({ name: 'user', changed: 10, secret: true });
+        expect(secrets.get('smtp/user')).toBe('alice@example.org');
+        expect(secrets.redact('alice@example.org')).toBe('***');
+    });
+
     test('redact replaces known values of 6+ chars, longest first', () => {
         secrets.set('api', 'token', 'tok-abcdef-123456');
         secrets.set('api', 'short', 'ab12');
@@ -165,7 +187,12 @@ describe('secrets store', () => {
         expect(secrets.get('smtp/password')).toBe('hunter22');
         expect(secrets.cli(['--secret-set', 'smtp'], io('x'))).toBe(1);
         expect(secrets.cli(['--secret-list'], io(''))).toBe(0);
-        expect(out.join('')).toMatch(/set smtp\/password\nsmtp\/password\t\d{4}-/);
+        expect(secrets.cli(['--secret-set', 'smtp/user', '--plain'], io('alice\n'))).toBe(0);
+        expect(secrets.cli(['--secret-set', 'smtp/x', '--bogus'], io('v'))).toBe(1);
+        expect(secrets.cli(['--secret-list'], io(''))).toBe(0);
+        expect(out.join('')).toMatch(
+            /set smtp\/password \(secret\)\nsmtp\/password\t\d{4}-[^\n]*\tsecret\nset smtp\/user \(plain\)\nsmtp\/password\t[^\n]*\tsecret\nsmtp\/user\t[^\n]*\tplain: alice\n/,
+        );
         expect(out.join('')).not.toContain('hunter22');
         expect(secrets.cli(['--secret-delete', 'smtp/nope'], io(''))).toBe(1);
         expect(secrets.cli(['--secret-delete', 'smtp'], io(''))).toBe(0);
@@ -195,8 +222,21 @@ describe('secrets HTTP API (write-only)', () => {
         expect(r.body).toMatchObject({ ok: true, group: 'smtp', field: 'password' });
         r = await httpRequest('GET', port, '/she/secrets');
         expect(r.status).toBe(200);
-        expect(r.body).toMatchObject({ status: 'ok', keySource: 'file', groups: [{ name: 'smtp', fields: [{ name: 'password' }] }] });
+        expect(r.body).toMatchObject({ status: 'ok', keySource: 'file', groups: [{ name: 'smtp', fields: [{ name: 'password', secret: true }] }] });
         expect(JSON.stringify(r.body)).not.toContain('hunter22');
+        // plain field: value comes back, until it is marked secret
+        r = await httpRequest('PUT', port, '/she/secrets/smtp/user', { value: 'alice', secret: false });
+        expect(r.body).toMatchObject({ ok: true, secret: false });
+        r = await httpRequest('GET', port, '/she/secrets');
+        expect(r.body.groups[0].fields.find((f) => f.name === 'user')).toEqual({ name: 'user', changed: expect.any(Number), secret: false, value: 'alice' });
+        r = await httpRequest('POST', port, '/she/secrets/smtp/user/secret');
+        expect(r.body).toEqual({ ok: true });
+        r = await httpRequest('POST', port, '/she/secrets/smtp/nope/secret');
+        expect(r.status).toBe(404);
+        r = await httpRequest('GET', port, '/she/secrets');
+        expect(r.body.groups[0].fields.find((f) => f.name === 'user')).toEqual({ name: 'user', changed: expect.any(Number), secret: true });
+        expect(JSON.stringify(r.body)).not.toContain('alice');
+        expect((await httpRequest('DELETE', port, '/she/secrets/smtp/user')).body).toEqual({ ok: true });
         expect(secrets.get('smtp/password')).toBe('hunter22');
         r = await httpRequest('DELETE', port, '/she/secrets/smtp/password');
         expect(r.body).toEqual({ ok: true });

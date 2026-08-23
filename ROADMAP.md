@@ -49,7 +49,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [A6 — AI-generated auto-commit messages](#a6--ai-generated-auto-commit-messages)
 - [A7 — Relicense to AGPL-3.0-or-later](#a7--relicense-to-agpl-30-or-later)
 - [A8 — Docker image build on GitHub Actions, published to GHCR](#a8--docker-image-build-on-github-actions-published-to-ghcr)
-- [A9 — Secrets: revealing values in the UI](#a9--secrets-revealing-values-in-the-ui) ⚠️
+- [A9 — Secrets: revealing values in the UI](#a9--secrets-revealing-values-in-the-ui) 🔨
 
 **Testing**
 - [T1 — Auth module unit tests](#t1--auth-module-unit-tests)
@@ -414,7 +414,9 @@ A `Dockerfile` and `.dockerignore` exist, but images are neither built in CI nor
 
 ### A9 — Secrets: revealing values in the UI
 
-⚠️ needs discussion — filed 2026-08-26 while [A5](doc/roadmap-archive/A5.md) was fresh; the user would like an eye icon that shows a stored value, which A5 rules out on purpose. What is at stake, and the options:
+🔨 partially done. **✅ Option 3 shipped (she 1.32.0):** fields are *plain* (listed in clear, editable, not redacted in logs) or *secret* (write-only, as A5); the kind is chosen with the lock icon when a field is created, and the lock on a plain field marks it secret — one-way, never shown again (`POST /she/secrets/:group/:field/secret`; `she --secret-set … --plain` on the CLI). Entries from before the change count as secret. **Still open:** option 2 below (revealing a *secret* field through a deliberate, re-authenticated, logged path) as an opt-in setting — not built until the user wants it.
+
+Filed 2026-08-26 while [A5](doc/roadmap-archive/A5.md) was fresh; the user would like an eye icon that shows a stored value, which A5 rules out on purpose. What is at stake, and the options:
 
 **Why A5 is write-only.** Whoever can talk to `/she/*` can already do everything a script can — and a script can `she.info(she.secrets.get('smtp/password'))` or publish it to MQTT. So a read route does not create a *new* capability for an attacker who has a session; what it removes is the *accidental* channel: a value that is never in an HTTP response cannot end up in browser history, a HAR file, a proxy log, a screenshot, a screen share, or the AI chat's context. That is the whole benefit, and it is real but modest. "Only the web interface may read it" is not enforceable: the browser is an HTTP client like any other, and anything the page can fetch, `curl` with the same cookie can fetch.
 

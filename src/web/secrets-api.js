@@ -1,10 +1,12 @@
 'use strict';
 
 /**
- * Secrets HTTP API (roadmap A5) — write-only: names and change times come back, values never do.
+ * Secrets HTTP API (roadmap A5/A9) — write-only for secret fields: names and change times come back,
+ * values only for fields marked plain (a username, a host).
  *
  *   GET    /she/secrets                  { status, error, keySource, groups: [{ name, changed, fields: [{ name, changed }] }] }
- *   PUT    /she/secrets/:group/:field    { value }  → { ok, group, field, changed }
+ *   PUT    /she/secrets/:group/:field    { value, secret? }  → { ok, group, field, changed, secret }   (secret: kind of a new field, default true; never downgrades)
+ *   POST   /she/secrets/:group/:field/secret                → { ok }   mark a plain field secret (one-way)
  *   DELETE /she/secrets/:group           → { ok }
  *   DELETE /she/secrets/:group/:field    → { ok }
  */
@@ -29,8 +31,17 @@ router.get('/', (req, res) => {
 router.put('/:group/:field', (req, res) => {
     const value = req.body && req.body.value;
     try {
-        const r = secrets.set(req.params.group, req.params.field, value);
+        const r = secrets.set(req.params.group, req.params.field, value, { secret: !(req.body && req.body.secret === false) });
         res.json({ ok: true, ...r });
+    } catch (err) {
+        fail(res, err);
+    }
+});
+
+router.post('/:group/:field/secret', (req, res) => {
+    try {
+        if (!secrets.mark(req.params.group, req.params.field)) return res.status(404).json({ error: 'no such secret' });
+        res.json({ ok: true });
     } catch (err) {
         fail(res, err);
     }

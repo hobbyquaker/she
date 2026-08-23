@@ -1,7 +1,7 @@
 <script lang="ts">
     /* Secrets tab (roadmap A5): groups of named string values for scripts (she.secrets.get('group/field')).
        Write-only by design — the daemon never returns a value, so inputs are empty until you type. */
-    import { listSecrets, putSecret, deleteSecret, type SecretsOverview, type SecretGroup } from '../lib/api.js';
+    import { listSecrets, putSecret, deleteSecret, markSecret, type SecretsOverview, type SecretGroup } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
 
     let { active = true }: { active?: boolean } = $props();
@@ -14,6 +14,7 @@
     let newGroup = $state('');
     let newField = $state('');
     let newValue = $state('');
+    let newSecret = $state(true);
     let drafts = $state<Record<string, string>>({});
     let reveal = $state(false);
     let dialog = $state<ConfirmDialog>();
@@ -45,13 +46,13 @@
         setTimeout(() => { if (notice === msg) notice = ''; }, 2500);
     }
 
-    async function save(g: string, f: string, value: string) {
+    async function save(g: string, f: string, value: string, secret = true) {
         if (!value) return;
         busy = true;
         try {
-            await putSecret(g, f, value);
+            await putSecret(g, f, value, secret);
             drafts = { ...drafts, [`${g}/${f}`]: '' };
-            newField = ''; newValue = '';
+            newField = ''; newValue = ''; newSecret = true;
             flash(`saved ${g}/${f}`);
             await load();
             selected = g;
@@ -71,6 +72,20 @@
         selected = g;
         newGroup = '';
         error = '';
+    }
+    async function lock(g: string, f: string) {
+        if (!(await dialog?.show(`Mark ${g}/${f} as secret? Its value will never be shown again — not here, not through the API. Scripts keep reading it. This cannot be undone (delete and re-create to change your mind).`, { confirm: 'Mark secret', danger: true }))) return;
+        busy = true;
+        try {
+            await markSecret(g, f);
+            drafts = { ...drafts, [`${g}/${f}`]: '' };
+            flash(`${g}/${f} is secret now`);
+            await load();
+        } catch (e: any) {
+            error = e.message ?? String(e);
+        } finally {
+            busy = false;
+        }
     }
     async function removeField(g: string, f: string) {
         if (!(await dialog?.show(`Delete secret ${g}/${f}? Scripts reading it get undefined from now on.`, { confirm: 'Delete', danger: true }))) return;
@@ -109,6 +124,13 @@
         return ts ? new Date(ts).toLocaleString() : '—';
     }
 </script>
+
+{#snippet lockIcon(closed: boolean)}
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="7" width="10" height="7" rx="1.5" />
+        {#if closed}<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />{:else}<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0" />{/if}
+    </svg>
+{/snippet}
 
 <ConfirmDialog bind:this={dialog} />
 
@@ -161,12 +183,24 @@
                     <tbody>
                         {#each group.fields as f (f.name)}
                             {@const key = `${group.name}/${f.name}`}
+                            {@const draft = drafts[key] ?? (f.secret ? '' : (f.value ?? ''))}
+                            {@const dirty = f.secret ? draft !== '' : draft !== (f.value ?? '')}
                             <tr>
                                 <td class="mono" title="she.secrets.get('{key}')">{f.name}</td>
                                 <td>
-                                    <form class="val" onsubmit={(e) => { e.preventDefault(); save(group!.name, f.name, drafts[key] ?? ''); }}>
-                                        <input type={reveal ? 'text' : 'password'} placeholder="•••••• (type to replace)" value={drafts[key] ?? ''} oninput={(e) => (drafts = { ...drafts, [key]: (e.target as HTMLInputElement).value })} autocomplete="off" spellcheck="false" disabled={locked} />
-                                        <button type="submit" class="sm" disabled={busy || locked || !(drafts[key] ?? '')}>Save</button>
+                                    <form class="val" onsubmit={(e) => { e.preventDefault(); if (dirty) save(group!.name, f.name, draft, f.secret); }}>
+                                        {#if f.secret}
+                                            <button type="button" class="lock is-secret" disabled title="secret — write-only, never shown again">{@render lockIcon(true)}</button>
+                                            <input type={reveal ? 'text' : 'password'} placeholder="•••••• (type to replace)" value={draft} oninput={(e) => (drafts = { ...drafts, [key]: (e.target as HTMLInputElement).value })} autocomplete="off" spellcheck="false" disabled={locked} />
+                                        {:else}
+                                            <button type="button" class="lock" onclick={() => lock(group!.name, f.name)} disabled={busy || locked} title="plain — shown in clear; click to mark it secret (never shown again)">{@render lockIcon(false)}</button>
+                                            {#if draft.includes('\n')}
+                                                <textarea value={draft} rows={4} oninput={(e) => (drafts = { ...drafts, [key]: (e.target as HTMLTextAreaElement).value })} spellcheck="false" disabled={locked}></textarea>
+                                            {:else}
+                                                <input type="text" value={draft} oninput={(e) => (drafts = { ...drafts, [key]: (e.target as HTMLInputElement).value })} autocomplete="off" spellcheck="false" disabled={locked} />
+                                            {/if}
+                                        {/if}
+                                        <button type="submit" class="sm" disabled={busy || locked || !dirty || !draft}>Save</button>
                                     </form>
                                 </td>
                                 <td class="muted">{fmt(f.changed)}</td>
@@ -176,8 +210,9 @@
                         <tr class="new">
                             <td><input type="text" placeholder="new field" bind:value={newField} spellcheck="false" disabled={locked} /></td>
                             <td>
-                                <form class="val" onsubmit={(e) => { e.preventDefault(); if (NAME_RE.test(newField.trim())) save(group!.name, newField.trim(), newValue); else error = 'field name: letters, digits, _ . - (max 64)'; }}>
-                                    {#if newValue.includes('\n') || reveal}
+                                <form class="val" onsubmit={(e) => { e.preventDefault(); if (NAME_RE.test(newField.trim())) save(group!.name, newField.trim(), newValue, newSecret); else error = 'field name: letters, digits, _ . - (max 64)'; }}>
+                                    <button type="button" class="lock" class:is-secret={newSecret} onclick={() => (newSecret = !newSecret)} disabled={locked} title={newSecret ? 'secret — write-only once saved (click for a plain field, e.g. a user name)' : 'plain — shown in clear (click for a secret)'}>{@render lockIcon(newSecret)}</button>
+                                    {#if newValue.includes('\n') || reveal || !newSecret}
                                         <textarea placeholder="value" bind:value={newValue} rows={newValue.includes('\n') ? 4 : 1} spellcheck="false" disabled={locked}></textarea>
                                     {:else}
                                         <input type="password" placeholder="value" bind:value={newValue} autocomplete="off" disabled={locked} />
@@ -185,7 +220,7 @@
                                     <button type="submit" class="sm" disabled={busy || locked || !newField.trim() || !newValue}>Add</button>
                                 </form>
                             </td>
-                            <td class="muted" colspan="2">multi-line values (PEM keys): tick <i>show while typing</i> and paste</td>
+                            <td class="muted" colspan="2">the lock decides the kind: secret fields are write-only forever, plain fields (user names, hosts) stay readable here. Multi-line values: tick <i>show while typing</i> and paste.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -234,6 +269,9 @@
     .val { display: flex; gap: 6px; align-items: flex-start; }
     .val input, .val textarea, td > input { flex: 1; min-width: 0; width: 100%; box-sizing: border-box; font-size: 12px; padding: 3px 6px; background: var(--bg-input, var(--bg)); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; font-family: var(--font-mono, monospace); }
     .val textarea { resize: vertical; }
+    .lock { flex-shrink: 0; width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--border); color: var(--fg-muted); border-radius: 3px; }
+    .lock:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
+    .lock.is-secret { color: #d4ac0d; border-color: rgba(241,196,15,0.5); opacity: 1; }
     .reveal { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-muted); cursor: pointer; user-select: none; white-space: nowrap; }
     .check-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
     .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 3px; background: var(--bg-input); position: relative; transition: background 0.12s, border-color 0.12s; }

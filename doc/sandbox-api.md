@@ -518,7 +518,7 @@ she.info('location:', she.config.latitude, she.config.longitude);
 
 ## she.secrets
 
-Read access to the **Secrets** tab's store — named groups of string values (SMTP passwords, API tokens, PEM keys) kept encrypted outside the scripts directory, so they never end up in a script file or in git. Values are entered in the web UI (or with `she --secret-set`); the daemon never sends them to a browser — scripts are the only readers.
+Read access to the **Secrets** tab's store — named groups of string values (SMTP passwords, API tokens, PEM keys) kept encrypted outside the scripts directory, so they never end up in a script file or in git. Values are entered in the web UI (or with `she --secret-set`). Fields are *secret* (the daemon never sends the value to a browser — scripts are the only readers) or *plain* (a user name, a host — shown in the UI); scripts read both the same way.
 
 | Method | Returns | Description |
 |---|---|---|

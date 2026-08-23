@@ -197,6 +197,9 @@ export function getDaemonStatus(): Promise<DaemonStatus> {
 export interface SecretField {
     name: string;
     changed: number;
+    /** write-only field: the value never comes back; plain fields carry `value` */
+    secret: boolean;
+    value?: string;
 }
 export interface SecretGroup {
     name: string;
@@ -214,8 +217,12 @@ export interface SecretsOverview {
 export function listSecrets(): Promise<SecretsOverview> {
     return request('GET', '/she/secrets');
 }
-export function putSecret(group: string, field: string, value: string): Promise<{ ok: boolean; changed: number }> {
-    return request('PUT', `/she/secrets/${encodeURIComponent(group)}/${encodeURIComponent(field)}`, { value });
+export function putSecret(group: string, field: string, value: string, secret = true): Promise<{ ok: boolean; changed: number; secret: boolean }> {
+    return request('PUT', `/she/secrets/${encodeURIComponent(group)}/${encodeURIComponent(field)}`, { value, secret });
+}
+/** Mark a plain field secret — one-way. */
+export function markSecret(group: string, field: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/secrets/${encodeURIComponent(group)}/${encodeURIComponent(field)}/secret`);
 }
 export function deleteSecret(group: string, field?: string): Promise<{ ok: boolean }> {
     return request('DELETE', `/she/secrets/${encodeURIComponent(group)}` + (field ? `/${encodeURIComponent(field)}` : ''));

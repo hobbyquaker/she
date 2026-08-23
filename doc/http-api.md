@@ -460,12 +460,13 @@ The connection will drop immediately after the response. The daemon is typically
 
 ## Secrets — `/she/secrets`
 
-Write-only store for values scripts read with `she.secrets` ([sandbox-api.md](sandbox-api.md#shesecrets)). Names and change times come back, **values never do** — there is no GET for a value, by design.
+Store for values scripts read with `she.secrets` ([sandbox-api.md](sandbox-api.md#shesecrets)). Fields are **secret** (write-only: names and change times come back, the value never does — there is no GET for it, by design) or **plain** (a user name, a host: listed in clear). The kind is chosen when a field is created; marking a plain field secret is one-way.
 
 | Method | Path | Body | Description |
 |---|---|---|---|
-| GET | `/she/secrets` | | `{ status: "empty" \| "ok" \| "locked" \| "error", error, keySource: "env" \| "file" \| null, file, keyFile, groups: [{ name, changed, fields: [{ name, changed }] }] }` |
-| PUT | `/she/secrets/:group/:field` | `{ value }` | create or replace; names `[A-Za-z0-9_.-]{1,64}`, value a non-empty string up to 64 KB (400 `INVALID_NAME` / `INVALID_VALUE`); 409 `LOCKED` when the key is missing |
+| GET | `/she/secrets` | | `{ status: "empty" \| "ok" \| "locked" \| "error", error, keySource: "env" \| "file" \| null, file, keyFile, groups: [{ name, changed, fields: [{ name, changed, secret, value? }] }] }` — `value` only for plain fields |
+| PUT | `/she/secrets/:group/:field` | `{ value, secret? }` | create or replace; `secret` (default `true`) sets the kind of a *new* field and can only raise an existing one; names `[A-Za-z0-9_.-]{1,64}`, value a non-empty string up to 64 KB (400 `INVALID_NAME` / `INVALID_VALUE`); 409 `LOCKED` when the key is missing |
+| POST | `/she/secrets/:group/:field/secret` | | mark a plain field secret — one-way (404 when absent) |
 | DELETE | `/she/secrets/:group` · `/she/secrets/:group/:field` | | remove a group or one field (404 when absent) |
 
 ## Services — `/she/services`

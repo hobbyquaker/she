@@ -3,7 +3,9 @@
 /**
  * Secrets store (roadmap A5): named groups of string fields, kept in an AES-256-GCM encrypted
  * file under the config dir. Values never leave the daemon — the HTTP API is write-only, the only
- * reader is script code via she.secrets. The key comes from SHE_SECRETS_KEY (hex or base64,
+ * reader is script code via she.secrets — except *plain* fields (a username, a host): those are
+ * listed in clear, while *secret* fields are write-only; marking a field secret is one-way (A9).
+ * The key comes from SHE_SECRETS_KEY (hex or base64,
  * 32 bytes) or from a key file next to the data, generated 0600 on first write.
  *
  * The point of the encryption is that a backup or a copied ~/.she holds no plaintext; the key
@@ -41,6 +43,11 @@ function init({ file, keyFile, env } = {}) {
     _error = null;
     _keySource = null;
     _redactList = [];
+}
+
+/** Entries written before kinds existed carry no flag and were secrets by definition. */
+function isSecret(e) {
+    return e.secret !== false;
 }
 
 function validName(n) {
@@ -95,7 +102,7 @@ function decrypt(key, obj) {
 
 function rebuildRedact() {
     const vals = new Set();
-    for (const g of Object.values(_data)) for (const f of Object.values(g)) if (f.value.length >= MIN_REDACT) vals.add(f.value);
+    for (const g of Object.values(_data)) for (const f of Object.values(g)) if (isSecret(f) && f.value.length >= MIN_REDACT) vals.add(f.value);
     _redactList = [...vals].sort((a, b) => b.length - a.length);
 }
 
@@ -183,7 +190,10 @@ function list() {
         .map((name) => {
             const fields = Object.keys(_data[name])
                 .sort()
-                .map((f) => ({ name: f, changed: _data[name][f].changed }));
+                .map((f) => {
+                    const e = _data[name][f];
+                    return isSecret(e) ? { name: f, changed: e.changed, secret: true } : { name: f, changed: e.changed, secret: false, value: e.value };
+                });
             return { name, changed: Math.max(0, ...fields.map((f) => f.changed)), fields };
         });
 }
@@ -213,15 +223,35 @@ function has(p) {
     return get(p) !== undefined;
 }
 
-function set(group, field, value, now = Date.now()) {
+/**
+ * Create or replace a field. `secret` decides the kind of a *new* field (default: secret);
+ * an existing secret field stays secret whatever is passed — the only way down is delete.
+ */
+function set(group, field, value, opts = {}) {
+    const now = typeof opts === 'number' ? opts : (opts.now ?? Date.now());
     assertWritable();
     if (!validName(group) || !validName(field)) throw Object.assign(new Error('names: letters, digits, _ . - (max 64)'), { code: 'INVALID_NAME' });
     if (typeof value !== 'string' || value.length === 0) throw Object.assign(new Error('value must be a non-empty string'), { code: 'INVALID_VALUE' });
     if (Buffer.byteLength(value) > MAX_VALUE) throw Object.assign(new Error(`value exceeds ${MAX_VALUE} bytes`), { code: 'INVALID_VALUE' });
     if (!_data[group]) _data[group] = {};
-    _data[group][field] = { value, changed: now };
+    const existing = _data[group][field];
+    const secret = existing ? isSecret(existing) || opts.secret === true : opts.secret !== false;
+    _data[group][field] = { value, changed: now, secret };
     save();
-    return { group, field, changed: now };
+    return { group, field, changed: now, secret };
+}
+
+/** Mark a plain field secret — one-way; returns false when the field does not exist. */
+function mark(group, field) {
+    assertWritable();
+    if (!validName(group) || !validName(field)) throw Object.assign(new Error('names: letters, digits, _ . - (max 64)'), { code: 'INVALID_NAME' });
+    const e = _data[group] && _data[group][field];
+    if (!e) return false;
+    if (!isSecret(e)) {
+        e.secret = true;
+        save();
+    }
+    return true;
 }
 
 /** Remove a field, or a whole group when `field` is omitted. Returns false when nothing was there. */
@@ -249,11 +279,11 @@ function redact(str) {
 }
 
 /**
- * CLI: she --secret-set group/field (value on stdin) | --secret-delete group[/field] | --secret-list.
+ * CLI: she --secret-set group/field [--plain] (value on stdin) | --secret-delete group[/field] | --secret-list.
  * Returns the exit code.
  */
 function cli(argv, io = { stdout: process.stdout, stderr: process.stderr, stdin: () => fs.readFileSync(0, 'utf8') }) {
-    const [cmd, arg] = argv;
+    const [cmd, arg, flag] = argv;
     const st = load();
     const fail = (m) => {
         io.stderr.write('she: ' + m + '\n');
@@ -262,15 +292,16 @@ function cli(argv, io = { stdout: process.stdout, stderr: process.stderr, stdin:
     try {
         if (cmd === '--secret-list') {
             if (st.status === 'locked' || st.status === 'error') return fail('secrets store is locked: ' + st.error);
-            for (const g of list()) for (const f of g.fields) io.stdout.write(`${g.name}/${f.name}\t${new Date(f.changed).toISOString()}\n`);
+            for (const g of list())
+                for (const f of g.fields) io.stdout.write(`${g.name}/${f.name}\t${new Date(f.changed).toISOString()}\t${f.secret ? 'secret' : 'plain: ' + f.value}\n`);
             return 0;
         }
         if (cmd === '--secret-set') {
             const parts = arg && splitPath(arg);
-            if (!parts || parts.length !== 2) return fail('usage: she --secret-set <group>/<field>  (value on stdin)');
+            if (!parts || parts.length !== 2 || (flag !== undefined && flag !== '--plain')) return fail('usage: she --secret-set <group>/<field> [--plain]  (value on stdin)');
             const value = String(io.stdin()).replace(/\r?\n$/, '');
-            const r = set(parts[0], parts[1], value);
-            io.stdout.write(`set ${r.group}/${r.field}\n`);
+            const r = set(parts[0], parts[1], value, { secret: flag !== '--plain' });
+            io.stdout.write(`set ${r.group}/${r.field} (${r.secret ? 'secret' : 'plain'})\n`);
             return 0;
         }
         if (cmd === '--secret-delete') {
@@ -286,4 +317,4 @@ function cli(argv, io = { stdout: process.stdout, stderr: process.stderr, stdin:
     }
 }
 
-module.exports = { init, load, status, list, get, has, set, remove, redact, cli, validName, NAME_RE, MAX_VALUE, MIN_REDACT };
+module.exports = { init, load, status, list, get, has, set, mark, remove, redact, cli, validName, NAME_RE, MAX_VALUE, MIN_REDACT };
