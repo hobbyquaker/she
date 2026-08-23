@@ -329,6 +329,7 @@
                             <th>Uptime</th>
                             <th class="num" title="resident memory — reported by the adapter (core 0.8+) or by systemd on the host">Mem</th>
                             <th class="num" title="share of one core — reported by the adapter over its stats interval, or from systemd between two host listings">CPU</th>
+                            <th class="num" title="event loop lag — the peak the adapter measured over its stats interval (core 0.8+); no systemd fallback">EL lag</th>
                             <th>Log level</th>
                             <th class="c-act"></th>
                         </tr>
@@ -362,8 +363,9 @@
                                     {#if r.unit && r.unit.unitFile === 'disabled'}<span class="muted"> · disabled</span>{/if}
                                 </td>
                                 <td>{fmtUptime(r)}</td>
-                                <td class="num" title={ps ? `adapter: rss ${fmtBytes(ps.rss)}${ps.heapUsed ? `, heap ${fmtBytes(ps.heapUsed)}` : ''}${ps.eventLoopLag !== undefined ? `, event loop lag ${ps.eventLoopLag} ms` : ''} (${fmtAge(ps.receivedTs)})` : r.unit?.memory ? `systemd on ${r.host?.hostname ?? r.host?.name}: MemoryCurrent` : ''}>{ps ? fmtBytes(ps.rss) : r.unit?.memory ? fmtBytes(r.unit.memory) : '—'}</td>
+                                <td class="num" title={ps ? `adapter: rss ${fmtBytes(ps.rss)}${ps.heapUsed ? `, heap ${fmtBytes(ps.heapUsed)}` : ''}${ps.heapTotal ? ` of ${fmtBytes(ps.heapTotal)}` : ''} (${fmtAge(ps.receivedTs)})` : r.unit?.memory ? `systemd on ${r.host?.hostname ?? r.host?.name}: MemoryCurrent` : ''}>{ps ? fmtBytes(ps.rss) : r.unit?.memory ? fmtBytes(r.unit.memory) : '—'}</td>
                                 <td class="num" title={ps && ps.cpu !== undefined ? `adapter: ${ps.cpu} % of one core over its stats interval` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `systemd on ${r.host?.hostname ?? r.host?.name}: since the previous listing` : ''}>{ps && ps.cpu !== undefined ? `${ps.cpu} %` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `${r.unit.cpu} %` : '—'}</td>
+                                <td class="num" class:hot={(ps?.eventLoopLag ?? 0) >= 100} title={ps && ps.eventLoopLag !== undefined ? `adapter: peak event loop lag over its stats interval (${fmtAge(ps.receivedTs)})` : ''}>{ps && ps.eventLoopLag !== undefined ? `${ps.eventLoopLag} ms` : '—'}</td>
                                 <td>
                                     {#if canMaintain(r)}
                                         <select class="lvl" disabled={busy.has(r.key)} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; if (v) { loglevel(r, v); (e.target as HTMLSelectElement).value = ''; } }}>
@@ -507,4 +509,6 @@
     }
 
     th.num, td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    /* event loop lag past 100 ms — the adapter's loop was blocked that long */
+    td.num.hot { color: #d4ac0d; }
 </style>
