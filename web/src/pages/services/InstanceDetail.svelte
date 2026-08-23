@@ -217,7 +217,7 @@
             <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
         {/if}
         <button class:active={tab === 'info'} onclick={() => (tab = 'info')}>Info</button>
-        {#if !managed}<span class="muted tabs-note">{host === null ? 'host not managed — add it under Settings → Services' : 'not installed on a managed host'}</span>{/if}
+        {#if !managed}<span class="muted tabs-note">{host === null ? 'host not managed — add it on the Adapters page, tab Hosts' : 'not installed on a managed host'}</span>{/if}
     </div>
 
     {#if tab === 'config'}
@@ -310,7 +310,7 @@
                     <dt>state dir</dt><dd class="mono">{legacy ? `/var/lib/${unit.adapter}/` : `/var/lib/${unit.adapter}/${instance}/`}</dd>
                 </dl>
             {:else}
-                <div class="muted">{host === null ? 'Not installed on a managed host — or the host is not configured under Settings → Services.' : 'No systemd unit for this instance on the managed host.'}</div>
+                <div class="muted">{host === null ? 'Not installed on a managed host — or the host is not configured on the Adapters page, tab Hosts.' : 'No systemd unit for this instance on the managed host.'}</div>
             {/if}
         </div>
     {/if}

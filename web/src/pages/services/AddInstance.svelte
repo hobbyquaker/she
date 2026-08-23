@@ -125,7 +125,7 @@
                 <strong>{adapter}@{instance}</strong> installed on {hostName} and started. It shows up in the Instances tab as soon as it publishes <code>{instance}/connected</code>.
             </div>
             <pre class="out mono">{output}</pre>
-            {#if onclose}<button class="ghost" onclick={onclose}>← Back to adapters</button>{:else}<button class="ghost" onclick={reset}>Add another</button>{/if}
+            {#if onclose}<button class="ghost" onclick={onclose}>← Back to installations</button>{:else}<button class="ghost" onclick={reset}>Add another</button>{/if}
         {:else}
             {#if loadingHosts}
                 <div class="loading"><span class="spinner"></span> Asking the hosts…</div>

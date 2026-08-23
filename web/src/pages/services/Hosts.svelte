@@ -120,14 +120,14 @@
 <div class="hosts">
     {#if view.kind === 'add'}
     <div class="sheet-head">
-        <button class="ghost sm" onclick={back}>← Adapters</button>
+        <button class="ghost sm" onclick={back}>← Installations</button>
         <strong>Add instance</strong>
         <span class="muted">a systemd instance of the adapter on the host, configured from its --config-schema</span>
     </div>
     <AddInstance preset={view.preset} oninstalled={() => { load(true); onchanged?.(); }} onclose={back} />
     {:else if view.kind === 'catalog'}
     <div class="sheet-head">
-        <button class="ghost sm" onclick={back}>← Adapters</button>
+        <button class="ghost sm" onclick={back}>← Installations</button>
         <strong>Install adapter</strong>
         <span class="muted">packages of the trusted npm publishers built on mqtt-interfaces-core</span>
     </div>
@@ -136,7 +136,7 @@
     <div class="bar">
         <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask every host again (otherwise the listing is cached for a minute)">↺</button>
         <button class="ghost" onclick={() => (view = { kind: 'catalog' })} title="Install an adapter from the catalog — the trusted publishers' packages on npm">Install adapter</button>
-        <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — add remote hosts under Settings → Services</span>
+        <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — managed on the Hosts tab</span>
         <span class="spacer"></span>
         {#if notice}<span class="muted">{notice}</span>{/if}
     </div>
@@ -193,15 +193,15 @@
                         {#if h.code === 'HELPER_MISSING' && h.local}
                             <div class="hint">Install the helper on this host: <code>sudo she --install</code> (copies <code>she-servicectl</code> to <code>/usr/local/bin</code> and allows it in <code>/etc/sudoers.d/she</code>).</div>
                         {:else if h.code === 'HELPER_MISSING'}
-                            <div class="hint">The helper is not on this host yet — <em>Deploy helper</em> copies it over and prints the sudoers line to add, or run the one-line setup command from Settings → Services on the host as root.</div>
+                            <div class="hint">The helper is not on this host yet — <em>Deploy helper</em> copies it over and prints the sudoers line to add, or run the one-line setup command from the Hosts tab on the host as root.</div>
                         {:else if h.code === 'SUDO_DENIED' && h.local}
                             <div class="hint">Add to <code>/etc/sudoers.d/she</code>: <code>she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> — <code>sudo she --install</code> does this.</div>
                         {:else if h.code === 'SUDO_DENIED'}
                             <div class="hint">Allow the helper for <code>{h.ssh?.user}</code> on the host: <code>{h.ssh?.user} ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> in <code>/etc/sudoers.d/she-services</code> — <em>Deploy helper</em> prints the exact commands.</div>
                         {:else if h.code === 'SSH_FAILED'}
-                            <div class="hint">SSH to <code>{h.ssh?.user}@{h.ssh?.host}:{h.ssh?.port}</code> failed — is the services public key (Settings → Services) in that user's <code>~/.ssh/authorized_keys</code>, and the host reachable? The setup command in Settings → Services does the whole host setup in one go.</div>
+                            <div class="hint">SSH to <code>{h.ssh?.user}@{h.ssh?.host}:{h.ssh?.port}</code> failed — is the services public key (Hosts tab) in that user's <code>~/.ssh/authorized_keys</code>, and the host reachable? The setup command in the Hosts tab does the whole host setup in one go.</div>
                         {:else if h.code === 'UNSUPPORTED'}
-                            <div class="hint">The host entry has an <code>ssh</code> block without a <code>host</code> — fix it under Settings → Services.</div>
+                            <div class="hint">The host entry has an <code>ssh</code> block without a <code>host</code> — fix it on the Hosts tab.</div>
                         {/if}
                     </div>
                 {:else}
@@ -252,7 +252,7 @@
                 <div class="muted">
                     {list.length} instance{list.length === 1 ? '' : 's'} report this host:
                     {#each list as i, idx (i.instance)}{idx > 0 ? ', ' : ''}<span class="mono">{i.instance}</span> ({i.adapter}){/each}.
-                    To manage them, add <span class="mono">{hostname}</span> under Settings → Services → Remote hosts (ssh host, user), then deploy the helper here.
+                    To manage them, add <span class="mono">{hostname}</span> on the Hosts tab (<em>+ Add remote host</em>), then deploy the helper here.
                 </div>
             </div>
         {/each}

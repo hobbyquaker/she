@@ -1,8 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getServicesSshPubkey, generateServicesSshKey, testServicesSsh, createServicesSetupCommand, getServicesSetupState, type AuthMode, type SetupCommand } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, type AuthMode } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
-    import RemoveHelper from './services/RemoveHelper.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
@@ -37,115 +36,7 @@
 
     // Services (xyz2mqtt adapter instances)
     let servicesEnabled = $state(false);
-    let servicesLocal   = $state(true);   // manage the she host itself
-    type RemoteHost = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
-    let servicesRemote  = $state<RemoteHost[]>([]);
-    let servicesPubkey  = $state<string | null>(null);
     let servicesPublishers = $state('hobbyquaker');   // comma-separated npm user names whose packages the catalog lists
-    let daemonUser      = $state('');   // default SSH user for remote hosts = the user she runs as
-    let servicesKeyFile = $state('');
-    let servicesKeyBusy = $state(false);
-    let servicesKeyMsg  = $state('');
-
-    // remote host bootstrap (I9): one-time command shown here, polled until the target calls back
-    let setupCmd = $state<SetupCommand | null>(null);
-    let setupState = $state<'pending' | 'fetched' | 'done' | 'expired' | null>(null);
-    let setupHost = $state('');
-    let setupBusy = $state(false);
-    let setupErr = $state('');
-    let setupOrigin = $state(location.origin);
-    let setupPoll: ReturnType<typeof setInterval> | null = null;
-    let setupCopied = $state(false);
-    function stopSetupPoll() { if (setupPoll) { clearInterval(setupPoll); setupPoll = null; } }
-    async function createSetupCommand() {
-        setupBusy = true; setupErr = ''; setupCmd = null; setupState = null; setupHost = ''; setupCopied = false; stopSetupPoll();
-        try {
-            setupCmd = await createServicesSetupCommand(setupOrigin.trim().replace(/\/+$/, ''));
-            setupState = 'pending';
-            servicesPubkey ||= ' '; // the key exists now
-            loadServicesPubkey();
-            setupPoll = setInterval(async () => {
-                if (!setupCmd) return stopSetupPoll();
-                try {
-                    const st = await getServicesSetupState(setupCmd.token);
-                    setupState = st.status;
-                    if (st.status === 'done') {
-                        setupHost = st.host ?? '';
-                        stopSetupPoll();
-                        await reloadServicesHosts();
-                    } else if (st.status === 'expired') {
-                        stopSetupPoll();
-                    }
-                } catch { /* keep polling */ }
-            }, 3000);
-        } catch (e: any) {
-            setupErr = e.message ?? String(e);
-        } finally {
-            setupBusy = false;
-        }
-    }
-    /** the daemon added a host entry → refresh the list from config.json so a later Save keeps it */
-    async function reloadServicesHosts() {
-        try {
-            const cfg = await getConfig();
-            const servicesCfg = cfg.services as Record<string, unknown> | undefined;
-            const hostList = Array.isArray(servicesCfg?.hosts) ? (servicesCfg!.hosts as any[]) : [];
-            servicesRemote = hostList.filter(h => h && h.ssh).map(h => ({
-                host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
-                user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
-            }));
-            if (servicesCfg) extra = { ...extra, services: servicesCfg };
-        } catch { /* best effort */ }
-    }
-    async function copySetupCommand() {
-        if (!setupCmd) return;
-        try { await navigator.clipboard.writeText(setupCmd.command); setupCopied = true; setTimeout(() => (setupCopied = false), 2000); } catch { /* clipboard blocked */ }
-    }
-    let hostTest = $state<Record<number, { ok: boolean; msg: string }>>({});
-    let hostTesting = $state<number | null>(null);
-    let hostRemoveOpen = $state<number | null>(null);
-    async function testRemoteHost(i: number) {
-        const h = servicesRemote[i];
-        if (!h?.host.trim()) { hostTest = { ...hostTest, [i]: { ok: false, msg: 'enter a host first' } }; return; }
-        hostTesting = i;
-        try {
-            const r = await testServicesSsh({ host: h.host.trim(), port: h.port, user: h.user.trim(), identityFile: h.identityFile.trim() });
-            hostTest = { ...hostTest, [i]: r.ok ? { ok: true, msg: `helper v${r.helper ?? '?'}` } : { ok: false, msg: `${r.code}: ${r.error}` } };
-        } catch (e: any) {
-            hostTest = { ...hostTest, [i]: { ok: false, msg: e.message ?? String(e) } };
-        } finally {
-            hostTesting = null;
-        }
-    }
-    function addRemoteHost() {
-        servicesRemote = [...servicesRemote, { host: '', port: '', user: '', identityFile: '', hostname: '' }];
-    }
-    function removeRemoteHost(i: number) {
-        servicesRemote = servicesRemote.filter((_, idx) => idx !== i);
-    }
-    async function loadServicesPubkey() {
-        try {
-            const r = await getServicesSshPubkey();
-            servicesPubkey = r.publicKey; servicesKeyFile = r.identityFile;
-        } catch { /* best effort */ }
-        try {
-            daemonUser = (await getDaemonStatus()).user ?? '';
-        } catch { /* best effort */ }
-    }
-    async function generateServicesKey() {
-        if (servicesPubkey && !await dialog.show('A services SSH key already exists. Generating a new one replaces it — every managed host needs the new public key afterwards.', { confirm: 'Replace key', danger: true })) return;
-        servicesKeyBusy = true; servicesKeyMsg = '';
-        try {
-            const r = await generateServicesSshKey();
-            servicesPubkey = r.publicKey; servicesKeyFile = r.identityFile;
-            servicesKeyMsg = 'Key generated — add the public key to ~/.ssh/authorized_keys of the SSH user on each host.';
-        } catch (e: any) {
-            servicesKeyMsg = e.message ?? String(e);
-        } finally {
-            servicesKeyBusy = false;
-        }
-    }
-
     // Matter controller
     let matterEnabled  = $state(false);
     let matterStorage  = $state('');   // path; empty = use daemon default (<data-dir>/matter)
@@ -456,15 +347,8 @@
             const servicesCfg = cfg.services as Record<string, unknown> | undefined;
             servicesEnabled = servicesCfg?.enabled === true;
             if (servicesCfg) extra = { ...extra, services: servicesCfg };
-            const hostList = Array.isArray(servicesCfg?.hosts) ? (servicesCfg!.hosts as any[]) : null;
-            servicesLocal = hostList ? hostList.some(h => h && !h.ssh) : true;
-            servicesRemote = (hostList ?? []).filter(h => h && h.ssh).map(h => ({
-                host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
-                user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
-            }));
             const tp = servicesCfg?.trustedPublishers;
             servicesPublishers = Array.isArray(tp) ? tp.join(', ') : 'hobbyquaker';
-            if (servicesEnabled) loadServicesPubkey();
         } catch (e: any) {
             errMsg = e.message;
         } finally {
@@ -639,20 +523,8 @@
         const { enabled: _sIgnored, hosts: _hIgnored, trustedPublishers: _tpIgnored, ...servicesRest } = servicesExtra;
         const publishers = servicesPublishers.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
         if (publishers.join(',') !== 'hobbyquaker') servicesRest.trustedPublishers = publishers; // default stays implicit
-        // host list: the she host (unless unticked) plus the remote entries; hostname captured by the daemon is kept
-        const hostsOut: Record<string, unknown>[] = [];
-        if (servicesLocal) hostsOut.push({ name: 'local' });
-        for (const h of servicesRemote) {
-            if (!h.host.trim()) continue;
-            const ssh: Record<string, unknown> = { host: h.host.trim() };
-            if (h.port !== '' && Number(h.port) > 0) ssh.port = Number(h.port);
-            if (h.user.trim()) ssh.user = h.user.trim();
-            if (h.identityFile.trim()) ssh.identityFile = h.identityFile.trim();
-            // the entry is identified by its ssh host (the daemon names nameless entries after it)
-            hostsOut.push({ ...(h.hostname.trim() ? { hostname: h.hostname.trim() } : {}), ssh });
-        }
-        const hostsChanged = !servicesLocal || hostsOut.length > 1 || Array.isArray(servicesExtra.hosts);
-        const servicesOut: Record<string, unknown> = { ...servicesRest, ...(hostsChanged ? { hosts: hostsOut } : {}) };
+        // the host list is edited on the Adapters page → kept as it is
+        const servicesOut: Record<string, unknown> = { ...servicesRest, ...(Array.isArray(servicesExtra.hosts) ? { hosts: servicesExtra.hosts } : {}) };
         if (servicesEnabled) {
             cfg.services = { ...servicesOut, enabled: true };
         } else if (Object.keys(servicesOut).length > 0) {
@@ -934,80 +806,15 @@
                             {@render tip('Shows the Adapters page (main menu): inventory of the xyz2mqtt adapter instances seen on the broker (mqtt-interfaces-core convention), restart and log level over their maintenance topics, update check, and management of the instances installed on this host via systemd.')}
                         </label>
                         <label class="check-label">
-                            <input type="checkbox" bind:checked={servicesEnabled} onchange={() => { if (servicesEnabled) loadServicesPubkey(); }} />
+                            <input type="checkbox" bind:checked={servicesEnabled} />
                             <span class="checkmark"></span>
                             Service management
                         </label>
                     </div>
                     {#if servicesEnabled}
-                    <div class="field field--check">
-                        <label>
-                            This host
-                            {@render tip('Manage the adapter instances installed on the she host itself through the she-servicectl helper (installed by sudo she --install). Untick e.g. when she runs in Docker.')}
-                        </label>
-                        <label class="check-label">
-                            <input type="checkbox" bind:checked={servicesLocal} />
-                            <span class="checkmark"></span>
-                            Manage adapters on this host
-                        </label>
-                    </div>
                     <div class="field">
-                        <label>
-                            Remote hosts
-                            {@render tip('Hosts reached over SSH. Each needs the services public key in the SSH user\'s authorized_keys and the she-servicectl helper (Services → Hosts → Deploy helper prints what to run). Leave the user empty to log in as the user she runs as. Instances can take she\'s MQTT settings with one switch in their config form.')}
-                        </label>
-                        <div class="svc-hosts">
-                            {#each servicesRemote as h, i (i)}
-                                <div class="svc-host">
-                                    <div class="svc-host-grid">
-                                        <label><span>host</span><input type="text" placeholder="zigbee.lan" bind:value={h.host} spellcheck="false" /></label>
-                                        <label><span>port</span><input type="number" placeholder="22" bind:value={h.port} /></label>
-                                        <label><span>user</span><input type="text" placeholder={daemonUser ? `${daemonUser} (default)` : 'default: user she runs as'} bind:value={h.user} spellcheck="false" /></label>
-                                        <label class="wide"><span>identity file</span><input type="text" placeholder="services key (default)" bind:value={h.identityFile} spellcheck="false" /></label>
-                                        <div class="svc-host-test">
-                                            <button type="button" class="svc-add" onclick={() => testRemoteHost(i)} disabled={hostTesting !== null}>{hostTesting === i ? 'Testing…' : 'Test connection'}</button>
-                                            {#if hostTest[i]}<span class="svc-test-mark" class:svc-ok={hostTest[i].ok} class:svc-err={!hostTest[i].ok} title={hostTest[i].msg}>{hostTest[i].ok ? '✓' : `✗ ${hostTest[i].msg}`}</span>{/if}
-                                            <span class="svc-spacer"></span>
-                                            {#if h.host.trim()}<button type="button" class="svc-add" onclick={() => (hostRemoveOpen = hostRemoveOpen === i ? null : i)} title="Remove she from the host (saved hosts only): this she's SSH key, or everything the setup command created">Remove from host…</button>{/if}
-                                        </div>
-                                        {#if hostRemoveOpen === i}
-                                            <div class="svc-host-remove"><RemoveHelper host={h.host.trim()} label={h.hostname || h.host} onclose={() => (hostRemoveOpen = null)} ondone={() => { hostRemoveOpen = null; reloadServicesHosts(); }} /></div>
-                                        {/if}
-                                    </div>
-                                    <button type="button" class="svc-rm" title="Remove host" onclick={() => removeRemoteHost(i)}>×</button>
-                                </div>
-                            {/each}
-                            <button type="button" class="svc-add" onclick={addRemoteHost}>+ Add remote host</button>
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label>
-                            Set up a remote host
-                            {@render tip('One command to run as root on the target host: creates the user she-services, installs she\'s SSH key, the she-servicectl helper and its single sudoers rule, then registers the host here. The command is valid for 15 minutes and works once. The sha256 lets you verify the script if you prefer to download and read it first.')}
-                        </label>
-                        <div class="svc-setup">
-                            <div class="svc-setup-row">
-                                <span class="feature-desc" style="padding-left:0">she reachable from the host at</span>
-                                <input type="text" bind:value={setupOrigin} spellcheck="false" style="width:260px" />
-                                <button type="button" class="svc-add" onclick={createSetupCommand} disabled={setupBusy}>{setupBusy ? 'Preparing…' : 'Create setup command'}</button>
-                            </div>
-                            {#if setupErr}<div class="feature-desc svc-err" style="padding-left:0">{setupErr}</div>{/if}
-                            {#if setupCmd}
-                                <div class="svc-setup-box">
-                                    <div class="svc-setup-cmd"><code>{setupCmd.command}</code><button type="button" class="svc-add" onclick={copySetupCommand}>{setupCopied ? 'Copied' : 'Copy'}</button></div>
-                                    <div class="feature-desc" style="padding-left:0">
-                                        Run this as root on the target. Creates <code>{setupCmd.user}</code>, valid until {new Date(setupCmd.expires).toLocaleTimeString()}, single use.
-                                        To read it first: <code>curl -fsSL '{setupCmd.scriptUrl}' -o she-setup.sh</code> — sha256 <code class="sha">{setupCmd.sha256}</code>
-                                    </div>
-                                    <div class="feature-desc" style="padding-left:0">
-                                        {#if setupState === 'pending'}⏳ waiting for the host to fetch the script…
-                                        {:else if setupState === 'fetched'}⏳ script fetched, running on the host…
-                                        {:else if setupState === 'done'}<span class="svc-ok">✓ host {setupHost} registered as <code>{setupCmd.user}</code> — it is in the list above; save when done, then check Services → Adapters.</span>
-                                        {:else if setupState === 'expired'}command expired — create a new one.{/if}
-                                    </div>
-                                </div>
-                            {/if}
-                        </div>
+                        <label for="svc-hosts-link">Hosts</label>
+                        <div class="feature-desc" style="padding-left:0">Which hosts she manages adapters on — this host, remote hosts over SSH, the setup command and the SSH key — lives on the Adapters page: <button id="svc-hosts-link" type="button" class="link-btn" onclick={() => { location.hash = 'adapters'; localStorage.setItem('she-services-tab', 'hostsconf'); }}>open Adapters → Hosts</button></div>
                     </div>
                     <div class="field">
                         <label>
@@ -1015,24 +822,6 @@
                             {@render tip('npm user names. The Catalog tab lists their packages whose latest version depends on mqtt-interfaces-core, and only those can be installed from she. Comma-separated.')}
                         </label>
                         <input type="text" bind:value={servicesPublishers} spellcheck="false" placeholder="hobbyquaker" style="max-width:420px" />
-                    </div>
-                    <div class="field">
-                        <label>
-                            SSH key
-                            {@render tip('One Ed25519 key for all managed hosts, stored in the data directory. Add the public key to ~/.ssh/authorized_keys of the SSH user on every remote host.')}
-                        </label>
-                        <div class="svc-key">
-                            {#if servicesPubkey}
-                                <textarea readonly rows="2" spellcheck="false">{servicesPubkey}</textarea>
-                                <div class="feature-desc" style="padding-left:0">{servicesKeyFile}</div>
-                            {:else}
-                                <div class="feature-desc" style="padding-left:0">No services key yet ({servicesKeyFile || 'data-dir/ssh/services_id_ed25519'}).</div>
-                            {/if}
-                            <div>
-                                <button type="button" class="svc-add" onclick={generateServicesKey} disabled={servicesKeyBusy}>{servicesKeyBusy ? 'Generating…' : servicesPubkey ? 'Regenerate key' : 'Generate key'}</button>
-                                {#if servicesKeyMsg}<span class="feature-desc" style="padding-left:8px; display:inline">{servicesKeyMsg}</span>{/if}
-                            </div>
-                        </div>
                     </div>
                     {/if}
                 </section>
@@ -1679,40 +1468,6 @@
     }
 
     /* ── Services: remote host list + key ───────────────────────────── */
-    .svc-hosts { display: flex; flex-direction: column; gap: 6px; }
-    .svc-host {
-        display: flex; align-items: center; gap: 8px;
-        border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; max-width: 640px;
-    }
-    .svc-host-grid { flex: 1; display: grid; grid-template-columns: 3fr 64px 2fr; gap: 4px 8px; min-width: 0; }
-    .svc-host-grid label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .svc-host-grid label.wide { grid-column: 1 / -1; }
-    .svc-host-test { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
-    .svc-spacer { flex: 1; }
-    .svc-host-remove { grid-column: 1 / -1; }
-    .svc-setup { display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
-    .svc-setup-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .svc-setup-box { border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
-    .svc-setup-cmd { display: flex; align-items: center; gap: 8px; }
-    .svc-setup-cmd code { flex: 1; font-family: var(--font-mono, monospace); font-size: 11px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 4px 6px; word-break: break-all; user-select: all; }
-    .svc-setup code.sha { word-break: break-all; }
-    .svc-err { color: var(--fg-err, #e74c3c); }
-    .svc-ok { color: var(--fg-ok, #27ae60); }
-    .svc-test-mark { font-size: 12px; }
-    .svc-test-mark.svc-ok { font-weight: 700; }
-    .svc-err { color: var(--fg-err, #e74c3c); }
-    .svc-host-grid label > span { font-size: 10px; color: var(--fg-muted); }
-    .svc-host-grid input { font-size: 12px; padding: 3px 6px; width: 100%; box-sizing: border-box; }
-    .svc-rm, .svc-add {
-        background: none; border: 1px solid var(--border); color: var(--fg-muted);
-        border-radius: 3px; font-size: 12px; padding: 3px 8px; cursor: pointer;
-    }
-    .svc-rm { align-self: center; flex-shrink: 0; width: 26px; height: 26px; padding: 0; line-height: 1; font-size: 15px; }
-    .svc-rm:hover, .svc-add:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
-    .svc-add { align-self: flex-start; }
-    .svc-add:disabled { opacity: 0.5; cursor: default; }
-    .svc-key { display: flex; flex-direction: column; gap: 6px; }
-    .svc-key textarea { font-family: var(--font-mono, monospace); font-size: 11px; width: 100%; max-width: 640px; resize: vertical; }
 
     /* ── feature toggle (enable/disable sections) ─────────────────── */
     .feature-toggle {
@@ -1878,4 +1633,5 @@
         border-radius: 3px;
         overflow: hidden;
     }
+    .link-btn { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font-size: inherit; text-decoration: underline; }
 </style>

@@ -1,14 +1,15 @@
 <script lang="ts">
     import Instances from './services/Instances.svelte';
     import Hosts from './services/Hosts.svelte';
+    import HostsConfig from './services/HostsConfig.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
     let { onstatus }: { onstatus?: (status: Status, title: string) => void } = $props();
 
-    type SubTab = 'instances' | 'hosts';
+    type SubTab = 'instances' | 'hosts' | 'hostsconf';
     const TAB_KEY = 'she-services-tab';
     const stored = localStorage.getItem(TAB_KEY); // may still hold the retired 'catalog' tab
-    let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? 'hosts' : 'instances');
+    let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? 'hosts' : stored === 'hostsconf' ? 'hostsconf' : 'instances');
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
 
     // bump to make the Instances tab reload after host-side changes (update, install)
@@ -18,12 +19,14 @@
 <div class="services-page">
     <div class="sub-nav">
         <button class:active={tab === 'instances'} onclick={() => (tab = 'instances')}>Instances</button>
-        <button class:active={tab === 'hosts'} onclick={() => (tab = 'hosts')}>Adapters</button>
+        <button class:active={tab === 'hosts'} onclick={() => (tab = 'hosts')}>Installations</button>
+        <button class:active={tab === 'hostsconf'} onclick={() => (tab = 'hostsconf')}>Hosts</button>
     </div>
 
     <!-- tabs stay mounted: switching must not re-run the host listing -->
     <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances {onstatus} {generation} /></div>
     <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => generation++} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'hostsconf'}><HostsConfig onchanged={() => generation++} /></div>
 </div>
 
 <style>
