@@ -152,7 +152,7 @@
                     <span class="title">{group.name}</span>
                     <span class="muted">changed {fmt(group.changed)}</span>
                     <span class="spacer"></span>
-                    <label class="reveal"><input type="checkbox" bind:checked={reveal} /> show while typing</label>
+                    <label class="reveal check-label"><input type="checkbox" bind:checked={reveal} /><span class="checkmark"></span> show while typing</label>
                     <button class="ghost sm danger" onclick={() => removeGroup(group!.name)} disabled={busy || locked}>Delete group</button>
                 </div>
                 <table>
@@ -221,7 +221,8 @@
     .group .name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
     .group .count { font-size: 11px; color: var(--fg-muted); }
     .add-group { display: flex; gap: 4px; padding: 8px 12px; margin-top: auto; border-top: 1px solid var(--border); }
-    .add-group input { flex: 1; min-width: 0; }
+    .add-group input { flex: 1; min-width: 0; font-size: 12px; padding: 3px 6px; background: var(--bg-input, var(--bg)); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; }
+    .add-group input::placeholder, .val input::placeholder, .val textarea::placeholder, td > input::placeholder { color: var(--fg-muted); opacity: 0.8; }
     .empty { padding: 12px; }
     .fields { flex: 1; min-width: 0; overflow: auto; display: flex; flex-direction: column; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -233,7 +234,12 @@
     .val { display: flex; gap: 6px; align-items: flex-start; }
     .val input, .val textarea, td > input { flex: 1; min-width: 0; width: 100%; box-sizing: border-box; font-size: 12px; padding: 3px 6px; background: var(--bg-input, var(--bg)); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; font-family: var(--font-mono, monospace); }
     .val textarea { resize: vertical; }
-    .reveal { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--fg-muted); cursor: pointer; }
+    .reveal { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-muted); cursor: pointer; user-select: none; white-space: nowrap; }
+    .check-label input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 3px; background: var(--bg-input); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .check-label input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .check-label input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .check-label:hover .checkmark { border-color: var(--accent); }
     .hint { padding: 10px 12px; color: var(--fg-muted); font-size: 12px; line-height: 1.5; }
     button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: default; }
