@@ -1226,7 +1226,13 @@ export function getServiceSchema(
     return request('GET', `${svcAdapter(host, adapter)}/schema${refresh ? '?refresh=1' : ''}`);
 }
 
-export function installService(host: string, adapter: string, instance: string, env: Record<string, string>, brokerMode: BrokerMode = 'own'): Promise<{ ok: boolean; output: string }> {
+export function installService(
+    host: string,
+    adapter: string,
+    instance: string,
+    env: Record<string, string>,
+    brokerMode: BrokerMode = 'own',
+): Promise<{ ok: boolean; output: string }> {
     return request('POST', `${svcAdapter(host, adapter)}/install`, { instance, env, brokerMode });
 }
 
@@ -1263,7 +1269,15 @@ export function getServiceEnv(
     host: string,
     adapter: string,
     instance: string,
-): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null; envPrefix: string; brokerMode: BrokerMode; sheBroker: SheBrokerInfo | null; dynsec: DynsecInfo }> {
+): Promise<{
+    env: Record<string, string>;
+    secrets: string[];
+    schema: ServiceSchema | null;
+    envPrefix: string;
+    brokerMode: BrokerMode;
+    sheBroker: SheBrokerInfo | null;
+    dynsec: DynsecInfo;
+}> {
     return request('GET', `${svcUnit(host, adapter, instance)}/env`);
 }
 
