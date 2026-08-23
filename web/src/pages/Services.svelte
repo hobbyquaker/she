@@ -1,23 +1,14 @@
 <script lang="ts">
     import Instances from './services/Instances.svelte';
     import Hosts from './services/Hosts.svelte';
-    import type { AddPreset } from './services/AddInstance.svelte';
-    import Catalog from './services/Catalog.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
     let { onstatus }: { onstatus?: (status: Status, title: string) => void } = $props();
 
-    type SubTab = 'instances' | 'hosts' | 'catalog';
+    type SubTab = 'instances' | 'hosts';
     const TAB_KEY = 'she-services-tab';
-    const stored = localStorage.getItem(TAB_KEY) as SubTab | null;
-    let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? stored : 'instances');
-    // Catalog install → the Adapters tab with the add form open for that host + adapter
-    let addRequest = $state<AddPreset | null>(null);
-    let addN = 0;
-    function requestAdd(host: string, adapter: string) {
-        addRequest = { host, adapter, n: ++addN };
-        tab = 'hosts';
-    }
+    const stored = localStorage.getItem(TAB_KEY); // may still hold the retired 'catalog' tab
+    let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? 'hosts' : 'instances');
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
 
     // bump to make the Instances tab reload after host-side changes (update, install)
@@ -28,13 +19,11 @@
     <div class="sub-nav">
         <button class:active={tab === 'instances'} onclick={() => (tab = 'instances')}>Instances</button>
         <button class:active={tab === 'hosts'} onclick={() => (tab = 'hosts')}>Adapters</button>
-        <button class:active={tab === 'catalog'} onclick={() => (tab = 'catalog')}>Catalog</button>
     </div>
 
     <!-- tabs stay mounted: switching must not re-run the host listing -->
     <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances {onstatus} {generation} /></div>
-    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => generation++} {addRequest} /></div>
-    <div class="tab-wrap" class:hidden={tab !== 'catalog'}><Catalog oninstalled={(host, adapter) => { generation++; requestAdd(host, adapter); }} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => generation++} /></div>
 </div>
 
 <style>

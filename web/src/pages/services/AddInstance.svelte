@@ -8,7 +8,8 @@
     import SchemaForm from './SchemaForm.svelte';
 
     export interface AddPreset { host: string; adapter: string; n: number }
-    let { oninstalled, preset = null }: { oninstalled?: (host: string, adapter: string, instance: string) => void; preset?: AddPreset | null } = $props();
+    let { oninstalled, preset = null, onclose }: { oninstalled?: (host: string, adapter: string, instance: string) => void; preset?: AddPreset | null; onclose?: () => void } = $props();
+    let loadingHosts = $state(true);
 
     let hosts     = $state<ServiceHost[]>([]);
     let hostName  = $state('');
@@ -43,6 +44,8 @@
             if (first) hostName = first.name;
         } catch (e: any) {
             error = e.message ?? String(e);
+        } finally {
+            loadingHosts = false;
         }
     });
 
@@ -55,10 +58,13 @@
         }
     });
     async function applyPreset(p: AddPreset) {
+        loadingHosts = true;
         try {
             hosts = (await getServiceHosts()).hosts;
         } catch {
             /* keep the list we have */
+        } finally {
+            loadingHosts = false;
         }
         if (done) reset();
         hostName = p.host;
@@ -119,9 +125,11 @@
                 <strong>{adapter}@{instance}</strong> installed on {hostName} and started. It shows up in the Instances tab as soon as it publishes <code>{instance}/connected</code>.
             </div>
             <pre class="out mono">{output}</pre>
-            <button class="ghost" onclick={reset}>Add another</button>
+            {#if onclose}<button class="ghost" onclick={onclose}>← Back to adapters</button>{:else}<button class="ghost" onclick={reset}>Add another</button>{/if}
         {:else}
-            {#if preset}
+            {#if loadingHosts}
+                <div class="loading"><span class="spinner"></span> Asking the hosts…</div>
+            {:else if preset}
                 <div class="step fixed">
                     <span><span class="lbl">Host</span> <span class="mono">{host?.hostname ?? hostName}</span></span>
                     <span><span class="lbl">Adapter</span> <span class="mono">{adapter}{#if adapters.find(a => a.name === adapter)?.version} {adapters.find(a => a.name === adapter)?.version}{/if}</span></span>
@@ -162,7 +170,7 @@
                 </div>
 
                 {#if loadingSchema}
-                    <div class="muted">Reading {adapter} --config-schema…</div>
+                    <div class="loading"><span class="spinner"></span> Reading <span class="mono">{adapter} --config-schema</span> on {host?.hostname ?? hostName}…</div>
                 {:else if schemaErr}
                     <div class="err-box">{schemaErr}</div>
                 {:else if schema}
@@ -200,4 +208,7 @@
     .ok-box { background: rgba(39,174,96,0.12); border: 1px solid rgba(39,174,96,0.35); border-radius: 3px; padding: 6px 10px; }
     .ok-box code { color: var(--accent); }
     pre.out { margin: 0; max-height: 240px; overflow: auto; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; white-space: pre-wrap; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+    .loading { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); padding: 18px 0; }
 </style>
