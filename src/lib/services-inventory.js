@@ -69,6 +69,21 @@ function parseInfo(val) {
     return v;
 }
 
+/** `<name>/maintenance/stats` payload (core 0.8+): numbers only, anything else → null. */
+function parseStats(v) {
+    if (typeof v === 'string') {
+        try {
+            v = JSON.parse(v);
+        } catch {
+            return null;
+        }
+    }
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    const out = {};
+    for (const k of ['rss', 'heapUsed', 'heapTotal', 'cpu', 'eventLoopLag', 'uptime', 'ts']) if (typeof v[k] === 'number' && Number.isFinite(v[k])) out[k] = v[k];
+    return typeof out.rss === 'number' ? out : null;
+}
+
 /**
  * Derive the service inventory from the retained MQTT state.
  *
@@ -80,11 +95,17 @@ function analyzeServices(entries, opts = {}) {
     const now = opts.now ?? Date.now();
     const infos = new Map(); // instance → {info, ts}
     const conns = new Map(); // instance → {connected, ts, lc}
+    const stats = new Map(); // instance → {stats, ts}  (<name>/maintenance/stats, core 0.8+)
     const topics = new Set();
 
     for (const [topic, obj] of entries) {
         topics.add(topic);
         const slash = topic.indexOf('/');
+        if (slash > 0 && topic.slice(slash) === '/maintenance/stats') {
+            const st = parseStats(obj && obj.val);
+            if (st) stats.set(topic.slice(0, slash), { stats: st, ts: obj.ts });
+            continue;
+        }
         if (slash <= 0 || topic.indexOf('/', slash + 1) !== -1) continue; // exactly two levels
         const instance = topic.slice(0, slash);
         const leaf = topic.slice(slash + 1);
@@ -129,6 +150,7 @@ function analyzeServices(entries, opts = {}) {
             connectedTs: c ? c.ts : null,
             connectedLc: c ? (c.lc ?? c.ts) : null,
             infoTs: i ? i.ts : null,
+            stats: stats.has(instance) && connected !== null && connected > 0 ? { ...stats.get(instance).stats, receivedTs: stats.get(instance).ts } : null,
             statusTopics,
             info,
         });

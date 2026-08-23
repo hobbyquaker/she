@@ -16,7 +16,8 @@
 # a wrapper or symlink /usr/local/bin/<adapter>.
 #
 #   she-servicectl version
-#   she-servicectl list                                            (adapters = template units + npm packages with mqttInterfaces)
+#   she-servicectl list                                            (adapters = template units + npm packages with mqttInterfaces; instances carry
+#                                                                  systemd's MemoryCurrent / CPUUsageNSec for the dashboard)
 #   she-servicectl unit   <adapter> <instance> start|stop|restart|enable|disable|status
 #   she-servicectl logs   <adapter> <instance> [-n N] [--follow]
 #   she-servicectl env    <adapter> <instance> read|write        (write: file on stdin)
@@ -40,7 +41,7 @@
 
 set -eu
 
-VERSION=9
+VERSION=10
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -314,15 +315,20 @@ cmd_list() {
             valid_instance "$i" || continue
             [ $first -eq 1 ] || printf ','
             first=0
-            show=$(systemctl show -p ActiveState -p SubState -p UnitFileState -p ExecMainStartTimestamp -p NRestarts "$a@$i.service" 2>/dev/null || true)
+            show=$(systemctl show -p ActiveState -p SubState -p UnitFileState -p ExecMainStartTimestamp -p NRestarts -p MainPID -p MemoryCurrent -p CPUUsageNSec "$a@$i.service" 2>/dev/null || true)
             active=$(printf '%s\n' "$show" | sed -n 's/^ActiveState=//p')
+            pid=$(printf '%s\n' "$show" | sed -n 's/^MainPID=//p')
+            mem=$(printf '%s\n' "$show" | sed -n 's/^MemoryCurrent=//p')
+            cpuns=$(printf '%s\n' "$show" | sed -n 's/^CPUUsageNSec=//p')
+            case "$mem" in *[!0-9]*|'') mem=null ;; esac
+            case "$cpuns" in *[!0-9]*|'') cpuns=null ;; esac
             sub=$(printf '%s\n' "$show" | sed -n 's/^SubState=//p')
             uf=$(printf '%s\n' "$show" | sed -n 's/^UnitFileState=//p')
             since=$(printf '%s\n' "$show" | sed -n 's/^ExecMainStartTimestamp=//p')
             nr=$(printf '%s\n' "$show" | sed -n 's/^NRestarts=//p')
-            printf '{"adapter":"%s","instance":"%s","active":"%s","sub":"%s","unitFile":"%s","since":"%s","restarts":%s}' \
+            printf '{"adapter":"%s","instance":"%s","active":"%s","sub":"%s","unitFile":"%s","since":"%s","restarts":%s,"pid":%s,"memory":%s,"cpuNs":%s}' \
                 "$a" "$i" "$(json_escape "$active")" "$(json_escape "$sub")" "$(json_escape "$uf")" \
-                "$(json_escape "$since")" "${nr:-0}"
+                "$(json_escape "$since")" "${nr:-0}" "${pid:-0}" "$mem" "$cpuns"
         done
     done
     printf ']}\n'

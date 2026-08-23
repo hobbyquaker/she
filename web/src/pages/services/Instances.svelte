@@ -268,6 +268,11 @@
         if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
         return `${Math.floor(s / 86400)}d ago`;
     }
+    function fmtBytes(b: number): string {
+        if (b < 1024 * 1024) return `${Math.round(b / 1024)} kB`;
+        if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+        return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    }
     function fmtDate(ts: number | null): string {
         return ts ? new Date(ts).toLocaleString() : '';
     }
@@ -322,6 +327,8 @@
                             <th>Host</th>
                             <th>State</th>
                             <th>Uptime</th>
+                            <th class="num" title="resident memory — reported by the adapter (core 0.8+) or by systemd on the host">Mem</th>
+                            <th class="num" title="share of one core — reported by the adapter over its stats interval, or from systemd between two host listings">CPU</th>
                             <th>Log level</th>
                             <th class="c-act"></th>
                         </tr>
@@ -329,6 +336,7 @@
                     <tbody>
                         {#each visible as r (r.key)}
                             {@const st = connState(r)}
+                            {@const ps = r.mqtt?.stats}
                             <tr class:down={st.cls === 'err'} class:selected={detail?.key === r.key}>
                                 <td>
                                     <button class="dname dname-link" onclick={() => openDetail(r)} title={r.host && r.unit ? `Config, logs and info of ${r.instance}` : `Info of ${r.instance}`}>{r.instance}</button>
@@ -354,6 +362,8 @@
                                     {#if r.unit && r.unit.unitFile === 'disabled'}<span class="muted"> · disabled</span>{/if}
                                 </td>
                                 <td>{fmtUptime(r)}</td>
+                                <td class="num" title={ps ? `adapter: rss ${fmtBytes(ps.rss)}${ps.heapUsed ? `, heap ${fmtBytes(ps.heapUsed)}` : ''}${ps.eventLoopLag !== undefined ? `, event loop lag ${ps.eventLoopLag} ms` : ''} (${fmtAge(ps.receivedTs)})` : r.unit?.memory ? `systemd on ${r.host?.hostname ?? r.host?.name}: MemoryCurrent` : ''}>{ps ? fmtBytes(ps.rss) : r.unit?.memory ? fmtBytes(r.unit.memory) : '—'}</td>
+                                <td class="num" title={ps && ps.cpu !== undefined ? `adapter: ${ps.cpu} % of one core over its stats interval` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `systemd on ${r.host?.hostname ?? r.host?.name}: since the previous listing` : ''}>{ps && ps.cpu !== undefined ? `${ps.cpu} %` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `${r.unit.cpu} %` : '—'}</td>
                                 <td>
                                     {#if canMaintain(r)}
                                         <select class="lvl" disabled={busy.has(r.key)} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; if (v) { loglevel(r, v); (e.target as HTMLSelectElement).value = ''; } }}>
@@ -496,4 +506,5 @@
         border-radius: 3px; font-size: 11px; padding: 1px 4px;
     }
 
+    th.num, td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 </style>

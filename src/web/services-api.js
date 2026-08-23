@@ -556,6 +556,19 @@ router.get('/hosts', async (req, res) => {
     res.json({ hosts: await promise, cached: false });
 });
 
+/** CPUUsageNSec samples per host + unit → cpu share (% of one core) between two listings. */
+const _cpuSamples = new Map();
+function withCpuShare(hostName, instances, now = Date.now()) {
+    return (instances || []).map((i) => {
+        if (typeof i.cpuNs !== 'number') return i;
+        const key = hostName + '|' + i.adapter + '@' + i.instance;
+        const prev = _cpuSamples.get(key);
+        _cpuSamples.set(key, { cpuNs: i.cpuNs, ts: now });
+        if (!prev || now - prev.ts < 1000 || i.cpuNs < prev.cpuNs) return { ...i, cpu: null };
+        return { ...i, cpu: Math.round(((i.cpuNs - prev.cpuNs) / ((now - prev.ts) * 1e6)) * 1000) / 10 };
+    });
+}
+
 async function listHosts(req) {
     return Promise.all(
         hostEntries(req).map(async ({ cfg, driver }) => {
@@ -581,7 +594,7 @@ async function listHosts(req) {
                         }
                     }),
                 );
-                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list, adapters };
+                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list, instances: withCpuShare(cfg.name, list.instances), adapters };
             } catch (err) {
                 return { ...base, ok: false, code: err.code || 'ERROR', error: err.message };
             }

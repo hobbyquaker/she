@@ -1131,6 +1131,8 @@ export interface ServiceInstance {
     connectedTs: number | null;
     connectedLc: number | null;
     infoTs: number | null;
+    /** <name>/maintenance/stats (core 0.8+), only while connected; receivedTs = when the broker state saw it */
+    stats: { rss: number; heapUsed?: number; heapTotal?: number; cpu?: number; eventLoopLag?: number; uptime?: number; ts?: number; receivedTs: number } | null;
     statusTopics: number;
     info: Record<string, unknown> | null;
     latestVersion: string | null;
@@ -1200,6 +1202,11 @@ export interface ServiceHostInstance {
     unitFile: string; // enabled | disabled | …
     since: string;
     restarts: number;
+    pid?: number;
+    /** systemd accounting (helper v10): MemoryCurrent in bytes, CPUUsageNSec, and the cpu share (% of one core) since the previous listing */
+    memory?: number | null;
+    cpuNs?: number | null;
+    cpu?: number | null;
 }
 
 export interface ServiceHost {

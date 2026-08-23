@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '9');
+        console.log(process.env.FAKE_HELPER_VERSION || '10');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 9),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 10),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -40,7 +40,20 @@ switch (cmd) {
                         unit: false,
                     },
                 ],
-                instances: [{ adapter: 'cul2mqtt', instance: 'cul', active: 'active', sub: 'running', unitFile: 'enabled', since: 'Sat 2026-08-22 10:00:00 CEST', restarts: 0 }],
+                instances: [
+                    {
+                        adapter: 'cul2mqtt',
+                        instance: 'cul',
+                        active: 'active',
+                        sub: 'running',
+                        unitFile: 'enabled',
+                        since: 'Sat 2026-08-22 10:00:00 CEST',
+                        restarts: 0,
+                        pid: 4242,
+                        memory: 52428800,
+                        cpuNs: Number(process.env.FAKE_CPU_NS || 1000000000),
+                    },
+                ],
                 legacy: [
                     {
                         adapter: 'alexa-remote-mqtt',
@@ -120,7 +133,7 @@ switch (cmd) {
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 8 -> 9 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 9 -> 10 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(
