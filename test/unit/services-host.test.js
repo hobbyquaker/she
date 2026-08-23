@@ -149,7 +149,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 4, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 5, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -404,7 +404,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 4 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 5 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -415,7 +415,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 4, method: 'self-update', user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 5, method: 'self-update', user: 'she' });
             expect(fs.readFileSync(logFile + '.selfupdate', 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             r = await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy');
             expect(r.body).toMatchObject({ ok: true, method: 'self-update' });
@@ -425,7 +425,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup({ FAKE_NO_SELF_UPDATE: '1' });
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 4, user: 'she', method: 'install' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 5, user: 'she', method: 'install' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             await new Promise((res) => server.close(res));
             server = null;
@@ -532,7 +532,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 4 });
+        expect(r.body).toEqual({ ok: true, helper: 5 });
     });
 });
 
@@ -913,5 +913,70 @@ describe('catalog routes (I7)', () => {
         const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/wiim2mqtt/install-package');
         expect(r.status).toBe(200);
         expect(calls()[0].args).toEqual(['npm', 'wiim2mqtt', 'install']);
+    });
+});
+
+describe('legacy single-instance units', () => {
+    let server;
+    let port;
+    let logFile;
+    const calls = () =>
+        fs
+            .readFileSync(logFile, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => JSON.parse(l));
+    beforeAll(async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-legacy-'));
+        logFile = path.join(dir, 'calls.log');
+        const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: path.join(dir, 'state.json') };
+        fs.writeFileSync(path.join(dir, 'state.json'), '{}');
+        api.setDriverFactory((h) => host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env }));
+        api.init(new StateStore(), () => null);
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = null;
+        app.use('/she/services', api.router);
+        server = http.createServer(app);
+        await new Promise((r) => server.listen(0, '127.0.0.1', r));
+        port = server.address().port;
+    });
+    afterAll(async () => {
+        await new Promise((r) => server.close(r));
+    });
+    beforeEach(() => fs.writeFileSync(logFile, ''));
+
+    test('GET /hosts reports legacy units', async () => {
+        const r = await httpRequest('GET', port, '/she/services/hosts?refresh=1');
+        expect(r.body.hosts[0].legacy).toEqual([
+            {
+                adapter: 'alexa-remote-mqtt',
+                unit: 'alexa-remote-mqtt.service',
+                active: 'active',
+                sub: 'running',
+                unitFile: 'enabled',
+                since: 'Sat 2026-08-22 08:20:00 CEST',
+                restarts: 0,
+                envFile: '/etc/default/alexa-remote-mqtt',
+            },
+        ]);
+    });
+
+    test('unit actions, logs and env work with the "-" instance; files/uninstall refused', async () => {
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/units/alexa-remote-mqtt/-/restart')).status).toBe(200);
+        expect(calls()[0].args).toEqual(['unit', 'alexa-remote-mqtt', '-', 'restart']);
+        expect((await httpRequest('GET', port, '/she/services/hosts/local/units/alexa-remote-mqtt/-/logs')).status).toBe(200);
+        const env = await httpRequest('GET', port, '/she/services/hosts/local/units/alexa-remote-mqtt/-/env');
+        expect(env.body.env).toEqual({ ALEXA_REMOTE_MQTT_MQTT_URL: 'mqtt://broker', ALEXA_REMOTE_MQTT_TOPIC_PREFIX: 'alexa' });
+        expect((await httpRequest('GET', port, '/she/services/hosts/local/units/alexa-remote-mqtt/-/files')).status).toBe(400);
+        expect((await httpRequest('DELETE', port, '/she/services/hosts/local/units/alexa-remote-mqtt/-')).status).toBe(400);
+    });
+
+    test('migrate runs the helper and validates the name', async () => {
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/units/alexa-remote-mqtt/-/migrate', { name: 'bad name' })).status).toBe(400);
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/units/alexa-remote-mqtt/-/migrate', { name: 'alexa' });
+        expect(r.status).toBe(200);
+        expect(r.body).toMatchObject({ ok: true, instance: 'alexa' });
+        expect(calls()[0].args).toEqual(['migrate', 'alexa-remote-mqtt', 'alexa']);
     });
 });

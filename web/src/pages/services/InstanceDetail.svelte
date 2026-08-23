@@ -20,6 +20,8 @@
         unit = null,
         mqtt = null,
         hostname = null,
+        label = null,
+        legacy = false,
         onclose,
         onchanged,
         tab = $bindable('config'),
@@ -31,6 +33,10 @@
         unit?: ServiceHostInstance | null;
         mqtt?: ServiceInstance | null;
         hostname?: string | null;
+        /** display name when `instance` is the helper's legacy sentinel */
+        label?: string | null;
+        /** a pre-core <adapter>.service: no Files tab, env file in /etc/default */
+        legacy?: boolean;
         onclose: () => void;
         onchanged?: () => void;
         /** bound by the parent so the tab survives switching to another instance */
@@ -41,6 +47,8 @@
     let managed = $derived(!!host && !!unit && !!adapter);
     // an unmanaged instance has nothing but Info
     $effect(() => { if (!managed && tab !== 'info') tab = 'info'; });
+    // a legacy unit has no managed directories → no Files tab
+    $effect(() => { if (legacy && tab === 'files') tab = 'config'; });
     const h = () => host as string;
     const a = () => adapter as string;
 
@@ -101,7 +109,8 @@
     let logsOpened = $state(false);
     let unsubLog: (() => void) | null = null;
     let renewTimer: ReturnType<typeof setInterval> | null = null;
-    let unitName = $derived(`${adapter}@${instance}`);
+    let unitName = $derived(legacy ? `${adapter}` : `${adapter}@${instance}`);
+    let title = $derived(label ?? instance);
 
     let visibleEntries = $derived.by(() => {
         let re: RegExp | null = null;
@@ -193,7 +202,7 @@
 <div class="detail">
     <div class="head">
         <div>
-            <span class="title">{instance}</span>
+            <span class="title">{title}</span>{#if legacy}<span class="badge" title="pre-core single-instance unit — migrate it from the Instances tab">old unit</span>{/if}
             <span class="sub mono">{adapter ?? (mqtt?.legacy ? 'legacy' : '')}{#if mqtt?.version} @{mqtt.version}{/if} · {host ?? hostname ?? 'not managed'}</span>
             {#if unit}
                 <span class="badge" class:ok={unit.active === 'active'} class:err={unit.active === 'failed'} title="systemd: {unit.active}/{unit.sub}, {unit.unitFile}">{unit.active}{unit.unitFile === 'disabled' ? ' · disabled' : ''}</span>
@@ -204,7 +213,7 @@
     <div class="tabs">
         {#if managed}
             <button class:active={tab === 'config'} onclick={() => (tab = 'config')}>Config</button>
-            <button class:active={tab === 'files'} onclick={() => (tab = 'files')}>Files</button>
+            {#if !legacy}<button class:active={tab === 'files'} onclick={() => (tab = 'files')}>Files</button>{/if}
             <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
         {/if}
         <button class:active={tab === 'info'} onclick={() => (tab = 'info')}>Info</button>
@@ -214,7 +223,7 @@
     {#if tab === 'config'}
         <div class="body">
             {#if cfgLoading}
-                <div class="muted">Loading /etc/{adapter}/{instance}.env…</div>
+                <div class="muted">Loading {legacy ? `/etc/default/${adapter}` : `/etc/${adapter}/${instance}.env`}…</div>
             {:else}
                 {#if cfgError}<div class="err-box">{cfgError}</div>{/if}
                 <SchemaForm {schema} bind:env {secrets} mode="edit" {sheBroker} {dynsec} bind:brokerMode />
@@ -292,13 +301,13 @@
             <div class="info-title" style="margin-top:14px">systemd</div>
             {#if unit}
                 <dl class="kv">
-                    <dt>unit</dt><dd class="mono">{unit.adapter}@{instance}.service</dd>
+                    <dt>unit</dt><dd class="mono">{unitName}.service{#if legacy} <span class="muted">(pre-core layout)</span>{/if}</dd>
                     <dt>host</dt><dd>{host}{#if hostname && hostname !== host} · hostname {hostname}{/if}</dd>
                     <dt>state</dt><dd>{unit.active} / {unit.sub} · {unit.unitFile}</dd>
                     <dt>since</dt><dd>{unit.since || '—'}</dd>
                     <dt>restarts</dt><dd>{unit.restarts}</dd>
-                    <dt>env file</dt><dd class="mono">/etc/{unit.adapter}/{instance}.env</dd>
-                    <dt>state dir</dt><dd class="mono">/var/lib/{unit.adapter}/{instance}/</dd>
+                    <dt>env file</dt><dd class="mono">{legacy ? `/etc/default/${unit.adapter}` : `/etc/${unit.adapter}/${instance}.env`}</dd>
+                    <dt>state dir</dt><dd class="mono">{legacy ? `/var/lib/${unit.adapter}/` : `/var/lib/${unit.adapter}/${instance}/`}</dd>
                 </dl>
             {:else}
                 <div class="muted">{host === null ? 'Not installed on a managed host — or the host is not configured under Settings → Services.' : 'No systemd unit for this instance on the managed host.'}</div>

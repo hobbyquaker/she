@@ -26,7 +26,7 @@ const { execFile, spawn } = require('child_process');
 const sshDeploy = require('./ssh-deploy');
 
 const HELPER = '/usr/local/bin/she-servicectl';
-const HELPER_VERSION = 4; // must match VERSION in service/she-servicectl
+const HELPER_VERSION = 5; // must match VERSION in service/she-servicectl
 /** Default identity for services.hosts[].ssh — one key for all managed hosts (I5). */
 const DEFAULT_SERVICES_IDENTITY = '~/.she/ssh/services_id_ed25519';
 /** The helper as shipped with this she version (copied to remote hosts by the deploy route). */
@@ -182,6 +182,8 @@ function parseList(stdout) {
         brokerEnv: data.brokerEnv === true,
         adapters: Array.isArray(data.adapters) ? data.adapters : [],
         instances: Array.isArray(data.instances) ? data.instances : [],
+        /** pre-core single-instance units (<adapter>.service), helper v5+ */
+        legacy: Array.isArray(data.legacy) ? data.legacy : [],
     };
 }
 

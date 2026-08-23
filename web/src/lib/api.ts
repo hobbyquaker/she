@@ -1140,6 +1140,18 @@ export interface ServiceHostAdapter {
     brokerEnv?: boolean;
 }
 
+/** A pre-core single-instance unit: <adapter>.service with its env file in /etc/default (helper v5+). */
+export interface ServiceLegacyUnit {
+    adapter: string;
+    unit: string;
+    active: string;
+    sub: string;
+    unitFile: string;
+    since: string;
+    restarts: number;
+    envFile: string | null;
+}
+
 export interface ServiceHostInstance {
     adapter: string;
     instance: string;
@@ -1164,6 +1176,15 @@ export interface ServiceHost {
     brokerEnv?: boolean;
     adapters?: ServiceHostAdapter[];
     instances?: ServiceHostInstance[];
+    legacy?: ServiceLegacyUnit[];
+}
+
+/** The helper's sentinel instance for a legacy <adapter>.service */
+export const LEGACY_INSTANCE = '-';
+
+/** Turn a legacy <adapter>.service into <adapter>@<name> via the adapter's own --install; the old unit is retired. */
+export function migrateServiceLegacy(host: string, adapter: string, name: string): Promise<{ ok: boolean; output: string; instance: string }> {
+    return request('POST', `${svcUnit(host, adapter, LEGACY_INSTANCE)}/migrate`, { name });
 }
 
 export interface ServiceSchemaProperty {

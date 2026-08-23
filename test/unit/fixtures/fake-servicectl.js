@@ -19,17 +19,29 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '4');
+        console.log(process.env.FAKE_HELPER_VERSION || '5');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 4),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 5),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
                 adapters: [{ name: 'cul2mqtt', version: '1.1.1', origin: state.origin || 'registry', path: '/usr/local/lib/node_modules/cul2mqtt', node: '/usr/bin/node' }],
                 instances: [{ adapter: 'cul2mqtt', instance: 'cul', active: 'active', sub: 'running', unitFile: 'enabled', since: 'Sat 2026-08-22 10:00:00 CEST', restarts: 0 }],
+                legacy: [
+                    {
+                        adapter: 'alexa-remote-mqtt',
+                        unit: 'alexa-remote-mqtt.service',
+                        active: 'active',
+                        sub: 'running',
+                        unitFile: 'enabled',
+                        since: 'Sat 2026-08-22 08:20:00 CEST',
+                        restarts: 0,
+                        envFile: '/etc/default/alexa-remote-mqtt',
+                    },
+                ],
             }),
         );
         break;
@@ -41,7 +53,8 @@ switch (cmd) {
         console.log(JSON.stringify({ __REALTIME_TIMESTAMP: '1700000001000000', PRIORITY: '4', MESSAGE: 'device unreachable', _PID: '42' }));
         break;
     case 'env':
-        if (args[3] === 'read')
+        if (args[2] === '-' && args[3] === 'read') process.stdout.write('ALEXA_REMOTE_MQTT_MQTT_URL=mqtt://broker\nALEXA_REMOTE_MQTT_TOPIC_PREFIX=alexa\n');
+        else if (args[3] === 'read')
             process.stdout.write('# cul2mqtt instance "cul"\nCUL2MQTT_SERIALPORT=/dev/ttyACM0\nCUL2MQTT_MQTT_PASSWORD=hunter2\nCUL2MQTT_MQTT_URL=mqtt://broker\n');
         else console.log('wrote /etc/cul2mqtt/cul.env');
         break;
@@ -72,10 +85,13 @@ switch (cmd) {
     case 'uninstall':
         console.log('cul2mqtt@' + args[2] + '.service removed.');
         break;
+    case 'migrate':
+        console.log('migrated ' + args[1] + '.service to ' + args[1] + '@' + args[2] + '.service; old unit and env kept as .migrated');
+        break;
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 3 -> 4 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 4 -> 5 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(

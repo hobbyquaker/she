@@ -180,7 +180,7 @@
                                         {#if a.origin === 'manual'}<span class="badge warn-b" title="Deployed by tarball / deploy.sh, not npm install -g — path: {a.path}">manual</span>
                                         {:else}<span class="muted">npm</span>{/if}
                                     </td>
-                                    <td>{(h.instances ?? []).filter(i => i.adapter === a.name).map(i => i.instance).join(', ') || '—'}</td>
+                                    <td>{[...(h.instances ?? []).filter(i => i.adapter === a.name).map(i => i.instance), ...(h.legacy ?? []).filter(l => l.adapter === a.name).map(l => `${l.unit} (old unit)`)].join(', ') || '—'}</td>
                                     <td class="c-act">
                                         <button class="ghost sm" onclick={() => update(h, a.name)} disabled={busy !== null} title="npm install -g {a.name}@latest, then restart its instances">
                                             {busy === `${h.name}/${a.name}` ? 'Updating…' : 'Update'}

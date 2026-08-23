@@ -2,9 +2,10 @@
     import { onMount } from 'svelte';
     import {
         getServiceInstances, restartServiceInstance, setServiceLogLevel, getServiceRetained, wipeServiceRetained,
-        getServiceHosts, serviceUnitAction, uninstallService,
+        getServiceHosts, serviceUnitAction, uninstallService, migrateServiceLegacy, LEGACY_INSTANCE,
         type ServiceInstance, type ServiceHost, type ServiceHostInstance,
     } from '../../lib/api.js';
+    import InputDialog from '../../lib/InputDialog.svelte';
     import { subscribeWs } from '../../lib/ws.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import InstanceDetail from './InstanceDetail.svelte';
@@ -36,6 +37,7 @@
         mqtt: ServiceInstance | null;
         host: ServiceHost | null;      // configured host the unit lives on (null: not managed)
         unit: ServiceHostInstance | null;
+        legacy?: boolean;              // unit is a pre-core <adapter>.service (instance "-" towards the helper)
     };
 
     async function load(refresh = false) {
@@ -89,6 +91,17 @@
                 } else {
                     const key = `${u.instance}@${h.name}`;
                     out.set(key, { key, instance: u.instance, adapter: u.adapter, mqtt: null, host: h, unit: u });
+                }
+            }
+            // pre-core single-instance units: match the MQTT instance of the same adapter on that host
+            for (const l of h.legacy ?? []) {
+                const unit: ServiceHostInstance = { adapter: l.adapter, instance: LEGACY_INSTANCE, active: l.active, sub: l.sub, unitFile: l.unitFile, since: l.since, restarts: l.restarts };
+                const match = [...out.values()].find(r => !r.unit && r.mqtt && r.mqtt.adapter === l.adapter && (!r.mqtt.host || r.mqtt.host === h.hostname));
+                if (match) {
+                    match.host = h; match.unit = unit; match.legacy = true;
+                } else {
+                    const key = `${l.adapter}.service@${h.name}`;
+                    out.set(key, { key, instance: l.adapter, adapter: l.adapter, mqtt: null, host: h, unit, legacy: true });
                 }
             }
         }
@@ -181,6 +194,16 @@
     async function loglevel(r: Row, level: string) {
         return run(r, 'Log level', () => setServiceLogLevel(r.instance, level), `${r.instance}: log level ${level} (until the next restart).`);
     }
+    let inputDialog: { show(msg: string, opts?: { placeholder?: string; initial?: string; confirm?: string }): Promise<string | null> } = $state(null as any);
+    async function migrate(r: Row) {
+        if (!r.host || !r.unit || !r.legacy) return;
+        const name = await inputDialog.show(
+            `Turn ${r.unit.adapter}.service into a proper instance ${r.unit.adapter}@<name>. The adapter's own --install runs with the current settings (state such as logins or pairing keys is carried over by the adapter), then the old unit is disabled and its files are kept as .migrated. Instance name = the MQTT topic prefix:`,
+            { initial: r.mqtt?.instance ?? '', placeholder: 'instance name', confirm: 'Migrate' },
+        );
+        if (!name) return;
+        return run(r, 'Migrate', () => migrateServiceLegacy(r.host!.name, r.unit!.adapter, name.trim()), `${r.unit.adapter}.service migrated to ${r.unit.adapter}@${name.trim()} on ${r.host.name}.`);
+    }
     async function uninstall(r: Row) {
         if (!r.host || !r.unit) return;
         const ok = await dialog.show(
@@ -251,6 +274,7 @@
 </script>
 
 <ConfirmDialog bind:this={dialog} />
+<InputDialog bind:this={inputDialog} />
 <svelte:window onmousemove={onWinMouseMove} onmouseup={onWinMouseUp} />
 
 <div class="svc" class:with-detail={detail !== null} class:resizing={drawerResizing}>
@@ -309,6 +333,7 @@
                                 <td>
                                     <button class="dname dname-link" onclick={() => openDetail(r)} title={r.host && r.unit ? `Config, logs and info of ${r.instance}` : `Info of ${r.instance}`}>{r.instance}</button>
                                     {#if r.mqtt?.legacy}<span class="badge b-legacy" title="No <name>/info topic — adapter not built on mqtt-interfaces-core">legacy</span>{/if}
+                                    {#if r.legacy}<span class="badge b-upd" title="Runs as {r.unit?.adapter}.service (pre-core unit, env in /etc/default) — migrate it to a template instance">old unit</span>{/if}
                                     {#if !r.mqtt && r.unit}<span class="badge b-legacy" title="Installed on {r.host?.name} but nothing retained on MQTT yet">not on MQTT</span>{/if}
                                 </td>
                                 <td>
@@ -354,7 +379,11 @@
                                         {#if r.unit.unitFile === 'disabled'}
                                             <button class="ghost sm" onclick={() => unitAction(r, 'enable')} disabled={busy.has(r.key)} title="Start at boot">Enable</button>
                                         {/if}
-                                        <button class="ghost sm danger-text" onclick={() => uninstall(r)} disabled={busy.has(r.key)}>Uninstall</button>
+                                        {#if r.legacy}
+                                            <button class="ghost sm" onclick={() => migrate(r)} disabled={busy.has(r.key)} title="Turn the old {r.unit.adapter}.service into {r.unit.adapter}@<name>">Migrate</button>
+                                        {:else}
+                                            <button class="ghost sm danger-text" onclick={() => uninstall(r)} disabled={busy.has(r.key)}>Uninstall</button>
+                                        {/if}
                                     {:else}
                                         <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>Info</button>
                                         {#if canMaintain(r)}
@@ -378,7 +407,7 @@
         <div class="drawer-resize-handle" role="separator" aria-orientation="vertical" onmousedown={onDrawerResizeStart}></div>
         {#key detail.key}
             <div class="drawer" style:width={`${drawerWidth}px`}>
-                <InstanceDetail host={detail.host?.name ?? null} adapter={detail.adapter} instance={detail.instance} unit={detail.unit} mqtt={detail.mqtt}
+                <InstanceDetail host={detail.host?.name ?? null} adapter={detail.adapter} instance={detail.legacy ? LEGACY_INSTANCE : detail.instance} label={detail.instance} unit={detail.unit} mqtt={detail.mqtt} legacy={detail.legacy === true}
                     hostname={detail.mqtt?.host ?? detail.host?.hostname ?? null}
                     bind:tab={detailTab} onclose={() => (detailKey = null)} onchanged={() => setTimeout(load, 600)} />
             </div>

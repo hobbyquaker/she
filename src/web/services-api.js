@@ -108,6 +108,8 @@ function getServicesConfig(req) {
 function validInstance(name) {
     return typeof name === 'string' && /^[A-Za-z0-9_.-]+$/.test(name);
 }
+/** The helper's sentinel for a pre-core single-instance unit (<adapter>.service). */
+const LEGACY = '-';
 
 function findInstance(name) {
     if (!_store) return null;
@@ -793,6 +795,21 @@ router.post('/hosts/:host/adapters/:adapter/update', async (req, res) => {
     }
 });
 
+// POST /she/services/hosts/:host/units/:adapter/-/migrate { name } — legacy <adapter>.service → <adapter>@<name>
+router.post('/hosts/:host/units/:adapter/' + LEGACY + '/migrate', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true });
+    if (!entry) return;
+    const name = req.body && req.body.name;
+    if (!validInstance(name) || name === LEGACY) return res.status(400).json({ error: 'invalid instance name' });
+    try {
+        const { stdout } = await entry.driver.exec(['migrate', req.params.adapter, name], { timeout: 120000 });
+        invalidateHosts();
+        res.json({ ok: true, output: stdout, instance: name });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
 // POST /she/services/hosts/:host/units/:adapter/:instance/:action
 router.post('/hosts/:host/units/:adapter/:instance/:action', async (req, res) => {
     const entry = resolve(req, res, { adapter: true, instance: true });
@@ -810,6 +827,7 @@ router.post('/hosts/:host/units/:adapter/:instance/:action', async (req, res) =>
 router.delete('/hosts/:host/units/:adapter/:instance', async (req, res) => {
     const entry = resolve(req, res, { adapter: true, instance: true });
     if (!entry) return;
+    if (req.params.instance === LEGACY) return res.status(400).json({ error: 'a legacy unit is not uninstalled from here — migrate it to an instance first', code: 'LEGACY' });
     try {
         stopFollower(followKey(entry.driver.name, req.params.adapter, req.params.instance));
         let dynsecClient = null;
@@ -967,7 +985,7 @@ router.put('/hosts/:host/units/:adapter/:instance/env', async (req, res) => {
             mode: requestedMode(req.body, brokerModeOf(current)),
             prefix: envPrefixOf(schema, adapter),
             local: entry.driver.local === true,
-            instance,
+            instance: instance === LEGACY ? adapter : instance,
             acl: req.body && req.body.acl,
             rotate: Boolean(req.body && req.body.rotate),
         });
@@ -1043,6 +1061,7 @@ function validFilePath(p) {
 router.get('/hosts/:host/units/:adapter/:instance/files', async (req, res) => {
     const entry = resolve(req, res, { adapter: true, instance: true });
     if (!entry) return;
+    if (req.params.instance === LEGACY) return res.status(400).json({ error: 'legacy units have no managed directories — migrate to an instance first', code: 'LEGACY' });
     const { adapter, instance } = req.params;
     try {
         const env = parseEnvFile((await entry.driver.exec(['env', adapter, instance, 'read'])).stdout);

@@ -29,10 +29,15 @@
 #   she-servicectl file   <adapter> <instance> read|write <path>  a file inside those two directories (write: content on stdin)
 #   she-servicectl asset  <adapter> <relpath>                      a file shipped in the adapter package (example, schema)
 #   she-servicectl self-update                                     replace this script with the one on stdin (she ships it)
+#
+# Legacy units: an adapter installed the pre-core way runs as a plain <adapter>.service with its
+# env file in /etc/default/<adapter>. "list" reports them under "legacy"; unit/logs/env accept "-"
+# as the instance for that unit; "migrate <adapter> <name>" turns it into <adapter>@<name> via the
+# adapter's own --install (which carries state such as pairing keys over) and retires the old unit.
 
 set -eu
 
-VERSION=4
+VERSION=5
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -62,6 +67,33 @@ need_installed() {
 }
 need_instance() {
     valid_instance "$1" || die "invalid instance name: $1"
+}
+
+# a plain <adapter>.service of an npm-installed adapter (pre-core layout)
+legacy_unit() {
+    [ -f "$UNIT_DIR/$1.service" ] || return 1
+    grep -Eq "(/node_modules/$1/|/usr/local/bin/$1( |$))" "$UNIT_DIR/$1.service" 2>/dev/null
+}
+# the env file of a legacy unit: its EnvironmentFile= (leading - stripped), default /etc/default/<adapter>;
+# only /etc/default/<adapter> or something inside /etc/<adapter>/ is accepted
+legacy_env_file() {
+    f=$(sed -n 's/^EnvironmentFile=-\{0,1\}//p' "$UNIT_DIR/$1.service" 2>/dev/null | head -n 1)
+    [ -n "$f" ] || f="/etc/default/$1"
+    case "$f" in "/etc/default/$1"|"/etc/$1/"*) printf '%s' "$f" ;; *) return 1 ;; esac
+}
+# template instance (default) or, with instance "-", the legacy unit
+unit_name() {
+    if [ "$2" = "-" ]; then
+        legacy_unit "$1" || die "no legacy unit $1.service"
+        printf '%s.service' "$1"
+    else
+        need_installed "$1"; need_instance "$2"
+        printf '%s@%s.service' "$1" "$2"
+    fi
+}
+need_any() {
+    need_adapter "$1"
+    installed_adapter "$1" || legacy_unit "$1" || die "no mqtt-interfaces unit for $1"
 }
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
@@ -190,11 +222,19 @@ cmd_list() {
         "$([ -f "$BROKER_ENV" ] && printf 'true' || printf 'false')"
     first=1
     adapters=""
-    for unit in "$UNIT_DIR"/*@.service; do
+    legacy=""
+    for unit in "$UNIT_DIR"/*.service; do
         [ -f "$unit" ] || continue
-        a=$(basename "$unit" @.service)
+        a=$(basename "$unit" .service)
+        case "$a" in *@) continue ;; esac
         valid_adapter "$a" || continue
-        installed_adapter "$a" || continue
+        legacy_unit "$a" || continue
+        installed_adapter "$a" && continue # the template unit lists it below
+        legacy="$legacy $a"
+    done
+    for unit in "$UNIT_DIR"/*@.service $(for a in $legacy; do printf '%s ' "$UNIT_DIR/$a@.service.legacy-placeholder"; done); do
+        case "$unit" in *.legacy-placeholder) a=$(basename "$unit" @.service.legacy-placeholder) ;; *) [ -f "$unit" ] || continue; a=$(basename "$unit" @.service); installed_adapter "$a" || continue ;; esac
+        valid_adapter "$a" || continue
         adapters="$adapters $a"
         [ $first -eq 1 ] || printf ','
         first=0
@@ -204,9 +244,30 @@ cmd_list() {
             "$([ -n "$dir" ] && printf '"%s"' "$(json_escape "$dir")" || printf 'null')" \
             "$(json_escape "$(adapter_node "$a")")" "$(unit_reads_broker_env "$a")"
     done
+    printf '],"legacy":['
+    first=1
+    seenlegacy=""
+    for a in $legacy $(for a in $adapters; do legacy_unit "$a" && printf '%s ' "$a"; done | tr ' ' '\n' | LC_ALL=C sort -u); do
+        legacy_unit "$a" || continue
+        case " $seenlegacy " in *" $a "*) continue ;; esac
+        seenlegacy="$seenlegacy $a"
+        [ $first -eq 1 ] || printf ','
+        first=0
+        show=$(systemctl show -p ActiveState -p SubState -p UnitFileState -p ExecMainStartTimestamp -p NRestarts "$a.service" 2>/dev/null || true)
+        active=$(printf '%s\n' "$show" | sed -n 's/^ActiveState=//p')
+        sub=$(printf '%s\n' "$show" | sed -n 's/^SubState=//p')
+        uf=$(printf '%s\n' "$show" | sed -n 's/^UnitFileState=//p')
+        since=$(printf '%s\n' "$show" | sed -n 's/^ExecMainStartTimestamp=//p')
+        nr=$(printf '%s\n' "$show" | sed -n 's/^NRestarts=//p')
+        envf=$(legacy_env_file "$a" 2>/dev/null || true)
+        printf '{"adapter":"%s","unit":"%s.service","active":"%s","sub":"%s","unitFile":"%s","since":"%s","restarts":%s,"envFile":%s}' \
+            "$a" "$a" "$(json_escape "$active")" "$(json_escape "$sub")" "$(json_escape "$uf")" \
+            "$(json_escape "$since")" "${nr:-0}" "$([ -n "$envf" ] && printf '"%s"' "$(json_escape "$envf")" || printf 'null')"
+    done
     printf '],"instances":['
     first=1
     for a in $adapters; do
+        installed_adapter "$a" || continue
         for envf in "/etc/$a"/*.env; do
             [ -f "$envf" ] || continue
             i=$(basename "$envf" .env)
@@ -228,19 +289,20 @@ cmd_list() {
 }
 
 cmd_unit() {
-    [ $# -eq 3 ] || die "usage: unit <adapter> <instance> <action>"
-    need_installed "$1"; need_instance "$2"
+    [ $# -eq 3 ] || die "usage: unit <adapter> <instance|-> <action>"
+    need_adapter "$1"
+    u=$(unit_name "$1" "$2")
     case "$3" in
-        start|stop|restart|enable|disable) systemctl "$3" "$1@$2.service" ;;
-        status) systemctl show -p ActiveState -p SubState -p UnitFileState -p ExecMainStartTimestamp -p NRestarts -p MainPID "$1@$2.service" ;;
+        start|stop|restart|enable|disable) systemctl "$3" "$u" ;;
+        status) systemctl show -p ActiveState -p SubState -p UnitFileState -p ExecMainStartTimestamp -p NRestarts -p MainPID "$u" ;;
         *) die "unknown unit action: $3" ;;
     esac
 }
 
 cmd_logs() {
-    [ $# -ge 2 ] || die "usage: logs <adapter> <instance> [-n N] [--follow]"
-    need_installed "$1"; need_instance "$2"
-    unit="$1@$2.service"; shift 2
+    [ $# -ge 2 ] || die "usage: logs <adapter> <instance|-> [-n N] [--follow]"
+    need_adapter "$1"
+    unit=$(unit_name "$1" "$2"); shift 2
     lines=200; follow=0
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -258,16 +320,22 @@ cmd_logs() {
 }
 
 cmd_env() {
-    [ $# -eq 3 ] || die "usage: env <adapter> <instance> read|write"
-    need_installed "$1"; need_instance "$2"
-    f="/etc/$1/$2.env"
+    [ $# -eq 3 ] || die "usage: env <adapter> <instance|-> read|write"
+    need_adapter "$1"
+    if [ "$2" = "-" ]; then
+        legacy_unit "$1" || die "no legacy unit $1.service"
+        f=$(legacy_env_file "$1") || die "legacy env file of $1 is outside /etc/default and /etc/$1"
+    else
+        need_installed "$1"; need_instance "$2"
+        f="/etc/$1/$2.env"
+    fi
     case "$3" in
         read)
             [ -f "$f" ] || die "no such instance: $1@$2"
             cat "$f" ;;
         write)
             [ -f "$f" ] || die "no such instance: $1@$2 (use install)"
-            tmp=$(mktemp "/etc/$1/.$2.env.XXXXXX")
+            tmp=$(mktemp "$(dirname "$f")/.$(basename "$f").XXXXXX")
             read_env_stdin "$tmp"
             cp -p "$f" "$f.bak"
             chown "root:$(adapter_user "$1")" "$tmp"
@@ -317,6 +385,29 @@ cmd_install() {
     set +a
     rm -f "$tmp"
     exec "$cmd" --install --name "$2"
+}
+
+# legacy <adapter>.service → <adapter>@<name>: the adapter's own --install with the legacy env as
+# environment (it carries state such as pairing keys over), then the old unit is retired
+cmd_migrate() {
+    [ $# -eq 2 ] || die "usage: migrate <adapter> <name>"
+    need_adapter "$1"; need_instance "$2"
+    legacy_unit "$1" || die "no legacy unit $1.service"
+    cmd=$(adapter_cmd "$1") || die "adapter not installed: $1"
+    envf=$(legacy_env_file "$1") || die "legacy env file of $1 is outside /etc/default and /etc/$1"
+    [ -f "/etc/$1/$2.env" ] && die "instance $1@$2 already exists"
+    if [ -f "$envf" ]; then
+        set -a
+        # shellcheck disable=SC1090
+        . "$envf"
+        set +a
+    fi
+    "$cmd" --install --name "$2" || die "$1 --install failed"
+    systemctl disable --now "$1.service" >/dev/null 2>&1 || true
+    mv "$UNIT_DIR/$1.service" "$UNIT_DIR/$1.service.migrated"
+    [ -f "$envf" ] && mv "$envf" "$envf.migrated"
+    systemctl daemon-reload
+    printf 'migrated %s.service to %s@%s.service; old unit and env kept as .migrated\n' "$1" "$1" "$2"
 }
 
 cmd_uninstall() {
@@ -437,5 +528,6 @@ case "$c" in
     file) cmd_file "$@" ;;
     asset) cmd_asset "$@" ;;
     self-update) cmd_self_update "$@" ;;
+    migrate) cmd_migrate "$@" ;;
     *) die "unknown command: $c" ;;
 esac

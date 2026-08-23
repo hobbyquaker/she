@@ -33,6 +33,8 @@ On a host the core's `--install` leaves:
 
 An MQTT instance and a host instance are the same row when the instance names match and `info.host` equals the host's hostname.
 
+**Old units.** An adapter installed before the core — a plain `<adapter>.service` with its env file in `/etc/default/<adapter>` (or a core adapter still running under such a unit) — is recognised too (helper v5+): it appears on the Instances tab marked *old unit*, matched to the MQTT instance of the same adapter on that host, with start/stop/restart, logs and the config form (editing `/etc/default/<adapter>`), but no Files tab and no Uninstall. **Migrate** turns it into a proper instance: she runs the adapter's own `--install --name <n>` with the old settings as environment (the adapter carries its state over — alexa-remote-mqtt copies the login cookie, lgtv2mqtt the pairing key), then disables the old unit and keeps its files as `.migrated`. The instance name defaults to the MQTT topic prefix so nothing changes on the broker.
+
 ## The Services page
 
 - **Instances** — one row per instance: adapter and version (with the npm update badge), host, state (connected dot plus the systemd state when the host is managed), uptime, a log-level selector, and the actions the row supports: *Config / Logs* (opens the drawer), *Restart*, *Stop*/*Start*, *Enable*, *Uninstall*, *Wipe* (only while `connected = 0`). The nav dot is the worst case over all instances.
@@ -117,6 +119,8 @@ she-servicectl files  <adapter> <instance>                  JSON listing of /etc
 she-servicectl file   <adapter> <instance> read|write <path> a file inside those two directories (write: content on stdin, .bak kept)
 she-servicectl asset  <adapter> <relpath>                   a file shipped in the adapter package (example, schema)
 she-servicectl self-update                                  replace the script with the one on stdin (checked: header, VERSION, sh -n; .bak kept)
+she-servicectl migrate <adapter> <name>                     legacy <adapter>.service → <adapter>@<name> via the adapter's --install; old unit kept as .migrated
+                                                            (unit / logs / env accept "-" as the instance for a legacy unit)
 she-servicectl version
 ```
 
