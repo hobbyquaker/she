@@ -18,15 +18,18 @@
         instance,
         unit = null,
         mqtt = null,
+        hostname = null,
         onclose,
         onchanged,
         tab = $bindable('config'),
     }: {
-        host: string;
-        adapter: string;
+        /** managed host the unit lives on — null: not managed, Info only */
+        host: string | null;
+        adapter: string | null;
         instance: string;
         unit?: ServiceHostInstance | null;
         mqtt?: ServiceInstance | null;
+        hostname?: string | null;
         onclose: () => void;
         onchanged?: () => void;
         /** bound by the parent so the tab survives switching to another instance */
@@ -34,6 +37,11 @@
     } = $props();
 
     type Tab = 'config' | 'logs' | 'info';
+    let managed = $derived(!!host && !!unit && !!adapter);
+    // an unmanaged instance has nothing but Info
+    $effect(() => { if (!managed && tab !== 'info') tab = 'info'; });
+    const h = () => host as string;
+    const a = () => adapter as string;
 
     /* ── Config ───────────────────────────────────────────────────────────── */
     let env      = $state<Record<string, string>>({});
@@ -51,7 +59,7 @@
     async function loadConfig() {
         cfgLoading = true; cfgError = '';
         try {
-            const r = await getServiceEnv(host, adapter, instance);
+            const r = await getServiceEnv(h(), a(), instance);
             env = r.env; secrets = r.secrets; schema = r.schema; sheBroker = r.sheBroker; dynsec = r.dynsec; brokerMode = r.brokerMode; savedMode = r.brokerMode;
         } catch (e: any) {
             cfgError = e.message ?? String(e);
@@ -63,7 +71,7 @@
     async function save(restart: boolean, rotate = false) {
         saving = true; saveMsg = ''; cfgError = '';
         try {
-            const r = await putServiceEnv(host, adapter, instance, env, restart, brokerMode, { rotate });
+            const r = await putServiceEnv(h(), a(), instance, env, restart, brokerMode, { rotate });
             saveMsg = rotate ? 'New password set on the broker' + (r.restarted ? ' and instance restarted.' : ' — restart the instance to use it.') : r.restarted ? 'Saved and restarted.' : 'Saved — takes effect on the next restart.';
             onchanged?.();
             await loadConfig();
@@ -108,7 +116,7 @@
     async function loadLogs() {
         logError = ''; logLoading = true;
         try {
-            entries = (await getServiceLogs(host, adapter, instance, 500)).entries;
+            entries = (await getServiceLogs(h(), a(), instance, 500)).entries;
             scrollLogs();
         } catch (e: any) {
             logError = e.message ?? String(e);
@@ -123,14 +131,14 @@
     async function startFollow() {
         if (following) return;
         try {
-            await followServiceLogs(host, adapter, instance);
+            await followServiceLogs(h(), a(), instance);
             following = true;
             unsubLog = subscribeWs('serviceLog', (msg) => {
                 if (msg.host !== host || msg.unit !== unitName) return;
                 entries = [...entries.slice(-(LOG_MAX - 1)), { ts: msg.ts, level: msg.level, msg: msg.msg, pid: msg.pid ?? null }];
                 scrollLogs();
             });
-            renewTimer = setInterval(() => { followServiceLogs(host, adapter, instance).catch(() => {}); }, 5 * 60 * 1000);
+            renewTimer = setInterval(() => { followServiceLogs(h(), a(), instance).catch(() => {}); }, 5 * 60 * 1000);
         } catch (e: any) {
             logError = e.message ?? String(e);
             follow = false;
@@ -141,7 +149,7 @@
         following = false;
         unsubLog?.(); unsubLog = null;
         if (renewTimer) { clearInterval(renewTimer); renewTimer = null; }
-        unfollowServiceLogs(host, adapter, instance).catch(() => {});
+        unfollowServiceLogs(h(), a(), instance).catch(() => {});
     }
     function clearLogs() {
         entries = [];
@@ -149,7 +157,7 @@
 
     // first time the Logs tab is shown: tail + follow; the Follow switch drives the follower afterwards
     $effect(() => {
-        if (tab !== 'logs' || logsOpened) return;
+        if (!managed || tab !== 'logs' || logsOpened) return;
         logsOpened = true;
         loadLogs();
     });
@@ -163,16 +171,29 @@
     });
 
     onMount(() => {
-        loadConfig();
+        if (managed) loadConfig();
         return () => stopFollow();
     });
+
+    function fmtDate(ts: number | null | undefined): string { return ts ? new Date(ts).toLocaleString() : '—'; }
+    function fmtUptime(): string {
+        const m = mqtt;
+        if (!m || m.started === null || !(m.connected && m.connected > 0)) return '—';
+        const s = Math.max(0, Math.round((Date.now() - m.started) / 1000));
+        const d = Math.floor(s / 86400), hh = Math.floor((s % 86400) / 3600), mm = Math.floor((s % 3600) / 60);
+        return d > 0 ? `${d}d ${hh}h` : hh > 0 ? `${hh}h ${mm}m` : `${mm}m`;
+    }
+    function connLabel(): string {
+        const c = mqtt?.connected;
+        return c === 2 ? 'online (2)' : c === 1 ? 'device offline (1)' : c === 0 ? 'down (0)' : 'unknown';
+    }
 </script>
 
 <div class="detail">
     <div class="head">
         <div>
             <span class="title">{instance}</span>
-            <span class="sub mono">{adapter}{#if mqtt?.version} @{mqtt.version}{/if} · {host}</span>
+            <span class="sub mono">{adapter ?? (mqtt?.legacy ? 'legacy' : '')}{#if mqtt?.version} @{mqtt.version}{/if} · {host ?? hostname ?? 'not managed'}</span>
             {#if unit}
                 <span class="badge" class:ok={unit.active === 'active'} class:err={unit.active === 'failed'} title="systemd: {unit.active}/{unit.sub}, {unit.unitFile}">{unit.active}{unit.unitFile === 'disabled' ? ' · disabled' : ''}</span>
             {/if}
@@ -180,9 +201,12 @@
         <button class="ghost sm" onclick={onclose}>Close</button>
     </div>
     <div class="tabs">
-        <button class:active={tab === 'config'} onclick={() => (tab = 'config')}>Config</button>
-        <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
+        {#if managed}
+            <button class:active={tab === 'config'} onclick={() => (tab = 'config')}>Config</button>
+            <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
+        {/if}
         <button class:active={tab === 'info'} onclick={() => (tab = 'info')}>Info</button>
+        {#if !managed}<span class="muted tabs-note">{host === null ? 'host not managed — add it under Settings → Services' : 'not installed on a managed host'}</span>{/if}
     </div>
 
     {#if tab === 'config'}
@@ -237,21 +261,43 @@
         </div>
     {:else}
         <div class="body">
+            <div class="info-title">MQTT</div>
+            {#if mqtt}
+                <dl class="kv">
+                    <dt>adapter</dt><dd class="mono">{mqtt.adapter ?? '—'}{#if mqtt.version} @{mqtt.version}{/if}{#if mqtt.updateAvailable} <span class="badge-upd" title="npm has {mqtt.latestVersion}">update: {mqtt.latestVersion}</span>{/if}</dd>
+                    <dt>connected</dt><dd>{connLabel()}{#if mqtt.connectedLc} · since {fmtDate(mqtt.connectedLc)}{/if}</dd>
+                    <dt>uptime</dt><dd>{fmtUptime()}</dd>
+                    <dt>host</dt><dd>{mqtt.host ?? '—'}{#if mqtt.pid} · pid {mqtt.pid}{/if}</dd>
+                    <dt>spec</dt><dd>{mqtt.spec ?? '—'}</dd>
+                    <dt>node</dt><dd>{mqtt.node ?? '—'}</dd>
+                    <dt>started</dt><dd>{fmtDate(mqtt.started)}</dd>
+                    <dt>maintenance</dt><dd>{mqtt.legacy ? '— (legacy: no maintenance topics)' : mqtt.maintenance ? 'enabled' : 'disabled (--no-maintenance)'}</dd>
+                    <dt>status topics</dt><dd>{mqtt.statusTopics} retained under <span class="mono">{instance}/status/</span></dd>
+                    <dt>info updated</dt><dd>{fmtDate(mqtt.infoTs)}</dd>
+                </dl>
+                {#if mqtt.info}
+                    <div class="muted" style="margin:6px 0 4px">{instance}/info</div>
+                    <pre class="mono json">{JSON.stringify(mqtt.info, null, 2)}</pre>
+                {:else}
+                    <div class="muted">Legacy instance — only <span class="mono">{instance}/connected</span> is known; no <span class="mono">{instance}/info</span>.</div>
+                {/if}
+            {:else}
+                <div class="muted">Not seen on MQTT (no retained {instance}/connected or {instance}/info yet).</div>
+            {/if}
+
+            <div class="info-title" style="margin-top:14px">systemd</div>
             {#if unit}
                 <dl class="kv">
-                    <dt>unit</dt><dd class="mono">{unitName}.service</dd>
+                    <dt>unit</dt><dd class="mono">{unit.adapter}@{instance}.service</dd>
+                    <dt>host</dt><dd>{host}{#if hostname && hostname !== host} · hostname {hostname}{/if}</dd>
                     <dt>state</dt><dd>{unit.active} / {unit.sub} · {unit.unitFile}</dd>
                     <dt>since</dt><dd>{unit.since || '—'}</dd>
                     <dt>restarts</dt><dd>{unit.restarts}</dd>
-                    <dt>env file</dt><dd class="mono">/etc/{adapter}/{instance}.env</dd>
-                    <dt>state dir</dt><dd class="mono">/var/lib/{adapter}/{instance}/</dd>
+                    <dt>env file</dt><dd class="mono">/etc/{unit.adapter}/{instance}.env</dd>
+                    <dt>state dir</dt><dd class="mono">/var/lib/{unit.adapter}/{instance}/</dd>
                 </dl>
-            {/if}
-            {#if mqtt?.info}
-                <div class="muted" style="margin-bottom:4px">{instance}/info</div>
-                <pre class="mono json">{JSON.stringify(mqtt.info, null, 2)}</pre>
             {:else}
-                <div class="muted">Not seen on MQTT (no retained {instance}/info).</div>
+                <div class="muted">{host === null ? 'Not installed on a managed host — or the host is not configured under Settings → Services.' : 'No systemd unit for this instance on the managed host.'}</div>
             {/if}
         </div>
     {/if}
@@ -301,6 +347,9 @@
     .line.warn .lvl { color: var(--fg-warn, #d4ac0d); }
     .line.error .lvl { color: var(--fg-err, #e74c3c); }
     .line .msg { color: var(--fg-text, var(--fg)); }
+    .info-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-muted); margin-bottom: 6px; }
+    .tabs-note { align-self: center; margin-left: 8px; font-size: 11px; }
+    .badge-upd { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; background: rgba(241,196,15,0.18); color: #d4ac0d; }
     .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 10px; font-size: 11px; }
     .kv dt { color: var(--fg-muted); }
     .kv dd { margin: 0; }

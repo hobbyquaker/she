@@ -24,7 +24,6 @@
     const LEGACY_KEY = 'she-services-show-legacy';
     let showLegacy = $state(localStorage.getItem(LEGACY_KEY) === '1');
     $effect(() => { localStorage.setItem(LEGACY_KEY, showLegacy ? '1' : '0'); });
-    let expanded  = $state(new Set<string>());
     let busy      = $state(new Set<string>());
     let notice    = $state<string | null>(null);
     let now       = $state(Date.now());
@@ -130,7 +129,6 @@
     let detailTab = $state<'config' | 'logs' | 'info'>('config');
     let detail = $derived(detailKey === null ? null : (rows.find(r => r.key === detailKey) ?? null));
     function openDetail(r: Row) {
-        if (!r.host || !r.unit) return;
         detailKey = r.key;
     }
     // drawer width — draggable, remembered (same pattern as the Scripts page panels)
@@ -215,11 +213,6 @@
             setBusy(r.key, false);
         }
     }
-    function toggleExpand(key: string) {
-        const s = new Set(expanded);
-        s.has(key) ? s.delete(key) : s.add(key);
-        expanded = s;
-    }
 
     /* ── Helpers ──────────────────────────────────────────────────────────── */
     function connState(r: Row): { cls: 'ok' | 'warn' | 'err' | 'none'; label: string } {
@@ -300,7 +293,6 @@
                 <table>
                     <thead>
                         <tr>
-                            <th class="c-exp"></th>
                             <th>Instance</th>
                             <th>Adapter</th>
                             <th>Host</th>
@@ -314,15 +306,8 @@
                         {#each visible as r (r.key)}
                             {@const st = connState(r)}
                             <tr class:down={st.cls === 'err'} class:selected={detail?.key === r.key}>
-                                <td class="c-exp">
-                                    <button class="exp" onclick={() => toggleExpand(r.key)} title="Show info">{expanded.has(r.key) ? '▾' : '▸'}</button>
-                                </td>
                                 <td>
-                                    {#if r.host && r.unit}
-                                        <button class="dname dname-link" onclick={() => openDetail(r)} title="Open config and logs of {r.instance}">{r.instance}</button>
-                                    {:else}
-                                        <span class="dname">{r.instance}</span>
-                                    {/if}
+                                    <button class="dname dname-link" onclick={() => openDetail(r)} title={r.host && r.unit ? `Config, logs and info of ${r.instance}` : `Info of ${r.instance}`}>{r.instance}</button>
                                     {#if r.mqtt?.legacy}<span class="badge b-legacy" title="No <name>/info topic — adapter not built on mqtt-interfaces-core">legacy</span>{/if}
                                     {#if !r.mqtt && r.unit}<span class="badge b-legacy" title="Installed on {r.host?.name} but nothing retained on MQTT yet">not on MQTT</span>{/if}
                                 </td>
@@ -370,40 +355,17 @@
                                             <button class="ghost sm" onclick={() => unitAction(r, 'enable')} disabled={busy.has(r.key)} title="Start at boot">Enable</button>
                                         {/if}
                                         <button class="ghost sm danger-text" onclick={() => uninstall(r)} disabled={busy.has(r.key)}>Uninstall</button>
-                                    {:else if canMaintain(r)}
-                                        <button class="ghost sm" onclick={() => restart(r)} disabled={busy.has(r.key)} title="via {r.instance}/maintenance/set/restart">Restart</button>
+                                    {:else}
+                                        <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>Info</button>
+                                        {#if canMaintain(r)}
+                                            <button class="ghost sm" onclick={() => restart(r)} disabled={busy.has(r.key)} title="via {r.instance}/maintenance/set/restart">Restart</button>
+                                        {/if}
                                     {/if}
                                     {#if r.mqtt && !r.mqtt.connected}
                                         <button class="ghost sm" onclick={() => wipe(r)} disabled={busy.has(r.key)} title="Clear the instance's retained topics">Wipe</button>
                                     {/if}
                                 </td>
                             </tr>
-                            {#if expanded.has(r.key)}
-                                <tr class="detail-row">
-                                    <td colspan="8"><div class="detail-inner">
-                                        {#if r.mqtt?.info}
-                                            <dl class="kv">
-                                                <dt>spec</dt><dd>{r.mqtt.spec ?? '—'}</dd>
-                                                <dt>node</dt><dd>{r.mqtt.node ?? '—'}</dd>
-                                                <dt>started</dt><dd>{fmtDate(r.mqtt.started)}</dd>
-                                                <dt>maintenance</dt><dd>{r.mqtt.maintenance ? 'enabled' : 'disabled'}</dd>
-                                                <dt>status topics</dt><dd>{r.mqtt.statusTopics}</dd>
-                                                <dt>info updated</dt><dd>{fmtDate(r.mqtt.infoTs)}</dd>
-                                                {#if r.unit}<dt>systemd</dt><dd>{r.unit.active} / {r.unit.sub} · {r.unit.unitFile} · {r.unit.restarts} restarts</dd>{/if}
-                                            </dl>
-                                            <pre class="mono json">{JSON.stringify(r.mqtt.info, null, 2)}</pre>
-                                        {:else if r.mqtt}
-                                            <span class="muted">Legacy instance — only <code>{r.instance}/connected</code> is known ({r.mqtt.statusTopics} retained status topics).</span>
-                                        {:else if r.unit}
-                                            <dl class="kv">
-                                                <dt>unit</dt><dd class="mono">{r.unit.adapter}@{r.instance}.service</dd>
-                                                <dt>systemd</dt><dd>{r.unit.active} / {r.unit.sub} · {r.unit.unitFile} · {r.unit.restarts} restarts</dd>
-                                                <dt>since</dt><dd>{r.unit.since || '—'}</dd>
-                                            </dl>
-                                        {/if}
-                                    </div></td>
-                                </tr>
-                            {/if}
                         {/each}
                     </tbody>
                 </table>
@@ -411,12 +373,13 @@
         {/if}
     </div>
 
-    {#if detail && detail.host && detail.unit}
+    {#if detail}
         <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <div class="drawer-resize-handle" role="separator" aria-orientation="vertical" onmousedown={onDrawerResizeStart}></div>
         {#key detail.key}
             <div class="drawer" style:width={`${drawerWidth}px`}>
-                <InstanceDetail host={detail.host.name} adapter={detail.unit.adapter} instance={detail.instance} unit={detail.unit} mqtt={detail.mqtt}
+                <InstanceDetail host={detail.host?.name ?? null} adapter={detail.adapter} instance={detail.instance} unit={detail.unit} mqtt={detail.mqtt}
+                    hostname={detail.mqtt?.host ?? detail.host?.hostname ?? null}
                     bind:tab={detailTab} onclose={() => (detailKey = null)} onchanged={() => setTimeout(load, 600)} />
             </div>
         {/key}
@@ -462,8 +425,6 @@
     button.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     button.sm { padding: 1px 7px; font-size: 11px; margin-left: 4px; }
     button.danger-text:hover:not(:disabled) { color: #e74c3c; border-color: #e74c3c; }
-    /* fixed box: ▸ and ▾ have different advance widths, which would shift the whole table by a pixel */
-    button.exp { background: none; border: none; color: var(--fg-muted); padding: 0; font-size: 11px; width: 16px; height: 16px; line-height: 16px; text-align: center; display: inline-block; }
 
     .info { padding: 16px; color: var(--fg-muted); font-size: 12px; line-height: 1.5; }
     .info.err { color: #e74c3c; }
@@ -480,7 +441,6 @@
     td { padding: 5px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); vertical-align: top; white-space: nowrap; }
     tr.down .dname { color: #e74c3c; }
     tr.selected td { background: rgba(86,156,214,0.08); }
-    .c-exp { width: 24px; min-width: 24px; max-width: 24px; text-align: center; box-sizing: border-box; }
     .c-act { text-align: right; white-space: nowrap; }
     .dname { font-weight: 600; display: inline-block; margin-right: 6px; }
     /* managed instances: the name opens / switches the drawer */
@@ -507,11 +467,4 @@
         border-radius: 3px; font-size: 11px; padding: 1px 4px;
     }
 
-    .detail-row > td { background: var(--bg-panel); padding: 8px 8px 10px 32px; white-space: normal; }
-    /* the expanded content must not participate in column sizing (width:0 + min-width:100% keeps it inside the table width) */
-    .detail-inner { width: 0; min-width: 100%; }
-    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 8px; font-size: 11px; }
-    .kv dt { color: var(--fg-muted); }
-    .kv dd { margin: 0; }
-    pre.json { margin: 0; max-height: 240px; overflow: auto; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; }
 </style>
