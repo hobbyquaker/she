@@ -116,12 +116,13 @@ she-servicectl npm    <adapter> version|origin|install|update
 she-servicectl files  <adapter> <instance>                  JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
 she-servicectl file   <adapter> <instance> read|write <path> a file inside those two directories (write: content on stdin, .bak kept)
 she-servicectl asset  <adapter> <relpath>                   a file shipped in the adapter package (example, schema)
+she-servicectl self-update                                  replace the script with the one on stdin (checked: header, VERSION, sh -n; .bak kept)
 she-servicectl version
 ```
 
 For adapters that run with a non-system Node (a wrapper in `/usr/local/bin` pointing at e.g. `/opt/node22/bin/node`), the helper uses that node and its npm.
 
-Existing installations: re-run `sudo she --install` once to get the helper and the sudoers line. Inside the she Docker image there is no local helper — untick *This host* in Settings, or leave it and the host tier reports "helper not installed"; remote hosts work from Docker as long as `ssh`/`scp` are in the image.
+**Updating the helper.** she ships a new helper version now and then; the Hosts tab marks older ones *outdated* and offers *Update helper*. The installed helper replaces itself with the copy she sends (`self-update`, through the one sudo rule it already has — no root login, no second rule), on the she host and on remote hosts alike. Only a helper older than v4 cannot do that yet: run the setup command on the host once more (or `sudo she --install` on the she host). Existing installations: re-run `sudo she --install` once to get the helper and the sudoers line. Inside the she Docker image there is no local helper — untick *This host* in Settings, or leave it and the host tier reports "helper not installed"; remote hosts work from Docker as long as `ssh`/`scp` are in the image.
 
 ## For adapter authors
 

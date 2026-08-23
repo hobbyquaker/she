@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log('3');
+        console.log(process.env.FAKE_HELPER_VERSION || '4');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: 3,
+                helper: Number(process.env.FAKE_HELPER_VERSION || 4),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -71,6 +71,11 @@ switch (cmd) {
         break;
     case 'uninstall':
         console.log('cul2mqtt@' + args[2] + '.service removed.');
+        break;
+    case 'self-update':
+        if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
+        if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
+        console.log('she-servicectl updated 3 -> 4 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(

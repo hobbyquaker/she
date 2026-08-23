@@ -660,8 +660,26 @@ router.post('/hosts/:host/helper/deploy', async (req, res) => {
     const entry = resolve(req, res);
     if (!entry) return;
     const { driver, cfg } = entry;
-    if (driver.local) return res.status(400).json({ error: 'on the she host the helper is installed by: sudo she --install', code: 'LOCAL' });
     const user = (cfg.ssh && cfg.ssh.user) || os.userInfo().username;
+    let helperSource;
+    try {
+        helperSource = fs.readFileSync(HELPER_SOURCE, 'utf8');
+    } catch (err) {
+        return res.status(500).json({ error: 'helper source missing: ' + err.message });
+    }
+    // 1. an installed helper (v4+) replaces itself through the existing sudo rule — no root needed
+    try {
+        const { stdout } = await driver.exec(['self-update'], { stdin: helperSource, timeout: 30000 });
+        invalidateHosts();
+        const m = /-> (\d+)/.exec(stdout);
+        return res.json({ ok: true, uploaded: true, installed: true, sudoers: true, helper: m ? Number(m[1]) : null, user, method: 'self-update', output: stdout.trim() });
+    } catch (err) {
+        if (err.code === 'SSH_FAILED') return hostError(res, err);
+        // HELPER_MISSING (not installed yet) or HELPER_FAILED (older helper without self-update): fall through
+    }
+    if (driver.local) {
+        return res.status(400).json({ error: 'the helper on the she host is too old to update itself — run: sudo she --install', code: 'LOCAL' });
+    }
     const tmpName = 'she-servicectl.tmp';
     const instructions = deployInstructions(user, tmpName);
     try {
@@ -683,7 +701,8 @@ router.post('/hosts/:host/helper/deploy', async (req, res) => {
     // installed — is the helper callable through sudo for this user?
     try {
         const { stdout } = await driver.exec(['version'], { timeout: 20000 });
-        return res.json({ ok: true, uploaded: true, installed: true, sudoers: true, helper: Number(String(stdout).trim()) || null, user });
+        invalidateHosts();
+        return res.json({ ok: true, uploaded: true, installed: true, sudoers: true, helper: Number(String(stdout).trim()) || null, user, method: 'install' });
     } catch (err) {
         return res.json({ ok: false, uploaded: true, installed: true, sudoers: false, code: err.code || 'ERROR', error: err.message, instructions: [instructions[1]], user });
     }

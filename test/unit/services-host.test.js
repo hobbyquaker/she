@@ -149,7 +149,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 3, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 4, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -404,23 +404,32 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 3 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 4 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
             expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toMatchObject({ ok: false, code: 'SSH_FAILED' });
         });
 
-        test('helper deploy: upload + install, sudoers instructions when sudo refuses', async () => {
+        test('helper deploy: an installed helper updates itself through the sudo rule (local and remote)', async () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 3, user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 4, method: 'self-update', user: 'she' });
+            expect(fs.readFileSync(logFile + '.selfupdate', 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
+            r = await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy');
+            expect(r.body).toMatchObject({ ok: true, method: 'self-update' });
+        });
+
+        test('helper deploy: upload + install for hosts without a helper, sudoers instructions when sudo refuses', async () => {
+            await setup({ FAKE_NO_SELF_UPDATE: '1' });
+            let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
+            expect(r.status).toBe(200);
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 4, user: 'she', method: 'install' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
-            expect((await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy')).status).toBe(400);
             await new Promise((res) => server.close(res));
             server = null;
-            await setup({ FAKE_SUDO_FAIL: '1' });
+            await setup({ FAKE_SUDO_FAIL: '1', FAKE_NO_SELF_UPDATE: '1' });
             r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.body).toMatchObject({ ok: false, uploaded: true, installed: false, code: 'SUDO_DENIED', user: 'she' });
             expect(r.body.instructions[1]).toContain('she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl');
@@ -523,7 +532,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 3 });
+        expect(r.body).toEqual({ ok: true, helper: 4 });
     });
 });
 

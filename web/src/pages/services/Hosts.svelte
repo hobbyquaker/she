@@ -126,11 +126,11 @@
                     <span class="muted">{h.local ? 'this host' : `${h.ssh?.user ?? ''}@${h.ssh?.host}`}{#if h.node} · node {h.node}{/if}</span>
                     <span class="spacer"></span>
                     {#if h.ok}
-                        <span class="muted" title="she-servicectl version">helper v{h.helper}{#if h.helperOutdated} <span class="warn">— outdated{#if h.local}, run sudo she --install{:else}, deploy again{/if}</span>{/if}</span>
+                        <span class="muted" title="she-servicectl version">helper v{h.helper}{#if h.helperOutdated} <span class="warn">— outdated, update it</span>{/if}</span>
                     {/if}
                     <button class="ghost sm" onclick={() => testHost(h)} disabled={hostBusy !== null} title="Run she-servicectl version on the host">Test</button>
-                    {#if !h.local && (!h.ok || h.helperOutdated)}
-                        <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title="Copy she-servicectl to the host and install it">Deploy helper</button>
+                    {#if !h.ok || h.helperOutdated}
+                        <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title={h.ok ? 'Replace the helper with the version she ships (the helper updates itself through its sudo rule)' : 'Copy she-servicectl to the host and install it'}>{h.ok ? 'Update helper' : 'Deploy helper'}</button>
                     {/if}
                 </div>
                 {#if testResult[h.name]}<div class="muted" style="margin-bottom:6px">test: {testResult[h.name]}</div>{/if}
@@ -140,7 +140,7 @@
                         {#if 'error' in d}
                             {d.error}
                         {:else if d.ok}
-                            Helper v{d.helper} installed on {h.name} and allowed for <span class="mono">{d.user}</span>.
+                            Helper v{d.helper} {d.method === 'self-update' ? 'updated on' : 'installed on'} {h.hostname ?? h.name}{d.method === 'self-update' ? '' : ` and allowed for ${d.user}`}.
                         {:else}
                             {#if d.installed}Helper installed, but <span class="mono">sudo</span> does not allow it for <span class="mono">{d.user}</span> yet.{:else}Helper uploaded to the SSH user's home; installing it needs root.{/if}
                             Run on the host as an admin:

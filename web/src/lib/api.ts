@@ -1355,6 +1355,8 @@ export interface HelperDeployResult {
     error?: string;
     instructions?: string[];
     user: string;
+    method?: 'self-update' | 'install';
+    output?: string;
 }
 
 export function deployServiceHelper(host: string): Promise<HelperDeployResult> {

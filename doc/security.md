@@ -81,7 +81,7 @@ With the optional Services feature ([doc/services.md](services.md)) she manages 
 she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl
 ```
 
-The script is the complete list of what she can do as root: it accepts a fixed set of subcommands, validates every argument against a pattern (adapter names must correspond to a template unit with mqtt-interfaces-core's `/etc/<adapter>/%i.env` layout, instance names are `[A-Za-z0-9_.-]+`, actions come from a short allow-list) and takes free-form data — env files, install options — only on stdin. Review it once ([service/she-servicectl](../service/she-servicectl)); it has no dependencies beyond systemd, journalctl and npm.
+The script is the complete list of what she can do as root — including `self-update`, which replaces the script with the copy she sends after checking the header, the `VERSION` line and `sh -n` (a `.bak` is kept): she already runs adapter installers and `npm install -g` as root through this rule, so letting it refresh the helper adds no reach it did not have. It does mean the she user's trust level is "root on the managed hosts", which is why the Services feature belongs behind she's authentication. it accepts a fixed set of subcommands, validates every argument against a pattern (adapter names must correspond to a template unit with mqtt-interfaces-core's `/etc/<adapter>/%i.env` layout, instance names are `[A-Za-z0-9_.-]+`, actions come from a short allow-list) and takes free-form data — env files, install options — only on stdin. Review it once ([service/she-servicectl](../service/she-servicectl)); it has no dependencies beyond systemd, journalctl and npm.
 
 Consequences to keep in mind:
 

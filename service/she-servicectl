@@ -28,10 +28,11 @@
 #   she-servicectl files  <adapter> <instance>                     JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
 #   she-servicectl file   <adapter> <instance> read|write <path>  a file inside those two directories (write: content on stdin)
 #   she-servicectl asset  <adapter> <relpath>                      a file shipped in the adapter package (example, schema)
+#   she-servicectl self-update                                     replace this script with the one on stdin (she ships it)
 
 set -eu
 
-VERSION=3
+VERSION=4
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -387,6 +388,22 @@ cmd_asset() {
     cat "$f"
 }
 
+# she pushes a newer copy of this script through the existing sudo rule: checked before it replaces us
+cmd_self_update() {
+    [ $# -eq 0 ] || die "usage: self-update  (new script on stdin)"
+    self=$(realpath "$0" 2>/dev/null) || self=/usr/local/bin/she-servicectl
+    tmp=$(mktemp)
+    cat > "$tmp"
+    if ! head -n 3 "$tmp" | grep -q '^# she-servicectl'; then rm -f "$tmp"; die "self-update: not a she-servicectl script"; fi
+    if ! grep -Eq '^VERSION=[0-9]+$' "$tmp"; then rm -f "$tmp"; die "self-update: no VERSION line"; fi
+    if ! sh -n "$tmp" 2>/dev/null; then rm -f "$tmp"; die "self-update: syntax error in the new script"; fi
+    newver=$(sed -n 's/^VERSION=\([0-9]*\)$/\1/p' "$tmp" | head -n 1)
+    cp -p "$self" "$self.bak" 2>/dev/null || true
+    install -m 755 -o root -g root "$tmp" "$self"
+    rm -f "$tmp"
+    printf 'she-servicectl updated %s -> %s at %s\n' "$VERSION" "$newver" "$self"
+}
+
 cmd_npm() {
     [ $# -eq 2 ] || die "usage: npm <adapter> version|origin|install|update"
     need_adapter "$1"
@@ -419,5 +436,6 @@ case "$c" in
     files) cmd_files "$@" ;;
     file) cmd_file "$@" ;;
     asset) cmd_asset "$@" ;;
+    self-update) cmd_self_update "$@" ;;
     *) die "unknown command: $c" ;;
 esac
