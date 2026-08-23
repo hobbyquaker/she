@@ -11,12 +11,12 @@
     const TAB_KEY = 'she-services-tab';
     const stored = localStorage.getItem(TAB_KEY) as SubTab | null;
     let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? stored : 'instances');
-    // Adapters tab "+ instance" / Catalog install → open the add panel in the Instances tab with host + adapter preselected
+    // Catalog install → the Adapters tab with the add form open for that host + adapter
     let addRequest = $state<AddPreset | null>(null);
     let addN = 0;
     function requestAdd(host: string, adapter: string) {
         addRequest = { host, adapter, n: ++addN };
-        tab = 'instances';
+        tab = 'hosts';
     }
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
 
@@ -32,8 +32,8 @@
     </div>
 
     <!-- tabs stay mounted: switching must not re-run the host listing -->
-    <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances {onstatus} {generation} {addRequest} /></div>
-    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => generation++} onaddinstance={requestAdd} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances {onstatus} {generation} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => generation++} {addRequest} /></div>
     <div class="tab-wrap" class:hidden={tab !== 'catalog'}><Catalog oninstalled={(host, adapter) => { generation++; requestAdd(host, adapter); }} /></div>
 </div>
 

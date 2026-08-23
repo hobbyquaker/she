@@ -8,7 +8,17 @@
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import RemoveHelper from './RemoveHelper.svelte';
 
-    let { onchanged, onaddinstance }: { onaddinstance?: (host: string, adapter: string) => void; onchanged?: () => void } = $props();
+    import AddInstance, { type AddPreset } from './AddInstance.svelte';
+    let { onchanged, addRequest = null }: { onchanged?: () => void; addRequest?: AddPreset | null } = $props();
+    // '+ instance' opens the add form inside the host card, host and adapter fixed; the Catalog hands one in via addRequest
+    let addFor = $state<AddPreset | null>(null);
+    let addN = 0;
+    function openAdd(host: string, adapter: string) {
+        addFor = { host, adapter, n: ++addN };
+    }
+    $effect(() => {
+        if (addRequest) addFor = { ...addRequest, n: ++addN };
+    });
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
@@ -197,7 +207,7 @@
                                                 {busy === `${h.name}/${a.name}` ? 'Updating…' : 'Update'}
                                             </button>
                                         {/if}
-                                        <button class="ghost sm" onclick={() => onaddinstance?.(h.name, a.name)} disabled={busy !== null} title={names.length ? `Add another ${a.name} instance on ${h.hostname ?? h.name}` : `Create the first ${a.name} instance on ${h.hostname ?? h.name}`}>+ instance</button>
+                                        <button class="ghost sm" class:active={addFor?.host === h.name && addFor?.adapter === a.name} onclick={() => openAdd(h.name, a.name)} disabled={busy !== null} title={names.length ? `Add another ${a.name} instance on ${h.hostname ?? h.name}` : `Create the first ${a.name} instance on ${h.hostname ?? h.name}`}>+ instance</button>
                                     </td>
                                 </tr>
                             {/each}
@@ -206,6 +216,12 @@
                             {/if}
                         </tbody>
                     </table>
+                    {#if addFor && addFor.host === h.name}
+                        <div class="add-panel">
+                            <div class="add-head"><strong>Add instance</strong><span class="spacer"></span><button class="ghost sm" onclick={() => (addFor = null)} title="Close">×</button></div>
+                            <AddInstance preset={addFor} oninstalled={() => { load(true); onchanged?.(); }} />
+                        </div>
+                    {/if}
                 {/if}
             </div>
         {/each}
@@ -259,6 +275,9 @@
     th { text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
     td { padding: 4px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); }
     .c-act { text-align: right; white-space: nowrap; }
+    .add-panel { margin-top: 10px; border: 1px solid var(--border); border-radius: 4px; display: flex; flex-direction: column; max-height: 520px; min-height: 0; }
+    .add-head { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    button.ghost.active { color: var(--accent); border-color: var(--accent); }
     td.c-act button + button { margin-left: 4px; }
     .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; }
     .ver { display: inline-flex; align-items: center; gap: 5px; }

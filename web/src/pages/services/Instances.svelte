@@ -9,14 +9,11 @@
     import { subscribeWs } from '../../lib/ws.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import InstanceDetail from './InstanceDetail.svelte';
-    import AddInstance, { type AddPreset } from './AddInstance.svelte';
+    import AddInstance from './AddInstance.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
-    let { onstatus, generation = 0, addRequest = null }: { onstatus?: (status: Status, title: string) => void; generation?: number; addRequest?: AddPreset | null } = $props();
+    let { onstatus, generation = 0 }: { onstatus?: (status: Status, title: string) => void; generation?: number } = $props();
     let addOpen = $state(false);
-    $effect(() => {
-        if (addRequest) addOpen = true;
-    });
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
@@ -308,7 +305,7 @@
         {#if addOpen}
             <div class="add-panel">
                 <div class="add-head"><strong>Add instance</strong><span class="muted">an adapter installed on a managed host (Catalog → Install) gets a systemd instance here</span><span class="spacer"></span><button class="ghost sm" onclick={() => (addOpen = false)} title="Close">×</button></div>
-                <AddInstance preset={addRequest} oninstalled={() => load(true)} />
+                <AddInstance oninstalled={() => load(true)} />
             </div>
         {/if}
 

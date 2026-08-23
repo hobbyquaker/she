@@ -121,6 +121,12 @@
             <pre class="out mono">{output}</pre>
             <button class="ghost" onclick={reset}>Add another</button>
         {:else}
+            {#if preset}
+                <div class="step fixed">
+                    <span><span class="lbl">Host</span> <span class="mono">{host?.hostname ?? hostName}</span></span>
+                    <span><span class="lbl">Adapter</span> <span class="mono">{adapter}{#if adapters.find(a => a.name === adapter)?.version} {adapters.find(a => a.name === adapter)?.version}{/if}</span></span>
+                </div>
+            {:else}
             <div class="step">
                 <label for="add-host">Host</label>
                 <select id="add-host" bind:value={hostName}>
@@ -143,6 +149,7 @@
                     <span class="muted">No adapters installed on {hostName} yet — pick one on the <em>Catalog</em> tab and install it there, or <code>sudo npm install -g &lt;adapter&gt;</code> on the host.</span>
                 {/if}
             </div>
+            {/if}
 
             {#if adapter}
                 <div class="step">
@@ -177,6 +184,8 @@
     .content { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; font-size: 12px; color: var(--fg); max-width: 760px; }
     .step { display: flex; flex-direction: column; gap: 4px; }
     .step label { font-weight: 600; }
+    .step.fixed { flex-direction: row; gap: 24px; }
+    .step.fixed .lbl { font-weight: 600; margin-right: 4px; }
     .muted { color: var(--fg-muted); font-size: 11px; }
     .muted code { color: var(--accent); }
     .err { color: #e74c3c; }
