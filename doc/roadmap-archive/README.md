@@ -12,6 +12,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [B4 — Matter tab attribute-action buttons (Step ▲/▼) do nothing ✅ fixed](B4.md)
 - [B5 — she.mqtt.age() intermittently returns NaN ✅ fixed](B5.md)
 - [B6 — matter.js logs recurring "FATAL Unhandled error detected: {}" ✅ fixed](B6.md)
+- [B7 — Scripts tab: clicking a script does nothing, "Model is disposed!" ✅ fixed](B7.md)
 
 ## Script Engine
 

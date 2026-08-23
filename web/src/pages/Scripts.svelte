@@ -629,16 +629,49 @@ declare const she: {
         } catch (e: any) { error = e.message; }
     }
 
+    /** Opens in flight — a second click on the same file while the first is still loading must not
+     *  create (and dispose) a second model; both callers wait for the same promise. */
+    const opening = new Map<string, Promise<void>>();
+
+    function modelUri(path: string) {
+        return monaco.Uri.parse(`file:///she-scripts/${encodeURIComponent(path)}`);
+    }
+
+    /** A model for the path: reuse the one Monaco already has for the URI (never dispose a model that may be in use). */
+    function modelFor(path: string, content: string) {
+        const uri = modelUri(path);
+        const existing = monaco.editor.getModel(uri);
+        if (existing && !existing.isDisposed()) {
+            if (existing.getValue() !== content) existing.setValue(content);
+            return existing;
+        }
+        return monaco.editor.createModel(content, langFromPath(path), uri);
+    }
+
     async function openTabInternal(path: string, andSwitch = true) {
         if (tabs.some(t => t.path === path)) {
             if (andSwitch) await switchTab(path);
             return;
         }
+        const inflight = opening.get(path);
+        if (inflight) {
+            await inflight;
+            if (andSwitch) await switchTab(path);
+            return;
+        }
+        const job = openTabLoad(path, andSwitch);
+        opening.set(path, job);
+        try {
+            await job;
+        } finally {
+            opening.delete(path);
+        }
+    }
+
+    async function openTabLoad(path: string, andSwitch: boolean) {
         try {
             const { content } = await readScript(path);
-            const uri = monaco.Uri.parse(`file:///she-scripts/${encodeURIComponent(path)}`);
-            monaco.editor.getModel(uri)?.dispose();
-            const model = monaco.editor.createModel(content, langFromPath(path), uri);
+            const model = modelFor(path, content);
             // Seed log history for this script from the daemon's jsonl log file.
             let logEntries: LogEntry[] = [];
             try {
@@ -658,6 +691,10 @@ declare const she: {
     async function switchTab(path: string) {
         const tab = tabs.find(t => t.path === path);
         if (!tab?.model) return;
+        if (tab.model.isDisposed()) {
+            // should not happen any more; recover instead of crashing the click handler
+            tab.model = modelFor(path, tab.savedContent);
+        }
         closeHistoryDiff();
         proposedCode = null;
         activeTab = path;
