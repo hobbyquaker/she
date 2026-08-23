@@ -379,7 +379,19 @@ Login sessions are held in-memory and lost on every daemon restart, forcing all 
 
 ### A5 — Secrets management
 
-Store secrets (named groups of arbitrary string fields, e.g. `{ "smtp": { "password": "…", "host": "…" } }`) in a dedicated encrypted file (`~/.she/secrets.enc`) separate from `config.json`, using AES-256-GCM via Node.js built-in `crypto`. Encryption key sourced from env var `SHE_SECRETS_KEY` (takes precedence) or key file `~/.she/secrets.key` (chmod 600). Access from scripts via `she.secrets.get('<name>/<field>')`. Integrate as own section in config ui (show/hide values). Open questions to resolve before implementation: HTTP API exposure (security concern — avoid reading secret values over the network, or localhost-only), behavior when key is missing, hot-reload vs. startup-only, CLI subcommands for management, configurable secrets file path.
+**Decisions (refined 2026-08-26):** own **Secrets** tab in the web UI, not a section in Settings; secret values **never leave the daemon** — the HTTP API is write-only (create/overwrite/delete, list names) and the only reader is script code via `she.secrets`. Kept deliberately simple: no change events, no export/import, no per-script access control, no Services integration.
+
+**Storage.** Named groups of string fields (`{ "smtp": { "host": "…", "password": "…" } }`) in `~/.she/config/secrets.enc` — outside the scripts dir, so auto-commit never sees it. AES-256-GCM via Node's `crypto`; key from `SHE_SECRETS_KEY` (env — works with systemd `LoadCredential` and Docker secrets), else `~/.she/config/secrets.key`, auto-generated `0600` on first use. The point of the encryption is that a backup or a copied `~/.she` holds no plaintext; a key file next to the data protects nothing against a local reader, which the docs say plainly. Missing or wrong key with an existing file → the tab shows *locked*, `get()` returns `undefined` with one warn log; the file is never silently recreated. Names `[A-Za-z0-9_.-]`, groups flat; values are strings, multi-line allowed (PEM keys), 64 KB cap.
+
+**Script API** (`she.secrets`, synchronous, store held in memory): `get('smtp/password')` → string; `get('smtp')` → frozen copy of the group; `has(path)`. Unknown path → `undefined` + one warn per script and path, no throw. The store is live — the next `get()` after a change returns the new value; a script that read a secret once at load keeps the old one until it is reloaded (no event, on purpose).
+
+**Web UI.** Tab *Secrets*: group list on the left, fields table on the right — name, a masked input that is empty until you type (write-only: there is no show/hide, editing means re-entering), changed-at, delete; *add group* / *add field* inline; *locked* state when the key is missing. API: `GET /she/secrets` (names, field names, changed-at), `PUT /she/secrets/:group/:field` (value in body), `DELETE /she/secrets/:group[/:field]`. Same auth as everything else — with `--auth none` anyone on the LAN can overwrite (not read) secrets, the same trust model as scripts.
+
+**Log redaction.** Occurrences of known secret values in script and daemon log lines are replaced with `***` before they reach the Logs tab or the log file, so a `log(res)` with a token in it does not leak.
+
+**CLI** for headless setups: `she --secret-set smtp/password` (value from stdin), `--secret-delete smtp[/password]`, `--secret-list` (names only).
+
+**Not in this item:** moving the credentials that live in `config.json` today (MQTT password, influx token, AI API key, broker admin, Services SSH) into secrets, or letting config reference them (`"apiKey": "@secret:ai/key"`) — a follow-up item once A5 exists.
 
 ### A6 — AI-generated auto-commit messages
 
