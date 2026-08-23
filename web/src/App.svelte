@@ -294,32 +294,6 @@
             Broker
         </button>
         {/if}
-        {#if servicesEnabled}
-        <button class:active={page === 'services'} onclick={() => navigate('services')}>
-            <!-- Services icon: stacked boxes -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="2" width="12" height="4" rx="1"/>
-                <rect x="2" y="10" width="12" height="4" rx="1"/>
-                <circle cx="4.5" cy="4" r="0.6" fill="currentColor"/>
-                <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
-            </svg>
-            Services
-            <!-- the dot box is always there so the button keeps its width when the status is unknown -->
-            {#if servicesStatus === 'ok'}<span class="nav-dot nav-dot--ok" title={servicesTitle}></span>
-            {:else if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
-            {:else if servicesStatus === 'err'}<span class="nav-dot nav-dot--err" title={servicesTitle}></span>
-            {:else}<span class="nav-dot nav-dot--none"></span>
-            {/if}
-        </button>
-        {/if}
-        <button class:active={page === 'secrets'} onclick={() => navigate('secrets')}>
-            <!-- Secrets icon: key -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="5" cy="11" r="3"/>
-                <path d="M7.2 8.8 14 2M11 5l2 2M9 7l2 2"/>
-            </svg>
-            Secrets
-        </button>
         {#if stats?.matterEnabled}
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
@@ -348,6 +322,32 @@
             DB
         </button>
         {/if}
+        {#if servicesEnabled}
+        <button class:active={page === 'services'} onclick={() => navigate('services')}>
+            <!-- Services icon: stacked boxes -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="12" height="4" rx="1"/>
+                <rect x="2" y="10" width="12" height="4" rx="1"/>
+                <circle cx="4.5" cy="4" r="0.6" fill="currentColor"/>
+                <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
+            </svg>
+            Services
+            <!-- the dot box is always there so the button keeps its width when the status is unknown -->
+            {#if servicesStatus === 'ok'}<span class="nav-dot nav-dot--ok" title={servicesTitle}></span>
+            {:else if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
+            {:else if servicesStatus === 'err'}<span class="nav-dot nav-dot--err" title={servicesTitle}></span>
+            {:else}<span class="nav-dot nav-dot--none"></span>
+            {/if}
+        </button>
+        {/if}
+        <button class:active={page === 'secrets'} onclick={() => navigate('secrets')}>
+            <!-- Secrets icon: key -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="5" cy="11" r="3"/>
+                <path d="M7.2 8.8 14 2M11 5l2 2M9 7l2 2"/>
+            </svg>
+            Secrets
+        </button>
         <button class:active={page === 'logs'} onclick={() => { navigate('logs'); logHasError = false; logHasWarn = false; }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
                 <line x1="2" y1="5" x2="14" y2="5"/>
