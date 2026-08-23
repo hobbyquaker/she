@@ -848,3 +848,61 @@ describe('adapter files (I10)', () => {
         expect((await httpRequest('POST', port, '/she/services/hosts/local/units/cul2mqtt/cul/file/create', { option: 'serialport' })).status).toBe(404);
     });
 });
+
+describe('catalog routes (I7)', () => {
+    const catalog = require('../../src/lib/services-catalog');
+    let server;
+    let port;
+    let logFile;
+    const calls = () =>
+        fs
+            .readFileSync(logFile, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => JSON.parse(l));
+
+    beforeAll(async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-cat-'));
+        logFile = path.join(dir, 'calls.log');
+        const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: path.join(dir, 'state.json') };
+        fs.writeFileSync(path.join(dir, 'state.json'), '{}');
+        api.setDriverFactory((h) => host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env }));
+        api.init(new StateStore(), () => null);
+        catalog.clearCache();
+        catalog.setFetch(async (url, opts) => {
+            const u = new URL(url);
+            const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+            if (u.pathname === '/-/v1/search')
+                return ok({ objects: [{ package: { name: 'wiim2mqtt', version: '0.1.1', description: 'WiiM', publisher: { username: 'hobbyquaker' } } }] });
+            if (((opts && opts.headers && opts.headers.accept) || '').includes('install-v1'))
+                return ok({ 'dist-tags': { latest: '0.1.1' }, 'versions': { '0.1.1': { dependencies: { 'mqtt-interfaces-core': '^0.6.0' } } } });
+            return ok({ name: 'wiim2mqtt', description: 'WiiM', maintainers: [{ name: 'hobbyquaker' }], time: {}, versions: { '0.1.1': {} } });
+        });
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = null;
+        app.use('/she/services', api.router);
+        server = http.createServer(app);
+        await new Promise((r) => server.listen(0, '127.0.0.1', r));
+        port = server.address().port;
+    });
+    afterAll(async () => {
+        catalog.clearCache();
+        await new Promise((r) => server.close(r));
+    });
+    beforeEach(() => fs.writeFileSync(logFile, ''));
+
+    test('GET catalog lists members for the default trusted publisher', async () => {
+        const r = await httpRequest('GET', port, '/she/services/catalog');
+        expect(r.status).toBe(200);
+        expect(r.body.publishers).toEqual(['hobbyquaker']);
+        expect(r.body.packages.map((p) => p.name)).toEqual(['wiim2mqtt']);
+    });
+
+    test('install-package only for catalog members', async () => {
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/adapters/evil2mqtt/install-package')).status).toBe(403);
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/wiim2mqtt/install-package');
+        expect(r.status).toBe(200);
+        expect(calls()[0].args).toEqual(['npm', 'wiim2mqtt', 'install']);
+    });
+});

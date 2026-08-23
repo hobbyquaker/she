@@ -1412,3 +1412,36 @@ export function createServiceFile(host: string, adapter: string, instance: strin
 export function getAdapterAsset(host: string, adapter: string, path: string): Promise<{ path: string; content: string; format: string | null }> {
     return request('GET', `${svcAdapter(host, adapter)}/asset?path=${encodeURIComponent(path)}`);
 }
+
+// ---- Services: adapter catalog (I7) ----
+
+export interface CatalogPackage {
+    name: string;
+    version: string;
+    coreRange: string;
+    publisher: string;
+    description: string;
+    homepage: string | null;
+    repository: string | null;
+    mqttInterfaces: { spec?: string; envPrefix?: string; needs?: string[]; serviceExtra?: string[] } | null;
+    maintainers: string[];
+    published: string | null;
+}
+
+export interface Catalog {
+    packages: CatalogPackage[];
+    publishers: string[];
+    errors: { publisher?: string; package?: string; error: string }[];
+    fetchedAt: number;
+    cached: boolean;
+    stale?: boolean;
+}
+
+/** Trusted publishers' packages on npm whose latest version depends on mqtt-interfaces-core (cached 24 h). */
+export function getServicesCatalog(refresh = false): Promise<Catalog> {
+    return request('GET', refresh ? '/she/services/catalog?refresh=1' : '/she/services/catalog');
+}
+
+export function installServicePackage(host: string, adapter: string): Promise<{ ok: boolean; output: string }> {
+    return request('POST', `${svcAdapter(host, adapter)}/install-package`);
+}

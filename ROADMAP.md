@@ -39,7 +39,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 **Integrations**
 - [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing)
-- [I7 — Services: adapter catalog via npm](#i7--services-adapter-catalog-via-npm)
 - [I8 — Services: docker host driver](#i8--services-docker-host-driver) 💡
 
 **Architecture, Operations & Security**
@@ -335,10 +334,6 @@ Use she's Generate CSR flow to produce the key and CSR, then use certbot or anot
 **Explicitly rejected (on both sides):** UI embedding — neither side has UI extension points and building them would be a large permanent coupling for a convenience. Deep links are the agreed alternative. Also rejected on feezal's side: a she script spawning the feezal server (hot-reload orphans children; she is not a process supervisor) — feezal gets its own `--install` à la she instead, plus a documented docker-compose pairing.
 
 **Relation to other roadmap items:** the bridge scripts are prime candidates for the doubted "system scripts" concept ([S6](#s6--system-scripts-two-tier-script-loading)) — but they work fine as plain user scripts, so system scripts remain unjustified by this alone. [A2](#a2--script-api-endpoint-authentication) gains urgency: `PUT /she/scripts/…` from feezal must work cleanly under auth (Bearer token support).
-
-### I7 — Services: adapter catalog via npm
-
-No catalog file: adapters mark themselves with the npm keyword `mqtt-interfaces` and a `mqttInterfaces` package.json field (spec, envPrefix, serviceExtra, needs). she searches the registry (24 h cache, last-good fallback, exact-keyword filter, deprecated skipped), reads metadata from the packument, and gates *Install* by `services.trustedPublishers` (default `hobbyquaker`; others listed as unverified). Install-from-catalog feeds the Add-instance wizard. Needs the adapters republished with keyword + field (documented in the core README). Depends on [I4](doc/roadmap-archive/I4.md) ✅.
 
 ### I8 — Services: docker host driver
 

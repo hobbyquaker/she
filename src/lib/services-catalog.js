@@ -1,0 +1,144 @@
+'use strict';
+
+/**
+ * Adapter catalog (roadmap I7): the npm packages of the publishers the user trusts whose latest
+ * version depends on mqtt-interfaces-core. No keyword, no registration — depending on the core
+ * is the membership criterion.
+ *
+ *   1. registry search `maintainer:<publisher>` (official, one request per publisher)
+ *   2. abbreviated packument per hit (`application/vnd.npm.install-v1+json`, small) → keep the
+ *      package when `versions[dist-tags.latest].dependencies` has mqtt-interfaces-core
+ *   3. full packument for the members only → description, homepage, repository, `mqttInterfaces`
+ *
+ * Cached for 24 h with the last good result kept on failure; `refresh` forces a new sweep.
+ * Best effort throughout: a publisher that fails is reported in `errors`, the rest still lists.
+ */
+
+const CORE = 'mqtt-interfaces-core';
+const REGISTRY = 'https://registry.npmjs.org';
+const TTL = 24 * 60 * 60 * 1000;
+
+let _fetch = (...args) => fetch(...args);
+function setFetch(fn) {
+    _fetch = fn;
+}
+
+/** @type {{key: string, ts: number, result: object, promise?: Promise<object>} | null} */
+let _cache = null;
+function clearCache() {
+    _cache = null;
+}
+
+function validPublisher(p) {
+    return typeof p === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(p);
+}
+
+async function getJson(url, headers = {}) {
+    const res = await _fetch(url, { headers: { accept: 'application/json', ...headers }, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`${res.status} ${url}`);
+    return res.json();
+}
+
+/** Package names a publisher maintains (registry search; 250 is the API's page maximum). */
+async function packagesOf(publisher) {
+    const data = await getJson(`${REGISTRY}/-/v1/search?text=${encodeURIComponent('maintainer:' + publisher)}&size=250`);
+    return (data.objects || [])
+        .map((o) => o.package)
+        .filter((p) => p && typeof p.name === 'string' && p.name !== CORE && !p.name.startsWith('@'))
+        .map((p) => ({ name: p.name, version: p.version, description: p.description || '', date: p.date || null, publisher: (p.publisher && p.publisher.username) || publisher }));
+}
+
+/** Does the latest version depend on the core? Returns the range or null. */
+async function coreDependency(name) {
+    const data = await getJson(`${REGISTRY}/${name}`, { accept: 'application/vnd.npm.install-v1+json' });
+    const latest = data['dist-tags'] && data['dist-tags'].latest;
+    const v = latest && data.versions && data.versions[latest];
+    if (!v) return null;
+    const range = (v.dependencies && v.dependencies[CORE]) || null;
+    return range ? { range, version: latest } : null;
+}
+
+/** Details of a member from the full packument. */
+async function details(name, version) {
+    const data = await getJson(`${REGISTRY}/${name}`);
+    const v = (data.versions && data.versions[version]) || {};
+    const repo = typeof data.repository === 'object' && data.repository ? data.repository.url : data.repository;
+    return {
+        description: v.description || data.description || '',
+        homepage: v.homepage || data.homepage || null,
+        repository: typeof repo === 'string' ? repo.replace(/^git\+/, '').replace(/\.git$/, '') : null,
+        mqttInterfaces: v.mqttInterfaces && typeof v.mqttInterfaces === 'object' ? v.mqttInterfaces : null,
+        deprecated: typeof v.deprecated === 'string' ? v.deprecated : null,
+        maintainers: Array.isArray(data.maintainers) ? data.maintainers.map((m) => m.name).filter(Boolean) : [],
+        published: data.time && data.time[version] ? data.time[version] : null,
+    };
+}
+
+/**
+ * Sweep the registry for the trusted publishers' adapters.
+ * @param {string[]} publishers
+ * @returns {Promise<{packages: object[], publishers: string[], errors: object[], fetchedAt: number}>}
+ */
+async function sweep(publishers, now) {
+    const errors = [];
+    const seen = new Map();
+    for (const publisher of publishers) {
+        let list;
+        try {
+            list = await packagesOf(publisher);
+        } catch (err) {
+            errors.push({ publisher, error: err.message });
+            continue;
+        }
+        for (const p of list) {
+            if (seen.has(p.name)) continue;
+            try {
+                const dep = await coreDependency(p.name);
+                if (!dep) continue;
+                const d = await details(p.name, dep.version);
+                if (d.deprecated) continue;
+                seen.set(p.name, { name: p.name, version: dep.version, coreRange: dep.range, publisher, ...d });
+            } catch (err) {
+                errors.push({ package: p.name, error: err.message });
+            }
+        }
+    }
+    const packages = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return { packages, publishers, errors, fetchedAt: now };
+}
+
+/**
+ * The catalog for the given trusted publishers (cached).
+ * @param {string[]} publishers
+ * @param {{force?: boolean, now?: number}} [opts]
+ */
+async function catalog(publishers, opts = {}) {
+    const list = [...new Set((publishers || []).filter(validPublisher).map((p) => p.toLowerCase()))];
+    const now = opts.now ?? Date.now();
+    const key = list.join(',');
+    if (list.length === 0) return { packages: [], publishers: [], errors: [], fetchedAt: now, cached: false };
+    if (_cache && _cache.key === key && !opts.force) {
+        if (_cache.promise) return { ...(await _cache.promise), cached: true };
+        if (now - _cache.ts < TTL) return { ..._cache.result, cached: true };
+    }
+    const previous = _cache && _cache.key === key ? _cache.result : null;
+    const promise = sweep(list, now).then((r) => {
+        // keep the last good list when the whole sweep produced nothing but errors
+        if (r.packages.length === 0 && r.errors.length > 0 && previous && previous.packages.length > 0) {
+            return { ...previous, errors: r.errors, stale: true };
+        }
+        return r;
+    });
+    _cache = { key, ts: now, result: previous, promise };
+    try {
+        const result = await promise;
+        _cache = { key, ts: now, result };
+        return { ...result, cached: false };
+    } catch (err) {
+        _cache = previous ? { key, ts: now, result: previous } : null;
+        if (previous) return { ...previous, errors: [{ error: err.message }], stale: true, cached: true };
+        throw err;
+    }
+}
+
+module.exports = { catalog, sweep, packagesOf, coreDependency, details, validPublisher, setFetch, clearCache, CORE, REGISTRY };

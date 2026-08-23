@@ -38,6 +38,8 @@
  *   PUT    /she/services/hosts/:host/units/:adapter/:instance/file   { path, content, restart? } write it
  *   POST   /she/services/hosts/:host/units/:adapter/:instance/file/create { option, path? } create from the example, point the option at it
  *   GET    /she/services/hosts/:host/adapters/:adapter/asset?path=   a file shipped in the adapter package (example, schema)
+ *   GET    /she/services/catalog[?refresh=1]                         adapters on npm: trusted publishers' packages depending on the core (I7)
+ *   POST   /she/services/hosts/:host/adapters/:adapter/install-package   npm install -g a catalog member on a host
  *
  * Call init(store, getMqttClient, {getMqttConfig}) once; getMqttConfig returns she's own broker
  * settings ({url, username, password}) so every managed host's broker.env can be kept in sync.
@@ -49,6 +51,7 @@ const crypto = require('crypto');
 const dns = require('dns');
 const { analyzeServices, wipeTopics, LOG_LEVELS } = require('../lib/services-inventory');
 const npmRegistry = require('../lib/npm-registry');
+const catalog = require('../lib/services-catalog');
 const os = require('os');
 const path = require('path');
 const {
@@ -1144,6 +1147,48 @@ router.post('/hosts/:host/units/:adapter/:instance/file/create', async (req, res
     }
 });
 
+// ── I7: adapter catalog ───────────────────────────────────────────────────────
+
+const DEFAULT_PUBLISHERS = ['hobbyquaker'];
+function trustedPublishers(req) {
+    const cfg = getServicesConfig(req);
+    const list = Array.isArray(cfg.trustedPublishers) ? cfg.trustedPublishers : DEFAULT_PUBLISHERS;
+    return list.filter(catalog.validPublisher);
+}
+
+// GET /she/services/catalog[?refresh=1]
+router.get('/catalog', async (req, res) => {
+    try {
+        const r = await catalog.catalog(trustedPublishers(req), { force: req.query.refresh === '1' });
+        res.json(r);
+    } catch (err) {
+        res.status(502).json({ error: 'npm registry: ' + err.message, packages: [], publishers: trustedPublishers(req), errors: [] });
+    }
+});
+
+// POST /she/services/hosts/:host/adapters/:adapter/install-package — only catalog members
+router.post('/hosts/:host/adapters/:adapter/install-package', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true });
+    if (!entry) return;
+    const adapter = req.params.adapter;
+    let members;
+    try {
+        members = (await catalog.catalog(trustedPublishers(req))).packages;
+    } catch (err) {
+        return res.status(502).json({ error: 'npm registry: ' + err.message });
+    }
+    if (!members.some((p) => p.name === adapter)) {
+        return res.status(403).json({ error: adapter + ' is not in the catalog (not a package of a trusted publisher depending on mqtt-interfaces-core)', code: 'NOT_IN_CATALOG' });
+    }
+    try {
+        const { stdout } = await entry.driver.exec(['npm', adapter, 'install'], { timeout: 600000 });
+        invalidateHosts();
+        res.json({ ok: true, output: stdout });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
 // GET /she/services/hosts/:host/broker-env
 router.get('/hosts/:host/broker-env', async (req, res) => {
     const entry = resolve(req, res);
@@ -1391,6 +1436,7 @@ module.exports = {
     defaultAcl,
     fileOptions,
     defaultFilePath,
+    DEFAULT_PUBLISHERS,
     credentialName,
     DYNSEC_MARKER,
     buildSetupScript,

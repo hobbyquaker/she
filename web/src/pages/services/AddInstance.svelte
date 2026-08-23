@@ -119,7 +119,7 @@
                     {/each}
                 </select>
                 {#if host?.ok && adapters.length === 0}
-                    <span class="muted">No adapters installed on {hostName}. Install one first: <code>sudo npm install -g &lt;adapter&gt;</code> (catalog: roadmap I7).</span>
+                    <span class="muted">No adapters installed on {hostName} yet — pick one on the <em>Catalog</em> tab and install it there, or <code>sudo npm install -g &lt;adapter&gt;</code> on the host.</span>
                 {/if}
             </div>
 

@@ -11,7 +11,7 @@ Enable it under **Settings → Services**; the **Services** page then appears in
 | **MQTT** (always) | nothing — she already sees every retained topic on the broker | inventory of all instances (adapter, version, host, pid, uptime, connected state), restart and log level over the adapters' maintenance topics, "update available" badge (npm registry, checked once a day), wiping the retained topics of an instance that is gone |
 | **Host** | the `she-servicectl` helper on the host — installed by `sudo she --install` on the she host, deployed over SSH to other hosts | systemd control (start/stop/restart/enable/disable), journal logs (tail + live follow), editing the instance's env file with a form generated from the adapter's `--config-schema` (with a *use she's broker settings* switch), installing and uninstalling instances, updating adapters via npm |
 
-Per-instance broker credentials and an adapter catalog are on the [roadmap](../ROADMAP.md) (I6, I7).
+| **Catalog** | the npm registry (cached a day) | the adapters you can install: the trusted publishers' packages whose latest version depends on mqtt-interfaces-core; one click installs them on a host |
 
 ## How adapters look to she
 
@@ -37,6 +37,7 @@ An MQTT instance and a host instance are the same row when the instance names ma
 
 - **Instances** — one row per instance: adapter and version (with the npm update badge), host, state (connected dot plus the systemd state when the host is managed), uptime, a log-level selector, and the actions the row supports: *Config / Logs* (opens the drawer), *Restart*, *Stop*/*Start*, *Enable*, *Uninstall*, *Wipe* (only while `connected = 0`). The nav dot is the worst case over all instances.
 - **Hosts** — per managed host: helper status with *Test* (runs `she-servicectl version`) and, for remote hosts, *Deploy helper*; installed adapters with version and origin, *Update* (`npm install -g <adapter>@latest`, then restarts the adapter's instances). Hosts that adapters report in `info.host` but that are not configured are listed underneath as *seen on MQTT, not managed*, with their instances. Adapters that were deployed manually (a tarball extracted to `/usr/local/lib/node_modules`, e.g. by an adapter's `deploy.sh`) are marked *manual*; updating them asks first because the npm version replaces the manual deploy.
+- **Catalog** — the adapters on npm you can install: every package of the *trusted publishers* (Settings → Services, default `hobbyquaker`) whose latest version depends on `mqtt-interfaces-core` — depending on the core is the membership criterion, nothing else is needed. Shows version, publisher, host prerequisites (`needs` from the package's `mqttInterfaces` field), where it is already installed, and *Install*/*Update on <host>* (`npm install -g <adapter>@latest` through the helper). The registry is asked once a day; ↺ refreshes; when it is unreachable the last list is kept and marked stale.
 - **Add instance** — pick host and adapter, choose the instance name, fill in the options (required ones first, the shared MQTT options collapsed; *Use she's broker settings* is on by default so the instance connects to the same broker as she), *Install*. The wizard runs `<adapter> --install --name <instance>` with the options passed as environment variables, so secrets never show up in a process list.
 
 The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secret` in the schema, or names containing password/token/secret/cookie/key) are masked; they stay unchanged unless you type a new value. *Save & restart* applies immediately.
@@ -73,6 +74,7 @@ The Add-instance wizard offers the same choice (default: she's settings).
 | `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself (untick *This host* in Settings when she runs in Docker). Remote entries are identified by their ssh host; an optional `name` overrides the label |
 | `services.hosts[].ssh` | — | `host` (required), `port` (22), `user` (the daemon's OS user), `identityFile` (the services key) — same shape as `broker.ssh` |
 | `services.hosts[].hostname` | — | filled automatically on first contact; what the host's adapters report as `info.host`; edit it when the two differ |
+| `services.trustedPublishers` | `["hobbyquaker"]` | npm user names whose packages the Catalog lists and she may install |
 
 Settings → Services holds the enable switch, the host list and the SSH key; everything operational is on the Services page.
 

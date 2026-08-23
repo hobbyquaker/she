@@ -40,6 +40,7 @@
     type RemoteHost = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
     let servicesRemote  = $state<RemoteHost[]>([]);
     let servicesPubkey  = $state<string | null>(null);
+    let servicesPublishers = $state('hobbyquaker');   // comma-separated npm user names whose packages the catalog lists
     let daemonUser      = $state('');   // default SSH user for remote hosts = the user she runs as
     let servicesKeyFile = $state('');
     let servicesKeyBusy = $state(false);
@@ -459,6 +460,8 @@
                 host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
                 user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
             }));
+            const tp = servicesCfg?.trustedPublishers;
+            servicesPublishers = Array.isArray(tp) ? tp.join(', ') : 'hobbyquaker';
             if (servicesEnabled) loadServicesPubkey();
         } catch (e: any) {
             errMsg = e.message;
@@ -631,7 +634,9 @@
         }
         // services.enabled — merge into the existing services block (preserves hosts etc.)
         const servicesExtra = (extra.services as Record<string, unknown> | undefined) ?? {};
-        const { enabled: _sIgnored, hosts: _hIgnored, ...servicesRest } = servicesExtra;
+        const { enabled: _sIgnored, hosts: _hIgnored, trustedPublishers: _tpIgnored, ...servicesRest } = servicesExtra;
+        const publishers = servicesPublishers.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (publishers.join(',') !== 'hobbyquaker') servicesRest.trustedPublishers = publishers; // default stays implicit
         // host list: the she host (unless unticked) plus the remote entries; hostname captured by the daemon is kept
         const hostsOut: Record<string, unknown>[] = [];
         if (servicesLocal) hostsOut.push({ name: 'local' });
@@ -996,6 +1001,13 @@
                                 </div>
                             {/if}
                         </div>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Trusted publishers
+                            {@render tip('npm user names. The Catalog tab lists their packages whose latest version depends on mqtt-interfaces-core, and only those can be installed from she. Comma-separated.')}
+                        </label>
+                        <input type="text" bind:value={servicesPublishers} spellcheck="false" placeholder="hobbyquaker" style="max-width:420px" />
                     </div>
                     <div class="field">
                         <label>
