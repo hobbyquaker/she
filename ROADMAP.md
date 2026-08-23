@@ -49,6 +49,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [A6 — AI-generated auto-commit messages](#a6--ai-generated-auto-commit-messages)
 - [A7 — Relicense to AGPL-3.0-or-later](#a7--relicense-to-agpl-30-or-later)
 - [A8 — Docker image build on GitHub Actions, published to GHCR](#a8--docker-image-build-on-github-actions-published-to-ghcr)
+- [A9 — Secrets: revealing values in the UI](#a9--secrets-revealing-values-in-the-ui) ⚠️
 
 **Testing**
 - [T1 — Auth module unit tests](#t1--auth-module-unit-tests)
@@ -411,6 +412,22 @@ A `Dockerfile` and `.dockerignore` exist, but images are neither built in CI nor
 - **Auth:** `GITHUB_TOKEN` with `packages: write` permission — no extra secrets needed.
 - **Docs:** README/getting-started gain a `docker run`/`docker compose` example pulling from GHCR instead of building locally; note the volume for `--data-dir` and host networking for Matter (mDNS).
 
+### A9 — Secrets: revealing values in the UI
+
+⚠️ needs discussion — filed 2026-08-26 while [A5](doc/roadmap-archive/A5.md) was fresh; the user would like an eye icon that shows a stored value, which A5 rules out on purpose. What is at stake, and the options:
+
+**Why A5 is write-only.** Whoever can talk to `/she/*` can already do everything a script can — and a script can `she.info(she.secrets.get('smtp/password'))` or publish it to MQTT. So a read route does not create a *new* capability for an attacker who has a session; what it removes is the *accidental* channel: a value that is never in an HTTP response cannot end up in browser history, a HAR file, a proxy log, a screenshot, a screen share, or the AI chat's context. That is the whole benefit, and it is real but modest. "Only the web interface may read it" is not enforceable: the browser is an HTTP client like any other, and anything the page can fetch, `curl` with the same cookie can fetch.
+
+**Options, weakest to strongest guarantee:**
+
+1. **Eye icon, plain read route** (`GET /she/secrets/:group/:field/value`): simplest, matches the user's wish; the only protections left are the session and the log redaction. Values in transit are as safe as the rest of the session (use HTTPS).
+2. **Reveal with friction**: the read route exists but requires re-entering the she password (password mode) or a short-lived per-reveal token minted on the page, is rate-limited, and is logged (`secret smtp/password revealed by <session>`). Same guarantee as 1 technically, but reveals become deliberate, visible acts rather than a click — this is what most secret managers do (Vault, 1Password) and the recommended middle ground.
+3. **Two field kinds** — the user's own suggestion: *secret* fields (write-only, exactly A5) and *plain* fields (a username, a host, a client id) whose values are listed and shown in clear. Usernames and hosts are not secrets and it is annoying to type them blind; this keeps the strong rule for the things that matter and still lets one group carry everything a script needs. Fits A5's model with one boolean per field (`secret: true|false`, default true) and `GET /she/secrets` returning the value for plain fields only. Note that a plain field's value would also be exempt from log redaction.
+4. **3 + 2**: plain fields always visible, secret fields revealable only through the deliberate path.
+
+**Recommendation:** implement 3 now (small, no new attack surface, solves the "I want to see the username" half), and offer 2 as an opt-in setting (`secrets.allowReveal`, default off) for people who want the eye on secret fields too — with the re-auth/log/rate-limit friction, and the docs stating plainly that with it enabled a session can read every secret. Never 1.
+
+**Open for the user to decide:** whether the plain/secret flag is chosen at creation only (simpler, honest — turning a secret into "plain" later is a reveal by another name) or can be flipped; whether reveal in option 2 should require the password even in proxy/none auth modes (proposal: in `none` mode option 2 is not available at all).
 ## Testing
 
 ### T1 — Auth module unit tests
