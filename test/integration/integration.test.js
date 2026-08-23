@@ -19,6 +19,7 @@ let brokerPort;
 let brokerSockets = new Set();
 let mqtt;
 let tmpConfigFile;
+let tmpDataDir;
 
 const msSubscriptions = {};
 const msBuffer = [];
@@ -108,7 +109,10 @@ beforeAll((done) => {
         brokerPort = brokerServer.address().port;
         tmpConfigFile = path.join(os.tmpdir(), `she-integration-test-${Date.now()}-${process.pid}.json`);
         fs.writeFileSync(tmpConfigFile, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0 }));
-        msArgs = ['-d', path.join(__dirname, '../testscripts'), '--config', tmpConfigFile];
+        // Own data dir: the spawned daemon must not write logs, db or the safe-mode
+        // marker into the developer's real ~/.she.
+        tmpDataDir = path.join(os.tmpdir(), `she-integration-test-data-${Date.now()}-${process.pid}`);
+        msArgs = ['-d', path.join(__dirname, '../testscripts'), '--config', tmpConfigFile, '--data-dir', tmpDataDir];
         mqtt = Mqtt.connect(`mqtt://127.0.0.1:${brokerPort}`);
         mqtt.on('message', (topic, payload) => {
             if (mqttSubscriptions[topic]) {
@@ -127,6 +131,12 @@ afterAll((done) => {
                 if (tmpConfigFile)
                     try {
                         fs.unlinkSync(tmpConfigFile);
+                    } catch {
+                        // ignore
+                    }
+                if (tmpDataDir)
+                    try {
+                        fs.rmSync(tmpDataDir, { recursive: true, force: true });
                     } catch {
                         // ignore
                     }

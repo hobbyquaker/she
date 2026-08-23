@@ -121,6 +121,62 @@ const log = {
 }
 const pkg = require('../package.json');
 
+// ---------------------------------------------------------------------------
+// Safe mode (roadmap S4): start the daemon without executing any user script.
+// Entered explicitly with --safe-mode, or automatically when the previous run
+// did not shut down cleanly — a script blocking the event loop forever leaves
+// the sentinel behind because neither the exit handler nor SIGTERM ever runs.
+// ---------------------------------------------------------------------------
+const _sentinelFile = _path.join(require('./lib/storage').STORAGE_ROOT, '.she-running');
+
+/**
+ * Who left the marker behind: `null` nobody (clean start), `'live'` a second instance
+ * sharing this data directory (documented setup — see cli.md "Multiple instances"),
+ * `'stale'` a run that was killed. Only 'stale' means safe mode; a PID reused by an
+ * unrelated process after a reboot is the one case this misses, which is the harmless
+ * direction to be wrong in.
+ */
+function _sentinelState() {
+    let pid;
+    try {
+        pid = parseInt(_fs.readFileSync(_sentinelFile, 'utf8').trim(), 10);
+    } catch {
+        return null; // no marker
+    }
+    if (!pid) return 'stale';
+    try {
+        process.kill(pid, 0);
+        return 'live';
+    } catch (e) {
+        return e.code === 'EPERM' ? 'live' : 'stale'; // EPERM: alive, just not ours
+    }
+}
+const _sentinelBefore = _sentinelState();
+const SAFE_MODE = config.safeMode === true || (config.safeModeAutoDetect !== false && _sentinelBefore === 'stale');
+let _sentinelWritten = false;
+function _clearSentinel() {
+    if (!_sentinelWritten) return;
+    _sentinelWritten = false;
+    try {
+        _fs.unlinkSync(_sentinelFile);
+    } catch {
+        /* already gone */
+    }
+}
+if (_sentinelBefore !== 'live') {
+    try {
+        _fs.writeFileSync(_sentinelFile, String(process.pid));
+        _sentinelWritten = true;
+    } catch (e) {
+        // not fatal — auto-detect simply never triggers when the file cannot be written
+        console.error('could not write ' + _sentinelFile + ': ' + e.message);
+    }
+}
+// Runs on exit(0) from the restart endpoint and on a normal end of the event loop.
+process.on('exit', _clearSentinel);
+// Wall-clock budget for a script's synchronous top-level code (0 = no limit).
+const SCRIPT_TIMEOUT_MS = typeof config.scriptTimeout === 'number' && config.scriptTimeout >= 0 ? config.scriptTimeout : 5000;
+
 /**
  * Build a short log label for a script file.
  * Uses the path relative to the configured script dir(s) when possible,
@@ -147,6 +203,14 @@ process.on('unhandledRejection', (reason) => {
 });
 
 log.info('she ' + pkg.version + ' starting');
+if (_sentinelBefore === 'live') log.info(`another she instance already uses ${require('./lib/storage').STORAGE_ROOT} — leaving its ${_path.basename(_sentinelFile)} marker alone`);
+if (SAFE_MODE) {
+    if (config.safeMode === true) log.warn('SAFE MODE (--safe-mode): user scripts are not loaded. Restart without the flag to run them.');
+    else
+        log.warn(
+            `SAFE MODE: ${_sentinelFile} was left behind, so the previous run was killed rather than stopped — a script may be blocking the event loop. User scripts are not loaded; fix the script and restart. Set "safeModeAutoDetect": false to disable this detection.`,
+        );
+}
 log.debug('loaded config: ', config);
 
 if (typeof config.port !== 'undefined') {
@@ -465,14 +529,26 @@ require('./web/server').setStatsProvider(() => {
         eluPercent: Math.round(eluDelta.utilization * 100),
         elMeanMs,
         elMaxMs,
+        safeMode: SAFE_MODE,
     };
 });
+
+// Health probe for GET /she/health (roadmap A1) — cheap, no counting, no allocation.
+require('./web/server').setHealthProvider(() => ({
+    started: _started,
+    mqttConfigured: !!config.url,
+    mqttConnected: connected,
+    scripts: Object.keys(scripts).length,
+    safeMode: SAFE_MODE,
+}));
 
 // Push current script:running state so the UI green dots survive a browser reload.
 setWelcomeProvider(() => Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true })));
 
 if (!config.url) {
-    log.warn('no MQTT broker URL configured â€” set "url" in ' + path.join(require('os').homedir(), '.she', 'config.json'));
+    // config.config is the file actually in use — hardcoding ~/.she misleads anyone
+    // running with --data-dir / SHE_DATA_DIR or --config.
+    log.warn('no MQTT broker URL configured â€” set "url" in ' + config.config + ' (or pass --url / SHE_URL)');
 }
 
 if (config.url) {
@@ -1255,8 +1331,16 @@ function runScript(script, name, _origin) {
     scriptDomain.run(() => {
         log.debug(logLabel, 'running');
         try {
-            script.runInContext(context);
+            // The timeout only covers synchronous top-level code — a callback registered
+            // here can still block the loop later (that is what the heartbeat reports).
+            script.runInContext(context, SCRIPT_TIMEOUT_MS > 0 ? { timeout: SCRIPT_TIMEOUT_MS } : undefined);
         } catch (e) {
+            if (e && e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+                // Killing the script mid-run leaves whatever it registered before the
+                // timeout in place; loading continues with the remaining scripts.
+                log.error(logLabel, `top-level code did not finish within ${SCRIPT_TIMEOUT_MS} ms and was terminated ("scriptTimeout", 0 disables this)`);
+                return;
+            }
             // Contain top-level script errors: without this, the exception
             // unwinds through the caller (e.g. the watcher batch loading many
             // scripts in one tick) and aborts loading of subsequent scripts.
@@ -1621,6 +1705,10 @@ function loadDir(dir) {
     }
 }
 function start() {
+    if (SAFE_MODE) {
+        log.warn('safe mode: no script is loaded and the script directory is not watched. Edit or delete the offending script in the web UI, then restart the daemon.');
+        return;
+    }
     if (config.heartbeat?.enabled) {
         const _hbInterval = typeof config.heartbeat.interval === 'number' ? config.heartbeat.interval : 50;
         const _hbThreshold = typeof config.heartbeat.threshold === 'number' ? config.heartbeat.threshold : 300;
@@ -1669,6 +1757,9 @@ function start() {
 }
 
 async function gracefulShutdown(signal) {
+    // First thing, synchronously: the async cleanup below may outlive systemd's
+    // TimeoutStopSec, and a SIGKILL after that must not look like a crash.
+    _clearSentinel();
     log.info(`got ${signal}. exiting.`);
     if (config.matterStorage) {
         try {

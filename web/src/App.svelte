@@ -263,6 +263,12 @@
 
 {#if authReady && !showLogin}
 <div class="shell">
+    {#if stats?.safeMode}
+        <div class="safe-banner">
+            <strong>⚠ SAFE MODE</strong> — no user script is running and the script directory is not watched. She was killed instead of stopped last time, which usually means a script blocked the event loop. Edit or delete it, then restart.
+            <button class="safe-restart" onclick={restart}>Restart daemon</button>
+        </div>
+    {/if}
     <nav>
         <span class="brand">she</span>
         <button class:active={page === 'scripts'} onclick={() => navigate('scripts')}>
@@ -308,10 +314,8 @@
                 <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
             </svg>
             Adapters
-            <!-- the dot box is always there so the button keeps its width when the status is unknown -->
-            {#if servicesStatus === 'ok'}<span class="nav-dot nav-dot--ok" title={servicesTitle}></span>
-            {:else if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
-            {:else if servicesStatus === 'err'}<span class="nav-dot nav-dot--err" title={servicesTitle}></span>
+            <!-- yellow only while an adapter update is available; the box stays so the button keeps its width -->
+            {#if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
             {:else}<span class="nav-dot nav-dot--none"></span>
             {/if}
         </button>
@@ -560,6 +564,32 @@
         flex-direction: column;
         height: 100vh;
     }
+    /* Safe mode (S4): full width above the nav bar — impossible to miss, and it stays
+       out of the way of the page below (the Scripts tab must remain fully usable). */
+    .safe-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 12px;
+        background: rgba(231, 76, 60, 0.15);
+        border-bottom: 1px solid rgba(231, 76, 60, 0.45);
+        color: #e74c3c;
+        font-size: 12px;
+        line-height: 1.4;
+        flex-shrink: 0;
+    }
+    .safe-banner strong { letter-spacing: 0.5px; }
+    .safe-restart {
+        margin-left: auto;
+        flex-shrink: 0;
+        border: 1px solid rgba(231, 76, 60, 0.5);
+        border-radius: 3px;
+        color: #e74c3c;
+        padding: 2px 10px;
+        font-size: 11px;
+        cursor: pointer;
+    }
+    .safe-restart:hover { background: rgba(231, 76, 60, 0.15); }
     nav {
         display: flex;
         align-items: center;

@@ -184,6 +184,8 @@ export interface DaemonStatus {
     dataDir?: string;
     startedAt?: number;
     docker?: boolean;
+    /** safe mode (S4): the daemon runs without loading any user script */
+    safeMode?: boolean;
     /** OS user the daemon runs as */
     user?: string;
 }

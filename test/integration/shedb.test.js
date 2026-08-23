@@ -98,7 +98,8 @@ beforeAll((done) => {
         mqtt.on('connect', () => {
             const configPath = path.join(tmpDir, 'config.json');
             fs.writeFileSync(configPath, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0, dbPath }));
-            const msArgs = ['-d', scriptsDir, '--config', configPath];
+            // --data-dir keeps logs and the safe-mode marker out of the developer's real ~/.she
+            const msArgs = ['-d', scriptsDir, '--config', configPath, '--data-dir', tmpDir];
             ms = cp.spawn(process.execPath, [msCmd, ...msArgs]);
             const rlOut = readline.createInterface({ input: ms.stdout, crlfDelay: Infinity });
             const rlErr = readline.createInterface({ input: ms.stderr, crlfDelay: Infinity });

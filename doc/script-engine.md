@@ -150,6 +150,31 @@ The mechanism:
 
 ---
 
+## Safe mode
+
+A user script that runs a synchronous infinite loop blocks the whole daemon: MQTT stops, every other script freezes, the web UI is unreachable and `systemctl stop` waits for `TimeoutStopSec` before systemd resorts to SIGKILL. Safe mode is the way back in — everything else starts (MQTT, HTTP/WS server, Config, Logs), but **no script is loaded and the script directory is not watched**, so the offending file can be edited or deleted in the web UI.
+
+**Two ways in:**
+
+- **`--safe-mode`** on the command line — always, regardless of anything else. As a one-off systemd override: `systemctl edit --force smart-home-engine` with `ExecStart=` + `ExecStart=/usr/local/bin/she --safe-mode --data-dir /var/lib/she`.
+- **Automatically after an unclean shutdown** (default on). She writes `<data-dir>/.she-running` — containing its PID — at startup and removes it again when it stops, synchronously, before any other cleanup. If the file is still there at the next start *and the PID in it is dead*, the previous run was killed rather than stopped, and she starts in safe mode. Turn this off with `"safeModeAutoDetect": false` (or `--no-safe-mode-auto-detect`).
+
+  A **live** PID means a second instance is sharing the data directory (see [Multiple instances](cli.md#multiple-instances)): no safe mode, and the marker is left to its owner rather than removed on exit. The one case this gets wrong is a PID recycled by an unrelated process after a reboot — then a genuine crash goes undetected, which is the harmless direction to be wrong in.
+
+**The way out:** restart the daemon — the "Restart daemon" button in the safe-mode banner (or in the stats popup) is enough. A clean start with no `--safe-mode` and no leftover marker runs scripts normally.
+
+Safe mode is visible as `safeMode: true` in `GET /she/status` and `GET /she/health`, and as a red banner across the top of the web UI.
+
+**When auto-detect is a nuisance:** any out-of-band SIGKILL leaves the marker — the OOM killer, `docker rm -f`, a `kill -9` during development. That is arguably the right signal (something did go wrong), but on a Docker volume that outlives the container, or on a development box where the daemon is killed routinely, `safeModeAutoDetect: false` is the escape hatch.
+
+### Script start timeout
+
+Independently of safe mode, a script's **synchronous top-level code** gets a wall-clock budget — `scriptTimeout`, 5000 ms by default. When it runs out, that script is terminated, the timeout is logged with the script name, and the remaining scripts load normally. Callbacks are *not* covered: only the initial run of the script body is. A script doing heavy synchronous work at startup (parsing a large file, precomputing tables) may need a higher value; `"scriptTimeout": 0` disables the limit.
+
+Blocking inside a *callback* is a different problem — nothing can interrupt it in-process. The optional event-loop heartbeat (Config → Script engine) reports it after the fact by naming the script that was last active, and a callback that never returns is what leaves the marker behind that puts the next start into safe mode.
+
+---
+
 ## Error handling
 
 Errors during the **initial top-level execution** of a script (i.e. the script body itself, not a callback) are caught by the domain and logged. The script remains "loaded" in the sense that any callbacks already registered before the error still run. If the error occurs before any `she.mqtt.sub()` calls, no callbacks are registered and the script is effectively a no-op until it is edited and reloaded.

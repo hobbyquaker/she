@@ -19,6 +19,7 @@ let brokerPort;
 let apiPort;
 let mqtt;
 let tmpConfigFile;
+let tmpDataDir;
 
 const msSubscriptions = {};
 const msBuffer = [];
@@ -99,7 +100,10 @@ beforeAll((done) => {
         mqtt.on('connect', () => {
             tmpConfigFile = path.join(os.tmpdir(), `she-api-test-${Date.now()}-${process.pid}.json`);
             require('fs').writeFileSync(tmpConfigFile, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug' }));
-            const msArgs = ['-d', testScriptsDir, '--config', tmpConfigFile, '--port', '0'];
+            // Own data dir: the spawned daemon must not write logs, db or the safe-mode
+            // marker into the developer's real ~/.she.
+            tmpDataDir = path.join(os.tmpdir(), `she-api-test-data-${Date.now()}-${process.pid}`);
+            const msArgs = ['-d', testScriptsDir, '--config', tmpConfigFile, '--port', '0', '--data-dir', tmpDataDir];
             ms = cp.spawn(process.execPath, [msCmd, ...msArgs]);
             const rlOut = readline.createInterface({ input: ms.stdout, crlfDelay: Infinity });
             const rlErr = readline.createInterface({ input: ms.stderr, crlfDelay: Infinity });
@@ -131,6 +135,12 @@ afterAll((done) => {
                 if (tmpConfigFile)
                     try {
                         require('fs').unlinkSync(tmpConfigFile);
+                    } catch {
+                        // ignore
+                    }
+                if (tmpDataDir)
+                    try {
+                        require('fs').rmSync(tmpDataDir, { recursive: true, force: true });
                     } catch {
                         // ignore
                     }

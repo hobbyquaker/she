@@ -79,6 +79,8 @@
     let heartbeatEnabled   = $state(false);
     let heartbeatInterval  = $state<number | ''>(50);
     let heartbeatThreshold = $state<number | ''>(300);
+    let safeModeAutoDetect = $state(true);
+    let scriptTimeout      = $state<number | ''>(5000);
 
     // sheDB
     let dbEnabled      = $state(true);  // default enabled
@@ -246,7 +248,7 @@
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
         { id: 'influx',     label: 'InfluxDB',     terms: ['influx','influxdb','time series','history','token','org','bucket','database','flux','influxql'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
-        { id: 'engine',     label: 'Script engine', terms: ['heartbeat','event loop','lag','blocking','performance'] },
+        { id: 'engine',     label: 'Script engine', terms: ['heartbeat','event loop','lag','blocking','performance','safe mode','recovery','timeout'] },
         { id: 'ai',         label: 'AI Assistant', terms: ['llm','ollama','openai','anthropic','model','provider','base url'] },
     ] as const;
 
@@ -306,6 +308,8 @@
                 if (typeof hb.interval  === 'number')  heartbeatInterval  = hb.interval;
                 if (typeof hb.threshold === 'number')  heartbeatThreshold = hb.threshold;
             }
+            if (typeof cfg.safeModeAutoDetect === 'boolean') safeModeAutoDetect = cfg.safeModeAutoDetect;
+            if (typeof cfg.scriptTimeout      === 'number')  scriptTimeout      = cfg.scriptTimeout;
             if (typeof cfg.dbPath === 'string') {
                 dbEnabled = cfg.dbPath !== ''; // empty string = explicitly disabled
                 dbPath    = cfg.dbPath;
@@ -479,6 +483,8 @@
             ...(heartbeatInterval  !== '' ? { interval:  Number(heartbeatInterval)  } : {}),
             ...(heartbeatThreshold !== '' ? { threshold: Number(heartbeatThreshold) } : {}),
         };
+        cfg.safeModeAutoDetect = safeModeAutoDetect;
+        if (scriptTimeout !== '') cfg.scriptTimeout = Number(scriptTimeout);
 
         if (dbEnabled) {
             if (dbPath) {
@@ -1165,6 +1171,22 @@
                             {@render tip('Minimum excess delay (beyond the interval) before a warning is logged. Default: 300 ms.')}
                         </label>
                         <input type="number" bind:value={heartbeatThreshold} min="50" max="60000" step="50" disabled={!heartbeatEnabled} placeholder="300" />
+                    </div>
+                    <div class="field field--check">
+                        <span></span>
+                        <label class="check-label">
+                            <input type="checkbox" bind:checked={safeModeAutoDetect} />
+                            <span class="checkmark"></span>
+                            Safe mode after an unclean shutdown
+                            {@render tip('She writes a .she-running marker into the data directory and removes it when it stops. If the marker is still there at startup, the previous run was killed rather than stopped — usually a script blocking the event loop — and she starts in safe mode: the web UI comes up but no script is loaded, so the offending script can be fixed. Turn this off if you routinely kill -9 the daemon or force-remove its container. Requires daemon restart.')}
+                        </label>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Script start timeout (ms)
+                            {@render tip('How long a script\'s synchronous top-level code may run before it is terminated and the remaining scripts are loaded anyway. Only covers the initial run, not callbacks. 0 = no limit. Default: 5000 ms.')}
+                        </label>
+                        <input type="number" bind:value={scriptTimeout} min="0" max="120000" step="500" placeholder="5000" />
                     </div>
                 </section>
                 {/if}
