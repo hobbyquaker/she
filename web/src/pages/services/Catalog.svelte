@@ -94,11 +94,15 @@
                 {@const on = installedOn(p)}
                 <div class="pkg">
                     <div class="pkg-head">
-                        <span class="name mono">{p.name}</span>
+                        <a class="name mono" href={'https://www.npmjs.com/package/' + p.name} target="_blank" rel="noopener" title="{p.name} on npm">{p.name}</a>
+                        {#if p.repository}
+                            <a class="gh" href={p.repository} target="_blank" rel="noopener" title={p.repository.replace(/^https?:\/\//, '')} aria-label="repository">
+                                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+                            </a>
+                        {/if}
                         <span class="muted">{p.version}{#if p.published} · {fmtDate(p.published)}{/if} · by {p.publisher}</span>
                         {#if p.mqttInterfaces?.needs?.length}<span class="badge" title="host prerequisites">{p.mqttInterfaces.needs.join(', ')}</span>{/if}
                         <span class="spacer"></span>
-                        {#if p.homepage}<a class="link" href={p.homepage} target="_blank" rel="noopener">docs</a>{/if}
                     </div>
                     <div class="desc">{p.description}</div>
                     <div class="pkg-foot">
@@ -137,10 +141,12 @@
     .mono { font-family: var(--font-mono, monospace); }
     .pkg { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
     .pkg-head, .pkg-foot { display: flex; align-items: center; gap: 8px; }
-    .name { font-weight: 600; font-size: 13px; }
+    .name { font-weight: 600; font-size: 13px; color: var(--fg); text-decoration: none; }
+    .name:hover { color: var(--accent); text-decoration: underline; }
+    .gh { display: inline-flex; align-items: center; color: var(--fg-muted); margin-left: -2px; }
+    .gh:hover { color: var(--fg); }
     .desc { color: var(--fg); }
     .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; background: rgba(230,126,34,0.18); color: #e67e22; }
-    .link { color: var(--accent); font-size: 11px; }
     select { background: var(--bg-app); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; padding: 2px 4px; }
     button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: default; }
