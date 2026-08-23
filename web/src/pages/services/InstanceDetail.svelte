@@ -20,6 +20,7 @@
         mqtt = null,
         onclose,
         onchanged,
+        tab = $bindable('config'),
     }: {
         host: string;
         adapter: string;
@@ -28,10 +29,11 @@
         mqtt?: ServiceInstance | null;
         onclose: () => void;
         onchanged?: () => void;
+        /** bound by the parent so the tab survives switching to another instance */
+        tab?: Tab;
     } = $props();
 
     type Tab = 'config' | 'logs' | 'info';
-    let tab = $state<Tab>('config');
 
     /* ── Config ───────────────────────────────────────────────────────────── */
     let env      = $state<Record<string, string>>({});

@@ -127,6 +127,7 @@
     // only the key is state; the row is derived so it is always the fresh one after a reload
     // (holding the row object in $state would proxy it and never compare equal → effect loop)
     let detailKey = $state<string | null>(null);
+    let detailTab = $state<'config' | 'logs' | 'info'>('config');
     let detail = $derived(detailKey === null ? null : (rows.find(r => r.key === detailKey) ?? null));
     function openDetail(r: Row) {
         if (!r.host || !r.unit) return;
@@ -317,7 +318,11 @@
                                     <button class="exp" onclick={() => toggleExpand(r.key)} title="Show info">{expanded.has(r.key) ? '▾' : '▸'}</button>
                                 </td>
                                 <td>
-                                    <span class="dname">{r.instance}</span>
+                                    {#if r.host && r.unit}
+                                        <button class="dname dname-link" onclick={() => openDetail(r)} title="Open config and logs of {r.instance}">{r.instance}</button>
+                                    {:else}
+                                        <span class="dname">{r.instance}</span>
+                                    {/if}
                                     {#if r.mqtt?.legacy}<span class="badge b-legacy" title="No <name>/info topic — adapter not built on mqtt-interfaces-core">legacy</span>{/if}
                                     {#if !r.mqtt && r.unit}<span class="badge b-legacy" title="Installed on {r.host?.name} but nothing retained on MQTT yet">not on MQTT</span>{/if}
                                 </td>
@@ -412,7 +417,7 @@
         {#key detail.key}
             <div class="drawer" style:width={`${drawerWidth}px`}>
                 <InstanceDetail host={detail.host.name} adapter={detail.unit.adapter} instance={detail.instance} unit={detail.unit} mqtt={detail.mqtt}
-                    onclose={() => (detailKey = null)} onchanged={() => setTimeout(load, 600)} />
+                    bind:tab={detailTab} onclose={() => (detailKey = null)} onchanged={() => setTimeout(load, 600)} />
             </div>
         {/key}
     {/if}
@@ -478,6 +483,10 @@
     .c-exp { width: 24px; min-width: 24px; max-width: 24px; text-align: center; box-sizing: border-box; }
     .c-act { text-align: right; white-space: nowrap; }
     .dname { font-weight: 600; display: inline-block; margin-right: 6px; }
+    /* managed instances: the name opens / switches the drawer */
+    button.dname-link { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: var(--fg); cursor: pointer; text-align: left; }
+    button.dname-link:hover { color: var(--accent); text-decoration: underline; }
+    tr.selected button.dname-link { color: var(--accent); }
     .mono { font-family: var(--font-mono, monospace); font-size: 11px; }
 
     .badge {
