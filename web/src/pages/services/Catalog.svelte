@@ -116,7 +116,7 @@
                             </a>
                         {/if}
                         <span class="muted">{p.version}{#if p.published} · {fmtDate(p.published)}{/if} · by {p.publisher}</span>
-                        {#if p.mqttInterfaces?.needs?.length}<span class="badge" title="host prerequisites">{p.mqttInterfaces.needs.join(', ')}</span>{/if}
+                        {#each p.mqttInterfaces?.needs ?? [] as n (n)}<span class="badge" title="what the adapter talks to (mqttInterfaces.needs)">{n}</span>{/each}
                         <span class="spacer"></span>
                     </div>
                     <div class="desc">{p.description}</div>

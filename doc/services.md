@@ -1,6 +1,6 @@
 # Services — managing xyz2mqtt adapters
 
-she can optionally show and operate the `xyz2mqtt` adapter instances of your home — the small daemons that bridge a device or cloud service to MQTT (lgtv2mqtt, cul2mqtt, alexa-remote-mqtt, …). Adapters built on [mqtt-interfaces-core](https://github.com/hobbyquaker/mqtt-interfaces-core) get the full feature set; anything that only publishes a `<name>/connected` topic — older adapters, but also ESPHome devices and similar firmware — is a *legacy* row, hidden by default (tick *show legacy* on the Instances tab).
+she can optionally show and operate the `xyz2mqtt` adapter instances of your home — the small daemons that bridge a device or cloud service to MQTT (lgtv2mqtt, cul2mqtt, alexa-remote-mqtt, …). Adapters built on [mqtt-interfaces-core](https://github.com/hobbyquaker/mqtt-interfaces-core) get the full feature set; anything that only publishes a `<name>/connected` topic — older adapters, but also ESPHome devices and similar firmware — is a *legacy* row, hidden by default (tick *show unmanaged* on the Instances tab).
 
 Enable it under **Settings → Services**; the **Adapters** page then appears in the navigation. Nothing else in she depends on it.
 

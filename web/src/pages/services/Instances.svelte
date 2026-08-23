@@ -286,7 +286,7 @@
             <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
                 <input type="checkbox" bind:checked={showLegacy} />
                 <span class="checkmark"></span>
-                show legacy ({legacyCount})
+                show unmanaged ({legacyCount})
             </label>
             <span class="spacer"></span>
             {#if notice}<span class="result">{notice}</span>{/if}
@@ -305,7 +305,7 @@
             <div class="info err">{loadError}</div>
         {:else if shown.length === 0}
             <div class="info">
-                No xyz2mqtt services seen{#if legacyCount > 0} — {legacyCount} legacy row{legacyCount === 1 ? '' : 's'} hidden (only a <code>&lt;name&gt;/connected</code> topic; tick <em>show legacy</em>){/if}. Adapters built on
+                No xyz2mqtt services seen{#if legacyCount > 0} — {legacyCount} legacy row{legacyCount === 1 ? '' : 's'} hidden (only a <code>&lt;name&gt;/connected</code> topic; tick <em>show unmanaged</em>){/if}. Adapters built on
                 <a href="https://github.com/hobbyquaker/mqtt-interfaces-core" target="_blank" rel="noopener">mqtt-interfaces-core</a>
                 publish a retained <code>&lt;name&gt;/info</code> and <code>&lt;name&gt;/connected</code>; older adapters with only
                 <code>&lt;name&gt;/connected</code> show up as <em>legacy</em>. Instances installed on a managed host appear even before they connect.
