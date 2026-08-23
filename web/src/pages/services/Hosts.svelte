@@ -185,7 +185,7 @@
                                 {@const names = [...(h.instances ?? []).filter(i => i.adapter === a.name).map(i => i.instance), ...(h.legacy ?? []).filter(l => l.adapter === a.name).map(l => `${l.unit} (old unit)`)]}
                                 <tr>
                                     <td class="mono">{a.name}</td>
-                                    <td>{a.version ?? '—'}{#if a.updateAvailable} <span class="badge b-upd" title="npm has {a.latestVersion}">{a.latestVersion}</span>{/if}</td>
+                                    <td><span class="ver">{a.version ?? '—'}{#if a.updateAvailable}<span class="badge b-upd" title="npm has {a.latestVersion} — Update installs it">{a.latestVersion}</span>{/if}</span></td>
                                     <td>
                                         {#if a.origin === 'manual'}<span class="badge warn-b" title="Deployed by tarball / deploy.sh, not npm install -g — path: {a.path}">manual</span>
                                         {:else}<span class="muted">npm</span>{/if}
@@ -259,6 +259,7 @@
     td { padding: 4px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); }
     .c-act { text-align: right; }
     .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; }
+    .ver { display: inline-flex; align-items: center; gap: 5px; }
     .warn-b { background: rgba(230,126,34,0.18); color: #e67e22; }
     .b-upd { background: rgba(241,196,15,0.18); color: #d4ac0d; }
     button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
