@@ -359,7 +359,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
     test('sudo prefix when enabled', async () => {
         const d = host.createSshDriver({ name: 'z', ssh: { host: 'h' } }, { sshBin: FAKE_SSH, helper: 'true', sudo: true, env });
-        await expect(d.exec(['x'])).rejects.toBeDefined(); // `sudo -n true x` fails or prompts — only the command line matters here
+        await d.exec(['x']).catch(() => {}); // `sudo -n true x` may fail (no rule), prompt, or succeed (CI runners) — only the command line matters here
         expect(sshLines()[0]).toMatch(/^ssh \S+@h 'sudo' '-n' 'true' 'x'$/);
     });
 
