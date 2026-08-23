@@ -13,10 +13,12 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [B5 — she.mqtt.age() intermittently returns NaN ✅ fixed](B5.md)
 - [B6 — matter.js logs recurring "FATAL Unhandled error detected: {}" ✅ fixed](B6.md)
 - [B7 — Scripts tab: clicking a script does nothing, "Model is disposed!" ✅ fixed](B7.md)
+- [B8 — `SHE_*` environment variables were documented but never read ✅ fixed](B8.md)
 
 ## Script Engine
 
 - [S1 — Async callback safety: proper per-dispatch Promise wrapping ✅ implemented](S1.md)
+- [S4 — Safe mode: start without executing scripts ✅ implemented](S4.md)
 
 ## Web UI & Editor
 
@@ -27,6 +29,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 
 ## MQTT, Matter & Broker
 
+- [M3 — Raw `mosquitto.conf` editor ✅ implemented](M3.md)
 - [M8 — Rename Matter devices via context menu ✅ implemented](M8.md)
 - [M9 — Script start waits for the Matter controller ✅ implemented](M9.md)
 - [M10 — Home Assistant discovery cleanup: delete orphaned device announcements ✅ implemented](M10.md)
@@ -46,7 +49,9 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 
 ## Architecture, Operations & Security
 
+- [A1 — Health check endpoint ✅ implemented](A1.md)
 - [A5 — Secrets management ✅ implemented](A5.md)
+- [A8 — Docker image build on GitHub Actions, published to GHCR ✅ implemented](A8.md)
 
 ## Documentation
 

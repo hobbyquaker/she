@@ -13,9 +13,8 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 ## Table of Contents
 
 **Script Engine**
-- [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(heartbeat shipped)*
+- [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(only worker-thread isolation left)*
 - [S3 — Graceful WebSocket shutdown](#s3--graceful-websocket-shutdown)
-- [S4 — Safe mode: start without executing scripts](#s4--safe-mode-start-without-executing-scripts)
 - [S5 — `she.emit` / `events::` cross-script event bus](#s5--sheemit--events-cross-script-event-bus)
 - [S6 — System scripts: two-tier script loading](#s6--system-scripts-two-tier-script-loading) ⚠️ *(needs decision)*
 - [S7 — Initial evaluation from retained state for stdlib combiners](#s7--initial-evaluation-from-retained-state-for-stdlib-combiners)
@@ -31,7 +30,6 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 **MQTT, Matter & Broker**
 - [M1 — Per-topic value history](#m1--per-topic-value-history)
 - [M2 — Multiple MQTT broker connections](#m2--multiple-mqtt-broker-connections)
-- [M3 — Raw `mosquitto.conf` editor](#m3--raw-mosquittoconf-editor)
 - [M4 — Password file & ACL file management](#m4--password-file--acl-file-management)
 - [M5 — Client certificate management](#m5--client-certificate-management) 🚧 *(deferred pending external CA strategy)*
 - [M6 — step-ca integration (homelab PKI)](#m6--step-ca-integration-homelab-pki)
@@ -40,15 +38,14 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 **Integrations**
 - [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing)
 - [I8 — Services: docker host driver](#i8--services-docker-host-driver) 💡
+- [I13 — Device discovery when adding an instance](#i13--device-discovery-when-adding-an-instance) 🚧 *(blocked on `x-discover` landing in core)*
 
 **Architecture, Operations & Security**
-- [A1 — Health check endpoint](#a1--health-check-endpoint)
 - [A2 — Script API endpoint authentication](#a2--script-api-endpoint-authentication)
 - [A3 — Path traversal via symlinks](#a3--path-traversal-via-symlinks)
 - [A4 — Session persistence](#a4--session-persistence)
 - [A6 — AI-generated auto-commit messages](#a6--ai-generated-auto-commit-messages)
 - [A7 — Relicense to AGPL-3.0-or-later](#a7--relicense-to-agpl-30-or-later)
-- [A8 — Docker image build on GitHub Actions, published to GHCR](#a8--docker-image-build-on-github-actions-published-to-ghcr)
 - [A9 — Secrets: revealing values in the UI](#a9--secrets-revealing-values-in-the-ui) 🔨
 
 **Testing**
@@ -63,55 +60,21 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 ### S2 — Per-script resource limits / blocking callback detection
 
-🔨 *Partially done — the event-loop heartbeat (part 2) is shipped.*
+🔨 *Partially done — the event-loop heartbeat (part 2) and the initial-run timeout (part 1) are shipped; only worker-thread isolation (part 3) is open.*
 
 A script callback that runs a synchronous infinite loop (or any long-running blocking code) stalls the entire daemon: MQTT processing stops, all other scripts freeze, and there is no way to interrupt the blocking code from within the same thread. Complementary improvements, in increasing complexity order:
 
-1. **`vm.Script` initial-run timeout** — pass a `timeout` option to `script.runInContext()` (e.g. 5 s). This terminates the script if the *top-level body* runs synchronously for too long. Easy, ~5 lines. Does **not** protect against blocking callbacks. Also part of [S4](#s4--safe-mode-start-without-executing-scripts), which specifies its config key.
+1. ✅ **`vm.Script` initial-run timeout** — DONE, shipped with [S4](doc/roadmap-archive/S4.md) as `scriptTimeout` (default 5000 ms, `0` disables): `script.runInContext()` gets a `timeout`, a script whose *top-level body* overruns it is terminated and named in the log, the remaining scripts load anyway. Does **not** protect against blocking callbacks.
 
 2. ✅ **Event-loop heartbeat** — DONE. Schedule a `setImmediate` every 100 ms. If it fires more than ~500 ms late, the event loop was blocked. Track the "currently executing script" in a module-level variable (set when a sandbox callback fires, cleared in a follow-up `setImmediate`); log a warning naming the script. This detects blocking callbacks and provides useful diagnostics, but cannot interrupt them — it only reports after the fact.
 
 3. **Worker threads per script** — the only way to achieve true isolation: each script runs in its own `worker_thread`, so blocking one worker does not affect the daemon or other scripts. The worker can be killed and restarted on reload. Major architectural rewrite: `she.mqtt.get()` is currently synchronous — in a worker context it would need `SharedArrayBuffer`-based state sharing or become async (a breaking API change). All subscription callbacks would need to be dispatched across the thread boundary via `postMessage`. Estimated effort: weeks. Only worth pursuing if the homelab grows large enough that a single misbehaving script is a real operational risk.
 
-Practical path: implement 1 as a low-effort improvement now (2 is done); defer 3 unless there is a concrete need.
+Practical path: 1 and 2 are done; defer 3 unless there is a concrete need.
 
 ### S3 — Graceful WebSocket shutdown
 
 When `process.exit(0)` is called (e.g. on restart request), connected WebSocket clients drop abruptly. Send a WS close frame first so the frontend can show a meaningful disconnect message.
-
-### S4 — Safe mode: start without executing scripts
-
-When a user script blocks the event loop permanently (infinite synchronous loop), the daemon becomes unresponsive: MQTT stops, the web UI is unreachable, and even `systemctl stop` hangs until systemd's `TimeoutStopSec` SIGKILL fires. Safe mode initialises everything (MQTT, HTTP/WS server, file watcher, Config, Logs) but skips all `loadScript()` calls. The user can then open the web UI, identify and fix/delete the offending script, and restart normally.
-
-**Activation — two independent mechanisms, both configurable:**
-
-1. **CLI flag `--safe-mode`** — always enters safe mode regardless of any other state. Useful for a manual override (`ExecStart=/usr/local/bin/she --safe-mode --data-dir /var/lib/she` as a one-off override via `systemctl edit --force`).
-
-2. **Auto-detect via sentinel file (configurable, default on)** — on every normal startup, write a sentinel file `<dataDir>/.she-running`. Delete it as the *first* synchronous action in the `SIGTERM` handler (before any async cleanup) and also in `process.on('exit', ...)`. On startup, if the file already exists, she was SIGKILL'd without a clean exit → enter safe mode automatically. Controlled by config key `safeMode.autoDetect` (bool, default `true`). Expose as a toggle in the Config UI "Script engine" section alongside the heartbeat settings.
-
-**Getting out of safe mode:** just use the existing "Restart daemon" button in the stats popup — no new UI flow needed. A clean restart without `--safe-mode` and without a sentinel file present will start normally.
-
-**Web UI:** when `stats.safeMode === true`, show a full-width red banner spanning the top of the app (above the nav bar): *"⚠ SAFE MODE — scripts are not running. Edit or delete the problematic script, then restart the daemon."* The Scripts tab remains fully functional for editing and deleting. No other UI changes are needed.
-
-**Backend:** `GET /she/status` gains a `safeMode: boolean` field. Config keys: `safeMode.autoDetect` (bool, default `true`). The `--safe-mode` CLI flag (yargs boolean, default `false`) always wins.
-
-**`vm.Script` initial-run timeout (complementary, cf. [S2](#s2--per-script-resource-limits--blocking-callback-detection) part 1):** while implementing safe mode, also pass `{ timeout: 5000 }` to `script.runInContext()`. This kills scripts whose *top-level body* blocks synchronously for >5s at load time, catching infinite loops at the point of loading rather than only after callbacks fire. On timeout, log an error with the script name and continue loading other scripts — same behaviour as a syntax error. Default 5s; make it configurable via `safeMode.scriptTimeout` (ms, `0` = disabled). Note: this only applies to synchronous top-level code; callbacks are not affected.
-
-**Known downsides and edge cases to handle carefully:**
-
-- **Interaction with `TimeoutStopSec=3`** (critical): the service file uses `TimeoutStopSec=3`. If she is doing legitimate slow graceful cleanup (MQTT disconnect, DB flush) and takes >3s, systemd SIGKILLs it. Sentinel remains → false-positive safe mode on next start. **Fix:** delete the sentinel synchronously at the very start of the SIGTERM handler, before any async cleanup begins. If SIGKILL fires 3s later the sentinel is already gone. Test this carefully.
-
-- **OOM killer / external `kill -9`**: any out-of-band SIGKILL (OOM, Docker, manual) leaves the sentinel and triggers safe mode on next start. This is arguably correct behaviour (something went wrong → investigate) but may surprise users who manage the process externally.
-
-- **Docker volumes**: the sentinel file lives in `--data-dir`. If the container is force-removed and recreated with the same volume, the sentinel persists and triggers safe mode on the first start of the new container. Document this; advise deleting the volume or setting `safeMode.autoDetect: false` in Dockerised setups.
-
-- **Development environments**: developers who frequently `kill -9` a local she instance will be constantly dropped into safe mode. The `safeMode.autoDetect: false` config option is the escape hatch; mention it prominently in the docs.
-
-- **`vm.Script` timeout false positives**: scripts that intentionally do heavy synchronous work at startup (parsing large JSON files, precomputing lookup tables) could be killed. The 5s default is generous for home-automation scripts; document the `safeMode.scriptTimeout: 0` opt-out.
-
-- **Sentinel and restart-from-UI**: `POST /she/restart` calls `process.exit(0)`, which fires `process.on('exit', ...)` → sentinel is deleted before the new process starts. No false positive.
-
-- **Multiple simultaneous starts**: two she instances racing at startup could both see no sentinel, both write it, and both start normally. Edge case not worth special handling; process locking is overkill for this use case.
 
 ### S5 — `she.emit` / `events::` cross-script event bus
 
@@ -268,10 +231,6 @@ Allow connecting to more than one broker simultaneously. Config: replace the top
 
 *Optional follow-up — cross-broker references:* allow `'brokerName##topic'` as a topic string in `link()` and stdlib helpers to reference a topic on a different broker. `##` is chosen as separator because a double hash can never appear in a valid MQTT topic (the `#` wildcard is only legal as a standalone final segment and publishing to a topic containing `#` is forbidden by spec), making it unambiguous to parse.
 
-### M3 — Raw `mosquitto.conf` editor
-
-The `PUT /she/broker/config/raw` endpoint and the `putBrokerConfRaw()` API helper already exist; only the frontend tab is missing. Add an **Advanced** sub-tab to the Broker page that renders the full `mosquitto.conf` text in a Monaco editor (`language: 'ini'`). On save, call `putBrokerConfRaw(content, checksum)` — external-modify detection via checksum works the same way as the structured editor. The tab should also surface the backup list with a one-click restore (calls `POST /she/broker/config/restore`). This gives power users a full escape hatch beyond what the structured Listeners / Global Config tabs expose.
-
 ### M4 — Password file & ACL file management
 
 Users who prefer static `passwd` / `acl` files over the dynamic-security plugin have no UI support today. Needs to work in both local and SSH/remote mode (analogous to how `mosquitto.conf` read/write already works via `ssh-deploy`).
@@ -339,11 +298,38 @@ Use she's Generate CSR flow to produce the key and CSR, then use certbot or anot
 
 💡 *Idea — designed-for in I4, not built.* Third host driver over the `docker` CLI (compose restart, logs, env) for containerised adapters (ghcr images exist for alexa-remote-mqtt & co.). Until then Docker-hosted instances are covered by Tier 0 only. Depends on [I5](doc/roadmap-archive/I5.md) ✅ and actual demand.
 
+### I13 — Device discovery when adding an instance
+
+🚧 *Blocked until the `x-discover` schema marker (decided, see below) lands in mqtt-interfaces-core and the pilot adapters.*
+
+mqtt-interfaces-core 0.9 gave adapters device discovery (core roadmap B-2): a declarative `DISCOVERY` hint (SSDP, mDNS/DNS-SD, vendor UDP broadcast probes, port probes, subnet sweeps, ARP/OUI — and, in progress, USB serial ports via `/dev/serial/by-id`), surfaced on every discovery-capable adapter as `--discover` / `--discover-json` / `--discover-timeout` / `--discover-address`. Pilots: hm2mqtt 3.3.0 (eQ-3 UDP probe + interface ports, shipped), lgsb2mqtt (`_googlecast._tcp` + temescal port, in progress — including mDNS-reflector answers and `--discover-address` CIDR ranges for a device on another VLAN) and cul2mqtt (busware USB sticks by their stable by-id serial name, in progress). she should use it where it pays off most: the **Add instance** flow, so the user never types an IP address or hunts through `/dev` for a device path the host can just tell us.
+
+**UX (extends [AddInstance.svelte](web/src/pages/services/AddInstance.svelte)):** after host + adapter are chosen and the schema has loaded, a discovery-capable adapter gets a scan step above the config form:
+
+- **Decided: explicit trigger, no auto-scan.** A *Scan network* button next to the address field starts the scan (default `--discover-timeout` 5 s), spinner *"scanning the network from \<host\>…"*; the form stays usable during the scan — discovery assists, it never blocks manual entry. No network traffic the user did not ask for.
+- **One device found:** preselected result row, the user confirms; the marked property is prefilled. **Several:** pick one from the list. **None:** manual entry as today, plus — for network discovery only — an expander *"device on another network?"* with an address/CIDR input (`--discover-address`) and a timeout field, and a re-scan button.
+- A result row shows what `describe()` prints: the identifier, friendly name/model/type, serial, the answering services as badges (`ReGa BidCos-RF HmIP-RF`), and the source (`udp`, `mdns+oui`, `serial`). All of it is untrusted network/bus data — render as text, length-capped.
+- **The identifier is not always an IP address.** A USB adapter's discovery (cul2mqtt) returns serial ports keyed by their stable `/dev/serial/by-id/…` name — the one that survives a replug and a reboot while `/dev/ttyACM0` can swap sticks — with the resolved device node alongside. That stable path is what gets prefilled into `serialport`; the row shows both (`usb-busware.de_CUL868-if00` → `/dev/ttyACM0`). No services badges, no cross-network expander, and the scan is instant (a directory listing, no timeout to speak of).
+- Picking a result prefills the marked address property (see contract below). The device's friendly name (`entry.name`, e.g. the Chromecast `fn` label) is offered as the default instance name when the user has not typed one — sanitised to the instance charset.
+- Devices already claimed by an existing instance of the same adapter on that host (same address in its env file) are marked *"already configured as \<instance\>"* and deprioritised, not hidden — a second instance against the same CCU is legitimate. **Decided: in v1** (one `env read` per sibling instance of that adapter on that host).
+
+**Why the scan runs on the target host, not in the she daemon:** broadcast, multicast and ARP only see the network the scanning process sits on, and the adapter's host is by definition on (or routed to) the device's network — the she host may not be. Running the adapter's own `--discover` also reuses the hint, the parsers and the rate limiting exactly as shipped; she re-implements none of it. This falls out of the existing driver architecture for free (local sudo / SSH), and the adapter package is already installed at this point in the flow — same precondition as the `schema` verb.
+
+**Helper (v10 → v11):** new verb `discover <adapter> [--timeout <s>] [--address <addr-or-cidr>]` → `exec <adapter-cmd> --discover --discover-json [--discover-timeout …] [--discover-address …]`. On an older helper the scan UI is hidden behind the existing `helperOutdated` machinery — everything else in the flow works as before.
+
+**she API:** `POST /she/services/hosts/:host/adapters/:adapter/discover` `{ timeout?, address? }` → `{ devices: [...] }`, exec timeout = discovery timeout + margin (a `--discover-address` sweep of a /24 can take a while — allow ~60 s wall clock). Validate the JSON shape server-side (addresses, string caps) before it reaches the UI.
+
+**Core contract (decided 2026-08-28, to be implemented in mqtt-interfaces-core):** `--config-schema` currently says nothing about discovery — the `--discover*` options are META_OPTIONS, deliberately excluded. Decision: an `x-discover` marker on the schema property that receives the discovered identifier — the same property that accepts `auto` (`ccu-address` in hm2mqtt, `address` in lgsb2mqtt, `tv` in lgtv2mqtt, **`serialport` in cul2mqtt**), set by the core next to the existing `x-env` / `x-secret` / `x-file` extensions. Presence of any `x-discover` property ⇒ the adapter is discovery-capable — no separate top-level flag.
+
+Since cul2mqtt joined the pilots the marker's value should carry the **kind**, not just `true`: `"x-discover": "network" | "serial"` — the core derives it from the hint it already owns (ssdp/mdns/udp/ports/oui ⇒ `network`, `hint.serial` ⇒ `serial`; an adapter with both — a CUN is a CUL with ethernet — gets an array). she keys UI affordances off it: the cross-network expander and the timeout field exist only for `network`; a `serial` scan is a plain button with instant results. **This item is blocked until that lands in core** and the pilot adapters pick it up.
+
+**Deliberately not in v1:**
+
+- **Storing `auto` as the value.** The core supports `--address auto` / `--serialport auto` (discover at startup), but a pinned concrete value is the right thing for an installed instance: `auto` fails hard when a second device appears and adds a scan to every restart. The UI pins what was picked — for serial the stable by-id path, never the raw `/dev/tty*` node; `auto` stays a CLI affordance.
+- **Re-discovery for an existing instance** (device got a new IP, instance is down): a *"find it again"* action in the instance detail's config panel reusing the same scan endpoint. Natural follow-up once the Add flow is in.
+- **Discovery-driven catalog suggestions** (*"scan found a CCU — install hm2mqtt?"*): inverted flow, much larger scope, needs per-adapter hints she would have to know before installing anything. Out.
+
 ## Architecture, Operations & Security
-
-### A1 — Health check endpoint
-
-`GET /she/health` returning 200 if the daemon is alive, configured mqtt broker is connected, ..., 503 otherwise. Useful for Docker health checks, nginx upstreams, and monitoring systems.
 
 ### A2 — Script API endpoint authentication
 
@@ -400,17 +386,6 @@ When auto-commit is enabled and a script is saved (or renamed/deleted), instead 
 3. Update the README license section; add a short relicensing note (which version the switch happens at).
 4. Bump at least a minor version so the license boundary is obvious.
 5. Consider adopting a CLA (feezal has `CLA.md`) before accepting outside contributions, to preserve the ability to dual-license.
-
-### A8 — Docker image build on GitHub Actions, published to GHCR
-
-A `Dockerfile` and `.dockerignore` exist, but images are neither built in CI nor published anywhere — Docker users must build locally. Add a workflow (e.g. `.github/workflows/docker.yml`, or a job in the existing `release.yml`) that builds and pushes to `ghcr.io/hobbyquaker/she`.
-
-- **Trigger:** on release/tag push (aligned with the npm publish flow in `publish.yml`), so image tags track released versions.
-- **Tags:** semver (`1.21.0`, `1.21`, `1`) + `latest` — `docker/metadata-action` generates these from the git tag.
-- **Multi-arch:** `linux/amd64` + `linux/arm64` via `docker/setup-qemu-action` + `docker/build-push-action` with buildx — homelab targets are often Raspberry Pi / ARM boxes. (feezal's `release-docker.yml` and its planned shared GHCR image follow the same pattern — see I3's docker-compose pairing.)
-- **Frontend:** `dist/web` is untracked — the image build must run `cd web && npm ci && npm run build` (either in the workflow before `docker build`, or as a build stage in the Dockerfile; verify what the current Dockerfile assumes).
-- **Auth:** `GITHUB_TOKEN` with `packages: write` permission — no extra secrets needed.
-- **Docs:** README/getting-started gain a `docker run`/`docker compose` example pulling from GHCR instead of building locally; note the volume for `--data-dir` and host networking for Matter (mDNS).
 
 ### A9 — Secrets: revealing values in the UI
 
