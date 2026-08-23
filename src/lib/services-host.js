@@ -26,7 +26,7 @@ const { execFile, spawn } = require('child_process');
 const sshDeploy = require('./ssh-deploy');
 
 const HELPER = '/usr/local/bin/she-servicectl';
-const HELPER_VERSION = 7; // must match VERSION in service/she-servicectl
+const HELPER_VERSION = 8; // must match VERSION in service/she-servicectl
 /** Default identity for services.hosts[].ssh — one key for all managed hosts (I5). */
 const DEFAULT_SERVICES_IDENTITY = '~/.she/ssh/services_id_ed25519';
 /** The helper as shipped with this she version (copied to remote hosts by the deploy route). */

@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '7');
+        console.log(process.env.FAKE_HELPER_VERSION || '8');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 7),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 8),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -120,7 +120,7 @@ switch (cmd) {
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 6 -> 7 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 7 -> 8 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(

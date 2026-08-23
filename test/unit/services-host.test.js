@@ -156,7 +156,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 7, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 8, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -416,7 +416,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 7 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 8 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -427,7 +427,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 7, method: 'self-update', user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 8, method: 'self-update', user: 'she' });
             expect(fs.readFileSync(logFile + '.selfupdate', 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             r = await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy');
             expect(r.body).toMatchObject({ ok: true, method: 'self-update' });
@@ -437,7 +437,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup({ FAKE_NO_SELF_UPDATE: '1' });
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 7, user: 'she', method: 'install' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 8, user: 'she', method: 'install' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             await new Promise((res) => server.close(res));
             server = null;
@@ -607,7 +607,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 7 });
+        expect(r.body).toEqual({ ok: true, helper: 8 });
     });
 });
 

@@ -40,7 +40,7 @@
 
 set -eu
 
-VERSION=7
+VERSION=8
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -159,14 +159,22 @@ adapter_version() {
 }
 
 # registry: the global npm tree knows the package; manual: deployed by tarball (SV-16)
+# registry: installed with npm install -g. Older npms list global packages in the hidden lockfile of the
+# global root; npm 11 keeps none there. A manual deploy (tarball extracted by deploy.sh, then
+# npm install --prefix <dir>) leaves a hidden lockfile *inside* the package — a registry install does not.
 adapter_origin() {
     npm=$(adapter_npm "$1")
     root=$("$npm" root -g 2>/dev/null || true)
     lock="$root/.package-lock.json"
     if [ -n "$root" ] && [ -f "$lock" ] && grep -q "\"node_modules/$1\"" "$lock"; then
         printf 'registry'
-    else
+        return
+    fi
+    dir=$(adapter_dir "$1" 2>/dev/null || true)
+    if [ -n "$dir" ] && [ -f "$dir/node_modules/.package-lock.json" ]; then
         printf 'manual'
+    else
+        printf 'registry'
     fi
 }
 
