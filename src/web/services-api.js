@@ -247,6 +247,141 @@ function hostEntries(req) {
 
 /** Marker in an instance's env file: she keeps the MQTT_URL/USERNAME/PASSWORD of this instance equal to her own. */
 const SHE_BROKER_MARKER = 'SHE_USE_BROKER';
+/** Marker: the instance logs in with its own dynsec identity (value = client/role name), managed by she (I6). */
+const DYNSEC_MARKER = 'SHE_DYNSEC_CLIENT';
+const BROKER_MODES = ['own', 'she', 'dynsec'];
+const ACL_TYPES = ['publishClientSend', 'publishClientReceive', 'subscribeLiteral', 'subscribePattern', 'unsubscribeLiteral', 'unsubscribePattern'];
+
+let _dynsec = require('../lib/dynsec');
+/** Test hook: replace the dynsec client. */
+function setDynsec(d) {
+    _dynsec = d;
+}
+function dynsecAvailable() {
+    try {
+        return _dynsec.getStatus().dynsecReady === true;
+    } catch {
+        return false;
+    }
+}
+/** dynsec client and role name for an instance. */
+function credentialName(instance) {
+    return 'svc-' + instance;
+}
+/** What an adapter instance legitimately needs on the broker. */
+function defaultAcl(instance) {
+    return [
+        { acltype: 'publishClientSend', topic: instance + '/#', allow: true },
+        { acltype: 'publishClientReceive', topic: instance + '/#', allow: true },
+        { acltype: 'subscribePattern', topic: instance + '/#', allow: true },
+        { acltype: 'unsubscribePattern', topic: instance + '/#', allow: true },
+        { acltype: 'publishClientSend', topic: 'homeassistant/#', allow: true },
+    ];
+}
+function validateAcl(acl) {
+    if (!Array.isArray(acl) || acl.length === 0) throw new HostError('HELPER_FAILED', 'acl must be a non-empty array');
+    return acl.map((e) => {
+        if (!e || !ACL_TYPES.includes(e.acltype)) throw new HostError('HELPER_FAILED', 'invalid acl type');
+        if (typeof e.topic !== 'string' || !e.topic.trim() || /\s/.test(e.topic)) throw new HostError('HELPER_FAILED', 'invalid acl topic');
+        return { acltype: e.acltype, topic: e.topic.trim(), allow: e.allow !== false };
+    });
+}
+function brokerModeOf(env) {
+    if (env[DYNSEC_MARKER]) return 'dynsec';
+    if (env[SHE_BROKER_MARKER] === '1') return 'she';
+    return 'own';
+}
+const isExists = (err) => /exist|already/i.test(String((err && err.message) || err));
+
+/**
+ * Create (or re-key) the dynsec identity of an instance: role with the ACL, client with a fresh
+ * random password, role assigned. Idempotent — an existing role/client is reused, the password
+ * is always renewed.
+ * @returns {Promise<{username: string, password: string}>}
+ */
+async function createInstanceCredentials(instance, acl) {
+    const name = credentialName(instance);
+    const password = crypto.randomBytes(18).toString('base64url');
+    try {
+        await _dynsec.createRole(name, { textdescription: 'she: adapter instance ' + instance });
+    } catch (err) {
+        if (!isExists(err)) throw err;
+    }
+    for (const e of acl) {
+        try {
+            await _dynsec.addRoleACL(name, e.acltype, e.topic, e.allow);
+        } catch (err) {
+            if (!isExists(err)) throw err;
+        }
+    }
+    try {
+        await _dynsec.createClient(name, password, { textdescription: 'she: adapter instance ' + instance });
+    } catch (err) {
+        if (!isExists(err)) throw err;
+        await _dynsec.setClientPassword(name, password);
+    }
+    try {
+        await _dynsec.addClientRole(name, name);
+    } catch (err) {
+        if (!isExists(err)) throw err;
+    }
+    return { username: name, password };
+}
+/** Remove the dynsec identity again; best effort (the instance may be gone already). */
+async function deleteInstanceCredentials(name) {
+    for (const fn of [() => _dynsec.deleteClient(name), () => _dynsec.deleteRole(name)]) {
+        try {
+            await fn();
+        } catch {
+            /* not there */
+        }
+    }
+}
+
+/**
+ * Apply a broker credentials mode to an instance env.
+ *  own    — nothing managed; leaving dynsec also drops the dead username/password
+ *  she    — she's own settings (SHE_USE_BROKER=1)
+ *  dynsec — dedicated identity; created on first use / when `rotate`, else kept
+ * @returns {Promise<object>} the new env
+ */
+async function applyBrokerMode(env, { mode, prefix, local, instance, acl, rotate }) {
+    if (!BROKER_MODES.includes(mode)) throw new HostError('HELPER_FAILED', 'brokerMode must be own, she or dynsec');
+    const before = brokerModeOf(env);
+    let out = { ...env };
+    if (mode !== 'dynsec' && before === 'dynsec') {
+        await deleteInstanceCredentials(out[DYNSEC_MARKER]);
+        delete out[DYNSEC_MARKER];
+        delete out[prefix + '_MQTT_USERNAME'];
+        delete out[prefix + '_MQTT_PASSWORD'];
+    }
+    if (mode === 'own') {
+        delete out[SHE_BROKER_MARKER];
+        return out;
+    }
+    if (mode === 'she') return applySheBroker(out, prefix, true, local);
+    // dynsec
+    if (!dynsecAvailable()) throw new HostError('HELPER_FAILED', 'Mosquitto dynamic security is not available — enable Mosquitto management with dynsec first');
+    const b = sheBrokerSettings(local);
+    if (!b) throw new HostError('HELPER_FAILED', 'she has no MQTT broker configured (Settings → MQTT)');
+    delete out[SHE_BROKER_MARKER];
+    if (before === 'dynsec' && !rotate) {
+        out[prefix + '_MQTT_URL'] = b.url; // url follows she, credentials stay
+        return out;
+    }
+    const cred = await createInstanceCredentials(instance, acl ? validateAcl(acl) : defaultAcl(instance));
+    out[DYNSEC_MARKER] = cred.username;
+    out[prefix + '_MQTT_URL'] = b.url;
+    out[prefix + '_MQTT_USERNAME'] = cred.username;
+    out[prefix + '_MQTT_PASSWORD'] = cred.password;
+    return out;
+}
+/** brokerMode from a request body, with the old `useSheBroker` boolean as fallback. */
+function requestedMode(body, fallback) {
+    if (body && typeof body.brokerMode === 'string') return body.brokerMode;
+    if (body && typeof body.useSheBroker === 'boolean') return body.useSheBroker ? 'she' : 'own';
+    return fallback;
+}
 
 /**
  * she's own broker settings as an adapter on the she host (local) or another host would need them;
@@ -552,7 +687,13 @@ router.get('/hosts/:host/adapters/:adapter/schema', async (req, res) => {
     if (!entry) return;
     try {
         const schema = await loadSchema(entry.driver, req.params.adapter, { force: req.query.refresh === '1' });
-        res.json({ schema, secrets: [...secretEnvVars(schema)], envPrefix: envPrefixOf(schema, req.params.adapter), sheBroker: sheBrokerInfo(entry.driver.local === true) });
+        res.json({
+            schema,
+            secrets: [...secretEnvVars(schema)],
+            envPrefix: envPrefixOf(schema, req.params.adapter),
+            sheBroker: sheBrokerInfo(entry.driver.local === true),
+            dynsec: { available: dynsecAvailable() },
+        });
     } catch (err) {
         hostError(res, err);
     }
@@ -562,18 +703,26 @@ router.get('/hosts/:host/adapters/:adapter/schema', async (req, res) => {
 router.post('/hosts/:host/adapters/:adapter/install', async (req, res) => {
     const entry = resolve(req, res, { adapter: true });
     if (!entry) return;
-    const { instance, env, useSheBroker } = req.body || {};
+    const { instance, env } = req.body || {};
     if (!validInstance(instance)) return res.status(400).json({ error: 'invalid instance name' });
     try {
         let merged = mergeEnv({}, env || {});
-        if (useSheBroker === true) {
+        const mode = requestedMode(req.body, 'own');
+        if (mode !== 'own') {
             let schema = null;
             try {
                 schema = await loadSchema(entry.driver, req.params.adapter);
             } catch {
                 /* default prefix */
             }
-            merged = applySheBroker(merged, envPrefixOf(schema, req.params.adapter), true, entry.driver.local === true);
+            merged = await applyBrokerMode(merged, {
+                mode,
+                prefix: envPrefixOf(schema, req.params.adapter),
+                local: entry.driver.local === true,
+                instance,
+                acl: req.body.acl,
+                rotate: true,
+            });
         }
         const { stdout } = await entry.driver.exec(['install', req.params.adapter, instance], { stdin: formatEnvFile(merged), timeout: 120000 });
         res.json({ ok: true, output: stdout });
@@ -636,8 +785,15 @@ router.delete('/hosts/:host/units/:adapter/:instance', async (req, res) => {
     if (!entry) return;
     try {
         stopFollower(followKey(entry.driver.name, req.params.adapter, req.params.instance));
+        let dynsecClient = null;
+        try {
+            dynsecClient = parseEnvFile((await entry.driver.exec(['env', req.params.adapter, req.params.instance, 'read'])).stdout)[DYNSEC_MARKER] || null;
+        } catch {
+            /* no env file */
+        }
         const { stdout } = await entry.driver.exec(['uninstall', req.params.adapter, req.params.instance], { timeout: 60000 });
-        res.json({ ok: true, output: stdout });
+        if (dynsecClient) await deleteInstanceCredentials(dynsecClient);
+        res.json({ ok: true, output: stdout, dynsecRemoved: Boolean(dynsecClient) });
     } catch (err) {
         hostError(res, err);
     }
@@ -757,7 +913,9 @@ router.get('/hosts/:host/units/:adapter/:instance/env', async (req, res) => {
             schema,
             envPrefix: envPrefixOf(schema, req.params.adapter),
             useSheBroker: env[SHE_BROKER_MARKER] === '1',
+            brokerMode: brokerModeOf(env),
             sheBroker: sheBrokerInfo(entry.driver.local === true),
+            dynsec: { available: dynsecAvailable(), client: env[DYNSEC_MARKER] || credentialName(req.params.instance), acl: defaultAcl(req.params.instance) },
         });
     } catch (err) {
         hostError(res, err);
@@ -772,14 +930,20 @@ router.put('/hosts/:host/units/:adapter/:instance/env', async (req, res) => {
     try {
         const current = parseEnvFile((await entry.driver.exec(['env', adapter, instance, 'read'])).stdout);
         let merged = mergeEnv(current, req.body && req.body.env);
-        const useSheBroker = req.body && typeof req.body.useSheBroker === 'boolean' ? req.body.useSheBroker : current[SHE_BROKER_MARKER] === '1';
         let schema = null;
         try {
             schema = await loadSchema(entry.driver, adapter);
         } catch {
             /* default prefix */
         }
-        merged = applySheBroker(merged, envPrefixOf(schema, adapter), useSheBroker, entry.driver.local === true);
+        merged = await applyBrokerMode(merged, {
+            mode: requestedMode(req.body, brokerModeOf(current)),
+            prefix: envPrefixOf(schema, adapter),
+            local: entry.driver.local === true,
+            instance,
+            acl: req.body && req.body.acl,
+            rotate: Boolean(req.body && req.body.rotate),
+        });
         const header = [
             adapter + ' instance "' + instance + '" - read by ' + adapter + '@' + instance + '.service.',
             'Edited via she. Edit and run: systemctl restart ' + adapter + '@' + instance + '.service',
@@ -1039,6 +1203,10 @@ module.exports = {
     router,
     init,
     setIdentityPath,
+    setDynsec,
+    defaultAcl,
+    credentialName,
+    DYNSEC_MARKER,
     buildSetupScript,
     REMOTE_USER,
     getServicesConfig,

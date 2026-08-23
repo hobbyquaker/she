@@ -39,7 +39,17 @@ An MQTT instance and a host instance are the same row when the instance names ma
 - **Hosts** — per managed host: helper status with *Test* (runs `she-servicectl version`) and, for remote hosts, *Deploy helper*; installed adapters with version and origin, *Update* (`npm install -g <adapter>@latest`, then restarts the adapter's instances). Hosts that adapters report in `info.host` but that are not configured are listed underneath as *seen on MQTT, not managed*, with their instances. Adapters that were deployed manually (a tarball extracted to `/usr/local/lib/node_modules`, e.g. by an adapter's `deploy.sh`) are marked *manual*; updating them asks first because the npm version replaces the manual deploy.
 - **Add instance** — pick host and adapter, choose the instance name, fill in the options (required ones first, the shared MQTT options collapsed; *Use she's broker settings* is on by default so the instance connects to the same broker as she), *Install*. The wizard runs `<adapter> --install --name <instance>` with the options passed as environment variables, so secrets never show up in a process list.
 
-The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secret` in the schema, or names containing password/token/secret/cookie/key) are masked; they stay unchanged unless you type a new value. **Use she's broker settings** (in the MQTT section) writes she's own broker URL, username and password into the instance's env file (`<PREFIX>_MQTT_URL`, `…_USERNAME`, `…_PASSWORD`; a loopback URL is rewritten to she's hostname for remote hosts), shows them read-only, and remembers the switch with a `SHE_USE_BROKER=1` line so every later save re-applies the current settings. *Save & restart* applies immediately. **Logs** shows the last 200 journal lines and can follow the journal live.
+The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secret` in the schema, or names containing password/token/secret/cookie/key) are masked; they stay unchanged unless you type a new value. *Save & restart* applies immediately.
+
+**Broker credentials** (in the MQTT section) is a three-way choice per instance:
+
+| Mode | What she writes into the env file | Marker |
+| --- | --- | --- |
+| **own values** | nothing — the URL/username/password you type | — |
+| **she's settings** | she's own broker URL, username and password (`<PREFIX>_MQTT_URL`, `…_USERNAME`, `…_PASSWORD`; a loopback URL is rewritten to she's hostname for remote hosts), re-applied on every save | `SHE_USE_BROKER=1` |
+| **dedicated identity** | a dynsec client and role `svc-<instance>` of its own with a random password; the role's ACL allows exactly what an adapter needs — publish/receive/subscribe under `<instance>/#` and publish under `homeassistant/#` (discovery). Shown before saving; the password lives only in the env file. *Rotate password* sets a new one and restarts; switching the mode or uninstalling the instance deletes client and role again. Needs Mosquitto management with the dynamic security plugin | `SHE_DYNSEC_CLIENT=svc-<instance>` |
+
+The Add-instance wizard offers the same choice (default: she's settings). **Logs** shows the last 200 journal lines and can follow the journal live.
 
 ## Configuration
 

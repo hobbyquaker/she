@@ -6,7 +6,7 @@
     import { onMount } from 'svelte';
     import {
         getServiceEnv, putServiceEnv, getServiceLogs, followServiceLogs, unfollowServiceLogs,
-        type ServiceSchema, type ServiceLogEntry, type ServiceInstance, type ServiceHostInstance, type SheBrokerInfo,
+        type ServiceSchema, type ServiceLogEntry, type ServiceInstance, type ServiceHostInstance, type SheBrokerInfo, type DynsecInfo, type BrokerMode,
     } from '../../lib/api.js';
     import { subscribeWs } from '../../lib/ws.js';
     import { fmtLogTs } from '../../lib/format.js';
@@ -38,7 +38,9 @@
     let secrets  = $state<string[]>([]);
     let schema   = $state<ServiceSchema | null>(null);
     let sheBroker = $state<SheBrokerInfo | null>(null);
-    let useSheBroker = $state(false);
+    let dynsec = $state<DynsecInfo | null>(null);
+    let brokerMode = $state<BrokerMode>('own');
+    let savedMode = $state<BrokerMode>('own');
     let cfgLoading = $state(true);
     let cfgError = $state('');
     let saving   = $state(false);
@@ -48,7 +50,7 @@
         cfgLoading = true; cfgError = '';
         try {
             const r = await getServiceEnv(host, adapter, instance);
-            env = r.env; secrets = r.secrets; schema = r.schema; sheBroker = r.sheBroker; useSheBroker = r.useSheBroker;
+            env = r.env; secrets = r.secrets; schema = r.schema; sheBroker = r.sheBroker; dynsec = r.dynsec; brokerMode = r.brokerMode; savedMode = r.brokerMode;
         } catch (e: any) {
             cfgError = e.message ?? String(e);
         } finally {
@@ -56,11 +58,11 @@
         }
     }
 
-    async function save(restart: boolean) {
+    async function save(restart: boolean, rotate = false) {
         saving = true; saveMsg = ''; cfgError = '';
         try {
-            const r = await putServiceEnv(host, adapter, instance, env, restart, useSheBroker);
-            saveMsg = r.restarted ? 'Saved and restarted.' : 'Saved — takes effect on the next restart.';
+            const r = await putServiceEnv(host, adapter, instance, env, restart, brokerMode, { rotate });
+            saveMsg = rotate ? 'New password set on the broker' + (r.restarted ? ' and instance restarted.' : ' — restart the instance to use it.') : r.restarted ? 'Saved and restarted.' : 'Saved — takes effect on the next restart.';
             onchanged?.();
             await loadConfig();
         } catch (e: any) {
@@ -187,10 +189,13 @@
                 <div class="muted">Loading /etc/{adapter}/{instance}.env…</div>
             {:else}
                 {#if cfgError}<div class="err-box">{cfgError}</div>{/if}
-                <SchemaForm {schema} bind:env {secrets} mode="edit" {sheBroker} bind:useSheBroker />
+                <SchemaForm {schema} bind:env {secrets} mode="edit" {sheBroker} {dynsec} bind:brokerMode />
                 <div class="actions">
                     <button onclick={() => save(false)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
                     <button onclick={() => save(true)} disabled={saving}>Save &amp; restart</button>
+                    {#if brokerMode === 'dynsec' && savedMode === 'dynsec'}
+                        <button class="ghost" onclick={() => save(true, true)} disabled={saving} title="Set a new random password for the dynsec client and restart the instance">Rotate password</button>
+                    {/if}
                     {#if saveMsg}<span class="muted">{saveMsg}</span>{/if}
                 </div>
             {/if}

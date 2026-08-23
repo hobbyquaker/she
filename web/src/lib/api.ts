@@ -1206,16 +1206,28 @@ export interface SheBrokerInfo {
     hasPassword: boolean;
 }
 
+export type BrokerMode = 'own' | 'she' | 'dynsec';
+export interface AclEntry {
+    acltype: string;
+    topic: string;
+    allow: boolean;
+}
+export interface DynsecInfo {
+    available: boolean;
+    client?: string;
+    acl?: AclEntry[];
+}
+
 export function getServiceSchema(
     host: string,
     adapter: string,
     refresh = false,
-): Promise<{ schema: ServiceSchema; secrets: string[]; envPrefix: string; sheBroker: SheBrokerInfo | null }> {
+): Promise<{ schema: ServiceSchema; secrets: string[]; envPrefix: string; sheBroker: SheBrokerInfo | null; dynsec: DynsecInfo }> {
     return request('GET', `${svcAdapter(host, adapter)}/schema${refresh ? '?refresh=1' : ''}`);
 }
 
-export function installService(host: string, adapter: string, instance: string, env: Record<string, string>, useSheBroker = false): Promise<{ ok: boolean; output: string }> {
-    return request('POST', `${svcAdapter(host, adapter)}/install`, { instance, env, useSheBroker });
+export function installService(host: string, adapter: string, instance: string, env: Record<string, string>, brokerMode: BrokerMode = 'own'): Promise<{ ok: boolean; output: string }> {
+    return request('POST', `${svcAdapter(host, adapter)}/install`, { instance, env, brokerMode });
 }
 
 export function updateServiceAdapter(
@@ -1251,7 +1263,7 @@ export function getServiceEnv(
     host: string,
     adapter: string,
     instance: string,
-): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null; envPrefix: string; useSheBroker: boolean; sheBroker: SheBrokerInfo | null }> {
+): Promise<{ env: Record<string, string>; secrets: string[]; schema: ServiceSchema | null; envPrefix: string; brokerMode: BrokerMode; sheBroker: SheBrokerInfo | null; dynsec: DynsecInfo }> {
     return request('GET', `${svcUnit(host, adapter, instance)}/env`);
 }
 
@@ -1261,9 +1273,10 @@ export function putServiceEnv(
     instance: string,
     env: Record<string, string>,
     restart: boolean,
-    useSheBroker?: boolean,
+    brokerMode?: BrokerMode,
+    opts: { rotate?: boolean } = {},
 ): Promise<{ ok: boolean; restarted: boolean }> {
-    return request('PUT', `${svcUnit(host, adapter, instance)}/env`, { env, restart, useSheBroker });
+    return request('PUT', `${svcUnit(host, adapter, instance)}/env`, { env, restart, brokerMode, rotate: opts.rotate === true });
 }
 
 export function getServiceBrokerEnv(host: string): Promise<{ env: Record<string, string>; secrets: string[] }> {

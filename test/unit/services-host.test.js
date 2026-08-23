@@ -600,3 +600,141 @@ describe('remote host bootstrap (I9)', () => {
         expect(() => api.buildSetupScript({ publicKey: 'k', helper: 'x\nSHE_HELPER_EOF\ny', callbackUrl: 'http://x', token: 't', user: 'u' })).toThrow(/delimiter/);
     });
 });
+
+describe('per-instance dynsec identity (I6)', () => {
+    let server;
+    let port;
+    let logFile;
+    let dyn;
+    const calls = () =>
+        fs
+            .readFileSync(logFile, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => JSON.parse(l));
+    const lastWrite = () =>
+        calls()
+            .filter((c) => c.args[0] === 'env' && c.args[3] === 'write')
+            .pop().stdin;
+
+    beforeAll(async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-dyn-'));
+        logFile = path.join(dir, 'calls.log');
+        const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: path.join(dir, 'state.json') };
+        fs.writeFileSync(path.join(dir, 'state.json'), '{}');
+        api.setDriverFactory((h) => host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env }));
+        api.init(new StateStore(), () => null, { getMqttConfig: () => ({ url: 'mqtt://localhost:1883', username: 'she', password: 'pw' }) });
+        dyn = { ready: true, log: [], clients: new Set(), roles: new Set() };
+        const rec =
+            (name) =>
+            (...args) => {
+                dyn.log.push([name, ...args]);
+                return Promise.resolve({});
+            };
+        api.setDynsec({
+            getStatus: () => ({ connected: dyn.ready, configured: dyn.ready, dynsecReady: dyn.ready }),
+            createRole: (r) => {
+                dyn.log.push(['createRole', r]);
+                if (dyn.roles.has(r)) return Promise.reject(new Error('Role already exists'));
+                dyn.roles.add(r);
+                return Promise.resolve({});
+            },
+            addRoleACL: rec('addRoleACL'),
+            createClient: (u, p) => {
+                dyn.log.push(['createClient', u, p]);
+                if (dyn.clients.has(u)) return Promise.reject(new Error('Client already exists'));
+                dyn.clients.add(u);
+                return Promise.resolve({});
+            },
+            setClientPassword: rec('setClientPassword'),
+            addClientRole: rec('addClientRole'),
+            deleteClient: (u) => {
+                dyn.log.push(['deleteClient', u]);
+                dyn.clients.delete(u);
+                return Promise.resolve({});
+            },
+            deleteRole: (r) => {
+                dyn.log.push(['deleteRole', r]);
+                dyn.roles.delete(r);
+                return Promise.resolve({});
+            },
+        });
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = null;
+        app.use('/she/services', api.router);
+        server = http.createServer(app);
+        await new Promise((r) => server.listen(0, '127.0.0.1', r));
+        port = server.address().port;
+    });
+    afterAll(async () => {
+        api.setDynsec(require('../../src/lib/dynsec'));
+        api.init(new StateStore(), () => null);
+        await new Promise((r) => server.close(r));
+    });
+    beforeEach(() => {
+        fs.writeFileSync(logFile, '');
+        dyn.log = [];
+    });
+
+    test('GET env reports mode own, dynsec availability and the default ACL', async () => {
+        const r = await httpRequest('GET', port, '/she/services/hosts/local/units/cul2mqtt/cul/env');
+        expect(r.body.brokerMode).toBe('own');
+        expect(r.body.dynsec).toEqual({ available: true, client: 'svc-cul', acl: api.defaultAcl('cul') });
+        expect(api.defaultAcl('cul').map((a) => a.acltype + ' ' + a.topic)).toEqual([
+            'publishClientSend cul/#',
+            'publishClientReceive cul/#',
+            'subscribePattern cul/#',
+            'unsubscribePattern cul/#',
+            'publishClientSend homeassistant/#',
+        ]);
+    });
+
+    test('PUT brokerMode dynsec creates role + client and writes the credentials', async () => {
+        const r = await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/env', { env: { CUL2MQTT_SERIALPORT: '/dev/ttyACM0' }, brokerMode: 'dynsec' });
+        expect(r.status).toBe(200);
+        const createClient = dyn.log.find((l) => l[0] === 'createClient');
+        expect(createClient[1]).toBe('svc-cul');
+        expect(dyn.log.filter((l) => l[0] === 'addRoleACL')).toHaveLength(5);
+        expect(dyn.log.find((l) => l[0] === 'addClientRole')).toEqual(['addClientRole', 'svc-cul', 'svc-cul']);
+        const w = lastWrite();
+        expect(w).toContain('SHE_DYNSEC_CLIENT=svc-cul\n');
+        expect(w).toContain('CUL2MQTT_MQTT_USERNAME=svc-cul\n');
+        expect(w).toContain('CUL2MQTT_MQTT_PASSWORD=' + createClient[2] + '\n');
+        expect(w).toContain('CUL2MQTT_MQTT_URL=mqtt://localhost:1883\n');
+        expect(w).not.toContain('SHE_USE_BROKER');
+    });
+
+    test('custom ACL is validated; unavailable dynsec → 400', async () => {
+        let r = await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/env', { env: {}, brokerMode: 'dynsec', acl: [{ acltype: 'bogus', topic: 'x' }] });
+        expect(r.status).toBe(400);
+        dyn.ready = false;
+        r = await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/env', { env: {}, brokerMode: 'dynsec' });
+        expect(r.status).toBe(400);
+        expect(r.body.error).toMatch(/dynamic security/);
+        dyn.ready = true;
+    });
+
+    test('switching away from dynsec deletes client + role and drops the credentials', async () => {
+        // simulate an env that currently uses a dynsec identity: the fake helper's env read has no marker,
+        // so exercise applyBrokerMode via the API's own path: first dynsec, then she
+        await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/env', { env: {}, brokerMode: 'dynsec' });
+        dyn.log = [];
+        // the fake helper always returns the same env (no marker), so send the marker in env to emulate the stored state
+        const r = await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/env', { env: { SHE_DYNSEC_CLIENT: 'svc-cul' }, brokerMode: 'she' });
+        expect(r.status).toBe(200);
+        const w = lastWrite();
+        expect(w).toContain('SHE_USE_BROKER=1\n');
+        expect(w).not.toContain('SHE_DYNSEC_CLIENT');
+        expect(w).toContain('CUL2MQTT_MQTT_USERNAME=she\n');
+    });
+
+    test('install with brokerMode dynsec passes fresh credentials', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/cul2mqtt/install', { instance: 'cul9', env: {}, brokerMode: 'dynsec' });
+        expect(r.status).toBe(200);
+        const inst = calls().find((c) => c.args[0] === 'install');
+        expect(inst.stdin).toContain('SHE_DYNSEC_CLIENT=svc-cul9\n');
+        expect(inst.stdin).toContain('CUL2MQTT_MQTT_USERNAME=svc-cul9\n');
+        expect(dyn.clients.has('svc-cul9')).toBe(true);
+    });
+});
