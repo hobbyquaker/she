@@ -168,6 +168,7 @@
     .gh:hover { color: var(--fg); }
     .desc { color: var(--fg); }
     .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; background: rgba(230,126,34,0.18); color: #e67e22; }
+    .badge + .badge { margin-left: 4px; }
     select { background: var(--bg-app); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; padding: 2px 4px; }
     button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: default; }
