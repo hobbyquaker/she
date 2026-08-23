@@ -71,7 +71,7 @@
     }
 
     /* ── I5: connection test + helper deploy ───────────────────────────────── */
-    let testResult = $state<Record<string, string>>({});
+    let testResult = $state<Record<string, { ok: boolean; msg: string }>>({});
     let deployResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
     let hostBusy = $state<string | null>(null);
 
@@ -79,9 +79,9 @@
         hostBusy = h.name;
         try {
             const r = await testServiceHost(h.name);
-            testResult = { ...testResult, [h.name]: r.ok ? `ok — helper v${r.helper ?? '?'}` : `${r.code}: ${r.error}` };
+            testResult = { ...testResult, [h.name]: r.ok ? { ok: true, msg: `helper v${r.helper ?? '?'}` } : { ok: false, msg: `${r.code}: ${r.error}` } };
         } catch (e: any) {
-            testResult = { ...testResult, [h.name]: e.message ?? String(e) };
+            testResult = { ...testResult, [h.name]: { ok: false, msg: e.message ?? String(e) } };
         } finally {
             hostBusy = null;
         }
@@ -129,11 +129,14 @@
                         <span class="muted" title="she-servicectl version">helper v{h.helper}{#if h.helperOutdated} <span class="warn">— outdated, update it</span>{/if}</span>
                     {/if}
                     <button class="ghost sm" onclick={() => testHost(h)} disabled={hostBusy !== null} title="Run she-servicectl version on the host">Test</button>
+                    {#if testResult[h.name]}
+                        {@const t = testResult[h.name]}
+                        <span class="test-mark" class:ok={t.ok} class:err={!t.ok} title={t.msg}>{t.ok ? '✓' : `✗ ${t.msg}`}</span>
+                    {/if}
                     {#if !h.ok || h.helperOutdated}
                         <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title={h.ok ? 'Replace the helper with the version she ships (the helper updates itself through its sudo rule)' : 'Copy she-servicectl to the host and install it'}>{h.ok ? 'Update helper' : 'Deploy helper'}</button>
                     {/if}
                 </div>
-                {#if testResult[h.name]}<div class="muted" style="margin-bottom:6px">test: {testResult[h.name]}</div>{/if}
                 {#if deployResult[h.name]}
                     {@const d = deployResult[h.name]}
                     <div class="deploy-box" class:deploy-ok={'ok' in d && d.ok}>
@@ -233,6 +236,9 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); }
     .dot.ok { background: #27ae60; }
     .dot.err { background: #e74c3c; }
+    .test-mark { font-size: 12px; white-space: nowrap; }
+    .test-mark.ok { color: #27ae60; font-weight: 700; }
+    .test-mark.err { color: #e74c3c; }
     /* identical column widths in every card so the tables line up across hosts */
     table.adapters { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
     col.c-adapter { width: 26%; }

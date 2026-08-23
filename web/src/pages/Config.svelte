@@ -100,17 +100,17 @@
         if (!setupCmd) return;
         try { await navigator.clipboard.writeText(setupCmd.command); setupCopied = true; setTimeout(() => (setupCopied = false), 2000); } catch { /* clipboard blocked */ }
     }
-    let hostTest = $state<Record<number, string>>({});
+    let hostTest = $state<Record<number, { ok: boolean; msg: string }>>({});
     let hostTesting = $state<number | null>(null);
     async function testRemoteHost(i: number) {
         const h = servicesRemote[i];
-        if (!h?.host.trim()) { hostTest = { ...hostTest, [i]: 'enter a host first' }; return; }
+        if (!h?.host.trim()) { hostTest = { ...hostTest, [i]: { ok: false, msg: 'enter a host first' } }; return; }
         hostTesting = i;
         try {
             const r = await testServicesSsh({ host: h.host.trim(), port: h.port, user: h.user.trim(), identityFile: h.identityFile.trim() });
-            hostTest = { ...hostTest, [i]: r.ok ? `ok — helper v${r.helper ?? '?'}` : `${r.code}: ${r.error}` };
+            hostTest = { ...hostTest, [i]: r.ok ? { ok: true, msg: `helper v${r.helper ?? '?'}` } : { ok: false, msg: `${r.code}: ${r.error}` } };
         } catch (e: any) {
-            hostTest = { ...hostTest, [i]: e.message ?? String(e) };
+            hostTest = { ...hostTest, [i]: { ok: false, msg: e.message ?? String(e) } };
         } finally {
             hostTesting = null;
         }
@@ -964,7 +964,7 @@
                                         <label class="wide"><span>identity file</span><input type="text" placeholder="services key (default)" bind:value={h.identityFile} spellcheck="false" /></label>
                                         <div class="svc-host-test">
                                             <button type="button" class="svc-add" onclick={() => testRemoteHost(i)} disabled={hostTesting !== null}>{hostTesting === i ? 'Testing…' : 'Test connection'}</button>
-                                            {#if hostTest[i]}<span class="feature-desc" style="padding-left:0; display:inline" class:svc-ok={hostTest[i].startsWith('ok')}>{hostTest[i]}</span>{/if}
+                                            {#if hostTest[i]}<span class="svc-test-mark" class:svc-ok={hostTest[i].ok} class:svc-err={!hostTest[i].ok} title={hostTest[i].msg}>{hostTest[i].ok ? '✓' : `✗ ${hostTest[i].msg}`}</span>{/if}
                                         </div>
                                     </div>
                                     <button type="button" class="svc-rm" title="Remove host" onclick={() => removeRemoteHost(i)}>×</button>
@@ -1689,6 +1689,9 @@
     .svc-setup code.sha { word-break: break-all; }
     .svc-err { color: var(--fg-err, #e74c3c); }
     .svc-ok { color: var(--fg-ok, #27ae60); }
+    .svc-test-mark { font-size: 12px; }
+    .svc-test-mark.svc-ok { font-weight: 700; }
+    .svc-err { color: var(--fg-err, #e74c3c); }
     .svc-host-grid label > span { font-size: 10px; color: var(--fg-muted); }
     .svc-host-grid input { font-size: 12px; padding: 3px 6px; width: 100%; box-sizing: border-box; }
     .svc-rm, .svc-add {
