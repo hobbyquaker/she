@@ -27,6 +27,9 @@ Usage: she [options]
 | | `--matter-storage` | — | Enable the Matter controller. Pass a directory path or `true` (uses `~/.she/matter`). |
 | `-h` | `--help` | — | Show help. |
 | | `--version` | — | Print version. |
+| | `--secret-set <group>/<field>` | — | Store a secret; the value is read from stdin (`printf '%s' 'pw' \| she --secret-set smtp/password`). See [Secrets](sandbox-api.md#shesecrets). |
+| | `--secret-delete <group>[/<field>]` | — | Delete one secret or a whole group. |
+| | `--secret-list` | — | List secret names and change times (never values). |
 
 ## Optional integrations
 
@@ -44,6 +47,8 @@ The following integrations are activated only when configured:
 Every option can be provided as an environment variable with the `SHE_` prefix in SCREAMING_SNAKE_CASE:
 
 | Option | Environment variable |
+|---|---|
+| *(secrets key)* | `SHE_SECRETS_KEY` — 32 bytes as hex or base64; when set, `~/.she/config/secrets.key` is not used (nor created) |
 |---|---|
 | `--url` | `SHE_URL` |
 | `--dir` | `SHE_DIR` |

@@ -9,12 +9,13 @@
     import Packages from './pages/Packages.svelte';
     import Security from './pages/Security.svelte';
     import Services from './pages/Services.svelte';
+    import Secrets from './pages/Secrets.svelte';
     import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getConfig, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
     import { subscribeWs, subscribeLog, getLogBuffer } from './lib/ws.js';
 
-    type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'services' | 'db' | 'logs' | 'config' | 'packages';
-    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'services', 'db', 'logs', 'config', 'packages'];
+    type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'services' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
+    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'services', 'secrets', 'db', 'logs', 'config', 'packages'];
 
     function pageFromHash(): Page {
         const hash = location.hash.slice(1) as Page;
@@ -311,6 +312,14 @@
             {/if}
         </button>
         {/if}
+        <button class:active={page === 'secrets'} onclick={() => navigate('secrets')}>
+            <!-- Secrets icon: key -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="5" cy="11" r="3"/>
+                <path d="M7.2 8.8 14 2M11 5l2 2M9 7l2 2"/>
+            </svg>
+            Secrets
+        </button>
         {#if stats?.matterEnabled}
         <button class:active={page === 'matter'} onclick={() => navigate('matter')}>
             <!-- Matter logo: three arrows converging to a central point -->
@@ -477,6 +486,7 @@
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
         <div class="page-wrap" class:hidden={page !== 'security'}><Security /></div>
         {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'services'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} /></div>{/if}
+        <div class="page-wrap" class:hidden={page !== 'secrets'}><Secrets active={page === 'secrets'} /></div>
         <div class="page-wrap" class:hidden={page !== 'db'}><DB /></div>
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
         <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>

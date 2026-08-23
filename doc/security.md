@@ -73,6 +73,12 @@ npm is a large, open ecosystem. The vast majority of packages are written in goo
 
 You are responsible for every piece of code that runs in your smart home. A compromised script has access to your presence sensors, locks, alarms, and anything else connected to your broker. Treat npm installs in this context with the same caution you would apply to running an unknown binary as root.
 
+## Secrets
+
+The **Secrets** tab stores values for scripts (`she.secrets.get('smtp/password')`) in `~/.she/config/secrets.enc`, AES-256-GCM, key from `SHE_SECRETS_KEY` or `~/.she/config/secrets.key` (generated `0600` on the first write). Be clear about what that buys: a backup, a copied `~/.she`, or the scripts repository holds no plaintext. It does **not** protect against a reader on the she host — the daemon user can read the key file, and so can root. Keep the key out of backups if the backups are what you worry about; pass it via `SHE_SECRETS_KEY` (systemd `LoadCredential`, Docker secrets) if the data directory is what you worry about.
+
+The HTTP API is write-only: names and change times are readable, values are not, by any route. With `--auth none` anyone who can reach she can *overwrite* secrets (as they can edit scripts, which can read them) — the trust model is the same as for scripts. Known secret values are redacted to `***` in the log sinks (Logs tab, `she.jsonl`, console) so a logged response body does not leak a token; that is a convenience, not a guarantee — a script can still publish a secret to MQTT or write it into sheDB.
+
 ## Service management helper (`she-servicectl`)
 
 With the optional Services feature ([doc/services.md](services.md)) she manages xyz2mqtt adapter instances on the host: systemd units, env files under `/etc/<adapter>/`, `npm install -g`. The daemon user does **not** get a general `sudo` for this. `sudo she --install` installs one POSIX shell script, `/usr/local/bin/she-servicectl`, and allows exactly that binary in `/etc/sudoers.d/she`:

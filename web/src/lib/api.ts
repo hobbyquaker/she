@@ -192,6 +192,35 @@ export function getDaemonStatus(): Promise<DaemonStatus> {
     return request('GET', '/she/status');
 }
 
+// ---- Secrets (A5): write-only, values never come back ----
+
+export interface SecretField {
+    name: string;
+    changed: number;
+}
+export interface SecretGroup {
+    name: string;
+    changed: number;
+    fields: SecretField[];
+}
+export interface SecretsOverview {
+    status: 'empty' | 'ok' | 'locked' | 'error';
+    error: string | null;
+    keySource: 'env' | 'file' | null;
+    file: string;
+    keyFile: string;
+    groups: SecretGroup[];
+}
+export function listSecrets(): Promise<SecretsOverview> {
+    return request('GET', '/she/secrets');
+}
+export function putSecret(group: string, field: string, value: string): Promise<{ ok: boolean; changed: number }> {
+    return request('PUT', `/she/secrets/${encodeURIComponent(group)}/${encodeURIComponent(field)}`, { value });
+}
+export function deleteSecret(group: string, field?: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/secrets/${encodeURIComponent(group)}` + (field ? `/${encodeURIComponent(field)}` : ''));
+}
+
 export function restartDaemon(): Promise<{ ok: boolean }> {
     return request('POST', '/she/restart');
 }

@@ -458,6 +458,16 @@ The connection will drop immediately after the response. The daemon is typically
 
 ---
 
+## Secrets — `/she/secrets`
+
+Write-only store for values scripts read with `she.secrets` ([sandbox-api.md](sandbox-api.md#shesecrets)). Names and change times come back, **values never do** — there is no GET for a value, by design.
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/she/secrets` | | `{ status: "empty" \| "ok" \| "locked" \| "error", error, keySource: "env" \| "file" \| null, file, keyFile, groups: [{ name, changed, fields: [{ name, changed }] }] }` |
+| PUT | `/she/secrets/:group/:field` | `{ value }` | create or replace; names `[A-Za-z0-9_.-]{1,64}`, value a non-empty string up to 64 KB (400 `INVALID_NAME` / `INVALID_VALUE`); 409 `LOCKED` when the key is missing |
+| DELETE | `/she/secrets/:group` · `/she/secrets/:group/:field` | | remove a group or one field (404 when absent) |
+
 ## Services — `/she/services`
 
 Management of xyz2mqtt adapter instances (see [services.md](services.md)). Available whether or not `services.enabled` is set; the flag only controls the page. Host routes go through the `she-servicectl` helper — locally via `sudo`, on remote hosts via `ssh` — and answer **503** `{ code: "HELPER_MISSING" }` when it is not installed, **403** `{ code: "SUDO_DENIED" }` when sudoers does not allow it, **400** `{ code: "HELPER_FAILED" }` when the helper rejected the arguments, **502** `{ code: "SSH_FAILED" }` when the SSH connection fails. Instance names are `[A-Za-z0-9_.-]+`, adapter names lower-case npm names.

@@ -12,6 +12,7 @@ Your home, your rules - written in plain JavaScript.
 - **Script HTTP routes** — scripts can register their own REST endpoints under `/api/<scriptName>/`
 - **`require()`** — load npm packages from `~/.she/node_modules/` or relative files inside scripts
 - Supports **InfluxDB**, **Elasticsearch** and **Redis** — convenience methods for time series, full text indexing, shared states across multiple she instances
+- **Secrets** — encrypted store for the passwords and tokens scripts need (`she.secrets.get('smtp/password')`), write-only from the UI, redacted in logs
 - **Services** — optional management of the `xyz2mqtt` adapter instances of your home (mqtt-interfaces-core convention): inventory, restart and log level over MQTT, systemd control, journal logs, config forms generated from the adapter's `--config-schema`, install/uninstall/update on the she host
 - **Broker management** — optional Mosquitto management: dynamic user/ACL management via the dynsec plugin (`she.broker.*` script API), listener and TLS configuration, TLS certificate management (server cert self-signed / CSR / import, trusted CA store), SSH-based remote file deployment
 - **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer, broker manager, services manager

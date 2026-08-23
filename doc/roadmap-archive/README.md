@@ -43,6 +43,10 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [I10 — Services: edit adapter files (map files & co.) ✅ implemented](I10.md)
 - [I11 — Services: remove she from a host (disconnect / teardown) ✅ implemented](I11.md)
 
+## Architecture, Operations & Security
+
+- [A5 — Secrets management ✅ implemented](A5.md)
+
 ## Documentation
 
 - [D1 — Document async/await usage and constraints ✅ done](D1.md)

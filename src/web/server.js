@@ -15,6 +15,7 @@ const { router: gitRouter } = require('./git-api');
 const { router: aiRouter } = require('./ai-api');
 const { router: brokerRouter } = require('./broker-api');
 const { router: servicesRouter } = require('./services-api');
+const { router: secretsRouter } = require('./secrets-api');
 const { attachWss, closeWss } = require('./log-ws');
 const { init: initAuth, authMiddleware, checkAuth, router: authRouter } = require('./auth');
 
@@ -66,6 +67,9 @@ app.use('/she/broker', brokerRouter);
 
 // xyz2mqtt service management: /she/services/*
 app.use('/she/services', servicesRouter);
+
+// Secrets (roadmap A5): write-only, values never leave the daemon
+app.use('/she/secrets', secretsRouter);
 
 // Graceful daemon restart
 // When running under systemd, delegate to `sudo systemctl restart` so the

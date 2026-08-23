@@ -37,6 +37,12 @@ if (process.argv.includes('--install')) {
 // Ensure the data directory exists before anything else runs
 require('./lib/storage').ensureRoot();
 
+// Secrets CLI (roadmap A5): she --secret-set <group>/<field> (value on stdin) | --secret-delete <group>[/<field>] | --secret-list
+{
+    const idx = process.argv.findIndex((a) => a === '--secret-set' || a === '--secret-delete' || a === '--secret-list');
+    if (idx !== -1) process.exit(require('./lib/secrets').cli(process.argv.slice(idx)));
+}
+
 // ---------------------------------------------------------------------------
 // Persistent JSON-Lines log file — written alongside the pino-pretty stream.
 // On each daemon start: rotate she.jsonl → she.jsonl.1, then open fresh.
@@ -44,6 +50,7 @@ require('./lib/storage').ensureRoot();
 const _fs = require('fs');
 const _path = require('path');
 const { LOGS_DIR } = require('./lib/storage');
+const secrets = require('./lib/secrets');
 const _logFileCurrent = _path.join(LOGS_DIR, 'she.jsonl');
 const _logFilePrev = _path.join(LOGS_DIR, 'she.jsonl.1');
 try {
@@ -78,29 +85,40 @@ const { broadcastLog, broadcast, setWelcomeProvider } = require('./web/log-ws');
 const shedb = require('./web/shedb');
 const log = {
     debug: (...args) => {
-        _pino.debug(args.join(' '));
-        broadcastLog({ level: 'debug', msg: args.join(' '), ts: Date.now() });
-        _writeLogLine('debug', args.join(' '));
+        const msg = secrets.redact(args.join(' '));
+        _pino.debug(msg);
+        broadcastLog({ level: 'debug', msg, ts: Date.now() });
+        _writeLogLine('debug', msg);
     },
     info: (...args) => {
-        _pino.info(args.join(' '));
-        broadcastLog({ level: 'info', msg: args.join(' '), ts: Date.now() });
-        _writeLogLine('info', args.join(' '));
+        const msg = secrets.redact(args.join(' '));
+        _pino.info(msg);
+        broadcastLog({ level: 'info', msg, ts: Date.now() });
+        _writeLogLine('info', msg);
     },
     warn: (...args) => {
-        _pino.warn(args.join(' '));
-        broadcastLog({ level: 'warn', msg: args.join(' '), ts: Date.now() });
-        _writeLogLine('warn', args.join(' '));
+        const msg = secrets.redact(args.join(' '));
+        _pino.warn(msg);
+        broadcastLog({ level: 'warn', msg, ts: Date.now() });
+        _writeLogLine('warn', msg);
     },
     error: (...args) => {
-        _pino.error(args.join(' '));
-        broadcastLog({ level: 'error', msg: args.join(' '), ts: Date.now() });
-        _writeLogLine('error', args.join(' '));
+        const msg = secrets.redact(args.join(' '));
+        _pino.error(msg);
+        broadcastLog({ level: 'error', msg, ts: Date.now() });
+        _writeLogLine('error', msg);
     },
     setLevel: (level) => {
         _pino.level = level;
     },
 };
+
+// Secrets store (roadmap A5): read once at startup; the UI/CLI keep it current afterwards.
+{
+    const st = secrets.load();
+    if (st.status === 'locked' || st.status === 'error') log.warn('secrets: ' + st.error + ' — she.secrets.get() returns undefined until the key is available');
+    else if (st.groups > 0) log.info(`secrets: ${st.groups} group(s) loaded`);
+}
 const pkg = require('../package.json');
 
 /**
@@ -1184,6 +1202,19 @@ function runScript(script, name, _origin) {
     she.config = Object.freeze({
         latitude: config.latitude,
         longitude: config.longitude,
+    });
+    // she.secrets (roadmap A5): read-only access to the secrets store; unknown paths warn once per script
+    const _secretWarned = new Set();
+    she.secrets = Object.freeze({
+        get(p) {
+            const v = secrets.get(p);
+            if (v === undefined && !_secretWarned.has(String(p))) {
+                _secretWarned.add(String(p));
+                log.warn(logLabel, `secret "${p}" not found` + (secrets.status().status === 'locked' ? ' (secrets store is locked)' : ''));
+            }
+            return v;
+        },
+        has: (p) => secrets.has(p),
     });
     // she.setTimeout / she.clearTimeout — tracked versions for use by stdlib and
     // sandbox modules that don't have direct access to the Sandbox context.

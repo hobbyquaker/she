@@ -13,6 +13,7 @@ Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox m
 - [she.global](#sheglobal)
 - [she.http — HTTP helpers](#shehttp----http-helpers)
 - [she.config](#sheconfig)
+- [she.secrets](#shesecrets)
 - [she.api — Script HTTP routes](#sheapi----script-http-routes)
 - [she.db — sheDB document store](#shedb----shedb-document-store)
 - [she.matter — Matter integration](#shematter----matter-integration)
@@ -511,6 +512,35 @@ she.info('location:', she.config.latitude, she.config.longitude);
         she.warn('weather fetch failed:', err.message);
     }
 })();
+```
+
+---
+
+## she.secrets
+
+Read access to the **Secrets** tab's store — named groups of string values (SMTP passwords, API tokens, PEM keys) kept encrypted outside the scripts directory, so they never end up in a script file or in git. Values are entered in the web UI (or with `she --secret-set`); the daemon never sends them to a browser — scripts are the only readers.
+
+| Method | Returns | Description |
+|---|---|---|
+| `she.secrets.get('group/field')` | `string \| undefined` | The value. Unknown path → `undefined` and one warning per script and path. |
+| `she.secrets.get('group')` | `object \| undefined` | A frozen `{ field: value }` copy of the whole group. |
+| `she.secrets.has('group/field')` | `boolean` | Existence check without a warning. |
+
+Synchronous — the store is held in memory. Changes made in the Secrets tab are visible to the next `get()` immediately; a script that copied a value into a variable at load time keeps the old one until it is reloaded. When the store is locked (key missing at daemon start), `get()` returns `undefined` for everything and the warning says so.
+
+Known secret values are replaced with `***` in the log output (Logs tab, log file, console), so an accidental `she.info(response)` does not leak a token. Values shorter than 6 characters are not redacted.
+
+```js
+const smtp = she.secrets.get('smtp'); // { host, user, password }
+
+she.mqtt.sub('alarm/mail', async () => {
+    if (!smtp) return she.warn('smtp secrets missing');
+    await she.http.fetch('https://mailer.local/send', {
+        method: 'POST',
+        headers: { authorization: 'Bearer ' + she.secrets.get('mailer/token') },
+        body: { to: 'me@example.org', text: 'alarm' },
+    });
+});
 ```
 
 ---
