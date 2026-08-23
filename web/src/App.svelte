@@ -14,11 +14,12 @@
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
     import { subscribeWs, subscribeLog, getLogBuffer } from './lib/ws.js';
 
-    type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'services' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
-    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'services', 'secrets', 'db', 'logs', 'config', 'packages'];
+    type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
+    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages'];
 
     function pageFromHash(): Page {
-        const hash = location.hash.slice(1) as Page;
+        const raw = location.hash.slice(1);
+        const hash = (raw === 'services' ? 'adapters' : raw) as Page; // old bookmarks
         return validPages.includes(hash) ? hash : 'scripts';
     }
 
@@ -190,7 +191,7 @@
                 if (wasBrokerEnabled && !brokerEnabled && page === 'security') navigate('scripts');
                 const wasServicesEnabled = servicesEnabled;
                 servicesEnabled = (cfg.services as any)?.enabled === true;
-                if (wasServicesEnabled && !servicesEnabled && page === 'services') navigate('scripts');
+                if (wasServicesEnabled && !servicesEnabled && page === 'adapters') navigate('scripts');
             } catch { /* best effort */ }
             // Redirect away from Matter page if Matter is not enabled at runtime
             if (!stats?.matterEnabled && page === 'matter') navigate('scripts');
@@ -282,6 +283,24 @@
             {:else if mqttConnected}<span class="nav-dot nav-dot--ok" title="MQTT connected"></span>
             {/if}
         </button>
+        {#if servicesEnabled}
+        <button class:active={page === 'adapters'} onclick={() => navigate('adapters')}>
+            <!-- Services icon: stacked boxes -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="12" height="4" rx="1"/>
+                <rect x="2" y="10" width="12" height="4" rx="1"/>
+                <circle cx="4.5" cy="4" r="0.6" fill="currentColor"/>
+                <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
+            </svg>
+            Adapters
+            <!-- the dot box is always there so the button keeps its width when the status is unknown -->
+            {#if servicesStatus === 'ok'}<span class="nav-dot nav-dot--ok" title={servicesTitle}></span>
+            {:else if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
+            {:else if servicesStatus === 'err'}<span class="nav-dot nav-dot--err" title={servicesTitle}></span>
+            {:else}<span class="nav-dot nav-dot--none"></span>
+            {/if}
+        </button>
+        {/if}
         {#if brokerEnabled}
         <button class:active={page === 'security'} onclick={() => navigate('security')}>
             <!-- Broker icon: antenna / broadcast -->
@@ -320,24 +339,6 @@
                 <path d="M3,8 a5,1.8 0,0,0 10,0"/>
             </svg>
             DB
-        </button>
-        {/if}
-        {#if servicesEnabled}
-        <button class:active={page === 'services'} onclick={() => navigate('services')}>
-            <!-- Services icon: stacked boxes -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="2" width="12" height="4" rx="1"/>
-                <rect x="2" y="10" width="12" height="4" rx="1"/>
-                <circle cx="4.5" cy="4" r="0.6" fill="currentColor"/>
-                <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
-            </svg>
-            Adapters
-            <!-- the dot box is always there so the button keeps its width when the status is unknown -->
-            {#if servicesStatus === 'ok'}<span class="nav-dot nav-dot--ok" title={servicesTitle}></span>
-            {:else if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
-            {:else if servicesStatus === 'err'}<span class="nav-dot nav-dot--err" title={servicesTitle}></span>
-            {:else}<span class="nav-dot nav-dot--none"></span>
-            {/if}
         </button>
         {/if}
         <button class:active={page === 'secrets'} onclick={() => navigate('secrets')}>
@@ -485,7 +486,7 @@
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT /></div>
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
         <div class="page-wrap" class:hidden={page !== 'security'}><Security /></div>
-        {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'services'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} /></div>{/if}
+        {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'adapters'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} /></div>{/if}
         <div class="page-wrap" class:hidden={page !== 'secrets'}><Secrets active={page === 'secrets'} /></div>
         <div class="page-wrap" class:hidden={page !== 'db'}><DB /></div>
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
