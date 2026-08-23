@@ -1310,6 +1310,10 @@ export function serviceUnitAction(host: string, adapter: string, instance: strin
     return request('POST', `${svcUnit(host, adapter, instance)}/${action}`);
 }
 
+/** Remove an adapter from a host: every instance (unit, env, dynsec identity), then the package, /etc/<adapter> and /var/lib/<adapter>. */
+export function uninstallServiceAdapter(host: string, adapter: string): Promise<{ ok: boolean; removedInstances: string[]; output: string }> {
+    return request('POST', `${svcHost(host)}/adapters/${encodeURIComponent(adapter)}/uninstall`);
+}
 export function uninstallService(host: string, adapter: string, instance: string): Promise<{ ok: boolean; output: string }> {
     return request('DELETE', svcUnit(host, adapter, instance));
 }

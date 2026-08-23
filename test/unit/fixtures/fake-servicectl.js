@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '8');
+        console.log(process.env.FAKE_HELPER_VERSION || '9');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 8),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 9),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -120,7 +120,7 @@ switch (cmd) {
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 7 -> 8 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 8 -> 9 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(
@@ -143,7 +143,9 @@ switch (cmd) {
         else die('no such asset: ' + args[2]);
         break;
     case 'npm':
-        if (args[2] === 'origin') console.log(state.origin || 'registry');
+        if (args[2] === 'uninstall')
+            console.log('removed /etc/systemd/system/' + args[1] + '@.service\nremoved /etc/' + args[1] + '\nremoved /var/lib/' + args[1] + '\n' + args[1] + ' uninstalled');
+        else if (args[2] === 'origin') console.log(state.origin || 'registry');
         else if (args[2] === 'version') console.log('"1.1.1"');
         else console.log('changed 1 package');
         break;

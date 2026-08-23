@@ -18,6 +18,7 @@
  *   POST   /she/services/hosts/:host/adapters/:adapter/update        { force? } → npm install -g, restart instances
  *   POST   /she/services/hosts/:host/units/:adapter/:instance/:action start|stop|restart|enable|disable
  *   DELETE /she/services/hosts/:host/units/:adapter/:instance        <adapter> --uninstall
+ *   POST   /she/services/hosts/:host/adapters/:adapter/uninstall        every instance (--uninstall, dynsec identity), then the package, /etc and /var/lib
  *   GET    /she/services/hosts/:host/units/:adapter/:instance/logs   journal tail (?n=)
  *   POST   /she/services/hosts/:host/units/:adapter/:instance/logs/follow   start/renew a journal follower (serviceLog WS)
  *   DELETE /she/services/hosts/:host/units/:adapter/:instance/logs/follow   stop it
@@ -885,22 +886,52 @@ router.post('/hosts/:host/units/:adapter/:instance/:action', async (req, res) =>
 });
 
 // DELETE /she/services/hosts/:host/units/:adapter/:instance — uninstall
+/** <adapter> --uninstall --name <instance> on the host, plus the instance's dynsec identity if it has one. */
+async function uninstallInstance(entry, adapter, instance) {
+    stopFollower(followKey(entry.driver.name, adapter, instance));
+    let dynsecClient = null;
+    try {
+        dynsecClient = parseEnvFile((await entry.driver.exec(['env', adapter, instance, 'read'])).stdout)[DYNSEC_MARKER] || null;
+    } catch {
+        /* no env file */
+    }
+    const { stdout } = await entry.driver.exec(['uninstall', adapter, instance], { timeout: 60000 });
+    if (dynsecClient) await deleteInstanceCredentials(dynsecClient);
+    return { output: stdout, dynsecRemoved: Boolean(dynsecClient) };
+}
+
 router.delete('/hosts/:host/units/:adapter/:instance', async (req, res) => {
     const entry = resolve(req, res, { adapter: true, instance: true });
     if (!entry) return;
     if (req.params.instance === LEGACY) return res.status(400).json({ error: 'a legacy unit is not uninstalled from here — migrate it to an instance first', code: 'LEGACY' });
     try {
-        stopFollower(followKey(entry.driver.name, req.params.adapter, req.params.instance));
-        let dynsecClient = null;
-        try {
-            dynsecClient = parseEnvFile((await entry.driver.exec(['env', req.params.adapter, req.params.instance, 'read'])).stdout)[DYNSEC_MARKER] || null;
-        } catch {
-            /* no env file */
-        }
-        const { stdout } = await entry.driver.exec(['uninstall', req.params.adapter, req.params.instance], { timeout: 60000 });
-        if (dynsecClient) await deleteInstanceCredentials(dynsecClient);
-        res.json({ ok: true, output: stdout, dynsecRemoved: Boolean(dynsecClient) });
+        res.json({ ok: true, ...(await uninstallInstance(entry, req.params.adapter, req.params.instance)) });
     } catch (err) {
+        hostError(res, err);
+    }
+});
+
+// POST /she/services/hosts/:host/adapters/:adapter/uninstall — the adapter with all its instances
+router.post('/hosts/:host/adapters/:adapter/uninstall', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true });
+    if (!entry) return;
+    const adapter = req.params.adapter;
+    try {
+        const list = parseList((await entry.driver.exec(['list'])).stdout);
+        if ((list.legacy || []).some((l) => l.adapter === adapter)) {
+            return res.status(409).json({ error: `${adapter} still runs as a pre-core unit (${adapter}.service) — migrate or stop it by hand first`, code: 'LEGACY' });
+        }
+        const instances = (list.instances || []).filter((i) => i.adapter === adapter).map((i) => i.instance);
+        const removed = [];
+        for (const instance of instances) {
+            await uninstallInstance(entry, adapter, instance);
+            removed.push(instance);
+        }
+        const { stdout } = await entry.driver.exec(['npm', adapter, 'uninstall', '--purge'], { timeout: 120000 });
+        invalidateHosts();
+        res.json({ ok: true, removedInstances: removed, output: stdout });
+    } catch (err) {
+        invalidateHosts();
         hostError(res, err);
     }
 });

@@ -2,7 +2,7 @@
     import { onMount } from 'svelte';
     import {
         getServiceHosts, updateServiceAdapter,
-        deployServiceHelper, getServiceInstances,
+        deployServiceHelper, getServiceInstances, uninstallServiceAdapter,
         type ServiceHost, type HelperDeployResult, type ServiceInstance,
     } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
@@ -86,6 +86,25 @@
     let deployResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
     let hostBusy = $state<string | null>(null);
 
+    async function uninstall(h: ServiceHost, adapter: string, names: string[]) {
+        const where = h.hostname ?? h.name;
+        const msg = names.length
+            ? `Uninstall ${adapter} from ${where}?\n\n${names.length === 1 ? 'There is an instance' : 'There are ' + names.length + ' instances'} of it: ${names.join(', ')}. ${names.length === 1 ? 'It' : 'They'} will be stopped and removed first — systemd unit, config, state directory and broker identity — then the package, /etc/${adapter} and /var/lib/${adapter} are deleted. This cannot be undone.`
+            : `Uninstall ${adapter} from ${where}? The package, /etc/${adapter} and /var/lib/${adapter} are deleted.`;
+        if (!(await dialog.show(msg, { confirm: names.length ? `Remove ${names.length === 1 ? 'the instance' : names.length + ' instances'} and uninstall` : 'Uninstall', danger: true }))) return;
+        busy = `${h.name}/${adapter}`; notice = ''; output = '';
+        try {
+            const r = await uninstallServiceAdapter(h.name, adapter);
+            output = r.output;
+            notice = `${adapter} uninstalled from ${where}${r.removedInstances.length ? ` (instances removed: ${r.removedInstances.join(', ')})` : ''}.`;
+            onchanged?.();
+            await load(true);
+        } catch (e: any) {
+            notice = e.message ?? String(e);
+        } finally {
+            busy = null;
+        }
+    }
     async function deployHelper(h: ServiceHost) {
         hostBusy = h.name;
         try {
@@ -199,6 +218,7 @@
                                                 {busy === `${h.name}/${a.name}` ? 'Updating…' : 'Update'}
                                             </button>
                                         {/if}
+                                        <button class="ghost sm danger" onclick={() => uninstall(h, a.name, (h.instances ?? []).filter(i => i.adapter === a.name).map(i => i.instance))} disabled={busy !== null} title={`Uninstall ${a.name} from ${h.hostname ?? h.name} — with its instances`}>{busy === `${h.name}/${a.name}` ? '…' : 'Uninstall'}</button>
                                         <button class="ghost sm" onclick={() => openAdd(h.name, a.name)} disabled={busy !== null} title={names.length ? `Add another ${a.name} instance on ${h.hostname ?? h.name}` : `Create the first ${a.name} instance on ${h.hostname ?? h.name}`}>+ instance</button>
                                     </td>
                                 </tr>
@@ -253,13 +273,14 @@
     col.c-adapter { width: 26%; }
     col.c-version { width: 14%; }
     col.c-origin { width: 12%; }
-    col.c-actions { width: 168px; }
+    col.c-actions { width: 236px; }
     td { overflow: hidden; text-overflow: ellipsis; }
     th { text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
     td { padding: 4px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); }
     .c-act { text-align: right; white-space: nowrap; }
     .sheet-head { display: flex; align-items: center; gap: 10px; padding: 5px 12px; border-bottom: 1px solid var(--border); font-size: 12px; flex-shrink: 0; }
     td.c-act button + button { margin-left: 4px; }
+    button.ghost.danger:hover:not(:disabled) { color: #e74c3c; border-color: #e74c3c; }
     .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; }
     .ver { display: inline-flex; align-items: center; gap: 5px; }
     .warn-b { background: rgba(230,126,34,0.18); color: #e67e22; }
