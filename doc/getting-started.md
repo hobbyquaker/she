@@ -17,18 +17,44 @@ sudo systemctl start smart-home-engine
 
 `she --install` creates a dedicated `she` system user, installs + enables the systemd unit and puts the `she-servicectl` helper for the optional [Services](services.md) feature in place. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**
 
-### Docker 
+### Docker
+
+Multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR on every release:
 
 ```bash
-docker build -t she https://github.com/hobbyquaker/she.git
 docker run -d \
   --name she \
   -p 8080:8080 \
   -v she-data:/var/lib/she \
-  she
+  ghcr.io/hobbyquaker/she:latest
 ```
 
+Or with compose:
+
+```yaml
+services:
+    she:
+        image: ghcr.io/hobbyquaker/she:latest
+        container_name: she
+        restart: unless-stopped
+        ports:
+            - '8080:8080'
+        volumes:
+            - she-data:/var/lib/she
+volumes:
+    she-data:
+```
+
+Tags follow the releases: `1.36.1`, `1.36`, `1`, and `latest` (pre-releases never move `latest`). To build the image yourself instead: `docker build -t she https://github.com/hobbyquaker/she.git`.
+
 All state (scripts, database, config) is stored in the `she-data` volume. Open **http://localhost:8080**
+
+The image carries a `HEALTHCHECK` against [`GET /she/health`](http-api.md#get-shehealth), so `docker ps` shows `healthy` only once she is up and — if a broker is configured — connected to it. Running she on a different port inside the container means passing a matching `--health-cmd`.
+
+Two things to know about Docker specifically:
+
+- **Matter** needs mDNS on the host network (`--network host`), which does not combine with `-p`.
+- **Safe mode**: she [enters safe mode](script-engine.md#safe-mode) when its `.she-running` marker survives a shutdown. `docker rm -f` on a container whose volume is reused looks exactly like that, so if that is your normal workflow, set `"safeModeAutoDetect": false` in the config.
 
 ## Web UI
 

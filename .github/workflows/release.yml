@@ -70,6 +70,55 @@ jobs:
                       --title "${{ github.ref_name }}" \
                       --notes "$CHANGELOG"
 
+    docker:
+        name: Build and push Docker image
+        needs: [test, release]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write # push to ghcr.io
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            # arm64 is emulated only for the runtime `npm ci` — the web build stage in the
+            # Dockerfile is pinned to the native builder architecture.
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+
+            - name: Set up Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Log in to GHCR
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Image tags and labels
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/${{ github.repository_owner }}/she
+                  # latest=auto: a pre-release tag (v1.2.0-rc.1) does not move `latest`
+                  flavor: latest=auto
+                  tags: |
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=semver,pattern={{major}}
+
+            - name: Build and push
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  platforms: linux/amd64,linux/arm64
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
     publish:
         name: Publish to npm
         needs: [test, release]
