@@ -74,7 +74,7 @@
     let brokerEnabled = $state(false);
     let servicesEnabled = $state(false);
 
-    // services dot — worst case over all adapter instances (updated by the Services page)
+    // services dot — worst case over all adapter instances (updated by the Adapters page)
     let servicesStatus = $state<'none' | 'ok' | 'warn' | 'err'>('none');
     let servicesTitle = $state('');
 
@@ -331,7 +331,7 @@
                 <circle cx="4.5" cy="4" r="0.6" fill="currentColor"/>
                 <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
             </svg>
-            Services
+            Adapters
             <!-- the dot box is always there so the button keeps its width when the status is unknown -->
             {#if servicesStatus === 'ok'}<span class="nav-dot nav-dot--ok" title={servicesTitle}></span>
             {:else if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>

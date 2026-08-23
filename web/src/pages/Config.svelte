@@ -931,7 +931,7 @@
                     <div class="field field--check">
                         <label>
                             Enable
-                            {@render tip('Shows the Services page: inventory of the xyz2mqtt adapter instances seen on the broker (mqtt-interfaces-core convention), restart and log level over their maintenance topics, update check, and management of the instances installed on this host via systemd.')}
+                            {@render tip('Shows the Adapters page (main menu): inventory of the xyz2mqtt adapter instances seen on the broker (mqtt-interfaces-core convention), restart and log level over their maintenance topics, update check, and management of the instances installed on this host via systemd.')}
                         </label>
                         <label class="check-label">
                             <input type="checkbox" bind:checked={servicesEnabled} onchange={() => { if (servicesEnabled) loadServicesPubkey(); }} />

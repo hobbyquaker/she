@@ -80,7 +80,8 @@
 <div class="catalog">
     <div class="bar">
         <input class="filter-in" type="search" placeholder="Filter adapters…" bind:value={filter} />
-        <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask the npm registry again (otherwise cached for a day)">↺</button>
+        <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask the npm registry again (otherwise cached for a day)"><span class:spinning={loading}>↺</span></button>
+        {#if loading && cat}<span class="muted"><span class="spinner"></span> asking the npm registry…</span>{/if}
         {#if cat}
             <span class="muted">{visible.length} adapter{visible.length === 1 ? '' : 's'} by {cat.publishers.join(', ') || '—'}{#if cat.stale} · <span class="warn">stale — registry unreachable</span>{/if}</span>
         {/if}
@@ -90,7 +91,7 @@
 
     <div class="content">
         {#if loading && !cat}
-            <div class="muted">Asking the npm registry…</div>
+            <div class="loading"><span class="spinner"></span> Asking the npm registry — one search per trusted publisher, then a lookup per package…</div>
         {:else if error}
             <div class="err-box">{error}</div>
         {:else if cat}
@@ -175,4 +176,8 @@
     .err-box { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.35); border-radius: 3px; color: #e88; padding: 6px 10px; }
     .warn-box { background: rgba(230,126,34,0.10); border: 1px solid rgba(230,126,34,0.35); border-radius: 3px; padding: 6px 10px; font-size: 11px; }
     pre.out { margin: 0; max-height: 240px; overflow: auto; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; white-space: pre-wrap; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
+    .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 4px; }
+    .loading { display: flex; align-items: center; gap: 6px; color: var(--fg-muted); padding: 24px 0; justify-content: center; }
 </style>
