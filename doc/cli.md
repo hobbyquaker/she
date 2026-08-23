@@ -25,6 +25,10 @@ Usage: she [options]
 | | `--db-path` | — | Path to sheDB storage file. sheDB is disabled when omitted. |
 | | `--db-retain` | `false` | Publish sheDB document changes as retained MQTT messages. |
 | | `--matter-storage` | — | Enable the Matter controller. Pass a directory path or `true` (uses `~/.she/matter`). |
+| | `--safe-mode` | `false` | Start without loading any user script — recovery from a script that blocks the event loop. See [safe mode](script-engine.md#safe-mode). |
+| | `--safe-mode-auto-detect` | `true` | Enter safe mode automatically when the previous run was killed instead of stopped (leftover `<data-dir>/.she-running`). Disable with `--no-safe-mode-auto-detect`. |
+| | `--script-timeout` | `5000` | Milliseconds a script's synchronous top-level code may run before it is terminated; the other scripts load anyway. `0` = no limit. |
+| | `--sentinel-timeout` | `5000` | Milliseconds to wait for the retained-state sentinel after connecting to MQTT before starting scripts anyway. |
 | `-h` | `--help` | — | Show help. |
 | | `--version` | — | Print version. |
 | | `--secret-set <group>/<field> [--plain]` | — | Store a secret; the value is read from stdin (`printf '%s' 'pw' \| she --secret-set smtp/password`). `--plain` creates a field whose value the UI shows in clear (a user name, a host). See [Secrets](sandbox-api.md#shesecrets). |
@@ -44,16 +48,20 @@ The following integrations are activated only when configured:
 
 ## Environment variables
 
-Every option can be provided as an environment variable with the `SHE_` prefix in SCREAMING_SNAKE_CASE:
+Every option can be provided as an environment variable with the `SHE_` prefix in SCREAMING_SNAKE_CASE — the option name uppercased with `-` replaced by `_`:
+
+```bash
+SHE_URL=mqtt://192.168.1.10 SHE_PORT=8081 SHE_VERBOSITY=debug she
+```
 
 | Option | Environment variable |
 |---|---|
-| *(secrets key)* | `SHE_SECRETS_KEY` — 32 bytes as hex or base64; when set, `~/.she/config/secrets.key` is not used (nor created) |
-|---|---|
 | `--url` | `SHE_URL` |
 | `--dir` | `SHE_DIR` |
+| `--data-dir` | `SHE_DATA_DIR` |
 | `--name` | `SHE_NAME` |
 | `--verbosity` | `SHE_VERBOSITY` |
+| `--variable-prefix` | `SHE_VARIABLE_PREFIX` |
 | `--port` | `SHE_PORT` |
 | `--auth` | `SHE_AUTH` |
 | `--proxy-header` | `SHE_PROXY_HEADER` |
@@ -65,7 +73,19 @@ Every option can be provided as an environment variable with the `SHE_` prefix i
 | `--disable-watch` | `SHE_DISABLE_WATCH` |
 | `--latitude` | `SHE_LATITUDE` |
 | `--longitude` | `SHE_LONGITUDE` |
+| `--safe-mode` | `SHE_SAFE_MODE` |
+| `--safe-mode-auto-detect` | `SHE_SAFE_MODE_AUTO_DETECT` |
+| `--script-timeout` | `SHE_SCRIPT_TIMEOUT` |
+| `--sentinel-timeout` | `SHE_SENTINEL_TIMEOUT` |
 | `--config` | `SHE_CONFIG` |
+
+Boolean options take `true` / `false` (`SHE_DISABLE_WATCH=false` really is false — an empty value is not a way to unset an option, use the config file default instead). Nested config keys (`heartbeat.enabled`, `redis.url`) have no environment equivalent; use the config file for those.
+
+One environment variable is **not** an option and never becomes part of the config:
+
+| | |
+|---|---|
+| `SHE_SECRETS_KEY` | Encryption key for the secrets store — 32 bytes as hex or base64. When set, `~/.she/config/secrets.key` is neither used nor created. See [Secrets](sandbox-api.md#shesecrets). |
 
 ## Config file format
 
