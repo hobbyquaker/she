@@ -149,7 +149,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 5, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 6, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -373,7 +373,7 @@ describe('ssh driver (fake ssh/scp)', () => {
         let server;
         let port;
         let cfgPath;
-        const setup = async (extraEnv = {}) => {
+        const setup = async (extraEnv = {}, hosts = null) => {
             api.setDriverFactory((h) =>
                 h.ssh
                     ? host.createSshDriver(h, { sshBin: FAKE_SSH, scpBin: FAKE_SCP, helper: FAKE, sudo: false, env: { ...env, ...extraEnv } })
@@ -382,7 +382,10 @@ describe('ssh driver (fake ssh/scp)', () => {
             const app = express();
             app.use(express.json());
             cfgPath = path.join(dir, 'config-' + Math.random().toString(36).slice(2) + '.json');
-            fs.writeFileSync(cfgPath, JSON.stringify({ services: { enabled: true, hosts: [{ name: 'local' }, { name: 'zigbee', ssh: { host: 'zigbee.lan', user: 'she' } }] } }));
+            fs.writeFileSync(
+                cfgPath,
+                JSON.stringify({ services: { enabled: true, hosts: hosts || [{ name: 'local' }, { name: 'zigbee', ssh: { host: 'zigbee.lan', user: 'she' } }] } }),
+            );
             app.locals.configPath = cfgPath;
             app.use('/she/services', api.router);
             server = http.createServer(app);
@@ -404,7 +407,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 5 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 6 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -415,7 +418,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 5, method: 'self-update', user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 6, method: 'self-update', user: 'she' });
             expect(fs.readFileSync(logFile + '.selfupdate', 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             r = await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy');
             expect(r.body).toMatchObject({ ok: true, method: 'self-update' });
@@ -425,7 +428,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup({ FAKE_NO_SELF_UPDATE: '1' });
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 5, user: 'she', method: 'install' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 6, user: 'she', method: 'install' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             await new Promise((res) => server.close(res));
             server = null;
@@ -433,6 +436,69 @@ describe('ssh driver (fake ssh/scp)', () => {
             r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.body).toMatchObject({ ok: false, uploaded: true, installed: false, code: 'SUDO_DENIED', user: 'she' });
             expect(r.body.instructions[1]).toContain('she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl');
+        });
+
+        describe('helper remove (I11)', () => {
+            const PUB = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTests she-services';
+            let idFile;
+            const hostsWithKey = () => {
+                idFile = path.join(dir, 'services_id');
+                fs.writeFileSync(idFile, 'private');
+                fs.writeFileSync(idFile + '.pub', PUB + '\n');
+                return [
+                    { name: 'local' },
+                    { name: 'zigbee', ssh: { host: 'zigbee.lan', user: 'she-services', identityFile: idFile } },
+                    { ssh: { host: 'other.lan', user: 'root' } },
+                ];
+            };
+            const savedHosts = () => JSON.parse(fs.readFileSync(cfgPath, 'utf8')).services.hosts.map((h) => h.name || h.ssh.host);
+
+            test("key mode drops this she's key on the host and the host entry from config", async () => {
+                await setup({}, hostsWithKey());
+                const r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/remove', { mode: 'key' });
+                expect(r.status).toBe(200);
+                expect(r.body).toMatchObject({ ok: true, mode: 'key', removedHost: true });
+                expect(r.body.output).toContain('removed 1 key(s)');
+                const call = calls().find((c) => c.args[0] === 'remove-key');
+                expect(call).toBeDefined();
+                expect(call.stdin.trim()).toBe(PUB);
+                expect(savedHosts()).toEqual(['local', 'other.lan']);
+            });
+
+            test('teardown refuses while other keys remain, force removes everything', async () => {
+                await setup({ FAKE_OTHER_KEYS: '2' }, hostsWithKey());
+                let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/remove', { mode: 'all' });
+                expect(r.status).toBe(200);
+                expect(r.body).toMatchObject({ ok: false, code: 'OTHER_KEYS' });
+                expect(r.body.error).toContain('2 other key(s)');
+                expect(savedHosts()).toContain('zigbee');
+                r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/remove', { mode: 'all', force: true });
+                expect(r.body).toMatchObject({ ok: true, mode: 'all', removedHost: true });
+                expect(r.body.output).toContain('removed user she-services');
+                expect(
+                    calls()
+                        .filter((c) => c.args[0] === 'teardown')
+                        .map((c) => c.args),
+                ).toEqual([['teardown'], ['teardown', '--force']]);
+                expect(savedHosts()).toEqual(['local', 'other.lan']);
+            });
+
+            test('the she host: no key to remove, teardown drops the local entry', async () => {
+                await setup({}, hostsWithKey());
+                let r = await httpRequest('POST', port, '/she/services/hosts/local/helper/remove', { mode: 'key' });
+                expect(r.status).toBe(400);
+                expect(r.body.code).toBe('LOCAL');
+                r = await httpRequest('POST', port, '/she/services/hosts/local/helper/remove', { mode: 'all' });
+                expect(r.body).toMatchObject({ ok: true, mode: 'all', removedHost: true });
+                expect(savedHosts()).toEqual(['zigbee', 'other.lan']);
+            });
+
+            test('a host without a public key cannot be disconnected by key', async () => {
+                await setup();
+                const r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/remove', { mode: 'key' });
+                expect(r.status).toBe(400);
+                expect(r.body.code).toBe('NO_KEY');
+            });
         });
 
         test('ssh pubkey endpoint answers without a key', async () => {
@@ -532,7 +598,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 5 });
+        expect(r.body).toEqual({ ok: true, helper: 6 });
     });
 });
 

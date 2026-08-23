@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getServicesSshPubkey, generateServicesSshKey, testServicesSsh, createServicesSetupCommand, getServicesSetupState, type AuthMode, type SetupCommand } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
+    import RemoveHelper from './services/RemoveHelper.svelte';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
@@ -102,6 +103,7 @@
     }
     let hostTest = $state<Record<number, { ok: boolean; msg: string }>>({});
     let hostTesting = $state<number | null>(null);
+    let hostRemoveOpen = $state<number | null>(null);
     async function testRemoteHost(i: number) {
         const h = servicesRemote[i];
         if (!h?.host.trim()) { hostTest = { ...hostTest, [i]: { ok: false, msg: 'enter a host first' } }; return; }
@@ -965,7 +967,12 @@
                                         <div class="svc-host-test">
                                             <button type="button" class="svc-add" onclick={() => testRemoteHost(i)} disabled={hostTesting !== null}>{hostTesting === i ? 'Testing…' : 'Test connection'}</button>
                                             {#if hostTest[i]}<span class="svc-test-mark" class:svc-ok={hostTest[i].ok} class:svc-err={!hostTest[i].ok} title={hostTest[i].msg}>{hostTest[i].ok ? '✓' : `✗ ${hostTest[i].msg}`}</span>{/if}
+                                            <span class="svc-spacer"></span>
+                                            {#if h.host.trim()}<button type="button" class="svc-add" onclick={() => (hostRemoveOpen = hostRemoveOpen === i ? null : i)} title="Remove she from the host (saved hosts only): this she's SSH key, or everything the setup command created">Remove from host…</button>{/if}
                                         </div>
+                                        {#if hostRemoveOpen === i}
+                                            <div class="svc-host-remove"><RemoveHelper host={h.host.trim()} label={h.hostname || h.host} onclose={() => (hostRemoveOpen = null)} ondone={() => { hostRemoveOpen = null; reloadServicesHosts(); }} /></div>
+                                        {/if}
                                     </div>
                                     <button type="button" class="svc-rm" title="Remove host" onclick={() => removeRemoteHost(i)}>×</button>
                                 </div>
@@ -1681,6 +1688,8 @@
     .svc-host-grid label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
     .svc-host-grid label.wide { grid-column: 1 / -1; }
     .svc-host-test { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+    .svc-spacer { flex: 1; }
+    .svc-host-remove { grid-column: 1 / -1; }
     .svc-setup { display: flex; flex-direction: column; gap: 8px; max-width: 760px; }
     .svc-setup-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .svc-setup-box { border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }

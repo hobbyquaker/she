@@ -1384,6 +1384,20 @@ export function deployServiceHelper(host: string): Promise<HelperDeployResult> {
     return request('POST', `${svcHost(host)}/helper/deploy`);
 }
 
+/** Remove she from a host (I11): mode key = only this she's SSH key; all = key, sudoers rule, helper, she-services user. */
+export interface HelperRemoveResult {
+    ok: boolean;
+    mode?: 'key' | 'all';
+    output?: string;
+    removedHost?: boolean;
+    warning?: string;
+    code?: string;
+    error?: string;
+}
+export function removeServiceHelper(host: string, mode: 'key' | 'all', force = false): Promise<HelperRemoveResult> {
+    return request('POST', `${svcHost(host)}/helper/remove`, { mode, force });
+}
+
 // ---- Services: adapter files (I10) ----
 
 export interface ServiceFileOption {

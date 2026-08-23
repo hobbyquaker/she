@@ -29,6 +29,7 @@
  *   POST   /she/services/ssh/keygen                                  generate it
  *   POST   /she/services/hosts/:host/test                            run `she-servicectl version` → ok / code
  *   POST   /she/services/hosts/:host/helper/deploy                   scp the helper to a remote host, install it, print the sudoers line
+ *   POST   /she/services/hosts/:host/helper/remove                   { mode: key|all, force? } remove she from the host (I11), drop the host entry
  *   POST   /she/services/setup/token                                 mint a one-time token + the curl | bash command (I9)
  *   GET    /she/services/setup/token/:token                          its state: pending | fetched | done | expired
  *   GET    /she/services/setup.sh?token=…                            (no auth) the bootstrap script, served once
@@ -707,6 +708,55 @@ router.post('/hosts/:host/helper/deploy', async (req, res) => {
         return res.json({ ok: true, uploaded: true, installed: true, sudoers: true, helper: Number(String(stdout).trim()) || null, user, method: 'install' });
     } catch (err) {
         return res.json({ ok: false, uploaded: true, installed: true, sudoers: false, code: err.code || 'ERROR', error: err.message, instructions: [instructions[1]], user });
+    }
+});
+
+/** Drop a host entry from config.json (after she removed herself from the host). */
+function removeHostEntry(req, name) {
+    const configPath = req.app.locals.configPath;
+    if (!configPath) return false;
+    const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const hosts = cfg.services && Array.isArray(cfg.services.hosts) ? cfg.services.hosts : null;
+    if (!hosts) return false;
+    const rest = hosts.filter((h) => !(h && (h.name === name || (!h.name && h.ssh && h.ssh.host === name) || (name === 'local' && !h.ssh))));
+    if (rest.length === hosts.length) return false;
+    cfg.services.hosts = rest;
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+    return true;
+}
+
+// POST /she/services/hosts/:host/helper/remove { mode: 'key' | 'all', force? } (I11)
+// key: only this she's public key leaves the SSH user's authorized_keys (helper, sudoers rule and
+// user stay for another she instance). all: key, sudoers rule, helper and the she-services user.
+// Adapters and instances are never touched. On success the host entry is removed from config.json.
+router.post('/hosts/:host/helper/remove', async (req, res) => {
+    const entry = resolve(req, res);
+    if (!entry) return;
+    const { driver, cfg } = entry;
+    const mode = req.body && req.body.mode === 'all' ? 'all' : 'key';
+    const force = !!(req.body && req.body.force === true);
+    if (driver.local && mode === 'key') return res.status(400).json({ error: 'the she host has no SSH key to remove — remove everything instead', code: 'LOCAL' });
+    let publicKey = '';
+    try {
+        publicKey = fs.readFileSync(((cfg.ssh && cfg.ssh.identityFile) || identityPath()) + '.pub', 'utf8').trim();
+    } catch {
+        /* no key: the local host, or a host set up by hand with another identity */
+    }
+    if (mode === 'key' && !publicKey) return res.status(400).json({ error: "no public key found for this host's SSH identity", code: 'NO_KEY' });
+    try {
+        const args = mode === 'all' ? ['teardown', ...(force ? ['--force'] : [])] : ['remove-key'];
+        const { stdout } = await driver.exec(args, { stdin: publicKey + '\n', timeout: 60000 });
+        let removedHost = false;
+        try {
+            removedHost = removeHostEntry(req, cfg.name);
+        } catch (err) {
+            return res.json({ ok: true, mode, output: stdout.trim(), removedHost: false, warning: 'cannot update config: ' + err.message });
+        }
+        invalidateHosts();
+        res.json({ ok: true, mode, output: stdout.trim(), removedHost });
+    } catch (err) {
+        if (err instanceof HostError && err.exitCode === 3) return res.json({ ok: false, code: 'OTHER_KEYS', error: err.message });
+        hostError(res, err);
     }
 });
 

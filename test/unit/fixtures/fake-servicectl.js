@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '5');
+        console.log(process.env.FAKE_HELPER_VERSION || '6');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 5),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 6),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -88,10 +88,28 @@ switch (cmd) {
     case 'migrate':
         console.log('migrated ' + args[1] + '.service to ' + args[1] + '@' + args[2] + '.service; old unit and env kept as .migrated');
         break;
+    case 'remove-key':
+        if (!/^ssh-/.test(stdin)) die('not a public key');
+        console.log('removed 1 key(s) from /home/she-services/.ssh/authorized_keys, ' + (process.env.FAKE_OTHER_KEYS || 0) + ' remaining');
+        break;
+    case 'teardown':
+        if (Number(process.env.FAKE_OTHER_KEYS || 0) > 0 && args[1] !== '--force') {
+            process.stderr.write(
+                'she-servicectl: teardown: ' +
+                    process.env.FAKE_OTHER_KEYS +
+                    ' other key(s) still in the authorized_keys of she-services — another she instance may manage this host; remove everything anyway with --force\n',
+            );
+            process.exit(3);
+        }
+        console.log(
+            (stdin.trim() ? 'removed 1 key(s) from /home/she-services/.ssh/authorized_keys, 0 remaining\n' : '') +
+                'removed /etc/sudoers.d/she-services\nremoved user she-services and its home directory\nremoved /usr/local/bin/she-servicectl',
+        );
+        break;
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 4 -> 5 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 5 -> 6 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(

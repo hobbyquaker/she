@@ -41,6 +41,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [I7 — Services: adapter catalog via npm ✅ implemented](I7.md)
 - [I9 — Services: remote host bootstrap script ✅ implemented](I9.md)
 - [I10 — Services: edit adapter files (map files & co.) ✅ implemented](I10.md)
+- [I11 — Services: remove she from a host (disconnect / teardown) ✅ implemented](I11.md)
 
 ## Documentation
 

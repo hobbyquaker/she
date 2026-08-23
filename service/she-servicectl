@@ -29,6 +29,9 @@
 #   she-servicectl file   <adapter> <instance> read|write <path>  a file inside those two directories (write: content on stdin)
 #   she-servicectl asset  <adapter> <relpath>                      a file shipped in the adapter package (example, schema)
 #   she-servicectl self-update                                     replace this script with the one on stdin (she ships it)
+#   she-servicectl remove-key                                      drop the public key on stdin from the calling user's authorized_keys
+#   she-servicectl teardown [--force]                              remove she from this host: that key, the sudoers rule, this script,
+#                                                                  the she-services user (adapters and their instances stay untouched)
 #
 # Legacy units: an adapter installed the pre-core way runs as a plain <adapter>.service with its
 # env file in /etc/default/<adapter>. "list" reports them under "legacy"; unit/logs/env accept "-"
@@ -37,7 +40,7 @@
 
 set -eu
 
-VERSION=5
+VERSION=6
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -495,6 +498,69 @@ cmd_self_update() {
     printf 'she-servicectl updated %s -> %s at %s\n' "$VERSION" "$newver" "$self"
 }
 
+# ── removing she from this host ─────────────────────────────────────────────────
+# The account she logs in as is the sudo caller (root when she connects as root).
+caller_user() { printf '%s' "${SUDO_USER:-$(id -un)}"; }
+key_count() { grep -cE '^[^#[:space:]]' "$1" 2>/dev/null || true; }
+
+# drop every authorized_keys line of user $1 whose key material equals the key in file $2;
+# sets REMAINING to the number of keys left
+remove_key_lines() {
+    home=$(getent passwd "$1" | cut -d: -f6)
+    [ -n "$home" ] || die "no home directory for $1"
+    auth="$home/.ssh/authorized_keys"
+    keymat=$(awk 'NF >= 2 && $1 ~ /^(ssh-|ecdsa-|sk-)/ { print $2; exit }' "$2")
+    [ -n "$keymat" ] || die "not a public key"
+    if [ ! -f "$auth" ]; then REMAINING=0; printf 'no authorized_keys for %s, nothing to remove\n' "$1"; return 0; fi
+    before=$(key_count "$auth")
+    tmp=$(mktemp)
+    awk -v k="$keymat" '{ keep = 1; for (i = 1; i <= NF; i++) if ($i == k) keep = 0 } keep' "$auth" > "$tmp"
+    cat "$tmp" > "$auth"    # keeps owner and mode
+    rm -f "$tmp"
+    REMAINING=$(key_count "$auth")
+    printf 'removed %s key(s) from %s, %s remaining\n' "$((before - REMAINING))" "$auth" "$REMAINING"
+}
+
+cmd_remove_key() {
+    [ $# -eq 0 ] || die "usage: remove-key  (public key on stdin)"
+    tmp=$(mktemp); cat > "$tmp"
+    remove_key_lines "$(caller_user)" "$tmp"
+    rm -f "$tmp"
+}
+
+cmd_teardown() {
+    force=0
+    if [ $# -eq 1 ] && [ "$1" = "--force" ]; then force=1; elif [ $# -ne 0 ]; then die "usage: teardown [--force]  (she's public key on stdin, may be empty)"; fi
+    user=$(caller_user)
+    self=$(realpath "$0" 2>/dev/null) || self=/usr/local/bin/she-servicectl
+    REMAINING=0
+    tmp=$(mktemp); cat > "$tmp"
+    if grep -q . "$tmp"; then remove_key_lines "$user" "$tmp"; fi
+    rm -f "$tmp"
+    if [ "$user" != root ] && [ "$REMAINING" -gt 0 ] && [ $force -eq 0 ]; then
+        printf 'she-servicectl: teardown: %s other key(s) still in the authorized_keys of %s — another she instance may manage this host; remove everything anyway with --force\n' "$REMAINING" "$user" >&2
+        exit 3
+    fi
+    # sudoers: a file that allows nothing but the helper goes away, any other file loses the helper line
+    for f in /etc/sudoers.d/*; do
+        [ -f "$f" ] || continue
+        grep -qF "$self" "$f" || continue
+        if grep -vE '^[[:space:]]*(#|$)' "$f" | grep -qvF "$self"; then
+            tmp=$(mktemp); grep -vF "$self" "$f" > "$tmp"; cat "$tmp" > "$f"; rm -f "$tmp"
+            printf 'removed the she-servicectl line from %s\n' "$f"
+        else
+            rm -f "$f"; printf 'removed %s\n' "$f"
+        fi
+    done
+    # the she-services account is the bootstrap script's; no other account is ever removed
+    if [ "$user" = she-services ] && id she-services >/dev/null 2>&1; then
+        userdel -r -f she-services 2>/dev/null || userdel -f she-services
+        printf 'removed user she-services and its home directory\n'
+    fi
+    rm -f "$self.bak" "$self"
+    printf 'removed %s\n' "$self"
+}
+
 cmd_npm() {
     [ $# -eq 2 ] || die "usage: npm <adapter> version|origin|install|update"
     need_adapter "$1"
@@ -529,5 +595,7 @@ case "$c" in
     asset) cmd_asset "$@" ;;
     self-update) cmd_self_update "$@" ;;
     migrate) cmd_migrate "$@" ;;
+    remove-key) cmd_remove_key "$@" ;;
+    teardown) cmd_teardown "$@" ;;
     *) die "unknown command: $c" ;;
 esac

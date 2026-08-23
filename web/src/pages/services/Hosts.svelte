@@ -6,6 +6,7 @@
         type ServiceHost, type HelperDeployResult, type ServiceInstance,
     } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
+    import RemoveHelper from './RemoveHelper.svelte';
 
     let { onchanged }: { onchanged?: () => void } = $props();
 
@@ -74,6 +75,7 @@
     let testResult = $state<Record<string, { ok: boolean; msg: string }>>({});
     let deployResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
     let hostBusy = $state<string | null>(null);
+    let removeOpen = $state<string | null>(null);
 
     async function testHost(h: ServiceHost) {
         hostBusy = h.name;
@@ -136,7 +138,11 @@
                     {#if !h.ok || h.helperOutdated}
                         <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title={h.ok ? 'Replace the helper with the version she ships (the helper updates itself through its sudo rule)' : 'Copy she-servicectl to the host and install it'}>{h.ok ? 'Update helper' : 'Deploy helper'}</button>
                     {/if}
+                    <button class="ghost sm" onclick={() => (removeOpen = removeOpen === h.name ? null : h.name)} disabled={hostBusy !== null} title="Remove she from this host: only this she's SSH key, or key + sudoers rule + helper + she-services user">Remove…</button>
                 </div>
+                {#if removeOpen === h.name}
+                    <RemoveHelper host={h.name} label={h.hostname ?? h.name} local={h.local} onclose={() => (removeOpen = null)} ondone={(r) => { removeOpen = null; notice = (r.output ?? 'removed').split('\n').join(' · '); load(true); }} />
+                {/if}
                 {#if deployResult[h.name]}
                     {@const d = deployResult[h.name]}
                     <div class="deploy-box" class:deploy-ok={'ok' in d && d.ok}>

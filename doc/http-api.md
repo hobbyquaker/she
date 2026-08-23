@@ -513,6 +513,7 @@ Every configured host (`services.hosts`, default the she host as `local`) with t
 | POST | `/she/services/setup/done?token=…` | **no auth**, `{ hostname, user }` | callback from the script: adds `{ hostname, ssh: { host: <caller address>, user: "she-services" } }` to `services.hosts` (or updates an existing entry); single use |
 | POST | `/she/services/hosts/:host/test` | | always 200: `{ ok: true, helper }` or `{ ok: false, code, error }` |
 | POST | `/she/services/hosts/:host/helper/deploy` | | remote hosts only: scp the shipped helper, try `sudo -n install`; `{ ok, uploaded, installed, sudoers, helper?, code?, instructions?, user }` — `instructions` are the commands an admin runs when sudo refused |
+| POST | `/she/services/hosts/:host/helper/remove` | `{ mode: "key" \| "all", force? }` | remove she from the host: `key` = only this she's public key leaves the SSH user's `authorized_keys`; `all` = key, sudoers rule, helper and the `she-services` user (`{ ok: false, code: "OTHER_KEYS" }` while other keys remain, unless `force`); adapters and instances stay. On success the host entry is removed from config.json: `{ ok, mode, output, removedHost }` |
 | GET / POST | `/she/services/ssh/pubkey` · `/she/services/ssh/keygen` | | the services SSH identity (`<data-dir>/ssh/services_id_ed25519`): read the public key / generate the keypair |
 
 ---
