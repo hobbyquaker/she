@@ -32,7 +32,10 @@ app.use('/she/auth', authRouter);
 // /api/* is intentionally excluded — user scripts control their own auth.
 // The remote-host bootstrap script and its callback are fetched by curl on the target host: no
 // session, but useless without the one-time token they carry (services-api validates it).
-const OPEN_SHE_PATHS = new Set(['/she/auth/mode', '/she/auth/login', '/she/auth/logout', '/she/services/setup.sh', '/she/services/setup/done']);
+// /she/health is public on purpose: Docker HEALTHCHECK, nginx upstream probes and monitoring
+// agents cannot present a session. It answers with a status only — the version is added for
+// authenticated callers, the rest of the payload is counters that give nothing away.
+const OPEN_SHE_PATHS = new Set(['/she/auth/mode', '/she/auth/login', '/she/auth/logout', '/she/services/setup.sh', '/she/services/setup/done', '/she/health']);
 app.use('/she', (req, res, next) => {
     if (OPEN_SHE_PATHS.has(req.originalUrl.split('?')[0])) return next();
     authMiddleware(req, res, next);
@@ -124,6 +127,32 @@ let _getStats = null;
 function setStatsProvider(fn) {
     _getStats = fn;
 }
+
+// Health check (roadmap A1) — 200 while the daemon can do its job, 503 otherwise.
+// Not healthy: still starting up (waiting for retained MQTT state or the Matter
+// controller), or a broker is configured but not connected. Safe mode stays 200:
+// it is a deliberate state the user has to reach the web UI to get out of, so a
+// probe that takes the daemon out of an upstream pool would be counterproductive.
+let _getHealth = null;
+function setHealthProvider(fn) {
+    _getHealth = fn;
+}
+app.get('/she/health', (req, res) => {
+    const h = _getHealth ? _getHealth() : null;
+    const mqtt = !h ? 'unknown' : h.mqttConfigured ? (h.mqttConnected ? 'connected' : 'disconnected') : 'disabled';
+    const ok = !!h && h.started && mqtt !== 'disconnected';
+    const body = {
+        status: ok ? 'ok' : 'degraded',
+        uptime: Math.round((Date.now() - SERVER_START_TIME) / 1000),
+        started: !!h?.started,
+        mqtt,
+        scripts: h?.scripts ?? 0,
+    };
+    if (h?.safeMode) body.safeMode = true;
+    if (checkAuth(req)) body.version = pkg.version;
+    res.set('Cache-Control', 'no-store');
+    res.status(ok ? 200 : 503).json(body);
+});
 const _isDocker = require('fs').existsSync('/.dockerenv');
 app.get('/she/status', (req, res) => {
     const s = _getStats ? _getStats() : { scripts: 0, topics: 0 };
@@ -290,4 +319,4 @@ function stopServer() {
     });
 }
 
-module.exports = { app, registerRoute, unregisterRoutesByScript, setStatsProvider, startServer, stopServer };
+module.exports = { app, registerRoute, unregisterRoutesByScript, setStatsProvider, setHealthProvider, startServer, stopServer };

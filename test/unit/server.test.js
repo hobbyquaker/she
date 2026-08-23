@@ -11,7 +11,15 @@ function httpGet(port, urlPath, headers = {}) {
         const req = http.get({ host: '127.0.0.1', port, path: urlPath, headers }, (res) => {
             let data = '';
             res.on('data', (c) => (data += c));
-            res.on('end', () => resolve({ status: res.statusCode }));
+            res.on('end', () => {
+                let body = null;
+                try {
+                    body = JSON.parse(data);
+                } catch {
+                    /* not JSON — tests that care pass a JSON route */
+                }
+                resolve({ status: res.statusCode, body });
+            });
         });
         req.on('error', reject);
     });
@@ -137,5 +145,81 @@ describe('password authentication', () => {
         serverPort = await startServer(0, { auth: 'password', password: TEST_HASH });
         const res = await httpGet(serverPort, '/api/anything');
         expect(res.status).not.toBe(401);
+    });
+});
+
+describe('health endpoint (A1)', () => {
+    let startServer, stopServer, setHealthProvider, serverPort;
+
+    beforeEach(() => {
+        jest.resetModules();
+        ({ startServer, stopServer, setHealthProvider } = require('../../src/web/server'));
+    });
+
+    afterEach(() => stopServer());
+
+    const health = (over = {}) => ({ started: true, mqttConfigured: true, mqttConnected: true, scripts: 3, safeMode: false, ...over });
+
+    test('200 and status ok when started and the broker is connected', async () => {
+        setHealthProvider(() => health());
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ status: 'ok', started: true, mqtt: 'connected', scripts: 3 });
+        expect(res.body.safeMode).toBeUndefined();
+    });
+
+    test('200 when no broker is configured at all', async () => {
+        setHealthProvider(() => health({ mqttConfigured: false, mqttConnected: false }));
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.status).toBe(200);
+        expect(res.body.mqtt).toBe('disabled');
+    });
+
+    test('503 while a configured broker is disconnected', async () => {
+        setHealthProvider(() => health({ mqttConnected: false }));
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.status).toBe(503);
+        expect(res.body).toMatchObject({ status: 'degraded', mqtt: 'disconnected' });
+    });
+
+    test('503 while the daemon is still waiting to start scripts', async () => {
+        setHealthProvider(() => health({ started: false }));
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.status).toBe(503);
+        expect(res.body.started).toBe(false);
+    });
+
+    test('503 when no provider is registered (daemon not wired up)', async () => {
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.status).toBe(503);
+        expect(res.body.mqtt).toBe('unknown');
+    });
+
+    test('safe mode stays healthy but is reported', async () => {
+        setHealthProvider(() => health({ safeMode: true, scripts: 0 }));
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.status).toBe(200);
+        expect(res.body.safeMode).toBe(true);
+    });
+
+    test('reachable without a session in password mode, and hides the version there', async () => {
+        setHealthProvider(() => health());
+        serverPort = await startServer(0, { auth: 'password', password: TEST_HASH });
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.status).toBe(200);
+        expect(res.body.version).toBeUndefined();
+    });
+
+    test('includes the version when the caller is authenticated', async () => {
+        setHealthProvider(() => health());
+        serverPort = await startServer(0);
+        const res = await httpGet(serverPort, '/she/health');
+        expect(res.body.version).toBe(require('../../package.json').version);
     });
 });

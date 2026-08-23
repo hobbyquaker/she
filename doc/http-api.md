@@ -38,6 +38,7 @@ she supports three authentication modes, configured via `auth` in `config.json` 
 | `GET` | `/she/auth/mode` | Returns `{ "mode": "none" \| "password" \| "proxy" }` |
 | `POST` | `/she/auth/login` | `{ "password": "..." }` — sets `she_session` cookie on success |
 | `POST` | `/she/auth/logout` | Clears the session cookie |
+| `GET` | `/she/health` | Health probe — see [below](#get-shehealth) |
 | `POST` | `/she/auth/setup` | Change auth mode / password / proxyHeader at runtime (see Config tab in web UI) |
 
 ### Setting up password mode
@@ -427,7 +428,33 @@ A daemon restart is required for the new config to take effect.
 
 ---
 
-## Daemon — `/she/status`, `/she/restart`
+## Daemon — `/she/health`, `/she/status`, `/she/restart`
+
+### GET /she/health
+
+Liveness/readiness probe for Docker `HEALTHCHECK`, nginx upstream checks and monitoring agents. **Public** — it answers in every auth mode without a session, because a probe cannot log in.
+
+**HTTP 200** while the daemon can do its job, **HTTP 503** while it cannot: still starting up (waiting for the retained MQTT state or, when enabled, for the Matter controller), or an MQTT broker is configured but not connected. Never cached.
+
+```json
+{ "status": "ok", "uptime": 3812, "started": true, "mqtt": "connected", "scripts": 7, "version": "1.36.1" }
+```
+
+| Field | Description |
+|-------|-------------|
+| `status` | `ok` (200) or `degraded` (503) |
+| `uptime` | Seconds since the HTTP server started |
+| `started` | Whether scripts have been started (`false` while the startup gates are still closed) |
+| `mqtt` | `connected`, `disconnected`, or `disabled` when no broker URL is configured |
+| `scripts` | Number of loaded user scripts |
+| `safeMode` | Only present, and `true`, in [safe mode](script-engine.md#safe-mode) |
+| `version` | Only for authenticated callers — an unauthenticated probe gets no version to fingerprint |
+
+Safe mode answers **200**: it is a state the user has to reach the web UI to get out of, so a probe must not pull the daemon out of an upstream pool while it lasts. Watch the `safeMode` field to alert on it.
+
+```bash
+curl -fsS http://localhost:8080/she/health   # exit code 22 when degraded
+```
 
 ### GET /she/status
 
@@ -443,6 +470,7 @@ Returns a snapshot of runtime counters.
 |-------|-------------|
 | `scripts` | Number of user scripts currently loaded |
 | `topics` | Number of MQTT topics tracked in the state store |
+| `safeMode` | `true` when the daemon runs in [safe mode](script-engine.md#safe-mode) — the web UI shows a banner |
 
 ### POST /she/restart
 
