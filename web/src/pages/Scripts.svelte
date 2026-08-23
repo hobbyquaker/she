@@ -353,9 +353,15 @@
         localStorage.setItem(CHAT_KEY, String(chatOpen));
     });
 
-    // Re-layout Monaco when the Scripts panel becomes visible after being hidden.
+    // Re-layout Monaco when the Scripts panel becomes visible after being hidden, and when the browser
+    // tab comes back from the background (App dispatches she:visible after forcing a repaint).
     $effect(() => {
         if (active && editor) editor.layout();
+    });
+    $effect(() => {
+        const relayout = () => { if (active && editor) editor.layout(); };
+        window.addEventListener('she:visible', relayout);
+        return () => window.removeEventListener('she:visible', relayout);
     });
 
     // Monaco sandbox type stubs for she API autocomplete

@@ -108,6 +108,19 @@ function connect() {
     };
 }
 
+/**
+ * Reconnect right away when the socket is gone — a hidden tab gets its timers throttled and its
+ * socket closed, so on visibilitychange we do not wait for the 3 s retry.
+ */
+export function ensureConnected() {
+    if (_ws || totalSubscribers() === 0) return;
+    if (_reconnectTimer) {
+        clearTimeout(_reconnectTimer);
+        _reconnectTimer = null;
+    }
+    connect();
+}
+
 function disconnect() {
     if (_reconnectTimer) clearTimeout(_reconnectTimer);
     _ws?.close();

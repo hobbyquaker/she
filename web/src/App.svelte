@@ -12,7 +12,7 @@
     import Secrets from './pages/Secrets.svelte';
     import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getConfig, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
-    import { subscribeWs, subscribeLog, getLogBuffer } from './lib/ws.js';
+    import { subscribeWs, subscribeLog, getLogBuffer, ensureConnected } from './lib/ws.js';
 
     type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages'];
@@ -163,6 +163,20 @@
             page = pageFromHash();
         };
         window.addEventListener('hashchange', onHashChange);
+        // Back from a background tab: Chrome (macOS) may not repaint until an input event, timers were
+        // throttled and the WebSocket closed — reconnect, refresh the status and force a paint.
+        const onVisible = () => {
+            if (document.visibilityState !== 'visible') return;
+            ensureConnected();
+            getDaemonStatus().then((s) => { stats = s; }).catch(() => {});
+            requestAnimationFrame(() => {
+                document.body.style.display = 'none';
+                void document.body.offsetHeight;
+                document.body.style.display = '';
+                window.dispatchEvent(new Event('she:visible'));
+            });
+        };
+        document.addEventListener('visibilitychange', onVisible);
 
         // Detect auth mode — show login overlay immediately if in password mode
         try {
@@ -235,6 +249,7 @@
 
         return () => {
             window.removeEventListener('hashchange', onHashChange);
+            document.removeEventListener('visibilitychange', onVisible);
             clearInterval(statusInterval);
             unsubMqttStatus();
             unsubMatterList();
