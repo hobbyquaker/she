@@ -1172,6 +1172,8 @@ export interface ServiceHostAdapter {
     origin: 'registry' | 'manual';
     latestVersion?: string | null;
     updateAvailable?: boolean | null;
+    /** false: installed with npm (catalog) but no instance yet — the template unit appears with the first --install */
+    unit?: boolean;
     path: string | null;
     node: string;
     /** the template unit reads /etc/mqtt-interfaces/broker.env (false for units written by early cores) */

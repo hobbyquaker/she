@@ -8,7 +8,7 @@
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import RemoveHelper from './RemoveHelper.svelte';
 
-    let { onchanged }: { onchanged?: () => void } = $props();
+    let { onchanged, onaddinstance }: { onaddinstance?: (host: string, adapter: string) => void; onchanged?: () => void } = $props();
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
@@ -182,6 +182,7 @@
                         <thead><tr><th>Adapter</th><th>Installed</th><th>Origin</th><th>Instances</th><th class="c-act"></th></tr></thead>
                         <tbody>
                             {#each h.adapters ?? [] as a (a.name)}
+                                {@const names = [...(h.instances ?? []).filter(i => i.adapter === a.name).map(i => i.instance), ...(h.legacy ?? []).filter(l => l.adapter === a.name).map(l => `${l.unit} (old unit)`)]}
                                 <tr>
                                     <td class="mono">{a.name}</td>
                                     <td>{a.version ?? '—'}{#if a.updateAvailable} <span class="badge b-upd" title="npm has {a.latestVersion}">{a.latestVersion}</span>{/if}</td>
@@ -189,7 +190,7 @@
                                         {#if a.origin === 'manual'}<span class="badge warn-b" title="Deployed by tarball / deploy.sh, not npm install -g — path: {a.path}">manual</span>
                                         {:else}<span class="muted">npm</span>{/if}
                                     </td>
-                                    <td>{[...(h.instances ?? []).filter(i => i.adapter === a.name).map(i => i.instance), ...(h.legacy ?? []).filter(l => l.adapter === a.name).map(l => `${l.unit} (old unit)`)].join(', ') || '—'}</td>
+                                    <td>{#if names.length}{names.join(', ')}{:else}<button class="ghost sm" onclick={() => onaddinstance?.(h.name, a.name)} title={a.unit === false ? 'installed with npm, no instance yet — create the first one' : 'no instance — create one'}>+ add instance</button>{/if}</td>
                                     <td class="c-act">
                                         {#if a.updateAvailable}
                                             <button class="ghost sm" onclick={() => update(h, a.name)} disabled={busy !== null} title="npm install -g {a.name}@latest, then restart its instances">

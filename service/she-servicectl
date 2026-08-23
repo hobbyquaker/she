@@ -16,7 +16,7 @@
 # a wrapper or symlink /usr/local/bin/<adapter>.
 #
 #   she-servicectl version
-#   she-servicectl list
+#   she-servicectl list                                            (adapters = template units + npm packages with mqttInterfaces)
 #   she-servicectl unit   <adapter> <instance> start|stop|restart|enable|disable|status
 #   she-servicectl logs   <adapter> <instance> [-n N] [--follow]
 #   she-servicectl env    <adapter> <instance> read|write        (write: file on stdin)
@@ -40,7 +40,7 @@
 
 set -eu
 
-VERSION=6
+VERSION=7
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -212,6 +212,25 @@ read_env_stdin() {
 
 # ── commands ────────────────────────────────────────────────────────────────────
 
+# ── adapters installed with npm but without a template unit yet ─────────────────
+# (a catalog install is `npm install -g <adapter>`; the unit appears with the first `--install`)
+npm_roots() {
+    r=$(command -v npm >/dev/null 2>&1 && npm root -g 2>/dev/null || true)
+    printf '%s\n/usr/local/lib/node_modules\n' "$r" | grep -v '^$' | LC_ALL=C sort -u
+}
+npm_adapters() {
+    for root in $(npm_roots); do
+        for pkg in "$root"/*/package.json; do
+            [ -f "$pkg" ] || continue
+            a=$(basename "$(dirname "$pkg")")
+            valid_adapter "$a" || continue
+            grep -q '"mqttInterfaces"' "$pkg" 2>/dev/null || continue
+            adapter_cmd "$a" >/dev/null 2>&1 || continue
+            printf '%s\n' "$a"
+        done
+    done | LC_ALL=C sort -u
+}
+
 cmd_version() {
     printf '%s\n' "$VERSION"
 }
@@ -246,6 +265,16 @@ cmd_list() {
             "$a" "$(adapter_version "$a")" "$(adapter_origin "$a")" \
             "$([ -n "$dir" ] && printf '"%s"' "$(json_escape "$dir")" || printf 'null')" \
             "$(json_escape "$(adapter_node "$a")")" "$(unit_reads_broker_env "$a")"
+    done
+    for a in $(npm_adapters); do
+        case " $adapters " in *" $a "*) continue ;; esac
+        [ $first -eq 1 ] || printf ','
+        first=0
+        dir=$(adapter_dir "$a" 2>/dev/null || true)
+        printf '{"name":"%s","version":%s,"origin":"%s","path":%s,"node":"%s","brokerEnv":false,"unit":false}' \
+            "$a" "$(adapter_version "$a")" "$(adapter_origin "$a")" \
+            "$([ -n "$dir" ] && printf '"%s"' "$(json_escape "$dir")" || printf 'null')" \
+            "$(json_escape "$(adapter_node "$a")")"
     done
     printf '],"legacy":['
     first=1

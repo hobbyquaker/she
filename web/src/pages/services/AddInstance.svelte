@@ -3,11 +3,12 @@
      * Add-instance wizard: host → adapter installed there → instance name → options
      * from `--config-schema` → `<adapter> --install --name <instance>` via the helper.
      */
-    import { onMount } from 'svelte';
+    import { onMount, tick } from 'svelte';
     import { getServiceHosts, getServiceSchema, installService, type ServiceHost, type ServiceSchema, type SheBrokerInfo, type DynsecInfo, type BrokerMode } from '../../lib/api.js';
     import SchemaForm from './SchemaForm.svelte';
 
-    let { oninstalled }: { oninstalled?: (host: string, adapter: string, instance: string) => void } = $props();
+    export interface AddPreset { host: string; adapter: string; n: number }
+    let { oninstalled, preset = null }: { oninstalled?: (host: string, adapter: string, instance: string) => void; preset?: AddPreset | null } = $props();
 
     let hosts     = $state<ServiceHost[]>([]);
     let hostName  = $state('');
@@ -44,6 +45,26 @@
             error = e.message ?? String(e);
         }
     });
+
+    // a preset (Hosts tab "+ add instance", Catalog install) selects host and adapter; hosts are re-read first
+    let presetSeen = -1;
+    $effect(() => {
+        if (preset && preset.n !== presetSeen) {
+            presetSeen = preset.n;
+            applyPreset(preset);
+        }
+    });
+    async function applyPreset(p: AddPreset) {
+        try {
+            hosts = (await getServiceHosts()).hosts;
+        } catch {
+            /* keep the list we have */
+        }
+        if (done) reset();
+        hostName = p.host;
+        await tick();
+        pickAdapter(p.adapter);
+    }
 
     $effect(() => {
         // reset when the host changes

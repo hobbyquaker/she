@@ -19,16 +19,27 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '6');
+        console.log(process.env.FAKE_HELPER_VERSION || '7');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 6),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 7),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
-                adapters: [{ name: 'cul2mqtt', version: '1.1.1', origin: state.origin || 'registry', path: '/usr/local/lib/node_modules/cul2mqtt', node: '/usr/bin/node' }],
+                adapters: [
+                    { name: 'cul2mqtt', version: '1.1.1', origin: state.origin || 'registry', path: '/usr/local/lib/node_modules/cul2mqtt', node: '/usr/bin/node' },
+                    {
+                        name: 'homeconnect2mqtt',
+                        version: '0.1.1',
+                        origin: 'registry',
+                        path: '/usr/local/lib/node_modules/homeconnect2mqtt',
+                        node: '/usr/bin/node',
+                        brokerEnv: false,
+                        unit: false,
+                    },
+                ],
                 instances: [{ adapter: 'cul2mqtt', instance: 'cul', active: 'active', sub: 'running', unitFile: 'enabled', since: 'Sat 2026-08-22 10:00:00 CEST', restarts: 0 }],
                 legacy: [
                     {
@@ -109,7 +120,7 @@ switch (cmd) {
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 5 -> 6 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 6 -> 7 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(

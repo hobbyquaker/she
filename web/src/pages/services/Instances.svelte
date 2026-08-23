@@ -9,9 +9,14 @@
     import { subscribeWs } from '../../lib/ws.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import InstanceDetail from './InstanceDetail.svelte';
+    import AddInstance, { type AddPreset } from './AddInstance.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
-    let { onstatus, generation = 0 }: { onstatus?: (status: Status, title: string) => void; generation?: number } = $props();
+    let { onstatus, generation = 0, addRequest = null }: { onstatus?: (status: Status, title: string) => void; generation?: number; addRequest?: AddPreset | null } = $props();
+    let addOpen = $state(false);
+    $effect(() => {
+        if (addRequest) addOpen = true;
+    });
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
@@ -282,6 +287,7 @@
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again">↺</button>
+            <button class="ghost" class:active={addOpen} onclick={() => (addOpen = !addOpen)} title="Install a new instance of an adapter on a managed host">+ Add instance</button>
             <span class="count">{visible.length}{#if filter} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}{#if updateCount > 0} · {updateCount} update{updateCount === 1 ? '' : 's'} available{/if}</span>
             <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
                 <input type="checkbox" bind:checked={showLegacy} />
@@ -296,6 +302,13 @@
                 {#each hostProblems as h (h.name)}
                     <span>host <strong>{h.name}</strong>: {h.error}{#if h.code === 'HELPER_MISSING'} — run <code>sudo she --install</code>{/if}</span>
                 {/each}
+            </div>
+        {/if}
+
+        {#if addOpen}
+            <div class="add-panel">
+                <div class="add-head"><strong>Add instance</strong><span class="muted">an adapter installed on a managed host (Catalog → Install) gets a systemd instance here</span><span class="spacer"></span><button class="ghost sm" onclick={() => (addOpen = false)} title="Close">×</button></div>
+                <AddInstance preset={addRequest} oninstalled={() => load(true)} />
             </div>
         {/if}
 
@@ -496,4 +509,9 @@
         border-radius: 3px; font-size: 11px; padding: 1px 4px;
     }
 
+    .add-panel { display: flex; flex-direction: column; max-height: 55%; min-height: 0; border-bottom: 1px solid var(--border); background: var(--bg-panel); flex-shrink: 0; }
+    .add-head { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .add-head .muted { color: var(--fg-muted); font-size: 11px; }
+    .add-head .spacer { flex: 1; }
+    .bar button.active { color: var(--accent); border-color: var(--accent); }
 </style>

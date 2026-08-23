@@ -6,7 +6,7 @@
     import { onMount } from 'svelte';
     import { getServicesCatalog, getServiceHosts, installServicePackage, type Catalog, type CatalogPackage, type ServiceHost } from '../../lib/api.js';
 
-    let { oninstalled }: { oninstalled?: () => void } = $props();
+    let { oninstalled }: { oninstalled?: (host: string, adapter: string) => void } = $props();
 
     let cat     = $state<Catalog | null>(null);
     let hosts   = $state<ServiceHost[]>([]);
@@ -53,7 +53,7 @@
             const r = await installServicePackage(host, p.name);
             output = r.output;
             notice = `${p.name} installed on ${host} — add an instance under Add instance.`;
-            oninstalled?.();
+            oninstalled?.(hostFor(p), p.name);
             await load();
         } catch (e: any) {
             notice = e.message ?? String(e);
