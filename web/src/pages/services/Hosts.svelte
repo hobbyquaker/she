@@ -2,11 +2,10 @@
     import { onMount } from 'svelte';
     import {
         getServiceHosts, updateServiceAdapter,
-        testServiceHost, deployServiceHelper, getServiceInstances,
+        deployServiceHelper, getServiceInstances,
         type ServiceHost, type HelperDeployResult, type ServiceInstance,
     } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
-    import RemoveHelper from './RemoveHelper.svelte';
 
     import AddInstance, { type AddPreset } from './AddInstance.svelte';
     import Catalog from './Catalog.svelte';
@@ -84,22 +83,9 @@
     }
 
     /* ── I5: connection test + helper deploy ───────────────────────────────── */
-    let testResult = $state<Record<string, { ok: boolean; msg: string }>>({});
     let deployResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
     let hostBusy = $state<string | null>(null);
-    let removeOpen = $state<string | null>(null);
 
-    async function testHost(h: ServiceHost) {
-        hostBusy = h.name;
-        try {
-            const r = await testServiceHost(h.name);
-            testResult = { ...testResult, [h.name]: r.ok ? { ok: true, msg: `helper v${r.helper ?? '?'}` } : { ok: false, msg: `${r.code}: ${r.error}` } };
-        } catch (e: any) {
-            testResult = { ...testResult, [h.name]: { ok: false, msg: e.message ?? String(e) } };
-        } finally {
-            hostBusy = null;
-        }
-    }
     async function deployHelper(h: ServiceHost) {
         hostBusy = h.name;
         try {
@@ -155,22 +141,10 @@
                     <span class="name">{h.hostname ?? h.name}</span>
                     <span class="muted">{h.local ? 'this host' : `${h.ssh?.user ?? ''}@${h.ssh?.host}`}{#if h.node} · node {h.node}{/if}</span>
                     <span class="spacer"></span>
-                    {#if h.ok}
-                        <span class="muted" title="she-servicectl version">helper v{h.helper}{#if h.helperOutdated} <span class="warn">— outdated, update it</span>{/if}</span>
-                    {/if}
-                    <button class="ghost sm" onclick={() => testHost(h)} disabled={hostBusy !== null} title="Run she-servicectl version on the host">Test</button>
-                    {#if testResult[h.name]}
-                        {@const t = testResult[h.name]}
-                        <span class="test-mark" class:ok={t.ok} class:err={!t.ok} title={t.msg}>{t.ok ? '✓' : `✗ ${t.msg}`}</span>
-                    {/if}
                     {#if !h.ok || h.helperOutdated}
-                        <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title={h.ok ? 'Replace the helper with the version she ships (the helper updates itself through its sudo rule)' : 'Copy she-servicectl to the host and install it'}>{h.ok ? 'Update helper' : 'Deploy helper'}</button>
+                        <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title={h.ok ? `Helper v${h.helper} is older than the one she ships — replace it (the helper updates itself through its sudo rule)` : 'Copy she-servicectl to the host and install it'}>{h.ok ? 'Update helper' : 'Deploy helper'}</button>
                     {/if}
-                    <button class="ghost sm" onclick={() => (removeOpen = removeOpen === h.name ? null : h.name)} disabled={hostBusy !== null} title="Remove she from this host: only this she's SSH key, or key + sudoers rule + helper + she-services user">Remove…</button>
                 </div>
-                {#if removeOpen === h.name}
-                    <RemoveHelper host={h.name} label={h.hostname ?? h.name} local={h.local} onclose={() => (removeOpen = null)} ondone={(r) => { removeOpen = null; notice = (r.output ?? 'removed').split('\n').join(' · '); load(true); }} />
-                {/if}
                 {#if deployResult[h.name]}
                     {@const d = deployResult[h.name]}
                     <div class="deploy-box" class:deploy-ok={'ok' in d && d.ok}>
@@ -266,7 +240,6 @@
     .spacer { flex: 1; }
     .content { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; font-size: 12px; color: var(--fg); }
     .muted { color: var(--fg-muted); font-size: 11px; }
-    .warn { color: #d4ac0d; }
     .mono { font-family: var(--font-mono, monospace); font-size: 11px; }
     .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
     .card.unmanaged { border-style: dashed; }
@@ -275,9 +248,6 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); }
     .dot.ok { background: #27ae60; }
     .dot.err { background: #e74c3c; }
-    .test-mark { font-size: 12px; white-space: nowrap; }
-    .test-mark.ok { color: #27ae60; font-weight: 700; }
-    .test-mark.err { color: #e74c3c; }
     /* identical column widths in every card so the tables line up across hosts */
     table.adapters { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
     col.c-adapter { width: 26%; }
