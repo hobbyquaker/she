@@ -38,6 +38,7 @@ Sections mirror the roadmap categories — Bugs (B), Script Engine (S), Web UI &
 - [I5 — Services: remote hosts over SSH ✅ implemented](I5.md)
 - [I6 — Services: broker.env and per-instance dynsec credentials ✅ implemented](I6.md)
 - [I9 — Services: remote host bootstrap script ✅ implemented](I9.md)
+- [I10 — Services: edit adapter files (map files & co.) ✅ implemented](I10.md)
 
 ## Documentation
 

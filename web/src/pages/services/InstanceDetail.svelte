@@ -11,6 +11,7 @@
     import { subscribeWs } from '../../lib/ws.js';
     import { fmtLogTs } from '../../lib/format.js';
     import SchemaForm from './SchemaForm.svelte';
+    import InstanceFiles from './InstanceFiles.svelte';
 
     let {
         host,
@@ -36,7 +37,7 @@
         tab?: Tab;
     } = $props();
 
-    type Tab = 'config' | 'logs' | 'info';
+    type Tab = 'config' | 'files' | 'logs' | 'info';
     let managed = $derived(!!host && !!unit && !!adapter);
     // an unmanaged instance has nothing but Info
     $effect(() => { if (!managed && tab !== 'info') tab = 'info'; });
@@ -203,6 +204,7 @@
     <div class="tabs">
         {#if managed}
             <button class:active={tab === 'config'} onclick={() => (tab = 'config')}>Config</button>
+            <button class:active={tab === 'files'} onclick={() => (tab = 'files')}>Files</button>
             <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
         {/if}
         <button class:active={tab === 'info'} onclick={() => (tab = 'info')}>Info</button>
@@ -226,6 +228,8 @@
                 </div>
             {/if}
         </div>
+    {:else if tab === 'files' && managed}
+        <InstanceFiles host={h()} adapter={a()} instance={instance} onchanged={onchanged} />
     {:else if tab === 'logs'}
         <div class="logbar">
             <select bind:value={filterLevel}>

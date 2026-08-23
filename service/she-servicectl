@@ -25,10 +25,13 @@
 #   she-servicectl install   <adapter> <instance>                 (options as KEY=VALUE lines on stdin)
 #   she-servicectl uninstall <adapter> <instance>
 #   she-servicectl npm    <adapter> version|origin|install|update
+#   she-servicectl files  <adapter> <instance>                     JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
+#   she-servicectl file   <adapter> <instance> read|write <path>  a file inside those two directories (write: content on stdin)
+#   she-servicectl asset  <adapter> <relpath>                      a file shipped in the adapter package (example, schema)
 
 set -eu
 
-VERSION=2
+VERSION=3
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -133,6 +136,32 @@ adapter_origin() {
 
 adapter_user() {
     if id -u "$1" >/dev/null 2>&1; then printf '%s' "$1"; else printf 'root'; fi
+}
+
+# absolute path without control characters or ..
+valid_path() { printf '%s' "$1" | grep -Eq '^/[^[:cntrl:]]+$' && ! printf '%s' "$1" | grep -q '\.\.'; }
+
+# the two directories she may read and write instance files in
+managed_dir() {
+    case "$3" in
+        etc) printf '/etc/%s' "$1" ;;
+        state) printf '/var/lib/%s/%s' "$1" "$2" ;;
+    esac
+}
+
+# is $3 (an existing file, or a new file whose directory exists) inside the managed dirs of $1/$2?
+inside_managed() {
+    if [ -e "$3" ]; then
+        real=$(realpath "$3" 2>/dev/null) || return 1
+    else
+        pdir=$(realpath "$(dirname "$3")" 2>/dev/null) || return 1
+        real="$pdir/$(basename "$3")"
+    fi
+    for d in "$(managed_dir "$1" "$2" etc)" "$(managed_dir "$1" "$2" state)"; do
+        rd=$(realpath "$d" 2>/dev/null) || continue
+        case "$real" in "$rd"/*) return 0 ;; esac
+    done
+    return 1
 }
 
 # validate an env file on stdin (KEY=VALUE, comments, blank lines) into $1
@@ -296,6 +325,68 @@ cmd_uninstall() {
     exec "$cmd" --uninstall --name "$2"
 }
 
+cmd_files() {
+    [ $# -eq 2 ] || die "usage: files <adapter> <instance>"
+    need_installed "$1"; need_instance "$2"
+    tmp=$(mktemp)
+    for d in "$(managed_dir "$1" "$2" etc)" "$(managed_dir "$1" "$2" state)"; do
+        [ -d "$d" ] || continue
+        # top level plus one level of subdirectories; no dotfiles
+        find "$d" -mindepth 1 -maxdepth 2 -not -name '.*' 2>/dev/null >> "$tmp"
+    done
+    printf '['
+    LC_ALL=C sort "$tmp" | while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        if [ -d "$f" ]; then kind=dir; size=0; else kind=file; size=$(wc -c < "$f" | tr -d ' '); fi
+        mtime=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+        if [ -s "$tmp.sep" ]; then printf ','; else printf 1 > "$tmp.sep"; fi
+        printf '{"path":"%s","kind":"%s","size":%s,"mtime":%s}' "$(json_escape "$f")" "$kind" "$size" "$mtime"
+    done
+    rm -f "$tmp" "$tmp.sep"
+    printf ']\n'
+}
+
+cmd_file() {
+    [ $# -eq 4 ] || die "usage: file <adapter> <instance> read|write <path>"
+    need_installed "$1"; need_instance "$2"
+    valid_path "$4" || die "invalid path: $4"
+    inside_managed "$1" "$2" "$4" || die "path is outside /etc/$1 and /var/lib/$1/$2: $4"
+    case "$3" in
+        read)
+            [ -f "$4" ] || die "no such file: $4"
+            cat "$4" ;;
+        write)
+            dir=$(dirname "$4")
+            [ -d "$dir" ] || die "directory does not exist: $dir"
+            tmp=$(mktemp "$dir/.she.XXXXXX")
+            cat > "$tmp"
+            if [ -f "$4" ]; then
+                cp -p "$4" "$4.bak"
+                chown --reference="$4" "$tmp" 2>/dev/null || true
+                chmod --reference="$4" "$tmp" 2>/dev/null || true
+            else
+                chown "root:$(adapter_user "$1")" "$tmp"
+                chmod 0640 "$tmp"
+            fi
+            mv "$tmp" "$4"
+            printf 'wrote %s\n' "$4" ;;
+        *) die "unknown file action: $3" ;;
+    esac
+}
+
+cmd_asset() {
+    [ $# -eq 2 ] || die "usage: asset <adapter> <relpath>"
+    need_adapter "$1"
+    printf '%s' "$2" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_./-]*$' || die "invalid asset path: $2"
+    printf '%s' "$2" | grep -q '\.\.' && die "invalid asset path: $2"
+    dir=$(adapter_dir "$1") || die "adapter not installed: $1"
+    f="$dir/$2"
+    [ -f "$f" ] || die "no such asset: $2"
+    real=$(realpath "$f"); rd=$(realpath "$dir")
+    case "$real" in "$rd"/*) ;; *) die "invalid asset path: $2" ;; esac
+    cat "$f"
+}
+
 cmd_npm() {
     [ $# -eq 2 ] || die "usage: npm <adapter> version|origin|install|update"
     need_adapter "$1"
@@ -325,5 +416,8 @@ case "$c" in
     install) cmd_install "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
     npm) cmd_npm "$@" ;;
+    files) cmd_files "$@" ;;
+    file) cmd_file "$@" ;;
+    asset) cmd_asset "$@" ;;
     *) die "unknown command: $c" ;;
 esac

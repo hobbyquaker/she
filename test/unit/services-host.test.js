@@ -149,7 +149,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 2, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 3, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -404,7 +404,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 2 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 3 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -415,7 +415,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 2, user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 3, user: 'she' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             expect((await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy')).status).toBe(400);
             await new Promise((res) => server.close(res));
@@ -523,7 +523,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 2 });
+        expect(r.body).toEqual({ ok: true, helper: 3 });
     });
 });
 
@@ -736,5 +736,115 @@ describe('per-instance dynsec identity (I6)', () => {
         expect(inst.stdin).toContain('SHE_DYNSEC_CLIENT=svc-cul9\n');
         expect(inst.stdin).toContain('CUL2MQTT_MQTT_USERNAME=svc-cul9\n');
         expect(dyn.clients.has('svc-cul9')).toBe(true);
+    });
+});
+
+describe('adapter files (I10)', () => {
+    let server;
+    let port;
+    let logFile;
+    const calls = () =>
+        fs
+            .readFileSync(logFile, 'utf8')
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => JSON.parse(l));
+
+    beforeAll(async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-files-'));
+        logFile = path.join(dir, 'calls.log');
+        const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: path.join(dir, 'state.json') };
+        fs.writeFileSync(path.join(dir, 'state.json'), '{}');
+        api.setDriverFactory((h) => host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env }));
+        api.init(new StateStore(), () => null);
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = null;
+        app.use('/she/services', api.router);
+        server = http.createServer(app);
+        await new Promise((r) => server.listen(0, '127.0.0.1', r));
+        port = server.address().port;
+    });
+    afterAll(async () => {
+        await new Promise((r) => server.close(r));
+    });
+    beforeEach(() => fs.writeFileSync(logFile, ''));
+
+    test('fileOptions: declared x-file and name heuristic, managed vs outside', () => {
+        const schema = {
+            properties: {
+                'map-file': { 'x-env': 'X_MAP_FILE', 'x-file': { format: 'json', example: 'ex.json' } },
+                'names-path': { 'type': 'string', 'x-env': 'X_NAMES_PATH' },
+                'key-file': { 'type': 'string', 'x-env': 'X_KEY_FILE' },
+                'address': { 'type': 'string', 'x-env': 'X_ADDRESS' },
+                'mqtt-tls-ca': { 'type': 'string', 'x-env': 'X_MQTT_TLS_CA' },
+            },
+        };
+        const opts = api.fileOptions(
+            schema,
+            { X_MAP_FILE: '/etc/foo/a.map.json', X_NAMES_PATH: '/home/u/names.yaml', X_KEY_FILE: '/var/lib/foo/a/key.bin', X_MQTT_TLS_CA: '/etc/ssl/ca.pem' },
+            'foo',
+            'a',
+        );
+        expect(opts.map((o) => [o.key, o.format, o.declared, o.managed])).toEqual([
+            ['map-file', 'json', true, true],
+            ['names-path', 'yaml', false, false],
+        ]);
+        expect(api.defaultFilePath('cul2mqtt', 'cul', 'map-file', 'json')).toBe('/etc/cul2mqtt/cul.map.json');
+    });
+
+    test('GET files lists options (a declared one without a value too), existence and the managed dirs', async () => {
+        const r = await httpRequest('GET', port, '/she/services/hosts/local/units/cul2mqtt/cul/files');
+        expect(r.status).toBe(200);
+        expect(r.body.dirs).toEqual(['/etc/cul2mqtt/', '/var/lib/cul2mqtt/cul/']);
+        expect(r.body.options).toEqual([
+            {
+                key: 'map-file',
+                envName: 'CUL2MQTT_MAP_FILE',
+                path: null,
+                managed: false,
+                editable: true,
+                declared: true,
+                format: 'json',
+                example: 'example-map.json',
+                schema: 'map.schema.json',
+                describe: '',
+                exists: false,
+            },
+        ]);
+        expect(r.body.files.find((f) => f.path === '/etc/cul2mqtt/cul.map.json')).toMatchObject({ format: 'json', editable: true });
+        expect(r.body.files.find((f) => f.path === '/etc/cul2mqtt/cul.env')).toMatchObject({ editable: false });
+    });
+
+    test('read / write a managed file, refuse paths outside and the env file', async () => {
+        let r = await httpRequest('GET', port, '/she/services/hosts/local/units/cul2mqtt/cul/file?path=/etc/cul2mqtt/cul.map.json');
+        expect(r.status).toBe(200);
+        expect(r.body).toMatchObject({ content: '{"EM/0205": "power"}\n', format: 'json' });
+        expect((await httpRequest('GET', port, '/she/services/hosts/local/units/cul2mqtt/cul/file?path=/etc/passwd')).status).toBe(400);
+        expect((await httpRequest('GET', port, '/she/services/hosts/local/units/cul2mqtt/cul/file?path=/etc/cul2mqtt/../passwd')).status).toBe(400);
+        fs.writeFileSync(logFile, '');
+        r = await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/file', { path: '/etc/cul2mqtt/cul.map.json', content: '{"a":"b"}\n', restart: true });
+        expect(r.body).toEqual({ ok: true, path: '/etc/cul2mqtt/cul.map.json', restarted: true });
+        const c = calls();
+        expect(c[0]).toEqual({ args: ['file', 'cul2mqtt', 'cul', 'write', '/etc/cul2mqtt/cul.map.json'], stdin: '{"a":"b"}\n' });
+        expect(c[1].args).toEqual(['unit', 'cul2mqtt', 'cul', 'restart']);
+        expect((await httpRequest('PUT', port, '/she/services/hosts/local/units/cul2mqtt/cul/file', { path: '/etc/cul2mqtt/cul.env', content: 'x' })).status).toBe(400);
+    });
+
+    test('asset and create-from-example', async () => {
+        let r = await httpRequest('GET', port, '/she/services/hosts/local/adapters/cul2mqtt/asset?path=map.schema.json');
+        expect(r.body).toMatchObject({ content: '{"type":"object"}\n', format: 'json' });
+        expect((await httpRequest('GET', port, '/she/services/hosts/local/adapters/cul2mqtt/asset?path=../x')).status).toBe(400);
+        fs.writeFileSync(logFile, '');
+        r = await httpRequest('POST', port, '/she/services/hosts/local/units/cul2mqtt/cul/file/create', { option: 'map-file' });
+        expect(r.status).toBe(200);
+        expect(r.body).toEqual({ ok: true, path: '/etc/cul2mqtt/cul.map.json', envName: 'CUL2MQTT_MAP_FILE' });
+        const c = calls();
+        const write = c.find((x) => x.args[0] === 'file' && x.args[3] === 'write');
+        expect(write.args[4]).toBe('/etc/cul2mqtt/cul.map.json');
+        expect(write.stdin).toBe('{"EM/0205": "example"}\n');
+        const envWrite = c.find((x) => x.args[0] === 'env' && x.args[3] === 'write');
+        expect(envWrite.stdin).toContain('CUL2MQTT_MAP_FILE=/etc/cul2mqtt/cul.map.json\n');
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/units/cul2mqtt/cul/file/create', { option: 'serialport' })).status).toBe(404);
     });
 });

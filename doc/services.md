@@ -49,7 +49,9 @@ The drawer's **Config** tab edits `/etc/<adapter>/<name>.env`. Secrets (`x-secre
 | **she's settings** | she's own broker URL, username and password (`<PREFIX>_MQTT_URL`, `…_USERNAME`, `…_PASSWORD`; a loopback URL is rewritten to she's hostname for remote hosts), re-applied on every save | `SHE_USE_BROKER=1` |
 | **dedicated identity** | a dynsec client and role `svc-<instance>` of its own with a random password; the role's ACL allows exactly what an adapter needs — publish/receive/subscribe under `<instance>/#` and publish under `homeassistant/#` (discovery). Shown before saving; the password lives only in the env file. *Rotate password* sets a new one and restarts; switching the mode or uninstalling the instance deletes client and role again. Needs Mosquitto management with the dynamic security plugin | `SHE_DYNSEC_CLIENT=svc-<instance>` |
 
-The Add-instance wizard offers the same choice (default: she's settings). **Logs** shows the last 200 journal lines and can follow the journal live.
+The Add-instance wizard offers the same choice (default: she's settings).
+
+**Files** — the drawer's Files tab edits the files an instance maintains, in Monaco: the options the adapter declares as files (`x-file` in its `--config-schema` — cul2mqtt's `--map-file`, for example; older adapters are guessed from `…-file`/`…-path` option names plus the extension of the value) and everything under `/etc/<adapter>/` and `/var/lib/<adapter>/<instance>/`. JSON is validated against the schema the adapter ships (`map.schema.json` → per-key completion and errors), YAML is linted, the env file itself stays with the Config tab. *Create from example* puts a missing file at `/etc/<adapter>/<instance>.<option>.<ext>` from the adapter's example and points the option at it. she only reads and writes inside those two directories — a file elsewhere is shown with its path and a hint to move it. **Logs** shows the last 200 journal lines and can follow the journal live.
 
 ## Configuration
 
@@ -109,6 +111,9 @@ she-servicectl broker-env read|write
 she-servicectl schema <adapter>                             <adapter> --config-schema
 she-servicectl install|uninstall <adapter> <instance>       install: options as KEY=VALUE lines on stdin
 she-servicectl npm    <adapter> version|origin|install|update
+she-servicectl files  <adapter> <instance>                  JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
+she-servicectl file   <adapter> <instance> read|write <path> a file inside those two directories (write: content on stdin, .bak kept)
+she-servicectl asset  <adapter> <relpath>                   a file shipped in the adapter package (example, schema)
 she-servicectl version
 ```
 
@@ -123,3 +128,4 @@ Everything she needs is part of the mqtt-interfaces-core convention; an adapter 
 1. `parseConfig()` gives you `--config-schema` for free; mark credential options with `secret: true` so they are masked in the form.
 2. Put the npm keyword `mqtt-interfaces` in `package.json`.
 3. Add a `mqttInterfaces` field (`spec`, `envPrefix`, `needs`, `serviceExtra`) — used by the upcoming catalog.
+4. Declare options that hold a user-maintained file with `file: {format, example, schema}` (core 0.6.0 → `x-file`), and ship the example and schema in the package, so the Files tab can edit the file with validation and create it from the example.

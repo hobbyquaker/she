@@ -33,6 +33,11 @@
  *   GET    /she/services/setup/token/:token                          its state: pending | fetched | done | expired
  *   GET    /she/services/setup.sh?token=…                            (no auth) the bootstrap script, served once
  *   POST   /she/services/setup/done?token=…                          (no auth) callback from the script → host entry is added
+ *   GET    /she/services/hosts/:host/units/:adapter/:instance/files  file options (x-file / heuristic) + listing of the managed dirs (I10)
+ *   GET    /she/services/hosts/:host/units/:adapter/:instance/file?path=   read one of those files
+ *   PUT    /she/services/hosts/:host/units/:adapter/:instance/file   { path, content, restart? } write it
+ *   POST   /she/services/hosts/:host/units/:adapter/:instance/file/create { option, path? } create from the example, point the option at it
+ *   GET    /she/services/hosts/:host/adapters/:adapter/asset?path=   a file shipped in the adapter package (example, schema)
  *
  * Call init(store, getMqttClient, {getMqttConfig}) once; getMqttConfig returns she's own broker
  * settings ({url, username, password}) so every managed host's broker.env can be kept in sync.
@@ -960,6 +965,185 @@ router.put('/hosts/:host/units/:adapter/:instance/env', async (req, res) => {
     }
 });
 
+// ── I10: adapter files (map files & co.) ──────────────────────────────────────
+
+const FILE_NAME_RE = /(-|^)(file|path|map)$/;
+const EXT_FORMAT = { json: 'json', yaml: 'yaml', yml: 'yaml', txt: 'text', md: 'text', conf: 'text', ini: 'text', env: 'text' };
+function formatFor(pathOrName) {
+    const m = /\.([A-Za-z0-9]+)$/.exec(pathOrName || '');
+    return m ? EXT_FORMAT[m[1].toLowerCase()] || null : null;
+}
+function managedDirs(adapter, instance) {
+    return ['/etc/' + adapter + '/', '/var/lib/' + adapter + '/' + instance + '/'];
+}
+function isManagedPath(p, adapter, instance) {
+    return typeof p === 'string' && p.startsWith('/') && !p.includes('..') && managedDirs(adapter, instance).some((d) => p.startsWith(d));
+}
+/**
+ * Options that hold a user-maintained file: declared (`x-file`) or, for older adapters, guessed
+ * from the option name (`…-file`, `…-path`, `…-map`) plus a known extension of the value.
+ */
+function fileOptions(schema, env, adapter, instance) {
+    const out = [];
+    const props = schema && schema.properties ? schema.properties : {};
+    for (const [key, p] of Object.entries(props)) {
+        if (!p || typeof p['x-env'] !== 'string') continue;
+        const value = env[p['x-env']] || '';
+        let meta = null;
+        if (p['x-file'] && typeof p['x-file'] === 'object') {
+            meta = {
+                declared: true,
+                format: p['x-file'].format || 'text',
+                example: p['x-file'].example || null,
+                schema: p['x-file'].schema || null,
+                describe: p['x-file'].describe || p.description || '',
+            };
+        } else if (p.type === 'string' && FILE_NAME_RE.test(key) && key !== 'mqtt-tls-ca') {
+            const fmt = formatFor(value);
+            if (fmt) meta = { declared: false, format: fmt, example: null, schema: null, describe: p.description || '' };
+        }
+        if (!meta) continue;
+        out.push({ key, envName: p['x-env'], path: value || null, managed: value ? isManagedPath(value, adapter, instance) : false, editable: meta.format !== 'binary', ...meta });
+    }
+    return out;
+}
+/** Default location for a file she creates for an option: /etc/<adapter>/<instance>.<key>.<ext> */
+function defaultFilePath(adapter, instance, key, format) {
+    const base = key.replace(/-(file|path)$/, '');
+    const ext = format === 'json' ? 'json' : format === 'yaml' ? 'yaml' : 'txt';
+    return '/etc/' + adapter + '/' + instance + '.' + base + '.' + ext;
+}
+function validFilePath(p) {
+    return typeof p === 'string' && /^\/[^\0\n\r]+$/.test(p) && !p.includes('..');
+}
+
+// GET /she/services/hosts/:host/units/:adapter/:instance/files
+router.get('/hosts/:host/units/:adapter/:instance/files', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true, instance: true });
+    if (!entry) return;
+    const { adapter, instance } = req.params;
+    try {
+        const env = parseEnvFile((await entry.driver.exec(['env', adapter, instance, 'read'])).stdout);
+        let schema = null;
+        try {
+            schema = await loadSchema(entry.driver, adapter);
+        } catch {
+            /* heuristic only */
+        }
+        let files = [];
+        try {
+            files = JSON.parse((await entry.driver.exec(['files', adapter, instance])).stdout);
+            if (!Array.isArray(files)) files = [];
+        } catch (err) {
+            if (err.code !== 'HELPER_FAILED') throw err; // older helper without `files`
+        }
+        const existing = new Set(files.filter((f) => f.kind === 'file').map((f) => f.path));
+        const options = fileOptions(schema, env, adapter, instance).map((o) => ({ ...o, exists: o.path ? existing.has(o.path) : false }));
+        res.json({
+            options,
+            files: files.map((f) => ({
+                ...f,
+                format: f.kind === 'file' ? formatFor(f.path) : null,
+                editable: f.kind === 'file' && formatFor(f.path) !== null && !/\.env(\.bak)?$/.test(f.path),
+            })),
+            dirs: managedDirs(adapter, instance),
+        });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
+// GET /she/services/hosts/:host/units/:adapter/:instance/file?path=
+router.get('/hosts/:host/units/:adapter/:instance/file', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true, instance: true });
+    if (!entry) return;
+    const p = req.query.path;
+    if (!validFilePath(p) || !isManagedPath(p, req.params.adapter, req.params.instance))
+        return res.status(400).json({ error: 'path must be inside ' + managedDirs(req.params.adapter, req.params.instance).join(' or ') });
+    try {
+        const { stdout } = await entry.driver.exec(['file', req.params.adapter, req.params.instance, 'read', p], { timeout: 20000 });
+        res.json({ path: p, content: stdout, format: formatFor(p) });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
+// PUT /she/services/hosts/:host/units/:adapter/:instance/file { path, content, restart? }
+router.put('/hosts/:host/units/:adapter/:instance/file', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true, instance: true });
+    if (!entry) return;
+    const { adapter, instance } = req.params;
+    const { path: p, content } = req.body || {};
+    if (!validFilePath(p) || !isManagedPath(p, adapter, instance)) return res.status(400).json({ error: 'path must be inside ' + managedDirs(adapter, instance).join(' or ') });
+    if (typeof content !== 'string') return res.status(400).json({ error: 'content (string) required' });
+    if (/\.env$/.test(p)) return res.status(400).json({ error: 'the env file is edited through the config form' });
+    if (content.length > 2 * 1024 * 1024) return res.status(413).json({ error: 'file too large' });
+    try {
+        await entry.driver.exec(['file', adapter, instance, 'write', p], { stdin: content, timeout: 20000 });
+        let restarted = false;
+        if (req.body.restart === true) {
+            await entry.driver.exec(['unit', adapter, instance, 'restart']);
+            restarted = true;
+        }
+        res.json({ ok: true, path: p, restarted });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
+// GET /she/services/hosts/:host/adapters/:adapter/asset?path=
+router.get('/hosts/:host/adapters/:adapter/asset', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true });
+    if (!entry) return;
+    const p = req.query.path;
+    if (typeof p !== 'string' || !/^[A-Za-z0-9_][A-Za-z0-9_./-]*$/.test(p) || p.includes('..')) return res.status(400).json({ error: 'invalid asset path' });
+    try {
+        const { stdout } = await entry.driver.exec(['asset', req.params.adapter, p], { timeout: 20000 });
+        res.json({ path: p, content: stdout, format: formatFor(p) });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
+// POST /she/services/hosts/:host/units/:adapter/:instance/file/create { option, path? }
+router.post('/hosts/:host/units/:adapter/:instance/file/create', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true, instance: true });
+    if (!entry) return;
+    const { adapter, instance } = req.params;
+    const option = req.body && req.body.option;
+    try {
+        const current = parseEnvFile((await entry.driver.exec(['env', adapter, instance, 'read'])).stdout);
+        let schema = null;
+        try {
+            schema = await loadSchema(entry.driver, adapter);
+        } catch {
+            /* heuristic only */
+        }
+        const opt = fileOptions(schema, current, adapter, instance).find((o) => o.key === option);
+        if (!opt) return res.status(404).json({ error: 'not a file option: ' + option });
+        const p = (req.body && req.body.path) || defaultFilePath(adapter, instance, opt.key, opt.format);
+        if (!validFilePath(p) || !isManagedPath(p, adapter, instance)) return res.status(400).json({ error: 'path must be inside ' + managedDirs(adapter, instance).join(' or ') });
+        let content = opt.format === 'json' ? '{}\n' : '';
+        if (opt.example) {
+            try {
+                content = (await entry.driver.exec(['asset', adapter, opt.example])).stdout;
+            } catch {
+                /* no example shipped — start empty */
+            }
+        }
+        await entry.driver.exec(['file', adapter, instance, 'write', p], { stdin: content, timeout: 20000 });
+        const merged = { ...current, [opt.envName]: p };
+        const header = [
+            adapter + ' instance "' + instance + '" - read by ' + adapter + '@' + instance + '.service.',
+            'Edited via she. Edit and run: systemctl restart ' + adapter + '@' + instance + '.service',
+        ];
+        await entry.driver.exec(['env', adapter, instance, 'write'], { stdin: formatEnvFile(merged, header) });
+        res.json({ ok: true, path: p, envName: opt.envName });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
 // GET /she/services/hosts/:host/broker-env
 router.get('/hosts/:host/broker-env', async (req, res) => {
     const entry = resolve(req, res);
@@ -1205,6 +1389,8 @@ module.exports = {
     setIdentityPath,
     setDynsec,
     defaultAcl,
+    fileOptions,
+    defaultFilePath,
     credentialName,
     DYNSEC_MARKER,
     buildSetupScript,

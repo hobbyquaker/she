@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log('2');
+        console.log('3');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: 2,
+                helper: 3,
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -57,6 +57,7 @@ switch (cmd) {
                 'properties': {
                     'serialport': { 'type': 'string', 'x-env': 'CUL2MQTT_SERIALPORT', 'default': '/dev/ttyACM0' },
                     'mqtt-url': { 'type': 'string', 'x-env': 'CUL2MQTT_MQTT_URL' },
+                    'map-file': { 'type': 'string', 'x-env': 'CUL2MQTT_MAP_FILE', 'x-file': { format: 'json', example: 'example-map.json', schema: 'map.schema.json' } },
                     'mqtt-password': { 'type': 'string', 'x-env': 'CUL2MQTT_MQTT_PASSWORD', 'x-secret': true },
                     'api-token': { 'type': 'string', 'x-env': 'CUL2MQTT_API_TOKEN' },
                 },
@@ -70,6 +71,26 @@ switch (cmd) {
         break;
     case 'uninstall':
         console.log('cul2mqtt@' + args[2] + '.service removed.');
+        break;
+    case 'files':
+        console.log(
+            JSON.stringify([
+                { path: '/etc/cul2mqtt/cul.env', kind: 'file', size: 120, mtime: 1700000000 },
+                { path: '/etc/cul2mqtt/cul.map.json', kind: 'file', size: 60, mtime: 1700000000 },
+                { path: '/var/lib/cul2mqtt/cul/intervals.json', kind: 'file', size: 10, mtime: 1700000000 },
+            ]),
+        );
+        break;
+    case 'file':
+        if (args[3] === 'read') {
+            if (args[4] === '/etc/cul2mqtt/cul.map.json') process.stdout.write('{"EM/0205": "power"}\n');
+            else die('no such file: ' + args[4]);
+        } else console.log('wrote ' + args[4]);
+        break;
+    case 'asset':
+        if (args[2] === 'example-map.json') process.stdout.write('{"EM/0205": "example"}\n');
+        else if (args[2] === 'map.schema.json') process.stdout.write('{"type":"object"}\n');
+        else die('no such asset: ' + args[2]);
         break;
     case 'npm':
         if (args[2] === 'origin') console.log(state.origin || 'registry');

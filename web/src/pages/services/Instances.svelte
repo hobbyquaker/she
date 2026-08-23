@@ -126,7 +126,7 @@
     // only the key is state; the row is derived so it is always the fresh one after a reload
     // (holding the row object in $state would proxy it and never compare equal → effect loop)
     let detailKey = $state<string | null>(null);
-    let detailTab = $state<'config' | 'logs' | 'info'>('config');
+    let detailTab = $state<'config' | 'files' | 'logs' | 'info'>('config');
     let detail = $derived(detailKey === null ? null : (rows.find(r => r.key === detailKey) ?? null));
     function openDetail(r: Row) {
         detailKey = r.key;

@@ -1360,3 +1360,55 @@ export interface HelperDeployResult {
 export function deployServiceHelper(host: string): Promise<HelperDeployResult> {
     return request('POST', `${svcHost(host)}/helper/deploy`);
 }
+
+// ---- Services: adapter files (I10) ----
+
+export interface ServiceFileOption {
+    key: string;
+    envName: string;
+    path: string | null;
+    managed: boolean;
+    editable: boolean;
+    declared: boolean;
+    format: 'json' | 'yaml' | 'text' | 'binary';
+    example: string | null;
+    schema: string | null;
+    describe: string;
+    exists: boolean;
+}
+
+export interface ServiceFileEntry {
+    path: string;
+    kind: 'file' | 'dir';
+    size: number;
+    mtime: number;
+    format: 'json' | 'yaml' | 'text' | null;
+    editable: boolean;
+}
+
+export function getServiceFiles(host: string, adapter: string, instance: string): Promise<{ options: ServiceFileOption[]; files: ServiceFileEntry[]; dirs: string[] }> {
+    return request('GET', `${svcUnit(host, adapter, instance)}/files`);
+}
+
+export function getServiceFile(host: string, adapter: string, instance: string, path: string): Promise<{ path: string; content: string; format: string | null }> {
+    return request('GET', `${svcUnit(host, adapter, instance)}/file?path=${encodeURIComponent(path)}`);
+}
+
+export function putServiceFile(
+    host: string,
+    adapter: string,
+    instance: string,
+    path: string,
+    content: string,
+    restart = false,
+): Promise<{ ok: boolean; path: string; restarted: boolean }> {
+    return request('PUT', `${svcUnit(host, adapter, instance)}/file`, { path, content, restart });
+}
+
+export function createServiceFile(host: string, adapter: string, instance: string, option: string, path?: string): Promise<{ ok: boolean; path: string; envName: string }> {
+    return request('POST', `${svcUnit(host, adapter, instance)}/file/create`, { option, path });
+}
+
+export function getAdapterAsset(host: string, adapter: string, path: string): Promise<{ path: string; content: string; format: string | null }> {
+    return request('GET', `${svcAdapter(host, adapter)}/asset?path=${encodeURIComponent(path)}`);
+}

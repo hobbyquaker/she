@@ -86,6 +86,7 @@ The script is the complete list of what she can do as root: it accepts a fixed s
 Consequences to keep in mind:
 
 - Whoever can use she's web UI can (re)configure, restart and uninstall adapter instances on the host and install newer adapter versions from npm — the Services feature is an admin feature; keep it behind she's authentication or a trusted network.
+- The Files tab reads and writes only inside `/etc/<adapter>/` and `/var/lib/<adapter>/<instance>/` — the helper checks the `realpath` of every path (symlinks out of those directories are refused) and the API rejects `..` and the env file; new files are `0640 root:<adapter>`, edits keep the owner/mode and a `.bak`. Package assets (examples, schemas) are read from the adapter's own directory only.
 - Env files are written `0640 root:<adapter>`; the API masks secrets (`x-secret` in the adapter's schema plus a name heuristic) in its responses, and install options travel as environment variables, not command-line arguments.
 - `npm install -g <adapter>@latest` runs as root on the host, like she's own self-update. It only touches packages that are already installed as mqtt-interfaces adapters.
 - **Remote hosts** are reached as the configured SSH user with the services key (`<data-dir>/ssh/services_id_ed25519`, unprotected on disk like the broker key). That user needs exactly one sudo rule — `<user> ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl` — which she prints but never writes; a `root` SSH user needs none. Host keys are trusted on first contact (`accept-new`) and verified afterwards.
