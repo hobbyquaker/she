@@ -13,6 +13,13 @@ const express = require('express');
 const StateStore = require('../../src/lib/state-store');
 const host = require('../../src/lib/services-host');
 const api = require('../../src/web/services-api');
+const npmRegistry = require('../../src/lib/npm-registry');
+
+// the hosts listing looks up the latest version of every installed adapter — no network in tests
+beforeAll(() => {
+    npmRegistry.setFetch(async (url) => (url.includes('/cul2mqtt/latest') ? { ok: true, json: async () => ({ version: '1.2.0' }) } : { ok: false, status: 404 }));
+});
+afterAll(() => npmRegistry.clearCache());
 
 const FAKE = path.join(__dirname, 'fixtures', 'fake-servicectl.js');
 
@@ -403,6 +410,8 @@ describe('ssh driver (fake ssh/scp)', () => {
             const z = r.body.hosts.find((h) => h.name === 'zigbee');
             expect(z).toMatchObject({ ok: true, local: false, ssh: { host: 'zigbee.lan', user: 'she', port: 22 }, hostname: 'zigbee' });
             expect(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).services.hosts[1].hostname).toBe('zigbee');
+            // update badge: installed 1.1.1, registry says 1.2.0
+            expect(z.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', latestVersion: '1.2.0', updateAvailable: true });
         });
 
         test('POST /hosts/:host/test reports ok or code', async () => {

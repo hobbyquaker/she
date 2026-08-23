@@ -569,7 +569,18 @@ async function listHosts(req) {
                 const { stdout } = await driver.exec(['list']);
                 const list = parseList(stdout);
                 if (!cfg.hostname && list.hostname) saveHostname(req, cfg.name, list.hostname);
-                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list };
+                // update badge per installed adapter: one registry lookup each (cached 24 h)
+                const adapters = await Promise.all(
+                    (list.adapters || []).map(async (a) => {
+                        try {
+                            const { latest, updateAvailable } = await npmRegistry.updateInfo(a.name, a.version);
+                            return { ...a, latestVersion: latest || null, updateAvailable };
+                        } catch {
+                            return { ...a, latestVersion: null, updateAvailable: null };
+                        }
+                    }),
+                );
+                return { ...base, ok: true, hostname: base.hostname || list.hostname, ...list, adapters };
             } catch (err) {
                 return { ...base, ok: false, code: err.code || 'ERROR', error: err.message };
             }

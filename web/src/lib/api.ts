@@ -1163,6 +1163,8 @@ export interface ServiceHostAdapter {
     name: string;
     version: string | null;
     origin: 'registry' | 'manual';
+    latestVersion?: string | null;
+    updateAvailable?: boolean | null;
     path: string | null;
     node: string;
     /** the template unit reads /etc/mqtt-interfaces/broker.env (false for units written by early cores) */
