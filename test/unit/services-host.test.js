@@ -116,6 +116,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
     let logFile;
     let stateFile;
     let defaultDrivers; // so a test that swaps the driver factory can put it back
+    let driverEnv; // the fake's env (log/state paths), for a test that needs to add to it
 
     const calls = () =>
         fs
@@ -131,6 +132,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         fs.writeFileSync(stateFile, '{}');
         // jest sandboxes process.env — the fake needs the paths through the driver's env option
         const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: stateFile };
+        driverEnv = env;
         defaultDrivers = (h) => (h.ssh ? null : host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env }));
         api.setDriverFactory(defaultDrivers);
         api.init(new StateStore(), () => null);
@@ -158,9 +160,29 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 11, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 12, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
+    });
+
+    test('a host on an older helper is reported outdated, so the UI can offer the update', async () => {
+        /*
+         * The whole point of the flag: it is what puts the "outdated" pill and the Update helper
+         * button on the Hosts page. It went unnoticed when v12 shipped with HELPER_VERSION still
+         * at 11 — every host looked current and no update was ever offered.
+         */
+        const older = String(host.HELPER_VERSION - 1);
+        // the driver captures its env when it is built, so the version goes in through the factory
+        api.setDriverFactory((h) => host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env: { ...driverEnv, FAKE_HELPER_VERSION: older } }));
+        try {
+            // ?refresh=1: the listing is cached for a minute and an earlier test already filled it
+            const r = await httpRequest('GET', port, '/she/services/hosts?refresh=1');
+            expect(r.body.hosts[0]).toMatchObject({ ok: true, helper: Number(older), helperOutdated: true });
+        } finally {
+            api.setDriverFactory(defaultDrivers);
+            // the listing above is now cached against the older driver: refill it with the real one
+            await httpRequest('GET', port, '/she/services/hosts?refresh=1');
+        }
     });
 
     test('unknown host / bad names', async () => {
@@ -509,7 +531,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 11 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 12 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -520,7 +542,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 11, method: 'self-update', user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 12, method: 'self-update', user: 'she' });
             expect(fs.readFileSync(logFile + '.selfupdate', 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             r = await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy');
             expect(r.body).toMatchObject({ ok: true, method: 'self-update' });
@@ -530,7 +552,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup({ FAKE_NO_SELF_UPDATE: '1' });
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 11, user: 'she', method: 'install' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 12, user: 'she', method: 'install' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             await new Promise((res) => server.close(res));
             server = null;
@@ -716,7 +738,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 11 });
+        expect(r.body).toEqual({ ok: true, helper: 12 });
     });
 });
 
