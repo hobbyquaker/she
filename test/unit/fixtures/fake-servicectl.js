@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '10');
+        console.log(process.env.FAKE_HELPER_VERSION || '11');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 10),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 11),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -87,12 +87,28 @@ switch (cmd) {
         else console.log('wrote /etc/mqtt-interfaces/broker.env');
         break;
     case 'schema':
+        if (args[1] === 'homeconnect2mqtt') {
+            // a cloud adapter: nothing on the network to find, so no x-discover marker
+            console.log(
+                JSON.stringify({
+                    'title': 'homeconnect2mqtt',
+                    'type': 'object',
+                    'properties': {
+                        'name': { 'type': 'string', 'x-env': 'HOMECONNECT2MQTT_NAME', 'default': 'homeconnect' },
+                        'client-id': { 'type': 'string', 'x-env': 'HOMECONNECT2MQTT_CLIENT_ID' },
+                    },
+                    'x-adapter': { name: 'homeconnect2mqtt', version: '0.1.1', envPrefix: 'HOMECONNECT2MQTT' },
+                }),
+            );
+            break;
+        }
         console.log(
             JSON.stringify({
                 'title': 'cul2mqtt',
                 'type': 'object',
                 'properties': {
-                    'serialport': { 'type': 'string', 'x-env': 'CUL2MQTT_SERIALPORT', 'default': '/dev/ttyACM0' },
+                    'name': { 'type': 'string', 'x-env': 'CUL2MQTT_NAME', 'default': 'cul' },
+                    'serialport': { 'type': 'string', 'x-env': 'CUL2MQTT_SERIALPORT', 'default': '/dev/ttyACM0', 'x-discover': 'serial' },
                     'mqtt-url': { 'type': 'string', 'x-env': 'CUL2MQTT_MQTT_URL' },
                     'map-file': { 'type': 'string', 'x-env': 'CUL2MQTT_MAP_FILE', 'x-file': { format: 'json', example: 'example-map.json', schema: 'map.schema.json' } },
                     'mqtt-password': { 'type': 'string', 'x-env': 'CUL2MQTT_MQTT_PASSWORD', 'x-secret': true },
@@ -101,6 +117,15 @@ switch (cmd) {
                 'required': ['serialport'],
                 'x-adapter': { name: 'cul2mqtt', version: '1.1.1', envPrefix: 'CUL2MQTT' },
             }),
+        );
+        break;
+    case 'discover':
+        // two sticks: the first is the one instance "cul" already runs on (/dev/ttyACM0)
+        console.log(
+            JSON.stringify([
+                { address: '/dev/serial/by-id/usb-busware.de_CUL868-if00', id: 'usb-busware.de_CUL868-if00', device: '/dev/ttyACM0', sources: ['serial'] },
+                { address: '/dev/serial/by-id/usb-busware.de_CUL433-if00', id: 'usb-busware.de_CUL433-if00', device: '/dev/ttyACM1', sources: ['serial'] },
+            ]),
         );
         break;
     case 'install':
@@ -133,7 +158,7 @@ switch (cmd) {
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 9 -> 10 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 10 -> 11 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(

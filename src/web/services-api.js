@@ -52,6 +52,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const dns = require('dns');
 const { analyzeServices, wipeTopics, LOG_LEVELS } = require('../lib/services-inventory');
+const { shapeDevices, discoverTarget } = require('../lib/device-discovery');
 const npmRegistry = require('../lib/npm-registry');
 const catalog = require('../lib/services-catalog');
 const os = require('os');
@@ -602,9 +603,10 @@ async function listHosts(req) {
     );
 }
 
-// every mutating host route changes what the listing would show
+// every mutating host route changes what the listing would show — a scan does not, and
+// re-listing every host (ssh round trips included) after each one would be pure waste
 router.use((req, res, next) => {
-    if (req.method !== 'GET') {
+    if (req.method !== 'GET' && !req.path.endsWith('/discover')) {
         res.on('finish', () => {
             if (req.path.startsWith('/hosts/')) invalidateHosts();
         });
@@ -802,6 +804,130 @@ router.get('/hosts/:host/adapters/:adapter/schema', async (req, res) => {
         hostError(res, err);
     }
 });
+
+// POST /she/services/hosts/:host/adapters/:adapter/discover { timeout?, address? }
+/**
+ * Scan for devices with the adapter's own `--discover` on the target host (roadmap I13).
+ *
+ * The scan has to run *there*: broadcast, multicast, ARP and /dev/serial only reach the network
+ * and the usb bus of the machine running the scan, and that is the adapter's host, not
+ * necessarily she's. The adapter owns the protocols; she shapes the answer and adds what only it
+ * knows — which devices an instance already uses, and a free instance name.
+ */
+router.post('/hosts/:host/adapters/:adapter/discover', async (req, res) => {
+    const entry = resolve(req, res, { adapter: true });
+    if (!entry) return;
+    const adapter = req.params.adapter;
+    const body = req.body || {};
+    const args = ['discover', adapter];
+    if (body.timeout !== undefined) {
+        const timeout = Number(body.timeout);
+        if (!Number.isInteger(timeout) || timeout < 1 || timeout > 120) return res.status(400).json({ error: 'timeout must be 1-120 seconds' });
+        args.push('--timeout', String(timeout));
+    }
+    const addresses = body.address === undefined ? [] : Array.isArray(body.address) ? body.address : [body.address];
+    if (addresses.length > 8) return res.status(400).json({ error: 'at most 8 addresses' });
+    for (const address of addresses) {
+        // an ipv4 address, a hostname or a cidr range — the helper validates again
+        if (typeof address !== 'string' || !/^[A-Za-z0-9.:_-]+(\/[0-9]{1,3})?$/.test(address) || address.length > 64) {
+            return res.status(400).json({ error: 'invalid address: ' + String(address).slice(0, 40) });
+        }
+        args.push('--address', address);
+    }
+    let schema;
+    try {
+        // not swallowed: an unreachable host or a missing helper must say so, rather than come
+        // out as "this adapter cannot be discovered", which sends the user after the wrong thing
+        schema = await loadSchema(entry.driver, adapter);
+    } catch (err) {
+        return hostError(res, err);
+    }
+    const target = discoverTarget(schema);
+    if (!target) return res.status(400).json({ error: adapter + ' does not support discovery', code: 'NO_DISCOVERY' });
+    try {
+        // one listing serves both the free-name check and the "already configured" markers
+        let listing = null;
+        try {
+            listing = parseList((await entry.driver.exec(['list'], { timeout: 30000 })).stdout);
+        } catch {
+            /* the scan is still worth running without it */
+        }
+        // the adapter listens per method for the timeout, and a --discover-address sweep of a /24
+        // adds a minute of tcp connects on top: give the helper room rather than killing a scan
+        const seconds = body.timeout === undefined ? 5 : Number(body.timeout);
+        const { stdout } = await entry.driver.exec(args, { timeout: (seconds + 20) * 1000 + addresses.length * 60000 });
+        let raw;
+        try {
+            raw = JSON.parse(stdout);
+        } catch {
+            throw new HostError('EXEC_FAILED', adapter + ' did not print discovery JSON');
+        }
+        res.json({
+            devices: shapeDevices(raw, {
+                taken: await knownInstanceNames(listing),
+                usedBy: await configuredValues(entry, adapter, target.envName, listing),
+                fallbackName: typeof schema?.properties?.name?.default === 'string' ? schema.properties.name.default : null,
+            }),
+            property: target.key,
+            envName: target.envName,
+            kinds: target.kinds,
+        });
+    } catch (err) {
+        hostError(res, err);
+    }
+});
+
+/**
+ * Every instance name she knows of: the retained MQTT inventory (every instance that ever
+ * connected, whatever host it runs on), the cached listing of all hosts when it is warm, and the
+ * listing of the host being installed on. An instance name is an MQTT topic prefix, so a name
+ * taken by another adapter on another host is taken all the same.
+ * @param {{instances?: Array<{instance: string}>}|null} listing the target host's listing
+ * @returns {Promise<Set<string>>}
+ */
+async function knownInstanceNames(listing) {
+    const names = new Set();
+    const add = (name) => {
+        if (typeof name === 'string' && name) names.add(name.toLowerCase());
+    };
+    if (_store) {
+        for (const inst of analyzeServices(_store.mqttEntries()).instances) add(inst.instance);
+    }
+    if (_hostsCache) {
+        try {
+            for (const host of await _hostsCache.promise) {
+                for (const unit of host.instances ?? []) add(unit.instance);
+            }
+        } catch {
+            /* a host that cannot be listed contributes no names */
+        }
+    }
+    for (const unit of listing?.instances ?? []) add(unit.instance);
+    return names;
+}
+
+/**
+ * What the adapter's instances on this host are already pointed at: `<value> → <instance>`, read
+ * from their env files. Best effort — an unreadable env file only means one missing marker.
+ * @returns {Promise<Map<string,string>>}
+ */
+async function configuredValues(entry, adapter, envName, listing) {
+    const used = new Map();
+    if (!envName || !listing) return used;
+    const instances = (listing.instances ?? []).filter((i) => i.adapter === adapter);
+    await Promise.all(
+        instances.map(async (unit) => {
+            try {
+                const { stdout } = await entry.driver.exec(['env', adapter, unit.instance, 'read'], { timeout: 15000 });
+                const value = parseEnvFile(stdout)[envName];
+                if (typeof value === 'string' && value.trim()) used.set(value.trim(), unit.instance);
+            } catch {
+                /* not readable: this instance simply does not mark a device */
+            }
+        }),
+    );
+    return used;
+}
 
 // POST /she/services/hosts/:host/adapters/:adapter/install { instance, env }
 router.post('/hosts/:host/adapters/:adapter/install', async (req, res) => {

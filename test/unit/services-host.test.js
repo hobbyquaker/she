@@ -115,6 +115,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
     let port;
     let logFile;
     let stateFile;
+    let defaultDrivers; // so a test that swaps the driver factory can put it back
 
     const calls = () =>
         fs
@@ -130,7 +131,8 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         fs.writeFileSync(stateFile, '{}');
         // jest sandboxes process.env — the fake needs the paths through the driver's env option
         const env = { ...process.env, FAKE_LOG: logFile, FAKE_STATE: stateFile };
-        api.setDriverFactory((h) => (h.ssh ? null : host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env })));
+        defaultDrivers = (h) => (h.ssh ? null : host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env }));
+        api.setDriverFactory(defaultDrivers);
         api.init(new StateStore(), () => null);
         const app = express();
         app.use(express.json());
@@ -156,7 +158,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 10, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 11, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -215,6 +217,56 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(written).toContain('CUL2MQTT_MQTT_PASSWORD=hunter2\n'); // masked → kept
         expect(written).toContain('CUL2MQTT_BAUDRATE=38400\n');
         expect(written).not.toContain('CUL2MQTT_MQTT_URL'); // emptied → dropped
+    });
+
+    test('discover: shapes the adapter scan, marks the stick an instance already runs on (I13)', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/cul2mqtt/discover', {});
+        expect(r.status).toBe(200);
+        expect(r.body.property).toBe('serialport');
+        expect(r.body.envName).toBe('CUL2MQTT_SERIALPORT');
+        expect(r.body.kinds).toEqual(['serial']);
+        expect(r.body.devices).toHaveLength(2);
+        // the by-id path is what goes into the config — it survives a replug, /dev/ttyACM0 does not
+        expect(r.body.devices[0].value).toBe('/dev/serial/by-id/usb-busware.de_CUL868-if00');
+        // instance "cul" has CUL2MQTT_SERIALPORT=/dev/ttyACM0, which is this very stick
+        expect(r.body.devices[0].usedBy).toBe('cul');
+        expect(r.body.devices[1].usedBy).toBeNull();
+        // neither stick has a name of its own, so both fall back to the schema default and are
+        // made free against the instance "cul" that already exists — and against each other
+        expect(r.body.devices.map((d) => d.suggestName)).toEqual(['cul-2', 'cul-3']);
+        expect(calls().some((c) => c.args[0] === 'discover' && c.args[1] === 'cul2mqtt')).toBe(true);
+    });
+
+    test('discover: passes timeout and address through, rejects junk', async () => {
+        await httpRequest('POST', port, '/she/services/hosts/local/adapters/cul2mqtt/discover', { timeout: 9, address: '172.16.20.0/24' });
+        const call = calls()
+            .filter((c) => c.args[0] === 'discover')
+            .pop();
+        expect(call.args).toEqual(['discover', 'cul2mqtt', '--timeout', '9', '--address', '172.16.20.0/24']);
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/adapters/cul2mqtt/discover', { timeout: 999 })).status).toBe(400);
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/adapters/cul2mqtt/discover', { address: '10.0.0.1; rm -rf /' })).status).toBe(400);
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/adapters/cul2mqtt/discover', { address: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] })).status).toBe(
+            400,
+        );
+    });
+
+    test('discover: an adapter without the x-discover marker is refused', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/homeconnect2mqtt/discover', {});
+        expect(r.status).toBe(400);
+        expect(r.body.code).toBe('NO_DISCOVERY');
+    });
+
+    test('discover: a host that cannot be reached says so, not "no discovery"', async () => {
+        // the schema is what carries the marker, so a failing schema call must not be read as
+        // "this adapter has no marker" — that would send the user after the wrong problem
+        api.setDriverFactory(() => host.createLocalDriver({ helper: '/nonexistent/she-servicectl', sudo: false }));
+        try {
+            const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/cul2mqtt/discover', {});
+            expect(r.body.code).toBe('HELPER_MISSING');
+            expect(r.status).toBe(503);
+        } finally {
+            api.setDriverFactory(defaultDrivers);
+        }
     });
 
     test('install passes options on stdin, uninstall stops followers first', async () => {
@@ -416,7 +468,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 10 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 11 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -427,7 +479,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 10, method: 'self-update', user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 11, method: 'self-update', user: 'she' });
             expect(fs.readFileSync(logFile + '.selfupdate', 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             r = await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy');
             expect(r.body).toMatchObject({ ok: true, method: 'self-update' });
@@ -437,7 +489,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup({ FAKE_NO_SELF_UPDATE: '1' });
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 10, user: 'she', method: 'install' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 11, user: 'she', method: 'install' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             await new Promise((res) => server.close(res));
             server = null;
@@ -623,7 +675,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 10 });
+        expect(r.body).toEqual({ ok: true, helper: 11 });
     });
 });
 

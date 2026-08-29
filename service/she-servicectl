@@ -23,6 +23,7 @@
 #   she-servicectl env    <adapter> <instance> read|write        (write: file on stdin)
 #   she-servicectl broker-env read|write                          (write: file on stdin)
 #   she-servicectl schema <adapter>
+#   she-servicectl discover <adapter> [--timeout <s>] [--address <addr-or-cidr>]...   scan for devices, JSON on stdout
 #   she-servicectl install   <adapter> <instance>                 (options as KEY=VALUE lines on stdin)
 #   she-servicectl uninstall <adapter> <instance>
 #   she-servicectl npm    <adapter> version|origin|install|update|uninstall [--purge]   (uninstall: package, template unit; --purge also /etc and /var/lib)
@@ -41,7 +42,7 @@
 
 set -eu
 
-VERSION=10
+VERSION=11
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -417,6 +418,35 @@ cmd_schema() {
     exec "$cmd" --config-schema
 }
 
+# The adapter's own --discover (core 0.9+): it owns the hint, the protocols and the rate limiting.
+# Runs on this host on purpose — broadcast, multicast, ARP and /dev only reach the network and the
+# usb bus of the machine the scan runs on, which is this one, not necessarily she's.
+cmd_discover() {
+    [ $# -ge 1 ] || die "usage: discover <adapter> [--timeout <s>] [--address <addr>]..."
+    need_adapter "$1"
+    cmd=$(adapter_cmd "$1") || die "adapter not installed: $1"
+    shift
+    set -- --discover --discover-json "$@"
+    args=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --discover|--discover-json) args="$args $1"; shift ;;
+            --timeout)
+                [ $# -ge 2 ] || die "--timeout needs a value"
+                case "$2" in ''|*[!0-9]*) die "invalid timeout: $2" ;; esac
+                args="$args --discover-timeout $2"; shift 2 ;;
+            --address)
+                [ $# -ge 2 ] || die "--address needs a value"
+                # an address or a cidr range, nothing that could become a second argument
+                case "$2" in *[!0-9A-Za-z.:/_-]*|'') die "invalid address: $2" ;; esac
+                args="$args --discover-address $2"; shift 2 ;;
+            *) die "unknown discover option: $1" ;;
+        esac
+    done
+    # shellcheck disable=SC2086  # args is built from validated tokens above
+    exec "$cmd" $args
+}
+
 cmd_install() {
     [ $# -eq 2 ] || die "usage: install <adapter> <instance>  (KEY=VALUE lines on stdin)"
     need_adapter "$1"; need_instance "$2"
@@ -646,6 +676,7 @@ case "$c" in
     env) cmd_env "$@" ;;
     broker-env) cmd_broker_env "$@" ;;
     schema) cmd_schema "$@" ;;
+    discover) cmd_discover "$@" ;;
     install) cmd_install "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
     npm) cmd_npm "$@" ;;
