@@ -4,8 +4,9 @@
      * from `--config-schema` → `<adapter> --install --name <instance>` via the helper.
      */
     import { onMount, tick } from 'svelte';
-    import { getServiceHosts, getServiceSchema, installService, type ServiceHost, type ServiceSchema, type SheBrokerInfo, type DynsecInfo, type BrokerMode } from '../../lib/api.js';
+    import { getServiceHosts, getServiceSchema, installService, type ServiceHost, type ServiceSchema, type SheBrokerInfo, type DynsecInfo, type BrokerMode, type DiscoveredDevice } from '../../lib/api.js';
     import SchemaForm from './SchemaForm.svelte';
+    import DeviceScan from './DeviceScan.svelte';
 
     export interface AddPreset { host: string; adapter: string; n: number }
     let { oninstalled, preset = null, onclose }: { oninstalled?: (host: string, adapter: string, instance: string) => void; preset?: AddPreset | null; onclose?: () => void } = $props();
@@ -27,6 +28,33 @@
     let output    = $state('');
     let error     = $state('');
     let done      = $state(false);
+
+    // I13: the property the core marked with x-discover — its presence makes the adapter scannable
+    let discover = $derived.by(() => {
+        const entries = Object.entries(schema?.properties ?? {});
+        for (const [key, prop] of entries) {
+            const raw = prop['x-discover'];
+            if (raw === undefined) continue;
+            const kinds = (Array.isArray(raw) ? raw : [raw])
+                .map(k => (k === true ? 'network' : k))
+                .filter((k): k is 'network' | 'serial' => k === 'network' || k === 'serial');
+            if (kinds.length) return { key, envName: prop['x-env'], kinds };
+        }
+        return null;
+    });
+    let picked = $state<DiscoveredDevice | null>(null);
+    let pickedValue = $state<string | null>(null);
+    // the name field starts on the schema default, so "untouched" is what decides whether a picked
+    // device may fill it in — not "empty", which never happens once the schema has loaded
+    let nameTouched = $state(false);
+
+    // `value` is the form of the device's identity the user picked on the row (ip / host / fqdn)
+    function pickDevice(d: DiscoveredDevice, value: string) {
+        picked = d;
+        pickedValue = value;
+        if (discover?.envName) env = { ...env, [discover.envName]: value };
+        if (!nameTouched && d.suggestName) instance = d.suggestName;
+    }
 
     let host = $derived(hosts.find(h => h.name === hostName) ?? null);
     let adapters = $derived(host?.ok ? (host.adapters ?? []) : []);
@@ -75,11 +103,11 @@
     $effect(() => {
         // reset when the host changes
         void hostName;
-        adapter = ''; schema = null; env = {}; instance = '';
+        adapter = ''; schema = null; env = {}; instance = ''; picked = null; pickedValue = null; nameTouched = false;
     });
 
     async function pickAdapter(name: string) {
-        adapter = name; schema = null; env = {}; schemaErr = '';
+        adapter = name; schema = null; env = {}; schemaErr = ''; picked = null; pickedValue = null; nameTouched = false;
         if (!name || !hostName) return;
         // default instance name: the adapter's default --name is in the schema (property name.default)
         loadingSchema = true;
@@ -112,7 +140,7 @@
     }
 
     function reset() {
-        done = false; output = ''; error = ''; instance = ''; env = {}; schema = null; adapter = '';
+        done = false; output = ''; error = ''; instance = ''; env = {}; schema = null; adapter = ''; picked = null; pickedValue = null; nameTouched = false;
     }
 </script>
 
@@ -162,11 +190,14 @@
             {#if adapter}
                 <div class="step">
                     <label for="add-name">Instance name</label>
-                    <input id="add-name" type="text" bind:value={instance} spellcheck="false" placeholder="topic prefix, e.g. cul" />
+                    <input id="add-name" type="text" bind:value={instance} spellcheck="false" placeholder="topic prefix, e.g. cul" oninput={() => (nameTouched = true)} />
                     <span class="muted">
                         systemd unit <span class="mono">{adapter}@{instance || '…'}</span>, topics <span class="mono">{instance || '…'}/#</span>
                         {#if instance && !nameOk}<span class="err"> — {existing.includes(instance) ? 'already exists on this host' : 'letters, digits, _ . - only'}</span>{/if}
                     </span>
+                    {#if picked?.name && !nameTouched && instance === picked.suggestName}
+                        <span class="muted">from the device name <em>{picked.name}</em></span>
+                    {/if}
                 </div>
 
                 {#if loadingSchema}
@@ -174,6 +205,14 @@
                 {:else if schemaErr}
                     <div class="err-box">{schemaErr}</div>
                 {:else if schema}
+                    {#if discover}
+                        <div class="step">
+                            <label for="add-scan">Find the device</label>
+                            <div id="add-scan">
+                                <DeviceScan host={hostName} {adapter} kinds={discover.kinds} property={discover.key} selected={pickedValue} onpick={pickDevice} />
+                            </div>
+                        </div>
+                    {/if}
                     <SchemaForm {schema} bind:env {secrets} mode="install" {sheBroker} dynsec={dynsec ? { ...dynsec, client: 'svc-' + (instance || '<instance>') } : null} bind:brokerMode />
                     <div class="actions">
                         <button onclick={install} disabled={installing || !nameOk || missingRequired.length > 0}>

@@ -1244,6 +1244,8 @@ export interface ServiceSchemaProperty {
     'items'?: { type?: string };
     'x-env': string;
     'x-secret'?: boolean;
+    /** I13: this property takes what --discover finds; the value is the kind of scan */
+    'x-discover'?: 'network' | 'serial' | Array<'network' | 'serial'> | boolean;
 }
 
 export interface ServiceSchema {
@@ -1252,6 +1254,42 @@ export interface ServiceSchema {
     'properties': Record<string, ServiceSchemaProperty>;
     'required'?: string[];
     'x-adapter'?: { name: string; version: string; envPrefix: string; mqttInterfaces?: Record<string, unknown> };
+}
+
+/** One device an adapter's `--discover` found on its host (I13). */
+export interface DiscoveredDevice {
+    /** what goes into the marked property: the fqdn when dns knows it, else the address */
+    value: string;
+    address?: string;
+    fqdn?: string;
+    hostname?: string;
+    /** the name the *user* gave the device (UPnP friendlyName, Chromecast fn, …) */
+    name?: string;
+    model?: string;
+    type?: string;
+    serial?: string;
+    version?: string;
+    /** serial scans: the stable /dev/serial/by-id name and the device node it points at */
+    id?: string;
+    device?: string;
+    sources: string[];
+    services: Record<string, boolean>;
+    /** a free instance name derived from the device's own name, or from the schema default */
+    suggestName?: string;
+    /** instance on this host already configured with this value */
+    usedBy?: string | null;
+}
+
+export interface DiscoverResult {
+    devices: DiscoveredDevice[];
+    /** the schema property the value belongs in */
+    property: string;
+    envName: string | null;
+    kinds: Array<'network' | 'serial'>;
+}
+
+export function discoverDevices(host: string, adapter: string, opts: { timeout?: number; address?: string[] } = {}): Promise<DiscoverResult> {
+    return request('POST', `/she/services/hosts/${encodeURIComponent(host)}/adapters/${encodeURIComponent(adapter)}/discover`, opts);
 }
 
 export interface ServiceLogEntry {
