@@ -173,6 +173,7 @@ describe('discoverTarget', () => {
             key: 'ccu-address',
             envName: 'HM_CCU_ADDRESS',
             kinds: ['network'],
+            needs: [],
         });
     });
 
@@ -186,6 +187,44 @@ describe('discoverTarget', () => {
 
     test('an unknown kind does not make an adapter discovery-capable', () => {
         expect(discoverTarget(schema({ address: { 'x-env': 'A', 'x-discover': 'telepathy' } }))).toBeNull();
+    });
+
+    test('cloud is a kind: the vendor is asked, nothing is scanned (core 0.11+)', () => {
+        expect(discoverTarget(schema({ sn: { 'x-env': 'ECO_SN', 'x-discover': 'cloud' } }))).toEqual({
+            key: 'sn',
+            envName: 'ECO_SN',
+            kinds: ['cloud'],
+            needs: [],
+        });
+    });
+
+    test('x-discover-needs names the options the scan runs on, with their env names', () => {
+        const target = discoverTarget(
+            schema({
+                sn: { 'x-env': 'ECO_SN', 'x-discover': 'cloud', 'x-discover-needs': ['email', 'password'] },
+                email: { 'x-env': 'ECO_EMAIL' },
+                password: { 'x-env': 'ECO_PASSWORD', 'x-secret': true },
+            }),
+        );
+        expect(target.needs).toEqual([
+            { key: 'email', envName: 'ECO_EMAIL' },
+            { key: 'password', envName: 'ECO_PASSWORD' },
+        ]);
+    });
+
+    test('needs is filtered to real properties, never the target itself, and capped', () => {
+        const target = discoverTarget(
+            schema({
+                sn: { 'x-env': 'ECO_SN', 'x-discover': 'cloud', 'x-discover-needs': ['email', 'sn', 'nonexistent', 7, ''] },
+                email: { 'x-env': 'ECO_EMAIL' },
+            }),
+        );
+        // 'sn' is what the scan fills, the rest name nothing this schema has
+        expect(target.needs).toEqual([{ key: 'email', envName: 'ECO_EMAIL' }]);
+    });
+
+    test('a needs list that is not an array is ignored, not fatal', () => {
+        expect(discoverTarget(schema({ sn: { 'x-env': 'S', 'x-discover': 'cloud', 'x-discover-needs': 'email' } })).needs).toEqual([]);
     });
 
     test('a schema without the marker is not discovery-capable', () => {

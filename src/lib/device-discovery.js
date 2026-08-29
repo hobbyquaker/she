@@ -170,12 +170,22 @@ function shapeDevices(raw, options = {}) {
     return out;
 }
 
+/** The scan kinds she can drive. An unknown one does not make an adapter discovery-capable. */
+const KINDS = ['network', 'serial', 'cloud'];
+
 /**
  * The discovery kinds a schema asks for, from the `x-discover` marker the core sets on the one
- * property that takes what a scan finds (`ccu-address`, `serialport`, …).
+ * property that takes what a scan finds (`ccu-address`, `serialport`, `sn`, …).
+ *
+ * `cloud` (core 0.11+) is the odd one: it scans nothing, it asks the vendor which devices the
+ * account owns, so none of the network affordances apply and the scan cannot run at all without
+ * the credentials it logs in with. Those are named by `x-discover-needs` (core 0.12+) — other
+ * properties of the same schema, which the form collects anyway; the marker only says which ones
+ * are needed *before* the scan rather than at save time.
  *
  * @param {object|null} schema a `--config-schema` document
- * @returns {{key: string, envName: string, kinds: string[]}|null} null when not discovery-capable
+ * @returns {{key: string, envName: string, kinds: string[], needs: Array<{key: string, envName: string|null}>}|null}
+ *          null when not discovery-capable
  */
 function discoverTarget(schema) {
     const properties = schema && typeof schema === 'object' ? schema.properties : null;
@@ -183,12 +193,18 @@ function discoverTarget(schema) {
     for (const [key, prop] of Object.entries(properties)) {
         if (!prop || typeof prop !== 'object' || prop['x-discover'] === undefined) continue;
         const raw = prop['x-discover'];
-        // 'network' | 'serial' | both; `true` from a future core is treated as a network scan
-        const kinds = (Array.isArray(raw) ? raw : [raw]).map((k) => (k === true ? 'network' : k)).filter((k) => k === 'network' || k === 'serial');
+        // 'network' | 'serial' | 'cloud' | several; `true` from an older core means a network scan
+        const kinds = (Array.isArray(raw) ? raw : [raw]).map((k) => (k === true ? 'network' : k)).filter((k) => KINDS.includes(k));
         if (kinds.length === 0) continue;
-        return { key, envName: typeof prop['x-env'] === 'string' ? prop['x-env'] : null, kinds };
+        const rawNeeds = prop['x-discover-needs'];
+        const needs = (Array.isArray(rawNeeds) ? rawNeeds : [])
+            // only options this schema actually has, and never the property the scan fills
+            .filter((n) => typeof n === 'string' && n !== key && properties[n])
+            .slice(0, 8)
+            .map((n) => ({ key: n, envName: typeof properties[n]['x-env'] === 'string' ? properties[n]['x-env'] : null }));
+        return { key, envName: typeof prop['x-env'] === 'string' ? prop['x-env'] : null, kinds, needs };
     }
     return null;
 }
 
-module.exports = { shapeDevices, slugName, uniqueName, configValue, discoverTarget, INSTANCE_RE, MAX_NAME };
+module.exports = { shapeDevices, slugName, uniqueName, configValue, discoverTarget, KINDS, INSTANCE_RE, MAX_NAME };

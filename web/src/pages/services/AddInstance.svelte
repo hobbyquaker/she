@@ -4,7 +4,7 @@
      * from `--config-schema` → `<adapter> --install --name <instance>` via the helper.
      */
     import { onMount, tick } from 'svelte';
-    import { getServiceHosts, getServiceSchema, installService, type ServiceHost, type ServiceSchema, type SheBrokerInfo, type DynsecInfo, type BrokerMode, type DiscoveredDevice } from '../../lib/api.js';
+    import { getServiceHosts, getServiceSchema, installService, type ServiceHost, type ServiceSchema, type SheBrokerInfo, type DynsecInfo, type BrokerMode, type DiscoveredDevice, type DiscoverKind } from '../../lib/api.js';
     import SchemaForm from './SchemaForm.svelte';
     import DeviceScan from './DeviceScan.svelte';
 
@@ -31,17 +31,32 @@
 
     // I13: the property the core marked with x-discover — its presence makes the adapter scannable
     let discover = $derived.by(() => {
-        const entries = Object.entries(schema?.properties ?? {});
-        for (const [key, prop] of entries) {
+        const props = schema?.properties ?? {};
+        for (const [key, prop] of Object.entries(props)) {
             const raw = prop['x-discover'];
             if (raw === undefined) continue;
             const kinds = (Array.isArray(raw) ? raw : [raw])
                 .map(k => (k === true ? 'network' : k))
-                .filter((k): k is 'network' | 'serial' => k === 'network' || k === 'serial');
-            if (kinds.length) return { key, envName: prop['x-env'], kinds };
+                .filter((k): k is DiscoverKind => k === 'network' || k === 'serial' || k === 'cloud');
+            if (!kinds.length) continue;
+            // core 0.12+: options the scan runs on (a cloud login), which must be filled in first
+            const needs = (prop['x-discover-needs'] ?? [])
+                .filter(n => n !== key && props[n])
+                .map(n => ({ key: n, envName: props[n]['x-env'], label: props[n].description ?? n }));
+            return { key, envName: prop['x-env'], kinds, needs };
         }
         return null;
     });
+    /** The values of those options as typed so far — what the scan is handed. */
+    let needValues = $derived.by(() => {
+        const out: Record<string, string> = {};
+        for (const n of discover?.needs ?? []) {
+            const v = (env[n.envName] ?? '').trim();
+            if (v) out[n.key] = v;
+        }
+        return out;
+    });
+    let needsMissing = $derived((discover?.needs ?? []).filter(n => !needValues[n.key]).map(n => n.key));
     let picked = $state<DiscoveredDevice | null>(null);
     let pickedValue = $state<string | null>(null);
     // the name field starts on the schema default, so "untouched" is what decides whether a picked
@@ -206,12 +221,26 @@
                                 <div>
                                     <strong id="add-scan-h">Find the device</strong>
                                     <div class="muted">
-                                        {adapter} can look for its {discover.kinds.includes('network') ? 'device on the network' : 'stick'} from
-                                        {host?.hostname ?? hostName} — pick what answers and <span class="mono">{discover.key}</span> is filled in for you.
+                                        {#if discover.kinds.includes('cloud')}
+                                            {adapter} can ask the vendor which devices your account owns — nothing is scanned on your
+                                            network. Pick one and <span class="mono">{discover.key}</span> is filled in for you.
+                                        {:else}
+                                            {adapter} can look for its {discover.kinds.includes('network') ? 'device on the network' : 'stick'} from
+                                            {host?.hostname ?? hostName} — pick what answers and <span class="mono">{discover.key}</span> is filled in for you.
+                                        {/if}
                                     </div>
                                 </div>
                             </div>
-                            <DeviceScan host={hostName} {adapter} kinds={discover.kinds} property={discover.key} selected={pickedValue} onpick={pickDevice} />
+                            <DeviceScan
+                                host={hostName}
+                                {adapter}
+                                kinds={discover.kinds}
+                                property={discover.key}
+                                needs={needValues}
+                                missing={needsMissing}
+                                selected={pickedValue}
+                                onpick={pickDevice}
+                            />
                         </section>
                     {/if}
 

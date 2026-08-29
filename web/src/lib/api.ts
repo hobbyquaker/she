@@ -1245,8 +1245,16 @@ export interface ServiceSchemaProperty {
     'x-env': string;
     'x-secret'?: boolean;
     /** I13: this property takes what --discover finds; the value is the kind of scan */
-    'x-discover'?: 'network' | 'serial' | Array<'network' | 'serial'> | boolean;
+    'x-discover'?: DiscoverKind | DiscoverKind[] | boolean;
+    /**
+     * Options the scan itself consumes (core 0.12+): a `cloud` scan is a vendor-account login, so
+     * it cannot run before these are filled in. Other properties of the same schema.
+     */
+    'x-discover-needs'?: string[];
 }
+
+/** A `cloud` scan asks the vendor which devices an account owns; it scans no network. */
+export type DiscoverKind = 'network' | 'serial' | 'cloud';
 
 export interface ServiceSchema {
     'title'?: string;
@@ -1285,10 +1293,17 @@ export interface DiscoverResult {
     /** the schema property the value belongs in */
     property: string;
     envName: string | null;
-    kinds: Array<'network' | 'serial'>;
+    kinds: DiscoverKind[];
+    /** option keys the scan ran on (a cloud login); empty for a scan that needs nothing */
+    needs?: string[];
 }
 
-export function discoverDevices(host: string, adapter: string, opts: { timeout?: number; address?: string[] } = {}): Promise<DiscoverResult> {
+/**
+ * `needs` carries the values of the options named by `x-discover-needs`, keyed by option name —
+ * a cloud scan is an account login and cannot run without them. They travel to the helper on
+ * stdin, not in argv. Omitting them for an adapter that wants them answers 400 DISCOVERY_NEEDS.
+ */
+export function discoverDevices(host: string, adapter: string, opts: { timeout?: number; address?: string[]; needs?: Record<string, string> } = {}): Promise<DiscoverResult> {
     return request('POST', `/she/services/hosts/${encodeURIComponent(host)}/adapters/${encodeURIComponent(adapter)}/discover`, opts);
 }
 

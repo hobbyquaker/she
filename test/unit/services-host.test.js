@@ -250,6 +250,47 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         );
     });
 
+    test('discover: a cloud adapter scans by logging in, with the credentials on stdin', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/ecoflow2mqtt/discover', {
+            needs: { email: 'me@example.com', password: 'secret' },
+        });
+        expect(r.status).toBe(200);
+        expect(r.body.kinds).toEqual(['cloud']);
+        expect(r.body.property).toBe('sn');
+        expect(r.body.needs).toEqual(['email', 'password']);
+        expect(r.body.devices[0].address).toBe('BK01ZXXXXXXXXXXX');
+
+        const call = calls().find((c) => c.args[0] === 'discover' && c.args[1] === 'ecoflow2mqtt');
+        expect(call.args).toContain('--env');
+        // the credentials go on stdin, never in argv where a process list would show them
+        expect(call.args.join(' ')).not.toContain('secret');
+        expect(call.stdin).toContain('ECOFLOW2MQTT_EMAIL=me@example.com');
+        expect(call.stdin).toContain('ECOFLOW2MQTT_PASSWORD=secret');
+    });
+
+    test('discover: a cloud scan without its credentials is refused before the host is touched', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/ecoflow2mqtt/discover', {});
+        expect(r.status).toBe(400);
+        expect(r.body.code).toBe('DISCOVERY_NEEDS');
+        expect(r.body.needs).toEqual(['email', 'password']);
+
+        const half = await httpRequest('POST', port, '/she/services/hosts/local/adapters/ecoflow2mqtt/discover', { needs: { email: 'me@example.com' } });
+        expect(half.status).toBe(400);
+        expect(half.body.error).toContain('password');
+    });
+
+    test('discover: only the options the schema named reach the scan environment', async () => {
+        await httpRequest('POST', port, '/she/services/hosts/local/adapters/ecoflow2mqtt/discover', {
+            needs: { email: 'me@example.com', password: 'secret', sn: 'SMUGGLED', PATH: '/evil' },
+        });
+        const call = calls()
+            .filter((c) => c.args[0] === 'discover' && c.args[1] === 'ecoflow2mqtt')
+            .pop();
+        expect(call.stdin).not.toContain('SMUGGLED');
+        expect(call.stdin).not.toContain('/evil');
+        expect(call.stdin.split('\n').filter(Boolean).sort()).toEqual(['ECOFLOW2MQTT_EMAIL=me@example.com', 'ECOFLOW2MQTT_PASSWORD=secret']);
+    });
+
     test('discover: an adapter without the x-discover marker is refused', async () => {
         const r = await httpRequest('POST', port, '/she/services/hosts/local/adapters/homeconnect2mqtt/discover', {});
         expect(r.status).toBe(400);

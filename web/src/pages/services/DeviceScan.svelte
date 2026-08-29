@@ -8,20 +8,26 @@
      *
      * Explicit trigger on purpose: no probing of the user's network unless they press the button.
      */
-    import { discoverDevices, type DiscoveredDevice } from '../../lib/api.js';
+    import { discoverDevices, type DiscoveredDevice, type DiscoverKind } from '../../lib/api.js';
 
     let {
         host,
         adapter,
         kinds,
         property,
+        needs = {},
+        missing = [],
         selected = null,
         onpick,
     }: {
         host: string;
         adapter: string;
-        kinds: Array<'network' | 'serial'>;
+        kinds: DiscoverKind[];
         property: string;
+        /** values of the options a cloud scan logs in with, keyed by option name */
+        needs?: Record<string, string>;
+        /** those of them still empty — the scan cannot run until they are filled in */
+        missing?: string[];
         selected?: string | null;
         onpick?: (device: DiscoveredDevice, value: string) => void;
     } = $props();
@@ -73,6 +79,13 @@
 
     // a serial scan is a directory listing: no timeout to speak of, nothing a router could hide
     let network = $derived(kinds.includes('network'));
+    /*
+     * A cloud scan asks the vendor which devices the account owns. It reaches no network, so none
+     * of the cross-subnet affordances apply — but it is a login, so it cannot run at all until the
+     * credentials the schema named are filled in above.
+     */
+    let cloud = $derived(kinds.includes('cloud') && !network);
+    let blocked = $derived(cloud && missing.length > 0);
 
     export async function scan() {
         if (scanning) return;
@@ -82,6 +95,7 @@
             const r = await discoverDevices(host, adapter, {
                 ...(network && timeout !== '' ? { timeout: Number(timeout) } : {}),
                 ...(extra ? { address: extra.split(/[\s,]+/).filter(Boolean) } : {}),
+                ...(Object.keys(needs).length ? { needs } : {}),
             });
             devices = r.devices;
             scanned = true;
@@ -107,7 +121,12 @@
     <div class="bar">
         <!-- before the first scan the button is the point of the whole panel, so it is the primary
              action here; once something answered it steps back to a ghost "Scan again" -->
-        <button class={scanned ? 'ghost' : 'go'} onclick={scan} disabled={scanning || !host || !adapter}>
+        <button
+            class={scanned ? 'ghost' : 'go'}
+            onclick={scan}
+            disabled={scanning || !host || !adapter || blocked}
+            title={blocked ? `fill in ${missing.join(' and ')} first — the scan signs in with them` : undefined}
+        >
             {#if scanning}
                 <span class="spinner"></span> Scanning…
             {:else}
@@ -116,14 +135,18 @@
                         <circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>
                     </svg>
                 {/if}
-                {scanned ? 'Scan again' : network ? 'Scan the network for devices' : 'Scan for devices'}
+                {scanned ? (cloud ? 'Look again' : 'Scan again') : network ? 'Scan the network for devices' : cloud ? 'List my account’s devices' : 'Scan for devices'}
             {/if}
         </button>
         <span class="muted">
             {#if scanning}
-                {network ? `${adapter} --discover on ${host}` : `looking for devices on ${host}`}
+                {network ? `${adapter} --discover on ${host}` : cloud ? `${adapter} is asking the vendor` : `looking for devices on ${host}`}
             {:else if scanned}
                 {devices.length === 0 ? 'nothing answered' : `${devices.length} device${devices.length === 1 ? '' : 's'} found`}
+            {:else if blocked}
+                fill in <span class="mono">{missing.join('</span> and <span class="mono">')}</span> above — the scan signs in with them
+            {:else if cloud}
+                signs in and lists your account's devices, then fills in <span class="mono">{property}</span>
             {:else}
                 asks <span class="mono">{adapter} --discover</span> on {host} and fills in <span class="mono">{property}</span>
             {/if}
@@ -152,7 +175,7 @@
     {#if scanned && devices.length === 0 && !scanning}
         <div class="muted empty">
             Nothing answered on {host}.
-            {#if network}Devices behind a router need their address given above.{:else}Is the stick plugged into that host?{/if}
+            {#if network}Devices behind a router need their address given above.{:else if cloud}Is the device bound to this account in the vendor's app? A shared device does not show up.{:else}Is the stick plugged into that host?{/if}
             Filling in <span class="mono">{property}</span> by hand works as before.
         </div>
     {/if}

@@ -39,6 +39,7 @@ switch (cmd) {
                         brokerEnv: false,
                         unit: false,
                     },
+                    { name: 'ecoflow2mqtt', version: '0.3.0', origin: 'registry', path: '/usr/local/lib/node_modules/ecoflow2mqtt', node: '/usr/bin/node', unit: false },
                 ],
                 instances: [
                     {
@@ -87,6 +88,25 @@ switch (cmd) {
         else console.log('wrote /etc/mqtt-interfaces/broker.env');
         break;
     case 'schema':
+        if (args[1] === 'ecoflow2mqtt') {
+            // a cloud adapter that *is* discoverable: the vendor is asked, and the scan is an
+            // account login, so the schema names what it needs first (core 0.12+)
+            console.log(
+                JSON.stringify({
+                    'title': 'ecoflow2mqtt',
+                    'type': 'object',
+                    'properties': {
+                        name: { 'type': 'string', 'x-env': 'ECOFLOW2MQTT_NAME', 'default': 'ecoflow' },
+                        email: { 'type': 'string', 'x-env': 'ECOFLOW2MQTT_EMAIL', 'x-secret': true },
+                        password: { 'type': 'string', 'x-env': 'ECOFLOW2MQTT_PASSWORD', 'x-secret': true },
+                        sn: { 'type': 'string', 'x-env': 'ECOFLOW2MQTT_SN', 'x-secret': true, 'x-discover': 'cloud', 'x-discover-needs': ['email', 'password'] },
+                    },
+                    'required': ['email', 'password', 'sn'],
+                    'x-adapter': { name: 'ecoflow2mqtt', version: '0.3.0', envPrefix: 'ECOFLOW2MQTT' },
+                }),
+            );
+            break;
+        }
         if (args[1] === 'homeconnect2mqtt') {
             // a cloud adapter: nothing on the network to find, so no x-discover marker
             console.log(
@@ -120,6 +140,15 @@ switch (cmd) {
         );
         break;
     case 'discover':
+        if (args[1] === 'ecoflow2mqtt') {
+            // the scan is a login: without the credentials on stdin the adapter itself refuses
+            if (!args.includes('--env')) die('Missing required arguments: email, password');
+            if (!/^ECOFLOW2MQTT_EMAIL=.+$/m.test(stdin) || !/^ECOFLOW2MQTT_PASSWORD=.+$/m.test(stdin)) {
+                die('Missing required arguments: email, password');
+            }
+            console.log(JSON.stringify([{ address: 'BK01ZXXXXXXXXXXX', name: 'Balcony', model: 'STREAM Microinverter', online: true, sources: ['cloud'] }]));
+            break;
+        }
         // two sticks: the first is the one instance "cul" already runs on (/dev/ttyACM0)
         console.log(
             JSON.stringify([

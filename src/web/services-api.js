@@ -805,7 +805,7 @@ router.get('/hosts/:host/adapters/:adapter/schema', async (req, res) => {
     }
 });
 
-// POST /she/services/hosts/:host/adapters/:adapter/discover { timeout?, address? }
+// POST /she/services/hosts/:host/adapters/:adapter/discover { timeout?, address?, needs? }
 /**
  * Scan for devices with the adapter's own `--discover` on the target host (roadmap I13).
  *
@@ -813,6 +813,13 @@ router.get('/hosts/:host/adapters/:adapter/schema', async (req, res) => {
  * and the usb bus of the machine running the scan, and that is the adapter's host, not
  * necessarily she's. The adapter owns the protocols; she shapes the answer and adds what only it
  * knows — which devices an instance already uses, and a free instance name.
+ *
+ * A `cloud` scan (core 0.11+) does not scan at all — it lists the devices a vendor account owns,
+ * which is the only discovery there is for hardware that never speaks to the LAN. It therefore
+ * cannot run without the account login. `needs` carries those values, keyed by the option names
+ * the schema published in `x-discover-needs` (core 0.12+), and they reach the helper on stdin as
+ * an env file — the same channel `install` uses, so they never appear in a process list. They are
+ * options of the instance being created anyway; the scan only wants them a few fields early.
  */
 router.post('/hosts/:host/adapters/:adapter/discover', async (req, res) => {
     const entry = resolve(req, res, { adapter: true });
@@ -844,6 +851,29 @@ router.post('/hosts/:host/adapters/:adapter/discover', async (req, res) => {
     }
     const target = discoverTarget(schema);
     if (!target) return res.status(400).json({ error: adapter + ' does not support discovery', code: 'NO_DISCOVERY' });
+    /*
+     * Only the options the schema itself named are forwarded, under the env names the schema gave
+     * them: a request cannot smuggle an arbitrary variable into the scan's environment.
+     */
+    const env = {};
+    const missing = [];
+    for (const need of target.needs) {
+        const value = body.needs && typeof body.needs === 'object' ? body.needs[need.key] : undefined;
+        if (typeof value !== 'string' || value === '') {
+            missing.push(need.key);
+        } else if (need.envName) {
+            env[need.envName] = value;
+        }
+    }
+    if (missing.length > 0) {
+        return res.status(400).json({
+            error: adapter + ' needs ' + missing.join(', ') + ' to scan',
+            code: 'DISCOVERY_NEEDS',
+            needs: target.needs.map((n) => n.key),
+        });
+    }
+    const envFile = Object.keys(env).length > 0 ? formatEnvFile(env) : null;
+    if (envFile) args.push('--env');
     try {
         // one listing serves both the free-name check and the "already configured" markers
         let listing = null;
@@ -855,7 +885,10 @@ router.post('/hosts/:host/adapters/:adapter/discover', async (req, res) => {
         // the adapter listens per method for the timeout, and a --discover-address sweep of a /24
         // adds a minute of tcp connects on top: give the helper room rather than killing a scan
         const seconds = body.timeout === undefined ? 5 : Number(body.timeout);
-        const { stdout } = await entry.driver.exec(args, { timeout: (seconds + 20) * 1000 + addresses.length * 60000 });
+        const { stdout } = await entry.driver.exec(args, {
+            ...(envFile ? { stdin: envFile } : {}),
+            timeout: (seconds + 20) * 1000 + addresses.length * 60000,
+        });
         let raw;
         try {
             raw = JSON.parse(stdout);
@@ -871,6 +904,7 @@ router.post('/hosts/:host/adapters/:adapter/discover', async (req, res) => {
             property: target.key,
             envName: target.envName,
             kinds: target.kinds,
+            needs: target.needs.map((n) => n.key),
         });
     } catch (err) {
         hostError(res, err);

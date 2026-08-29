@@ -23,7 +23,8 @@
 #   she-servicectl env    <adapter> <instance> read|write        (write: file on stdin)
 #   she-servicectl broker-env read|write                          (write: file on stdin)
 #   she-servicectl schema <adapter>
-#   she-servicectl discover <adapter> [--timeout <s>] [--address <addr-or-cidr>]...   scan for devices, JSON on stdout
+#   she-servicectl discover <adapter> [--timeout <s>] [--address <addr-or-cidr>]... [--env]   scan for devices, JSON on stdout
+#                                                                     (--env: KEY=VALUE lines on stdin, for a scan that needs credentials)
 #   she-servicectl install   <adapter> <instance>                 (options as KEY=VALUE lines on stdin)
 #   she-servicectl uninstall <adapter> <instance>
 #   she-servicectl npm    <adapter> version|origin|install|update|uninstall [--purge]   (uninstall: package, template unit; --purge also /etc and /var/lib)
@@ -42,7 +43,7 @@
 
 set -eu
 
-VERSION=11
+VERSION=12
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -421,16 +422,23 @@ cmd_schema() {
 # The adapter's own --discover (core 0.9+): it owns the hint, the protocols and the rate limiting.
 # Runs on this host on purpose — broadcast, multicast, ARP and /dev only reach the network and the
 # usb bus of the machine the scan runs on, which is this one, not necessarily she's.
+#
+# --env (v12) takes KEY=VALUE lines on stdin for a scan that cannot run without them: a cloud hint
+# (core 0.11+) lists a vendor account rather than scanning, so it needs the login, which the core
+# names in x-discover-needs. Same channel install already uses — never argv, where a process list
+# would show it — and the temp file is gone before the adapter is exec'd.
 cmd_discover() {
-    [ $# -ge 1 ] || die "usage: discover <adapter> [--timeout <s>] [--address <addr>]..."
+    [ $# -ge 1 ] || die "usage: discover <adapter> [--timeout <s>] [--address <addr>]... [--env]"
     need_adapter "$1"
     cmd=$(adapter_cmd "$1") || die "adapter not installed: $1"
     shift
     set -- --discover --discover-json "$@"
     args=""
+    env_stdin=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --discover|--discover-json) args="$args $1"; shift ;;
+            --env) env_stdin=1; shift ;;
             --timeout)
                 [ $# -ge 2 ] || die "--timeout needs a value"
                 case "$2" in ''|*[!0-9]*) die "invalid timeout: $2" ;; esac
@@ -443,6 +451,15 @@ cmd_discover() {
             *) die "unknown discover option: $1" ;;
         esac
     done
+    if [ "$env_stdin" = 1 ]; then
+        tmp=$(mktemp)
+        read_env_stdin "$tmp"
+        set -a
+        # shellcheck disable=SC1090
+        . "$tmp"
+        set +a
+        rm -f "$tmp"
+    fi
     # shellcheck disable=SC2086  # args is built from validated tokens above
     exec "$cmd" $args
 }
