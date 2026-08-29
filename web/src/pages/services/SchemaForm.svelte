@@ -85,6 +85,40 @@
         if (v === undefined || v === '') return '';
         return ['1', 'true', 'yes', 'on'].includes(v.toLowerCase()) ? 'true' : 'false';
     }
+
+    /*
+     * Array options — an adapter's repeatable flag (influx4mqtt's --subscribe, govee2mqtt's
+     * --address). One input per entry rather than one field of commas: a list of six MQTT topic
+     * patterns is unreadable on a single line, and a stray comma silently splits an entry in two.
+     *
+     * The stored value is unchanged — the env file holds a comma separated list, which is what the
+     * core's array coercion reads. Only the editing is different.
+     */
+    function listOf(f: Field): string[] {
+        const raw = env[f.envName];
+        if (raw === undefined || raw.trim() === '') return [];
+        return raw.split(',').map((v) => v.trim());
+    }
+    /** What is drawn: always one empty row at the end to type into, so "add" needs no click. */
+    function rowsOf(f: Field): string[] {
+        const list = listOf(f);
+        return list.length === 0 || list.at(-1) !== '' ? [...list, ''] : list;
+    }
+    function writeList(f: Field, rows: string[]) {
+        const clean = rows.map((v) => v.trim()).filter((v) => v !== '');
+        if (clean.length === 0) unset(f.envName);
+        else set(f.envName, clean.join(','));
+    }
+    function setRow(f: Field, index: number, value: string) {
+        const rows = rowsOf(f);
+        rows[index] = value;
+        writeList(f, rows);
+    }
+    function removeRow(f: Field, index: number) {
+        const rows = rowsOf(f);
+        rows.splice(index, 1);
+        writeList(f, rows);
+    }
 </script>
 
 {#snippet field(f: Field)}
@@ -117,10 +151,33 @@
                     <button type="button" class="sf-clear" title="Remove the stored value" onclick={() => unset(f.envName)}>clear</button>
                 {/if}
             </div>
+        {:else if f.prop.type === 'array'}
+            {@const rows = rowsOf(f)}
+            <div class="sf-list">
+                {#each rows as row, i (i)}
+                    <div class="sf-row">
+                        <input
+                            id={i === 0 ? 'sf-' + f.envName : undefined}
+                            type="text"
+                            spellcheck="false"
+                            value={row}
+                            placeholder={i === rows.length - 1 ? (rows.length === 1 ? fmtDefault(f.prop.default) || 'add an entry' : 'add another') : ''}
+                            aria-label={`--${f.key} entry ${i + 1}`}
+                            oninput={(e) => setRow(f, i, (e.target as HTMLInputElement).value)} />
+                        <button
+                            type="button"
+                            class="sf-row-del"
+                            title="Remove this entry"
+                            aria-label={`Remove entry ${i + 1}`}
+                            disabled={i === rows.length - 1 && row === ''}
+                            onclick={() => removeRow(f, i)}>×</button>
+                    </div>
+                {/each}
+            </div>
         {:else}
             <input id={'sf-' + f.envName} type={f.prop.type === 'number' ? 'number' : 'text'} spellcheck="false"
                 value={env[f.envName] ?? ''}
-                placeholder={fmtDefault(f.prop.default) || (f.prop.type === 'array' ? 'comma separated' : '')}
+                placeholder={fmtDefault(f.prop.default)}
                 oninput={(e) => { const v = (e.target as HTMLInputElement).value; v === '' ? unset(f.envName) : set(f.envName, v); }} />
         {/if}
         {#if f.prop.description}<div class="sf-desc">{f.prop.description}</div>{/if}
@@ -228,4 +285,17 @@
     .sf-secret input { flex: 1; }
     .sf-clear { background: none; border: 1px solid var(--border); color: var(--fg-muted); border-radius: 3px; font-size: 11px; padding: 2px 7px; cursor: pointer; }
     .sf-clear:hover { color: var(--fg); border-color: var(--fg-muted); }
+
+    /* repeatable option: one row per entry, the last one always empty to type into */
+    .sf-list { display: flex; flex-direction: column; gap: 4px; }
+    .sf-row { display: flex; gap: 6px; align-items: center; }
+    .sf-row input { flex: 1; }
+    .sf-row-del {
+        background: none; border: 1px solid var(--border); color: var(--fg-muted); border-radius: 3px;
+        font-size: 14px; line-height: 1; padding: 3px 8px; cursor: pointer;
+    }
+    .sf-row-del:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
+    /* the trailing empty row has nothing to remove, so its button is a placeholder that keeps the
+       inputs from changing width as rows come and go */
+    .sf-row-del:disabled { opacity: 0; cursor: default; }
 </style>
