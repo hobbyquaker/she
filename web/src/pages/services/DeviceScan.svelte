@@ -144,7 +144,10 @@
             {:else if scanned}
                 {devices.length === 0 ? 'nothing answered' : `${devices.length} device${devices.length === 1 ? '' : 's'} found`}
             {:else if blocked}
-                fill in <span class="mono">{missing.join('</span> and <span class="mono">')}</span> above — the scan signs in with them
+                <!-- markup cannot come out of an expression: svelte escapes it, so the tags would
+                     be shown as text. The separators belong in the template, one per item. -->
+                fill in {#each missing as m, i}{#if i > 0}{i === missing.length - 1 ? ' and ' : ', '}{/if}<span class="mono">{m}</span>{/each} above — the scan
+                signs in with them
             {:else if cloud}
                 signs in and lists your account's devices, then fills in <span class="mono">{property}</span>
             {:else}
