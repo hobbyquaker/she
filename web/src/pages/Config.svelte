@@ -34,7 +34,7 @@
     let brokerEnabled  = $state(false);
     let brokerChecking = $state(false);
 
-    // Services (xyz2mqtt adapter instances)
+    // Adapters management (xyz2mqtt adapter instances)
     let servicesEnabled = $state(false);
     let servicesPublishers = $state('hobbyquaker');   // comma-separated npm user names whose packages the catalog lists
     // Matter controller
@@ -238,7 +238,7 @@
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
         { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
         { id: 'broker',  label: 'Mosquitto',        terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
-        { id: 'services', label: 'Services',        terms: ['services','adapter','xyz2mqtt','2mqtt','interfaces','instances','systemd','fleet'] },
+        { id: 'services', label: 'Adapters',        terms: ['adapters','adapter management','services','xyz2mqtt','2mqtt','interfaces','instances','systemd','fleet'] },
         { id: 'matter',  label: 'Matter controller', terms: ['matter','thread','zigbee','iot','devices','smart home controller'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
         { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
@@ -802,10 +802,10 @@
                 </section>
                 {/if}
 
-                <!-- ── Services ──────────────────────────────────── -->
+                <!-- ── Adapters management ───────────────────────── -->
                 {#if visibleSections.some(s => s.id === 'services')}
                 <section id="sec-services">
-                    <h3>Services</h3>
+                    <h3>Adapters management</h3>
                     <div class="field field--check">
                         <label>
                             Enable
@@ -814,7 +814,7 @@
                         <label class="check-label">
                             <input type="checkbox" bind:checked={servicesEnabled} />
                             <span class="checkmark"></span>
-                            Service management
+                            Adapters management
                         </label>
                     </div>
                     {#if servicesEnabled}
