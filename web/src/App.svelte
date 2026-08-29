@@ -314,7 +314,7 @@
                 <circle cx="4.5" cy="12" r="0.6" fill="currentColor"/>
             </svg>
             Adapters
-            <!-- yellow only while an adapter update is available; the box stays so the button keeps its width -->
+            <!-- yellow while an adapter or helper update waits, or an instance needs attention; the box stays so the button keeps its width -->
             {#if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
             {:else}<span class="nav-dot nav-dot--none"></span>
             {/if}

@@ -10,7 +10,7 @@
     import RemoveHelper from './RemoveHelper.svelte';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
 
-    let { onchanged }: { onchanged?: () => void } = $props();
+    let { onchanged, onupdates }: { onchanged?: () => void; onupdates?: (count: number) => void } = $props();
 
     type Remote = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
     let local = $state(true);
@@ -32,6 +32,9 @@
 
     // the helper she ships is newer than the one on the host — same action as on the
     // Installations tab, offered where the host and its helper version are shown
+    // hosts whose helper is older than the one she ships — drives the yellow dot on the Hosts sub-tab
+    let helperUpdateCount = $derived(status.filter(h => h.ok && h.helperOutdated).length);
+    $effect(() => { onupdates?.(helperUpdateCount); });
     let helperBusy = $state<string | null>(null);
     let helperResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
     async function updateHelper(hostName: string) {

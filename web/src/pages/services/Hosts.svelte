@@ -9,7 +9,7 @@
 
     import AddInstance, { type AddPreset } from './AddInstance.svelte';
     import Catalog from './Catalog.svelte';
-    let { onchanged }: { onchanged?: () => void } = $props();
+    let { onchanged, onupdates }: { onchanged?: () => void; onupdates?: (count: number) => void } = $props();
     // the tab shows the host list, the add-instance form (host + adapter fixed) or the catalog — each covering the whole tab
     type View = { kind: 'list' } | { kind: 'add'; preset: AddPreset } | { kind: 'catalog' };
     let view = $state<View>({ kind: 'list' });
@@ -44,6 +44,10 @@
         }
     }
     onMount(() => { load(); });
+
+    // adapter updates waiting on any host — drives the yellow dot on the Installations sub-tab
+    let updateCount = $derived(hosts.reduce((n, h) => n + (h.adapters ?? []).filter(a => a.updateAvailable).length, 0));
+    $effect(() => { onupdates?.(updateCount); });
 
     /** Hosts that adapters report in info.host but that are not configured here (SV-14 correlation by hostname). */
     let unmanaged = $derived.by(() => {
