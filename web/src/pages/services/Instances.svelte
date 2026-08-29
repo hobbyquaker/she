@@ -40,8 +40,11 @@
         legacy?: boolean;              // unit is a pre-core <adapter>.service (instance "-" towards the helper)
     };
 
+    // the WS feed reloads in the background on every retained change — only an explicit
+    // refresh turns the glyph, otherwise it would flicker on every message
+    let refreshing = $state(false);
     async function load(refresh = false) {
-        loading = true; loadError = null;
+        loading = true; refreshing = refreshing || refresh; loadError = null;
         try {
             const [inv, h] = await Promise.all([getServiceInstances(), getServiceHosts(refresh).catch(() => ({ hosts: [] as ServiceHost[] }))]);
             mqttInstances = inv.instances;
@@ -49,7 +52,7 @@
         } catch (e: unknown) {
             loadError = e instanceof Error ? e.message : String(e);
         } finally {
-            loading = false;
+            loading = false; refreshing = false;
         }
     }
 
@@ -285,7 +288,7 @@
     <div class="main">
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
-            <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again">↺</button>
+            <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again"><span class:spinning={refreshing}>↺</span></button>
             <span class="count">{visible.length}{#if filter} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}</span>
             <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
                 <input type="checkbox" bind:checked={showUnmanaged} />
@@ -473,6 +476,9 @@
     .info a { color: var(--accent); }
 
     .table-wrap { flex: 1; overflow: auto; }
+    /* the reload glyph turns while the listing is being fetched — same as the Catalog tab */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--fg); }
     th {
         text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted);

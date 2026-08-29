@@ -143,7 +143,7 @@
     <Catalog oninstalled={(host, adapter) => { load(true); onchanged?.(); openAdd(host, adapter); }} />
     {:else}
     <div class="bar">
-        <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask every host again (otherwise the listing is cached for a minute)">↺</button>
+        <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask every host again (otherwise the listing is cached for a minute)"><span class:spinning={loading}>↺</span></button>
         <button class="ghost" onclick={() => (view = { kind: 'catalog' })} title="Install an adapter from the catalog — the trusted publishers' packages on npm">Install adapter</button>
         <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — managed on the Hosts tab</span>
         <span class="spacer"></span>
@@ -265,6 +265,9 @@
     .content { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; font-size: 12px; color: var(--fg); }
     .muted { color: var(--fg-muted); font-size: 11px; }
     .mono { font-family: var(--font-mono, monospace); font-size: 11px; }
+    /* the reload glyph turns while the listing is being fetched — same as the Catalog tab */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
     .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
     .card.unmanaged { border-style: dashed; }
     .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }

@@ -347,7 +347,7 @@
         </div>
     {:else}
         <div class="bar">
-            <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload">↺</button>
+            <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload"><span class:spinning={loading}>↺</span></button>
             <button class="ghost" onclick={openAdd}>+ Add remote host</button>
             <span class="muted">{remotes.length + (local ? 1 : 0)} host{remotes.length + (local ? 1 : 0) === 1 ? '' : 's'}</span>
             <span class="spacer"></span>
@@ -482,6 +482,8 @@
     .chk input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
     .chk input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
     @keyframes spin { to { transform: rotate(360deg); } }
+    /* the reload glyph turns while the listing is being fetched — same as the Catalog tab */
+    .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
     .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
     button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: default; }
