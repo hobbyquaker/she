@@ -203,7 +203,7 @@
     <div class="head">
         <div>
             <span class="title">{title}</span>{#if legacy}<span class="badge" title="pre-core single-instance unit — migrate it from the Instances tab">old unit</span>{/if}
-            <span class="sub mono">{adapter ?? (mqtt?.legacy ? 'legacy' : '')}{#if mqtt?.version} @{mqtt.version}{/if} · {host ?? hostname ?? 'not managed'}</span>
+            <span class="sub mono">{adapter ?? (mqtt?.legacy ? 'unmanaged' : '')}{#if mqtt?.version} @{mqtt.version}{/if} · {host ?? hostname ?? 'not managed'}</span>
             {#if unit}
                 <span class="badge" class:ok={unit.active === 'active'} class:err={unit.active === 'failed'} title="systemd: {unit.active}/{unit.sub}, {unit.unitFile}">{unit.active}{unit.unitFile === 'disabled' ? ' · disabled' : ''}</span>
             {/if}
@@ -284,7 +284,7 @@
                     <dt>spec</dt><dd>{mqtt.spec ?? '—'}</dd>
                     <dt>node</dt><dd>{mqtt.node ?? '—'}</dd>
                     <dt>started</dt><dd>{fmtDate(mqtt.started)}</dd>
-                    <dt>maintenance</dt><dd>{mqtt.legacy ? '— (legacy: no maintenance topics)' : mqtt.maintenance ? 'enabled' : 'disabled (--no-maintenance)'}</dd>
+                    <dt>maintenance</dt><dd>{mqtt.legacy ? '— (no maintenance topics)' : mqtt.maintenance ? 'enabled' : 'disabled (--no-maintenance)'}</dd>
                     <dt>status topics</dt><dd>{mqtt.statusTopics} retained under <span class="mono">{instance}/status/</span></dd>
                     <dt>info updated</dt><dd>{fmtDate(mqtt.infoTs)}</dd>
                 </dl>
@@ -292,7 +292,7 @@
                     <div class="muted" style="margin:6px 0 4px">{instance}/info</div>
                     <pre class="mono json">{JSON.stringify(mqtt.info, null, 2)}</pre>
                 {:else}
-                    <div class="muted">Legacy instance — only <span class="mono">{instance}/connected</span> is known; no <span class="mono">{instance}/info</span>.</div>
+                    <div class="muted">Unmanaged — only <span class="mono">{instance}/connected</span> is known; no <span class="mono">{instance}/info</span>, so this could be any client publishing that topic (an ESPHome device, a script, a pre-core adapter).</div>
                 {/if}
             {:else}
                 <div class="muted">Not seen on MQTT (no retained {instance}/connected or {instance}/info yet).</div>

@@ -21,10 +21,10 @@
     let loading   = $state(false);
     let loadError = $state<string | null>(null);
     let filter    = $state('');
-    // legacy rows (only a <name>/connected topic — ESPHome & co. publish one too) are hidden by default
-    const LEGACY_KEY = 'she-services-show-legacy';
-    let showLegacy = $state(localStorage.getItem(LEGACY_KEY) === '1');
-    $effect(() => { localStorage.setItem(LEGACY_KEY, showLegacy ? '1' : '0'); });
+    // unmanaged rows (only a <name>/connected topic — ESPHome & co. publish one too) are hidden by default
+    const UNMANAGED_KEY = 'she-services-show-legacy'; // key kept: it holds the same preference
+    let showUnmanaged = $state(localStorage.getItem(UNMANAGED_KEY) === '1');
+    $effect(() => { localStorage.setItem(UNMANAGED_KEY, showUnmanaged ? '1' : '0'); });
     let busy      = $state(new Set<string>());
     let notice    = $state<string | null>(null);
     let now       = $state(Date.now());
@@ -107,9 +107,9 @@
         }
         return [...out.values()].sort((a, b) => a.instance.localeCompare(b.instance));
     });
-    let legacyCount = $derived(rows.filter(r => r.mqtt?.legacy && !r.unit).length);
+    let unmanagedCount = $derived(rows.filter(r => r.mqtt?.legacy && !r.unit).length);
     // what the table, the counters and the nav dot work on
-    let shown = $derived(showLegacy ? rows : rows.filter(r => !(r.mqtt?.legacy && !r.unit)));
+    let shown = $derived(showUnmanaged ? rows : rows.filter(r => !(r.mqtt?.legacy && !r.unit)));
 
     let visible = $derived.by(() => {
         const q = filter.trim().toLowerCase();
@@ -121,7 +121,6 @@
             (r.mqtt?.version ?? '').toLowerCase().includes(q),
         );
     });
-    let updateCount = $derived(mqttInstances.filter(i => i.updateAvailable).length);
     let hostProblems = $derived(hosts.filter(h => !h.ok && h.code !== 'UNSUPPORTED'));
 
     // Nav dot: worst case — any 0/unknown → err, any 1 → warn, all 2 → ok
@@ -287,11 +286,11 @@
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again">↺</button>
-            <span class="count">{visible.length}{#if filter} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}{#if updateCount > 0} · {updateCount} update{updateCount === 1 ? '' : 's'} available{/if}</span>
+            <span class="count">{visible.length}{#if filter} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}</span>
             <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
-                <input type="checkbox" bind:checked={showLegacy} />
+                <input type="checkbox" bind:checked={showUnmanaged} />
                 <span class="checkmark"></span>
-                show unmanaged ({legacyCount})
+                show unmanaged ({unmanagedCount})
             </label>
             <span class="spacer"></span>
             {#if notice}<span class="result">{notice}</span>{/if}
@@ -310,10 +309,10 @@
             <div class="info err">{loadError}</div>
         {:else if shown.length === 0}
             <div class="info">
-                No xyz2mqtt services seen{#if legacyCount > 0} — {legacyCount} legacy row{legacyCount === 1 ? '' : 's'} hidden (only a <code>&lt;name&gt;/connected</code> topic; tick <em>show unmanaged</em>){/if}. Adapters built on
+                No xyz2mqtt services seen{#if unmanagedCount > 0} — {unmanagedCount} unmanaged row{unmanagedCount === 1 ? '' : 's'} hidden (only a <code>&lt;name&gt;/connected</code> topic; tick <em>show unmanaged</em>){/if}. Adapters built on
                 <a href="https://github.com/hobbyquaker/mqtt-interfaces-core" target="_blank" rel="noopener">mqtt-interfaces-core</a>
-                publish a retained <code>&lt;name&gt;/info</code> and <code>&lt;name&gt;/connected</code>; older adapters with only
-                <code>&lt;name&gt;/connected</code> show up as <em>legacy</em>. Instances installed on a managed host appear even before they connect.
+                publish a retained <code>&lt;name&gt;/info</code> and <code>&lt;name&gt;/connected</code>; anything publishing just
+                <code>&lt;name&gt;/connected</code> — an ESPHome device, a script, a pre-core adapter — shows up as <em>unmanaged</em>. Instances installed on a managed host appear even before they connect.
             </div>
         {:else if visible.length === 0}
             <div class="info">No instances match.</div>
@@ -326,10 +325,10 @@
                             <th>Adapter</th>
                             <th>Host</th>
                             <th>State</th>
-                            <th>Uptime</th>
-                            <th class="num" title="resident memory — reported by the adapter (core 0.8+) or by systemd on the host">Mem</th>
-                            <th class="num" title="share of one core — reported by the adapter over its stats interval, or from systemd between two host listings">CPU</th>
-                            <th class="num" title="event loop lag — the peak the adapter measured over its stats interval (core 0.8+); no systemd fallback">EL lag</th>
+                            <th class="c-up">Uptime</th>
+                            <th class="num c-mem" title="resident memory — reported by the adapter (core 0.8+) or by systemd on the host">Mem</th>
+                            <th class="num c-cpu" title="share of one core — reported by the adapter over its stats interval, or from systemd between two host listings">CPU</th>
+                            <th class="num c-ell" title="event loop lag — the peak the adapter measured over its stats interval (core 0.8+); no systemd fallback">EL lag</th>
                             <th>Log level</th>
                             <th class="c-act"></th>
                         </tr>
@@ -341,20 +340,21 @@
                             <tr class:down={st.cls === 'err'} class:selected={detail?.key === r.key}>
                                 <td>
                                     <button class="dname dname-link" onclick={() => openDetail(r)} title={r.host && r.unit ? `Config, logs and info of ${r.instance}` : `Info of ${r.instance}`}>{r.instance}</button>
-                                    {#if r.mqtt?.legacy}<span class="badge b-legacy" title="No <name>/info topic — adapter not built on mqtt-interfaces-core">legacy</span>{/if}
+                                    {#if r.mqtt?.legacy && r.host}<span class="badge b-legacy" title="Only a <name>/connected topic and no <name>/info — version, uptime and stats stay unknown">no info</span>{/if}
                                     {#if r.legacy}<span class="badge b-upd" title="Runs as {r.unit?.adapter}.service (pre-core unit, env in /etc/default) — migrate it to a template instance">old unit</span>{/if}
                                     {#if !r.mqtt && r.unit}<span class="badge b-legacy" title="Installed on {r.host?.name} but nothing retained on MQTT yet">not on MQTT</span>{/if}
                                 </td>
                                 <td>
                                     {#if r.adapter}
                                         <span class="mono">{r.adapter}</span>
-                                        {#if r.mqtt?.version}<span class="muted"> @{r.mqtt.version}</span>{/if}
-                                        {#if r.mqtt?.updateAvailable}<span class="badge b-upd" title="npm has {r.mqtt.latestVersion} — update on the Installations tab">{r.mqtt.latestVersion}</span>{/if}
                                     {:else}<span class="muted">—</span>{/if}
                                 </td>
                                 <td>
                                     {r.mqtt?.host ?? r.host?.hostname ?? ''}
-                                    {#if r.host}<span class="badge b-host" title="managed via {r.host.name}: systemd {r.unit?.active}/{r.unit?.sub}, {r.unit?.unitFile}">{(r.host.hostname ?? r.host.name) === (r.mqtt?.host ?? r.host.hostname) ? 'managed' : (r.host.hostname ?? r.host.name)}</span>{/if}
+                                    <!-- managed is the normal case and stays unmarked; the pill calls out what she cannot act on -->
+                                    {#if r.host}
+                                        {#if (r.host.hostname ?? r.host.name) !== (r.mqtt?.host ?? r.host.hostname)}<span class="badge b-host" title="managed via {r.host.name}: systemd {r.unit?.active}/{r.unit?.sub}, {r.unit?.unitFile}">{r.host.hostname ?? r.host.name}</span>{/if}
+                                    {:else}<span class="badge b-unmanaged" title={r.mqtt?.legacy ? 'Only a <name>/connected topic — she sees it come and go, nothing more (ESPHome devices and the like publish one too)' : 'The host this runs on is not configured on the Hosts tab — no systemd control, no logs, no config from here'}>unmanaged</span>{/if}
                                     {#if r.mqtt?.pid}<span class="muted"> · pid {r.mqtt.pid}</span>{/if}
                                 </td>
                                 <td title={r.mqtt?.connectedLc ? 'since ' + fmtDate(r.mqtt.connectedLc) : ''}>
@@ -362,10 +362,10 @@
                                     {#if r.mqtt?.connected === 0 && r.mqtt.connectedLc}<span class="muted"> {fmtAge(r.mqtt.connectedLc)}</span>{/if}
                                     {#if r.unit && r.unit.unitFile === 'disabled'}<span class="muted"> · disabled</span>{/if}
                                 </td>
-                                <td>{fmtUptime(r)}</td>
-                                <td class="num" title={ps ? `adapter: rss ${fmtBytes(ps.rss)}${ps.heapUsed ? `, heap ${fmtBytes(ps.heapUsed)}` : ''}${ps.heapTotal ? ` of ${fmtBytes(ps.heapTotal)}` : ''} (${fmtAge(ps.receivedTs)})` : r.unit?.memory ? `systemd on ${r.host?.hostname ?? r.host?.name}: MemoryCurrent` : ''}>{ps ? fmtBytes(ps.rss) : r.unit?.memory ? fmtBytes(r.unit.memory) : '—'}</td>
-                                <td class="num" title={ps && ps.cpu !== undefined ? `adapter: ${ps.cpu} % of one core over its stats interval` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `systemd on ${r.host?.hostname ?? r.host?.name}: since the previous listing` : ''}>{ps && ps.cpu !== undefined ? `${ps.cpu} %` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `${r.unit.cpu} %` : '—'}</td>
-                                <td class="num" class:hot={(ps?.eventLoopLag ?? 0) >= 100} title={ps && ps.eventLoopLag !== undefined ? `adapter: peak event loop lag over its stats interval (${fmtAge(ps.receivedTs)})` : ''}>{ps && ps.eventLoopLag !== undefined ? `${ps.eventLoopLag} ms` : '—'}</td>
+                                <td class="c-up">{fmtUptime(r)}</td>
+                                <td class="num c-mem" title={ps ? `adapter: rss ${fmtBytes(ps.rss)}${ps.heapUsed ? `, heap ${fmtBytes(ps.heapUsed)}` : ''}${ps.heapTotal ? ` of ${fmtBytes(ps.heapTotal)}` : ''} (${fmtAge(ps.receivedTs)})` : r.unit?.memory ? `systemd on ${r.host?.hostname ?? r.host?.name}: MemoryCurrent` : ''}>{ps ? fmtBytes(ps.rss) : r.unit?.memory ? fmtBytes(r.unit.memory) : '—'}</td>
+                                <td class="num c-cpu" title={ps && ps.cpu !== undefined ? `adapter: ${ps.cpu} % of one core over its stats interval` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `systemd on ${r.host?.hostname ?? r.host?.name}: since the previous listing` : ''}>{ps && ps.cpu !== undefined ? `${ps.cpu} %` : r.unit?.cpu !== undefined && r.unit?.cpu !== null ? `${r.unit.cpu} %` : '—'}</td>
+                                <td class="num c-ell" class:hot={(ps?.eventLoopLag ?? 0) >= 100} title={ps && ps.eventLoopLag !== undefined ? `adapter: peak event loop lag over its stats interval (${fmtAge(ps.receivedTs)})` : ''}>{ps && ps.eventLoopLag !== undefined ? `${ps.eventLoopLag} ms` : '—'}</td>
                                 <td>
                                     {#if canMaintain(r)}
                                         <select class="lvl" disabled={busy.has(r.key)} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; if (v) { loglevel(r, v); (e.target as HTMLSelectElement).value = ''; } }}>
@@ -497,6 +497,7 @@
     .b-legacy { background: rgba(127,140,141,0.2); color: var(--fg-muted); }
     .b-upd { background: rgba(241,196,15,0.18); color: #d4ac0d; }
     .b-host { background: rgba(86,156,214,0.15); color: var(--accent); }
+    .b-unmanaged { background: rgba(127,140,141,0.2); color: var(--fg-muted); }
 
     .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--fg-muted); vertical-align: middle; }
     .dot.ok { background: #27ae60; }
@@ -509,6 +510,11 @@
     }
 
     th.num, td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    /* values that tick (uptime, mem, cpu, lag) get a fixed width so the table stops reflowing on every stats update */
+    .c-up { width: 74px; }
+    .c-mem { width: 74px; }
+    .c-cpu { width: 62px; }
+    .c-ell { width: 74px; }
     /* event loop lag past 100 ms — the adapter's loop was blocked that long */
     td.num.hot { color: #d4ac0d; }
 </style>
