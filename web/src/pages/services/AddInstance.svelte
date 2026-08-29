@@ -188,31 +188,45 @@
             {/if}
 
             {#if adapter}
-                <div class="step">
-                    <label for="add-name">Instance name</label>
-                    <input id="add-name" type="text" bind:value={instance} spellcheck="false" placeholder="topic prefix, e.g. cul" oninput={() => (nameTouched = true)} />
-                    <span class="muted">
-                        systemd unit <span class="mono">{adapter}@{instance || '…'}</span>, topics <span class="mono">{instance || '…'}/#</span>
-                        {#if instance && !nameOk}<span class="err"> — {existing.includes(instance) ? 'already exists on this host' : 'letters, digits, _ . - only'}</span>{/if}
-                    </span>
-                    {#if picked?.name && !nameTouched && instance === picked.suggestName}
-                        <span class="muted">from the device name <em>{picked.name}</em></span>
-                    {/if}
-                </div>
-
                 {#if loadingSchema}
                     <div class="loading"><span class="spinner"></span> Reading <span class="mono">{adapter} --config-schema</span> on {host?.hostname ?? hostName}…</div>
                 {:else if schemaErr}
                     <div class="err-box">{schemaErr}</div>
                 {:else if schema}
+                    <!-- scanning comes first: the picked device fills in the option the adapter marked
+                         and suggests the instance name, so it is the start of the form, not a detail in it -->
                     {#if discover}
-                        <div class="step">
-                            <label for="add-scan">Find the device</label>
-                            <div id="add-scan">
-                                <DeviceScan host={hostName} {adapter} kinds={discover.kinds} property={discover.key} selected={pickedValue} onpick={pickDevice} />
+                        <section class="discover" aria-labelledby="add-scan-h">
+                            <div class="d-head">
+                                <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                                    <circle cx="8" cy="8" r="1.6" />
+                                    <path d="M4.8 11.2a4.5 4.5 0 0 1 0-6.4M11.2 4.8a4.5 4.5 0 0 1 0 6.4" />
+                                    <path d="M2.6 13.4a7.6 7.6 0 0 1 0-10.8M13.4 2.6a7.6 7.6 0 0 1 0 10.8" />
+                                </svg>
+                                <div>
+                                    <strong id="add-scan-h">Find the device</strong>
+                                    <div class="muted">
+                                        {adapter} can look for its {discover.kinds.includes('network') ? 'device on the network' : 'stick'} from
+                                        {host?.hostname ?? hostName} — pick what answers and <span class="mono">{discover.key}</span> is filled in for you.
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                            <DeviceScan host={hostName} {adapter} kinds={discover.kinds} property={discover.key} selected={pickedValue} onpick={pickDevice} />
+                        </section>
                     {/if}
+
+                    <div class="step">
+                        <label for="add-name">Instance name</label>
+                        <input id="add-name" type="text" bind:value={instance} spellcheck="false" placeholder="topic prefix, e.g. cul" oninput={() => (nameTouched = true)} />
+                        <span class="muted">
+                            systemd unit <span class="mono">{adapter}@{instance || '…'}</span>, topics <span class="mono">{instance || '…'}/#</span>
+                            {#if instance && !nameOk}<span class="err"> — {existing.includes(instance) ? 'already exists on this host' : 'letters, digits, _ . - only'}</span>{/if}
+                        </span>
+                        {#if picked?.name && !nameTouched && instance === picked.suggestName}
+                            <span class="muted">from the device name <em>{picked.name}</em></span>
+                        {/if}
+                    </div>
+
                     <SchemaForm {schema} bind:env {secrets} mode="install" {sheBroker} dynsec={dynsec ? { ...dynsec, client: 'svc-' + (instance || '<instance>') } : null} bind:brokerMode />
                     <div class="actions">
                         <button onclick={install} disabled={installing || !nameOk || missingRequired.length > 0}>
@@ -234,6 +248,16 @@
     .step.fixed { flex-direction: row; gap: 24px; }
     .step.fixed .lbl { font-weight: 600; margin-right: 4px; }
     .muted { color: var(--fg-muted); font-size: 11px; }
+    /* the discovery panel leads the form, so it is a card rather than another labelled row */
+    .discover {
+        display: flex; flex-direction: column; gap: 10px;
+        border: 1px solid rgba(86,156,214,0.45); background: rgba(86,156,214,0.07);
+        border-radius: 5px; padding: 10px 12px;
+    }
+    .d-head { display: flex; align-items: flex-start; gap: 9px; }
+    .d-head svg { color: var(--accent); flex-shrink: 0; margin-top: 1px; }
+    .d-head strong { font-size: 13px; }
+    .d-head .muted { display: block; margin-top: 2px; line-height: 1.45; }
     .muted code { color: var(--accent); }
     .err { color: #e74c3c; }
     .mono { font-family: var(--font-mono, monospace); }

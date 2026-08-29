@@ -105,8 +105,19 @@
 
 <div class="scan">
     <div class="bar">
-        <button class="ghost" onclick={scan} disabled={scanning || !host || !adapter}>
-            {#if scanning}<span class="spinner"></span> Scanning…{:else}{scanned ? 'Scan again' : network ? 'Scan network' : 'Scan for devices'}{/if}
+        <!-- before the first scan the button is the point of the whole panel, so it is the primary
+             action here; once something answered it steps back to a ghost "Scan again" -->
+        <button class={scanned ? 'ghost' : 'go'} onclick={scan} disabled={scanning || !host || !adapter}>
+            {#if scanning}
+                <span class="spinner"></span> Scanning…
+            {:else}
+                {#if !scanned}
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                        <circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>
+                    </svg>
+                {/if}
+                {scanned ? 'Scan again' : network ? 'Scan the network for devices' : 'Scan for devices'}
+            {/if}
         </button>
         <span class="muted">
             {#if scanning}
@@ -190,6 +201,13 @@
     .mono { font-family: var(--font-mono, monospace); }
     .empty { line-height: 1.5; }
 
+    button.go {
+        background: var(--accent); border: 1px solid var(--accent); color: #fff;
+        padding: 5px 14px; font-size: 12.5px; font-weight: 600; border-radius: 3px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 6px;
+    }
+    button.go:hover:not(:disabled) { filter: brightness(1.1); }
+    button.go:disabled { opacity: 0.5; cursor: default; }
     button.ghost { background: none; border: 1px solid var(--border); color: var(--fg-muted); padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
     button.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     button.ghost:disabled { opacity: 0.5; cursor: default; }
