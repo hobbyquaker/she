@@ -4,7 +4,8 @@
     import { onMount, onDestroy } from 'svelte';
     import {
         getConfig, putConfig, getServiceHosts, testServicesSsh, testServiceHost, getServicesSshPubkey, generateServicesSshKey,
-        createServicesSetupCommand, getServicesSetupState, getDaemonStatus, type ServiceHost, type SetupCommand,
+        createServicesSetupCommand, getServicesSetupState, getDaemonStatus, deployServiceHelper,
+        type ServiceHost, type SetupCommand, type HelperDeployResult,
     } from '../../lib/api.js';
     import RemoveHelper from './RemoveHelper.svelte';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
@@ -28,6 +29,26 @@
     let removeOpen = $state<number | null>(null);
     let testResult = $state<Record<string, { ok: boolean; msg: string }>>({});
     let testing = $state<string | null>(null);
+
+    // the helper she ships is newer than the one on the host — same action as on the
+    // Installations tab, offered where the host and its helper version are shown
+    let helperBusy = $state<string | null>(null);
+    let helperResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
+    async function updateHelper(hostName: string) {
+        helperBusy = hostName;
+        try {
+            const r = await deployServiceHelper(hostName);
+            helperResult = { ...helperResult, [hostName]: r };
+            if (r.ok) {
+                status = (await getServiceHosts(true)).hosts;
+                onchanged?.();
+            }
+        } catch (e: any) {
+            helperResult = { ...helperResult, [hostName]: { error: e.message ?? String(e) } };
+        } finally {
+            helperBusy = null;
+        }
+    }
 
     // ssh key
     let pubkey = $state<string | null>(null);
@@ -245,6 +266,37 @@
     {/if}
 {/snippet}
 
+<!-- helper version, and the update when she ships a newer one (same action as the Installations tab) -->
+{#snippet helper(name: string, st: ServiceHost)}
+    <span class="muted">helper v{st.helper}{#if st.helperOutdated} <span class="warn">— outdated</span>{/if}</span>
+    {#if st.helperOutdated}
+        <button
+            class="ghost sm"
+            onclick={() => updateHelper(name)}
+            disabled={helperBusy !== null}
+            title="she ships a newer she-servicectl — replace it (the helper updates itself through the sudo rule it already has)"
+        >{helperBusy === name ? 'Updating…' : 'Update helper'}</button>
+    {/if}
+{/snippet}
+
+{#snippet helperBox(name: string)}
+    {#if helperResult[name]}
+        {@const d = helperResult[name]}
+        <div class="deploy-box in-card" class:deploy-ok={'ok' in d && d.ok}>
+            {#if 'error' in d && d.error && !('ok' in d)}
+                {d.error}
+            {:else if 'ok' in d && d.ok}
+                Helper v{d.helper} {d.method === 'self-update' ? 'updated' : 'installed'} on {name}.
+            {:else if 'ok' in d}
+                {#if d.installed}Helper installed, but <span class="mono">sudo</span> does not allow it for <span class="mono">{d.user}</span> yet.{:else}Helper uploaded to the SSH user's home; installing it needs root.{/if}
+                Run on the host as an admin:
+                <pre class="mono">{(d.instructions ?? []).join('\n')}</pre>
+                {#if d.error}<div class="muted">{d.error}</div>{/if}
+            {/if}
+        </div>
+    {/if}
+{/snippet}
+
 <div class="hc">
     {#if view === 'add'}
         <div class="sheet-head">
@@ -312,7 +364,7 @@
                     <span class="name">{localStatus?.hostname ?? 'this host'}</span>
                     <span class="muted">the she host itself, via <span class="mono">she-servicectl</span> (installed by <span class="mono">sudo she --install</span>)</span>
                     <span class="spacer"></span>
-                    {#if local && localStatus?.ok}<span class="muted">helper v{localStatus.helper}</span>{/if}
+                    {#if local && localStatus?.ok}{@render helper('local', localStatus)}{/if}
                     {#if local}<button class="ghost sm" onclick={testLocal} disabled={testing !== null}>Test</button>{@render mark('local')}{/if}
                     <label class="chk" title="Untick when she runs in Docker or must not touch this host's adapters">
                         <input type="checkbox" bind:checked={local} />
@@ -320,6 +372,7 @@
                         manage adapters here
                     </label>
                 </div>
+                {#if local}{@render helperBox('local')}{/if}
                 {#if local && localStatus && !localStatus.ok}<div class="err-box in-card">{localStatus.error}{#if localStatus.code === 'HELPER_MISSING'} — run <span class="mono">sudo she --install</span>{/if}</div>{/if}
             </div>
 
@@ -332,12 +385,13 @@
                         <span class="muted mono">{r.user || daemonUser || '?'}@{r.host}{r.port ? `:${r.port}` : ''}</span>
                         {#if r.identityFile}<span class="muted" title={r.identityFile}>own key</span>{/if}
                         <span class="spacer"></span>
-                        {#if st?.ok}<span class="muted">helper v{st.helper}{#if st.helperOutdated} <span class="warn">— outdated</span>{/if}</span>{/if}
+                        {#if st?.ok}{@render helper(r.host, st)}{/if}
                         <button class="ghost sm" onclick={() => test(r)} disabled={testing !== null || !r.host.trim()}>Test</button>{@render mark(r.host)}
                         <button class="ghost sm" class:active={editing === i} onclick={() => (editing = editing === i ? null : i)}>Edit</button>
                         <button class="ghost sm" class:active={removeOpen === i} onclick={() => (removeOpen = removeOpen === i ? null : i)} title="Remove she from the host: only its SSH key, or everything the setup command created">Remove from host…</button>
                         <button class="ghost sm" onclick={() => dropFromList(i)} title="Remove from the list (nothing on the host changes)">×</button>
                     </div>
+                    {@render helperBox(r.host)}
                     {#if st && !st.ok}<div class="err-box in-card">{st.error}</div>{/if}
                     {#if editing === i}
                         <div class="grid edit">
@@ -377,6 +431,9 @@
 </div>
 
 <style>
+    .deploy-box { background: rgba(230,126,34,0.10); border: 1px solid rgba(230,126,34,0.35); border-radius: 3px; padding: 6px 10px; font-size: 12px; }
+    .deploy-box.deploy-ok { background: rgba(39,174,96,0.12); border-color: rgba(39,174,96,0.35); }
+    .deploy-box pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; }
     .hc { flex: 1; display: flex; flex-direction: column; overflow: hidden; font-size: 12px; color: var(--fg); }
     .bar, .sheet-head { display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .content { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
