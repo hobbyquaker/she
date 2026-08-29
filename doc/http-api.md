@@ -529,6 +529,7 @@ Every configured host (`services.hosts`, default the she host as `local`) with t
 | Method | Path | Body / query | Result |
 | --- | --- | --- | --- |
 | GET | `/she/services/hosts/:host/adapters/:adapter/schema` | `?refresh=1` | `{ schema, secrets, envPrefix, sheBroker, dynsec: { available } }` — the adapter's `--config-schema` (cached 10 min), the env variable names to mask, she's broker settings as the host would need them (`{ url, username, hasPassword }`), whether dynsec identities can be created |
+| POST | `/she/services/hosts/:host/adapters/:adapter/discover` | `{ timeout?: 1-120, address?: "10.0.1.5" \| "10.0.1.0/24" \| [...] }` | scan for devices with the adapter's own `--discover --discover-json` **on that host** (helper v11) — see [below](#device-discovery); **400** `{ code: "NO_DISCOVERY" }` unless the schema marks a property with `x-discover` |
 | POST | `/she/services/hosts/:host/adapters/:adapter/install` | `{ instance, env: { "<ADAPTER>_X": "…" }, brokerMode?, acl? }` | `<adapter> --install --name <instance>` with the options as environment; `brokerMode` `own` (default) \| `she` (she's broker URL/username/password + `SHE_USE_BROKER=1`) \| `dynsec` (creates client + role `svc-<instance>`, default or given `acl`, writes the credentials + `SHE_DYNSEC_CLIENT`); `{ ok, output }` |
 | POST | `/she/services/hosts/:host/adapters/:adapter/update` | `{ force? }` | `npm install -g <adapter>@latest`, then restarts the adapter's active instances; **409** `{ code: "MANUAL_DEPLOY" }` for manually deployed adapters unless `force` |
 | POST | `/she/services/hosts/:host/adapters/:adapter/uninstall` | | every instance of the adapter (`--uninstall` + dynsec identity), then `npm uninstall -g`, the template unit, `/etc/<adapter>`, `/var/lib/<adapter>`; `{ ok, removedInstances, output }`; **409** `LEGACY` while a pre-core `<adapter>.service` exists |
@@ -543,6 +544,44 @@ Every configured host (`services.hosts`, default the she host as `local`) with t
 | GET | `/she/services/hosts/:host/units/:adapter/:instance/files` | | `{ options: [{ key, envName, path, managed, editable, declared, format, example, schema, describe, exists }], files: [{ path, kind, size, mtime, format, editable }], dirs }` — file options (`x-file` or guessed) and the listing of `/etc/<adapter>/` + `/var/lib/<adapter>/<instance>/` |
 | GET / PUT | `/she/services/hosts/:host/units/:adapter/:instance/file` | `?path=` · `{ path, content, restart? }` | read / write a file inside those two directories (**400** elsewhere, for `..`, or for the env file); write keeps a `.bak`; max 2 MB |
 | POST | `/she/services/hosts/:host/units/:adapter/:instance/file/create` | `{ option, path? }` | create the option's file (from the adapter's example when it ships one, else empty) at `path` or `/etc/<adapter>/<instance>.<option>.<ext>`, and set the option to it |
+
+
+#### Device discovery
+
+`POST /she/services/hosts/:host/adapters/:adapter/discover` runs the scan where the devices are: broadcast, multicast, ARP and `/dev/serial` only reach the network and the usb bus of the machine running it, which is the adapter's host, not necessarily she's. The adapter owns the protocols (mqtt-interfaces-core 0.9 discovery hints); she shapes the answer.
+
+```json
+{
+  "property": "address",
+  "envName": "WIIM2MQTT_ADDRESS",
+  "kinds": ["network"],
+  "devices": [
+    {
+      "value": "kueche.lan",
+      "address": "10.0.1.5",
+      "fqdn": "kueche.lan",
+      "name": "Küche",
+      "model": "WiiM Pro Plus",
+      "sources": ["ssdp"],
+      "services": { "upnp": true },
+      "suggestName": "kueche",
+      "usedBy": null
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `property` / `envName` | the schema property marked `x-discover` and its environment variable — where `value` belongs |
+| `kinds` | `network`, `serial`, or both: what the adapter's hint scans for |
+| `value` | the identity of the result and the default to configure: the qualified DNS name when the device has one (it outlives a DHCP lease), the address otherwise; for a serial scan the stable `/dev/serial/by-id/…` path, which survives a replug where `/dev/ttyACM0` may not |
+| `address` / `fqdn` / `hostname` | the forms the device answers to; `fqdn` and `hostname` only when they round-trip (reverse the address, resolve the name back, find the address among the answers) as checked on the host that ran the scan. The UI offers them as `IP` / `host` / `FQDN`; the short name resolves through the search list of whoever asks, so it is offered but never preselected |
+| `name` | the name the *user* gave the device (UPnP `friendlyName`, Chromecast label); `model`/`type` say what it is |
+| `suggestName` | a free instance name derived from `name` (slugged: *"Küche Oben"* → `kueche-oben`), unique against every instance she knows of — an instance name is an MQTT topic prefix — falling back to the schema's `name` default |
+| `usedBy` | the instance on that host already configured with this device, matched against every identifier it answers to (by-id path *and* device node, name *and* address) |
+
+Everything a device sent is untrusted: strings are capped and stripped of control characters, service values coerced to booleans, unknown fields dropped, at most 50 devices.
 | GET | `/she/services/hosts/:host/adapters/:adapter/asset` | `?path=` | a file shipped in the adapter package (example, JSON schema); relative path, no `..` |
 | GET | `/she/services/catalog` | `?refresh=1` | `{ packages: [{ name, version, coreRange, publisher, description, homepage, repository, mqttInterfaces, maintainers, published }], publishers, errors, fetchedAt, cached, stale? }` — the trusted publishers' npm packages whose latest version depends on `mqtt-interfaces-core` (registry search + packuments, cached 24 h) — answered from the cache (memory + `<data-dir>/services/catalog.json`) at once; `refreshing: true` = a sweep runs in the background (ask again), `fetchedAt`, `stale` when the last sweep failed; the daemon sweeps once a day |
 | POST | `/she/services/hosts/:host/adapters/:adapter/install-package` | | `npm install -g <adapter>@latest` on the host; **403** `{ code: "NOT_IN_CATALOG" }` for anything that is not a catalog member |
