@@ -61,34 +61,36 @@
         overflow: hidden;
     }
 
-    /* same look as the Broker page's sub-tabs */
+    /* same look as the DB page's Documents / Views panel tabs */
     .sub-nav {
         display: flex;
-        gap: 2px;
-        padding: 6px 10px 0;
-        border-bottom: 1px solid var(--border, #333);
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-bottom: 1px solid var(--border-sub, var(--border));
         flex-shrink: 0;
     }
 
     .sub-nav button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         background: none;
-        border: none;
-        border-bottom: 2px solid transparent;
-        color: var(--text-muted, #888);
-        cursor: pointer;
+        border: 1px solid var(--border);
+        color: var(--fg);
+        padding: 3px 12px;
+        border-radius: 4px;
         font-size: 13px;
-        padding: 5px 12px 6px;
-        margin-bottom: -1px;
+        cursor: pointer;
     }
-
-    .sub-nav button { display: inline-flex; align-items: center; gap: 6px; }
-    /* same yellow as the main nav's update dots */
-    .tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #f90; flex-shrink: 0; }
 
     .sub-nav button.active {
-        color: var(--text, #eee);
-        border-bottom-color: var(--accent, #569cd6);
+        background: var(--bg-active);
+        color: var(--fg-text);
     }
+
+    /* same yellow as the main nav's update dots */
+    .tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #f90; flex-shrink: 0; }
 
     .tab-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
     .tab-wrap.hidden { display: none; }

@@ -614,6 +614,7 @@
         color: var(--fg);
         padding: 3px 12px;
         border-radius: 4px;
+        font-size: 13px;
         cursor: pointer;
     }
 

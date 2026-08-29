@@ -1103,6 +1103,7 @@
         color: var(--fg);
         padding: 3px 12px;
         border-radius: 4px;
+        font-size: 13px; /* the page-wide button rule is 12px — these follow the DB / Adapters tabs instead */
         cursor: pointer;
     }
     .vt.active {
