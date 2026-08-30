@@ -20,6 +20,7 @@ const path = require('path');
 
 const CORE = 'mqtt-interfaces-core';
 const REGISTRY = 'https://registry.npmjs.org';
+const GITHUB_API = 'https://api.github.com';
 const TTL = 24 * 60 * 60 * 1000;
 
 let _fetch = (...args) => fetch(...args);
@@ -101,6 +102,33 @@ async function details(name, version) {
     };
 }
 
+/** owner/repo of a GitHub repository URL, or null for anything else (GitLab, a tarball, …). */
+function githubSlug(repository) {
+    if (typeof repository !== 'string') return null;
+    const m = repository.match(/github\.com[/:]([^/]+)\/([^/#?]+)/i);
+    return m ? { owner: m[1], repo: m[2].replace(/\.git$/, '') } : null;
+}
+
+/**
+ * Stars and the owner's profile for a package's GitHub repository. One unauthenticated API
+ * call per adapter, and only during the daily sweep — best effort: a rate limit or a moved
+ * repository simply leaves the star count out, it never fails the catalog.
+ */
+async function githubInfo(repository) {
+    const slug = githubSlug(repository);
+    if (!slug) return { stars: null, owner: null, ownerUrl: null };
+    try {
+        const data = await getJson(`${GITHUB_API}/repos/${slug.owner}/${slug.repo}`, { accept: 'application/vnd.github+json' });
+        return {
+            stars: typeof data.stargazers_count === 'number' ? data.stargazers_count : null,
+            owner: (data.owner && data.owner.login) || slug.owner,
+            ownerUrl: (data.owner && data.owner.html_url) || `https://github.com/${slug.owner}`,
+        };
+    } catch {
+        return { stars: null, owner: slug.owner, ownerUrl: `https://github.com/${slug.owner}` };
+    }
+}
+
 /**
  * Sweep the registry for the trusted publishers' adapters.
  * @param {string[]} publishers
@@ -124,7 +152,8 @@ async function sweep(publishers, now) {
                 if (!dep) continue;
                 const d = await details(p.name, dep.version);
                 if (d.deprecated) continue;
-                seen.set(p.name, { name: p.name, version: dep.version, coreRange: dep.range, publisher, ...d });
+                const gh = await githubInfo(d.repository);
+                seen.set(p.name, { name: p.name, version: dep.version, coreRange: dep.range, publisher, ...d, ...gh });
             } catch (err) {
                 errors.push({ package: p.name, error: err.message });
             }
@@ -187,4 +216,21 @@ function refreshing() {
     return Boolean(_cache && _cache.promise);
 }
 
-module.exports = { catalog, sweep, packagesOf, coreDependency, details, validPublisher, setFetch, clearCache, init, refreshing, CORE, REGISTRY, TTL };
+module.exports = {
+    catalog,
+    sweep,
+    packagesOf,
+    coreDependency,
+    details,
+    githubInfo,
+    githubSlug,
+    validPublisher,
+    setFetch,
+    clearCache,
+    init,
+    refreshing,
+    CORE,
+    REGISTRY,
+    GITHUB_API,
+    TTL,
+};

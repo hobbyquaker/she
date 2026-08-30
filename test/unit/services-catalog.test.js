@@ -11,6 +11,10 @@ function registry(state) {
         const accept = (opts && opts.headers && opts.headers.accept) || '';
         const u = new URL(url);
         const ok = (body) => ({ ok: true, status: 200, json: async () => body });
+        if (u.host === 'api.github.com') {
+            const repo = state.github && state.github[u.pathname];
+            return repo ? ok(repo) : { ok: false, status: 404 };
+        }
         if (u.pathname === '/-/v1/search') {
             const m = /^maintainer:(.+)$/.exec(u.searchParams.get('text') || '');
             const list = (m && state.search[m[1]]) || null;
@@ -34,6 +38,7 @@ function registry(state) {
 }
 
 const STATE = {
+    github: { '/repos/hobbyquaker/cul2mqtt': { stargazers_count: 42, owner: { login: 'hobbyquaker', html_url: 'https://github.com/hobbyquaker' } } },
     search: { hobbyquaker: ['cul2mqtt', 'lgtv2mqtt', 'hm2mqtt', 'mqtt-interfaces-core', 'old2mqtt'], someone: ['foo2mqtt'] },
     packages: {
         cul2mqtt: {
@@ -54,6 +59,21 @@ const STATE = {
 beforeEach(() => catalog.init({ file: null }));
 
 describe('services-catalog', () => {
+    test('a package without a GitHub repository, or one GitHub does not answer for, still lists', async () => {
+        catalog.setFetch(registry(STATE));
+        const r = await catalog.catalog(['hobbyquaker'], { now: 1000 });
+        // lgtv2mqtt has no repository field at all
+        expect(r.packages[1]).toMatchObject({ name: 'lgtv2mqtt', stars: null, owner: null, ownerUrl: null });
+        expect(r.errors).toEqual([]);
+    });
+
+    test('githubSlug reads owner and repo out of the usual repository urls', () => {
+        expect(catalog.githubSlug('https://github.com/hobbyquaker/cul2mqtt')).toEqual({ owner: 'hobbyquaker', repo: 'cul2mqtt' });
+        expect(catalog.githubSlug('git+ssh://git@github.com/a/b.git')).toEqual({ owner: 'a', repo: 'b' });
+        expect(catalog.githubSlug('https://gitlab.com/a/b')).toBeNull();
+        expect(catalog.githubSlug(null)).toBeNull();
+    });
+
     test("members = trusted publishers' packages whose latest depends on the core; deprecated skipped", async () => {
         catalog.setFetch(registry(STATE));
         const r = await catalog.catalog(['hobbyquaker'], { now: 1000 });
@@ -63,6 +83,9 @@ describe('services-catalog', () => {
             version: '1.1.2',
             coreRange: '^0.6.0',
             publisher: 'hobbyquaker',
+            stars: 42,
+            owner: 'hobbyquaker',
+            ownerUrl: 'https://github.com/hobbyquaker',
             description: 'CUL',
             homepage: 'https://github.com/hobbyquaker/cul2mqtt',
             repository: 'https://github.com/hobbyquaker/cul2mqtt',

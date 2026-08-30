@@ -1636,6 +1636,10 @@ export interface CatalogPackage {
     mqttInterfaces: { spec?: string; envPrefix?: string; needs?: string[]; serviceExtra?: string[] } | null;
     maintainers: string[];
     published: string | null;
+    /** GitHub, when the repository is there: star count and the owner's profile */
+    stars: number | null;
+    owner: string | null;
+    ownerUrl: string | null;
 }
 
 export interface Catalog {
