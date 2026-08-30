@@ -47,8 +47,13 @@
 
     // cards sorted by the label they show (hostname, falling back to the configured name)
     let sortedHosts = $derived(
-        [...hosts].sort((a, b) => (a.hostname ?? a.name).localeCompare(b.hostname ?? b.name, undefined, { numeric: true, sensitivity: 'base' })),
+        [...hosts]
+            .sort((a, b) => (a.hostname ?? a.name).localeCompare(b.hostname ?? b.name, undefined, { numeric: true, sensitivity: 'base' }))
+            // a reachable host with nothing installed has nothing to show here; one she cannot
+            // reach keeps its card, because that card is where the error is explained
+            .filter((h) => !h.ok || (h.adapters ?? []).length > 0 || (h.legacy ?? []).length > 0),
     );
+    let emptyHosts = $derived(hosts.length - sortedHosts.length);
 
     // adapter updates waiting on any host — drives the yellow dot on the Installations sub-tab
     let updateCount = $derived(hosts.reduce((n, h) => n + (h.adapters ?? []).filter(a => a.updateAvailable).length, 0));
@@ -176,7 +181,9 @@
                 {updateAllBusy ? 'Updating…' : `Update all (${pending.length})`}
             </button>
         {/if}
-        <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — managed on the Hosts tab</span>
+        <span class="muted">
+            {hosts.length} host{hosts.length === 1 ? '' : 's'} — managed on the Hosts tab{#if emptyHosts > 0}, {emptyHosts} without adapters not shown{/if}
+        </span>
         <span class="spacer"></span>
         {#if updateAllBusy && updateAllAt}<span class="muted">{updateAllAt}</span>{/if}
         {#if notice}<span class="muted">{notice}</span>{/if}
