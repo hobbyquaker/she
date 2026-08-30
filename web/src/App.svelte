@@ -20,15 +20,21 @@
     const RENAMED: Record<string, Page> = { services: 'adapters', security: 'broker' };
 
     /**
-     * The hash is `#/<page>[/<sub-tab>]` — the leading slash is cosmetic, the sub-tab is
-     * whatever the page's own sub-navigation is showing. `#page` from an old bookmark
-     * (and `#services` / `#security`, the pages' old names) still resolves.
+     * The hash is `#/<page>[/<sub>]` — the leading slash is cosmetic, the sub is whatever the
+     * page reports: the tab its sub-navigation is showing, or, on Scripts, the path of the file
+     * in the editor (`#/scripts/network/speedtest.js`), which is why everything after the page
+     * belongs to it. `#page` from an old bookmark (and `#services` / `#security`, the pages'
+     * old names) still resolves.
      */
     function routeFromHash(): { page: Page; sub: string | null } {
         const raw = location.hash.replace(/^#\/?/, '');
-        const [rawPage, rawSub] = raw.split('/');
+        const [rawPage, ...rest] = raw.split('/');
         const p = (RENAMED[rawPage] ?? rawPage) as Page;
-        return { page: validPages.includes(p) ? p : 'scripts', sub: rawSub || null };
+        // an unknown page falls back to Scripts, and its sub goes with it — it named something
+        // on a page that does not exist
+        if (!validPages.includes(p)) return { page: 'scripts', sub: null };
+        const sub = rest.map((seg) => { try { return decodeURIComponent(seg); } catch { return seg; } }).join('/');
+        return { page: p, sub: sub || null };
     }
 
     let page = $state<Page>(routeFromHash().page);
@@ -216,7 +222,8 @@
     }
 
     function hashFor(p: Page, s: string | null) {
-        return `#/${p}${s ? '/' + s : ''}`;
+        const sub = s ? s.split('/').map(encodeURIComponent).join('/') : '';
+        return `#/${p}${sub ? '/' + sub : ''}`;
     }
 
     /**
@@ -224,9 +231,10 @@
      * of adding one: switching a sub-tab is not a separate step to go back through.
      */
     function setSub(p: Page, s: string) {
-        if (page !== p || sub === s) return;
-        sub = s;
-        history.replaceState(null, '', hashFor(p, s));
+        const next = s || null; // Scripts reports '' when no file is open
+        if (page !== p || sub === next) return;
+        sub = next;
+        history.replaceState(null, '', hashFor(p, next));
     }
 
     onMount(async () => {
@@ -584,7 +592,7 @@
 
     <main>
         <ConfirmDialog bind:this={dialog} />
-        <div class="page-wrap" class:hidden={page !== 'scripts'}><Scripts active={page === 'scripts'} /></div>
+        <div class="page-wrap" class:hidden={page !== 'scripts'}><Scripts active={page === 'scripts'} sub={page === 'scripts' ? sub : null} onsub={(s) => setSub('scripts', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT active={page === 'mqtt'} sub={page === 'mqtt' ? sub : null} onsub={(s) => setSub('mqtt', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>

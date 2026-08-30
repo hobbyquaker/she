@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, onDestroy, tick } from 'svelte';
+    import { onMount, onDestroy, tick, untrack } from 'svelte';
     import * as monaco from 'monaco-editor';
     import { resolveMonacoTheme } from '../lib/theme.js';
     import {
@@ -341,7 +341,32 @@
     const LOG_KEY    = 'she-log-open';
     const CHAT_KEY   = 'she-chat-open';
 
-    let { active = true }: { active?: boolean } = $props();
+    let {
+        active = true,
+        sub = null,
+        onsub,
+    }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
+
+    // ── URL: #/scripts/<path of the file in the editor> ────────────────────────
+    // The address bar names the open script, and a link to one opens it. Same shape as the
+    // sub-tab routing of the other pages, but the sub is a whole path here.
+    let routeReady = $state(false); // the restore in onMount decides the first path, not an effect
+    let seenSub: string | null | undefined = undefined;
+    $effect(() => {
+        const want = sub;
+        if (!routeReady || want === seenSub) return;
+        seenSub = want;
+        // a deep link, the back button, an edited address: open what the url names
+        if (want && want !== untrack(() => activeTab)) untrack(() => { openTab(want); });
+    });
+    // ...and the other way round: whatever ends up in the editor names itself in the url
+    $effect(() => {
+        const path = activeTab;
+        if (!routeReady || !active) return;
+        seenSub = path ?? '';
+        onsub?.(path ?? '');
+    });
+
 
     $effect(() => {
         if (!_mounted) return;
@@ -547,10 +572,15 @@ declare const she: {
         for (const p of savedPaths) {
             await openTabInternal(p, false);
         }
+        // a url naming a script wins over the tab that was open last
+        const deepLink = sub;
         const restoreActive = savedActive && tabs.some(t => t.path === savedActive)
             ? savedActive : (tabs[0]?.path ?? null);
-        if (restoreActive) await switchTab(restoreActive);
+        if (deepLink) await openTabInternal(deepLink, true);
+        else if (restoreActive) await switchTab(restoreActive);
+        seenSub = deepLink;
         _mounted = true;
+        routeReady = true;
 
         // Keep all Monaco editors in sync with the app theme
         const syncMonacoTheme = () => monaco.editor.setTheme(resolveMonacoTheme());
