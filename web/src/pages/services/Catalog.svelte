@@ -233,7 +233,7 @@
     .badge + .badge { margin-left: 4px; }
     .badge.n-cloud { background: rgba(86,156,214,0.18); color: #569cd6; }
     .badge.n-bluetooth { background: rgba(155,89,182,0.18); color: #9b59b6; }
-    .badge.n-serial, .badge.n-usb { background: rgba(127,140,141,0.22); color: var(--fg-muted); }
+    .badge.n-serial, .badge.n-usb { background: rgba(212,172,13,0.18); color: #d4ac0d; }
     .stars {
         display: inline-flex; align-items: center; gap: 3px;
         color: #d4ac0d; font-size: 11px; text-decoration: none; white-space: nowrap;
