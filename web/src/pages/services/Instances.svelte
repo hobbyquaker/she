@@ -531,30 +531,30 @@
                                 <td class="c-act">
                                     <span class="acts">
                                         {#if r.host && r.unit}
-                                            <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>{@render icon('config')}Config / Logs</button>
+                                            <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>{@render icon('config')}<span class="lbl">Config / Logs</span></button>
                                         {:else}
-                                            <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>{@render icon('info')}Info</button>
+                                            <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>{@render icon('info')}<span class="lbl">Info</span></button>
                                         {/if}
                                         {#if r.host && r.unit && r.unit.active === 'active'}
-                                            <button class="ghost sm w-run" onclick={() => restart(r)} disabled={busy.has(r.key)}>{@render icon('restart')}Restart</button>
+                                            <button class="ghost sm w-run" onclick={() => restart(r)} disabled={busy.has(r.key)}>{@render icon('restart')}<span class="lbl">Restart</span></button>
                                         {:else if r.host && r.unit}
-                                            <button class="ghost sm w-run" onclick={() => unitAction(r, 'start')} disabled={busy.has(r.key)}>{@render icon('start')}Start</button>
+                                            <button class="ghost sm w-run" onclick={() => unitAction(r, 'start')} disabled={busy.has(r.key)}>{@render icon('start')}<span class="lbl">Start</span></button>
                                         {:else if canMaintain(r)}
-                                            <button class="ghost sm w-run" onclick={() => restart(r)} disabled={busy.has(r.key)} title="via {r.instance}/maintenance/set/restart">{@render icon('restart')}Restart</button>
+                                            <button class="ghost sm w-run" onclick={() => restart(r)} disabled={busy.has(r.key)} title="via {r.instance}/maintenance/set/restart">{@render icon('restart')}<span class="lbl">Restart</span></button>
                                         {/if}
                                         {#if r.host && r.unit && r.unit.active === 'active'}
-                                            <button class="ghost sm w-halt" onclick={() => unitAction(r, 'stop')} disabled={busy.has(r.key)}>{@render icon('stop')}Stop</button>
+                                            <button class="ghost sm w-halt" onclick={() => unitAction(r, 'stop')} disabled={busy.has(r.key)}>{@render icon('stop')}<span class="lbl">Stop</span></button>
                                         {/if}
                                         {#if r.host && r.unit && r.unit.unitFile === 'disabled'}
-                                            <button class="ghost sm" onclick={() => unitAction(r, 'enable')} disabled={busy.has(r.key)} title="Start at boot">{@render icon('enable')}Enable</button>
+                                            <button class="ghost sm" onclick={() => unitAction(r, 'enable')} disabled={busy.has(r.key)} title="Start at boot">{@render icon('enable')}<span class="lbl">Enable</span></button>
                                         {:else if r.legacy && r.unit}
-                                            <button class="ghost sm" onclick={() => migrate(r)} disabled={busy.has(r.key)} title="Turn the old {r.unit.adapter}.service into {r.unit.adapter}@<name>">{@render icon('migrate')}Migrate</button>
+                                            <button class="ghost sm" onclick={() => migrate(r)} disabled={busy.has(r.key)} title="Turn the old {r.unit.adapter}.service into {r.unit.adapter}@<name>">{@render icon('migrate')}<span class="lbl">Migrate</span></button>
                                         {/if}
                                         {#if r.mqtt && !r.mqtt.connected}
-                                            <button class="ghost sm w-halt" onclick={() => wipe(r)} disabled={busy.has(r.key)} title="Clear the instance's retained topics">{@render icon('wipe')}Wipe</button>
+                                            <button class="ghost sm w-halt" onclick={() => wipe(r)} disabled={busy.has(r.key)} title="Clear the instance's retained topics">{@render icon('wipe')}<span class="lbl">Wipe</span></button>
                                         {/if}
                                         {#if r.host && r.unit && !r.legacy}
-                                            <button class="ghost sm danger-text" onclick={() => uninstall(r)} disabled={busy.has(r.key)}>{@render icon('uninstall')}Uninstall</button>
+                                            <button class="ghost sm danger-text" onclick={() => uninstall(r)} disabled={busy.has(r.key)}>{@render icon('uninstall')}<span class="lbl">Uninstall</span></button>
                                         {/if}
                                     </span>
                                 </td>
@@ -678,8 +678,11 @@
     tr.selected td { background: rgba(86,156,214,0.08); }
     .c-act { text-align: right; white-space: nowrap; }
     .acts { display: flex; justify-content: flex-end; gap: 4px; }
-    .acts button.sm { display: inline-flex; align-items: center; justify-content: center; gap: 5px; margin: 0; flex: none; }
-    .acts button.sm svg { flex: none; opacity: 0.85; }
+    /* [icon][label]: the icon keeps the same inset in every button, the label is centred in
+       what is left, so a button widened to match its pair grows around the text, not the icon */
+    .acts button.sm { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 5px; margin: 0; flex: none; }
+    .acts button.sm svg { opacity: 0.85; }
+    .acts button.sm .lbl { text-align: center; }
     /* the pairs that swap with the unit state keep a common width so they align down the table */
     .acts button.w-run { min-width: 72px; }
     .acts button.w-halt { min-width: 62px; }
