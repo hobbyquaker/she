@@ -36,7 +36,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [M7 — Let's Encrypt server cert](#m7--lets-encrypt-server-cert)
 
 **Integrations**
-- [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing)
+- [I3 — feezal dashboard pairing](#i3--feezal-dashboard-pairing) 🔨
 - [I8 — Services: docker host driver](#i8--services-docker-host-driver) 💡
 
 **Architecture, Operations & Security**
@@ -284,7 +284,7 @@ Use she's Generate CSR flow to produce the key and CSR, then use certbot or anot
    - *History publisher* — `she.influx.getRange` → retained JSON series per topic (feezal's history-in-payload convention).
    - *Astro publisher* — retained sunrise/sunset/phase topics daily.
    - Later: *per-viewer credential provisioner* using she's Mosquitto dynsec API (`she.broker.*`) for feezal's per-client broker credentials.
-2. **Stable script-editor deep-link URL scheme** — feezal wants to render "open this element's adapter script in she" links. Open question on their side: is she's editor URL for a named script stable and linkable? Decide and document a stable scheme (e.g. `/#/scripts/<path>`), then treat it as public API.
+2. **Stable script-editor deep-link URL scheme** ✅ (she 1.49.0) — `/#/scripts/<path>` opens that script in the editor and the editor keeps the hash on the open file; path segments are percent-encoded (`network/speedtest.js` → `#/scripts/network/speedtest.js`). Treat the scheme as public API. The same pattern now also covers `#/db/documents/<id>`, `#/db/views/<id>`, `#/secrets/<group>` and `#/matter/<nodeId>` (1.49.1/1.51.0).
 3. **List sheDB views over HTTP** — feezal's repeater-mapping UI works from retained payloads alone (no she API needed), but listing available views so the user picks one instead of typing a topic is a cheap she-side convenience. Check whether the existing DB endpoints already cover this.
 4. **Reverse deep links** — she linking to a feezal dashboard/view (feezal views are addressable via `#/<view>`). Cheap; needs feezal's base URL known to she (config key), and per principle 5 the link only renders when feezal is present.
 5. **Adapter-script health convention** — feezal wants to show *deployed / running / stale* per adapter. Adapters publish availability topics; consider what she can contribute (script-status over MQTT?) without inventing a she-only mechanism.
