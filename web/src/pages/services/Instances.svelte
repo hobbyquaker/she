@@ -352,6 +352,32 @@
     </button>
 {/snippet}
 
+<!-- one glyph per action: the row's buttons differ in width, so the icon carries the recognition -->
+{#snippet icon(name: 'config' | 'info' | 'restart' | 'start' | 'stop' | 'enable' | 'migrate' | 'wipe' | 'uninstall')}
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        {#if name === 'config'}
+            <line x1="2" y1="5" x2="14" y2="5" /><circle cx="6" cy="5" r="1.8" fill="var(--bg-app)" />
+            <line x1="2" y1="11" x2="14" y2="11" /><circle cx="10.5" cy="11" r="1.8" fill="var(--bg-app)" />
+        {:else if name === 'info'}
+            <circle cx="8" cy="8" r="6.2" /><line x1="8" y1="7.4" x2="8" y2="11" /><line x1="8" y1="4.9" x2="8" y2="4.9" />
+        {:else if name === 'restart'}
+            <path d="M13 8A5 5 0 1 1 10.5 3.67" /><polyline points="10.5,1.4 10.5,4 13.1,4" />
+        {:else if name === 'start'}
+            <path d="M5 3.2 12.5 8 5 12.8Z" fill="currentColor" />
+        {:else if name === 'stop'}
+            <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" />
+        {:else if name === 'enable'}
+            <line x1="8" y1="2" x2="8" y2="7.5" /><path d="M11.9 4.4a5.5 5.5 0 1 1-7.8 0" />
+        {:else if name === 'migrate'}
+            <line x1="2" y1="8" x2="11.5" y2="8" /><polyline points="8,4.5 11.5,8 8,11.5" /><path d="M13.5 3v10" />
+        {:else if name === 'wipe'}
+            <line x1="2.5" y1="4.2" x2="13.5" y2="4.2" /><path d="M6 4.2V2.6h4v1.6" /><path d="M4.2 4.2 4.9 13.4h6.2l.7-9.2" />
+        {:else if name === 'uninstall'}
+            <line x1="3" y1="3" x2="13" y2="13" /><line x1="13" y1="3" x2="3" y2="13" />
+        {/if}
+    </svg>
+{/snippet}
+
 <ConfirmDialog bind:this={dialog} />
 <InputDialog bind:this={inputDialog} />
 <svelte:window onmousemove={onWinMouseMove} onmouseup={onWinMouseUp} />
@@ -470,35 +496,35 @@
                                         <span class="muted" title="--no-maintenance">disabled</span>
                                     {:else}<span class="muted">—</span>{/if}
                                 </td>
-                                <!-- every action has its own slot, empty where it does not apply: the
-                                     buttons then line up down the table however the rows differ -->
+                                <!-- the actions pack against the right edge with one gap between them;
+                                     the icon, not the column position, says which button is which -->
                                 <td class="c-act">
                                     {#if r.host && r.unit}
-                                        <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>Config / Logs</button>
+                                        <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>{@render icon('config')}Config / Logs</button>
                                     {:else}
-                                        <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>Info</button>
+                                        <button class="ghost sm" onclick={() => openDetail(r)} disabled={busy.has(r.key)}>{@render icon('info')}Info</button>
                                     {/if}
                                     {#if r.host && r.unit && r.unit.active === 'active'}
-                                        <button class="ghost sm" onclick={() => restart(r)} disabled={busy.has(r.key)}>Restart</button>
+                                        <button class="ghost sm" onclick={() => restart(r)} disabled={busy.has(r.key)}>{@render icon('restart')}Restart</button>
                                     {:else if r.host && r.unit}
-                                        <button class="ghost sm" onclick={() => unitAction(r, 'start')} disabled={busy.has(r.key)}>Start</button>
+                                        <button class="ghost sm" onclick={() => unitAction(r, 'start')} disabled={busy.has(r.key)}>{@render icon('start')}Start</button>
                                     {:else if canMaintain(r)}
-                                        <button class="ghost sm" onclick={() => restart(r)} disabled={busy.has(r.key)} title="via {r.instance}/maintenance/set/restart">Restart</button>
-                                    {:else}<span class="act-gap"></span>{/if}
+                                        <button class="ghost sm" onclick={() => restart(r)} disabled={busy.has(r.key)} title="via {r.instance}/maintenance/set/restart">{@render icon('restart')}Restart</button>
+                                    {/if}
                                     {#if r.host && r.unit && r.unit.active === 'active'}
-                                        <button class="ghost sm" onclick={() => unitAction(r, 'stop')} disabled={busy.has(r.key)}>Stop</button>
-                                    {:else}<span class="act-gap"></span>{/if}
+                                        <button class="ghost sm" onclick={() => unitAction(r, 'stop')} disabled={busy.has(r.key)}>{@render icon('stop')}Stop</button>
+                                    {/if}
                                     {#if r.host && r.unit && r.unit.unitFile === 'disabled'}
-                                        <button class="ghost sm" onclick={() => unitAction(r, 'enable')} disabled={busy.has(r.key)} title="Start at boot">Enable</button>
+                                        <button class="ghost sm" onclick={() => unitAction(r, 'enable')} disabled={busy.has(r.key)} title="Start at boot">{@render icon('enable')}Enable</button>
                                     {:else if r.legacy && r.unit}
-                                        <button class="ghost sm" onclick={() => migrate(r)} disabled={busy.has(r.key)} title="Turn the old {r.unit.adapter}.service into {r.unit.adapter}@<name>">Migrate</button>
-                                    {:else}<span class="act-gap"></span>{/if}
+                                        <button class="ghost sm" onclick={() => migrate(r)} disabled={busy.has(r.key)} title="Turn the old {r.unit.adapter}.service into {r.unit.adapter}@<name>">{@render icon('migrate')}Migrate</button>
+                                    {/if}
                                     {#if r.mqtt && !r.mqtt.connected}
-                                        <button class="ghost sm" onclick={() => wipe(r)} disabled={busy.has(r.key)} title="Clear the instance's retained topics">Wipe</button>
-                                    {:else}<span class="act-gap"></span>{/if}
+                                        <button class="ghost sm" onclick={() => wipe(r)} disabled={busy.has(r.key)} title="Clear the instance's retained topics">{@render icon('wipe')}Wipe</button>
+                                    {/if}
                                     {#if r.host && r.unit && !r.legacy}
-                                        <button class="ghost sm danger-text" onclick={() => uninstall(r)} disabled={busy.has(r.key)}>Uninstall</button>
-                                    {:else}<span class="act-gap"></span>{/if}
+                                        <button class="ghost sm danger-text" onclick={() => uninstall(r)} disabled={busy.has(r.key)}>{@render icon('uninstall')}Uninstall</button>
+                                    {/if}
                                 </td>
                             </tr>
                         {/each}
@@ -617,9 +643,8 @@
     tr.down .dname { color: #e74c3c; }
     tr.selected td { background: rgba(86,156,214,0.08); }
     .c-act { text-align: right; white-space: nowrap; }
-    /* uniform slots: same width for a button and for the gap where there is none */
-    .c-act button.sm, .c-act .act-gap { width: 82px; }
-    .c-act .act-gap { display: inline-block; margin-left: 4px; vertical-align: middle; }
+    .c-act button.sm { display: inline-flex; align-items: center; gap: 5px; vertical-align: middle; }
+    .c-act button.sm svg { flex: none; opacity: 0.85; }
     .dname { font-weight: 600; display: inline-block; margin-right: 6px; }
     /* managed instances: the name opens / switches the drawer */
     button.dname-link { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: var(--fg); cursor: pointer; text-align: left; }
