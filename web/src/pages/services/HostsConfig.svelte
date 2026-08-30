@@ -367,6 +367,11 @@
     {/if}
 {/snippet}
 
+<!-- result boxes stay until they are read, so every one of them can be closed -->
+{#snippet dismiss(close: () => void)}
+    <button class="box-x" onclick={close} title="Dismiss" aria-label="Dismiss">×</button>
+{/snippet}
+
 <!-- node version of the host, and updating it through tj/n (helper v13) -->
 {#snippet nodeRow(name: string, st: ServiceHost)}
     {@const offers = channelsFor(st)}
@@ -393,6 +398,7 @@
     {#if nodeResult[name]}
         {@const n = nodeResult[name]}
         <div class="deploy-box in-card" class:deploy-ok={'ok' in n && n.ok}>
+            {@render dismiss(() => { nodeResult = { ...nodeResult, [name]: undefined as any }; })}
             {#if 'error' in n}
                 {n.error}
             {:else if n.mismatch}
@@ -416,6 +422,7 @@
     {#if restartResult[name]}
         {@const r = restartResult[name]}
         <div class="deploy-box in-card" class:deploy-ok={'ok' in r && r.ok}>
+            {@render dismiss(() => { restartResult = { ...restartResult, [name]: undefined as any }; })}
             {#if 'error' in r}
                 {r.error}
             {:else if r.restarted.length === 0 && r.failed.length === 0}
@@ -431,6 +438,7 @@
     {#if helperResult[name]}
         {@const d = helperResult[name]}
         <div class="deploy-box in-card" class:deploy-ok={'ok' in d && d.ok}>
+            {@render dismiss(() => { helperResult = { ...helperResult, [name]: undefined as any }; })}
             {#if 'error' in d && d.error && !('ok' in d)}
                 {d.error}
             {:else if 'ok' in d && d.ok}
@@ -650,6 +658,20 @@
         margin-left: 5px;
         padding: 0 5px;
     }
+
+    /* dismiss × in the corner of a result box */
+    .box-x {
+        background: none;
+        border: none;
+        color: var(--fg-muted);
+        cursor: pointer;
+        float: right;
+        font-size: 14px;
+        line-height: 1;
+        margin: -2px -2px 0 6px;
+        padding: 0 2px;
+    }
+    .box-x:hover { color: var(--fg); }
 
     .node-row {
         display: flex;
