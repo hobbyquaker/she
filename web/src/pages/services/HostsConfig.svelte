@@ -15,7 +15,6 @@
     let { onchanged, onupdates }: { onchanged?: () => void; onupdates?: (count: number) => void } = $props();
 
     type Remote = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
-    let local = $state(true);
     let remotes = $state<Remote[]>([]);
     let snapshot = $state('');
     let status = $state<ServiceHost[]>([]);
@@ -174,7 +173,7 @@
     let setupCopied = $state(false);
     let setupPoll: ReturnType<typeof setInterval> | null = null;
 
-    const dirty = $derived(JSON.stringify({ local, remotes }) !== snapshot);
+    const dirty = $derived(JSON.stringify({ remotes }) !== snapshot);
     const statusOf = (name: string) => status.find((s) => s.name === name) ?? null;
     const localStatus = $derived(status.find((s) => s.local) ?? null);
 
@@ -185,12 +184,11 @@
     function fromConfig(cfg: Record<string, unknown>) {
         const svc = cfg.services as Record<string, unknown> | undefined;
         const list = Array.isArray(svc?.hosts) ? (svc!.hosts as any[]) : null;
-        local = list ? list.some((h) => h && !h.ssh) : true;
         remotes = (list ?? []).filter((h) => h && h.ssh).map((h) => ({
             host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
             user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
         })).sort(byLabel);
-        snapshot = JSON.stringify({ local, remotes });
+        snapshot = JSON.stringify({ remotes });
     }
     async function load(refresh = false) {
         loading = true;
@@ -233,8 +231,8 @@
         saving = true;
         error = '';
         try {
-            const hosts: Record<string, unknown>[] = [];
-            if (local) hosts.push({ name: 'local' });
+            // the she host is always in the list — adapters installed next to she are hers to manage
+            const hosts: Record<string, unknown>[] = [{ name: 'local' }];
             for (const r of remotes) {
                 if (!r.host.trim()) continue;
                 const ssh: Record<string, unknown> = { host: r.host.trim() };
@@ -245,7 +243,7 @@
             }
             await patchConfig('services.hosts', hosts);
             window.dispatchEvent(new CustomEvent('she:config-changed'));
-            snapshot = JSON.stringify({ local, remotes });
+            snapshot = JSON.stringify({ remotes });
             editing = null;
             flash('saved');
             onchanged?.();
@@ -258,7 +256,6 @@
     }
     function discard() {
         const s = JSON.parse(snapshot);
-        local = s.local;
         remotes = s.remotes;
         editing = null;
     }
@@ -526,7 +523,7 @@
         <div class="bar">
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload"><span class:spinning={loading}>↺</span></button>
             <button class="ghost" onclick={openAdd}>+ Add remote host</button>
-            <span class="muted">{remotes.length + (local ? 1 : 0)} host{remotes.length + (local ? 1 : 0) === 1 ? '' : 's'}</span>
+            <span class="muted">{remotes.length + 1} host{remotes.length === 0 ? '' : 's'}</span>
             {#if outdatedHosts.length > 1}
                 <button class="ghost sm" onclick={updateAllHelpers} disabled={helperAllBusy || helperBusy !== null} title="Replace she-servicectl on every host that runs an older one, in turn">
                     {helperAllBusy ? `Updating ${helperAllAt}…` : `Update all helpers (${outdatedHosts.length})`}
@@ -543,23 +540,18 @@
         {#if error}<div class="err-box">{error}</div>{/if}
 
         <div class="content">
-            <div class="card" class:off={!local}>
+            <div class="card">
                 <div class="card-head">
-                    <span class="dot" class:ok={localStatus?.ok} class:err={local && localStatus && !localStatus.ok}></span>
+                    <span class="dot" class:ok={localStatus?.ok} class:err={localStatus && !localStatus.ok}></span>
                     <span class="name">{localStatus?.hostname ?? 'this host'}</span>
                     <span class="muted">the she host itself, via <span class="mono">she-servicectl</span> (installed by <span class="mono">sudo she --install</span>)</span>
                     <span class="spacer"></span>
-                    {#if local && localStatus?.ok}{@render helper('local', localStatus)}{/if}
-                    {#if local}<button class="ghost sm" onclick={testLocal} disabled={testing !== null}>Test</button>{@render mark('local')}{/if}
-                    <label class="chk" title="Untick when she runs in Docker or must not touch this host's adapters">
-                        <input type="checkbox" bind:checked={local} />
-                        <span class="checkmark"></span>
-                        manage adapters here
-                    </label>
+                    {#if localStatus?.ok}{@render helper('local', localStatus)}{/if}
+                    <button class="ghost sm" onclick={testLocal} disabled={testing !== null}>Test</button>{@render mark('local')}
                 </div>
-                {#if local && localStatus?.ok}{@render nodeRow('local', localStatus)}{/if}
-                {#if local}{@render helperBox('local')}{/if}
-                {#if local && localStatus && !localStatus.ok}<div class="err-box in-card">{localStatus.error}{#if localStatus.code === 'HELPER_MISSING'} — run <span class="mono">sudo she --install</span>{/if}</div>{/if}
+                {#if localStatus?.ok}{@render nodeRow('local', localStatus)}{/if}
+                {@render helperBox('local')}
+                {#if localStatus && !localStatus.ok}<div class="err-box in-card">{localStatus.error}{#if localStatus.code === 'HELPER_MISSING'} — run <span class="mono">sudo she --install</span>{/if}</div>{/if}
             </div>
 
             {#each remotes as r, i (i)}
@@ -644,7 +636,6 @@
     .err-box.in-card { margin: 8px 0 0; }
     .in-card { margin-top: 8px; }
     .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
-    .card.off { opacity: 0.6; }
     .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .name { font-weight: 600; font-size: 13px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); flex-shrink: 0; }
@@ -669,11 +660,6 @@
     .test-mark { font-size: 12px; white-space: nowrap; }
     .test-mark.ok { color: #27ae60; font-weight: 700; }
     .test-mark.err { color: #e74c3c; }
-    .chk { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--fg-muted); user-select: none; white-space: nowrap; }
-    .chk input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
-    .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 3px; background: var(--bg-input); position: relative; }
-    .chk input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
-    .chk input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0px; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
     @keyframes spin { to { transform: rotate(360deg); } }
     /* the reload glyph turns while the listing is being fetched — same as the Catalog tab */
     .spinning { display: inline-block; animation: spin 0.8s linear infinite; }

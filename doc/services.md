@@ -77,7 +77,7 @@ The Add-instance wizard offers the same choice (default: she's settings).
 | Key | Default | Description |
 | --- | --- | --- |
 | `services.enabled` | `false` | show the Adapters page |
-| `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself (untick *This host* in Settings when she runs in Docker). Remote entries are identified by their ssh host; an optional `name` overrides the label |
+| `services.hosts[]` | `[{ "name": "local" }]` | managed hosts; an entry without `ssh` is the she host itself, always present and not removable. Remote entries are identified by their ssh host; an optional `name` overrides the label |
 | `services.hosts[].ssh` | — | `host` (required), `port` (22), `user` (the daemon's OS user), `identityFile` (the services key) — same shape as `broker.ssh` |
 | `services.hosts[].hostname` | — | filled automatically on first contact; what the host's adapters report as `info.host`; edit it when the two differ |
 | `services.trustedPublishers` | `["hobbyquaker"]` | npm user names whose packages the Catalog lists and she may install |
@@ -143,7 +143,7 @@ For adapters that run with a non-system Node (a wrapper in `/usr/local/bin` poin
 
 The result box reports the version before and after. When another installation (a distro package, nvm, an `/opt/nodeXX` wrapper) still wins on PATH, it says so with both paths instead of claiming an upgrade the adapters will never see. Services keep the node binary they were started with, so a real version change offers *Restart all instances* (`she-servicectl restart-all` — only units that are actually running; stopped or disabled ones stay that way).
 
-**Updating the helper.** she ships a new helper version now and then; the Hosts tab shows the helper version, marks older ones *outdated* and offers *Update helper* there (and *Deploy helper* for a host that has none yet, plus *Update all helpers* when more than one is behind). The installed helper replaces itself with the copy she sends (`self-update`, through the one sudo rule it already has — no root login, no second rule), on the she host and on remote hosts alike. Only a helper older than v4 cannot do that yet: run the setup command on the host once more (or `sudo she --install` on the she host). Existing installations: re-run `sudo she --install` once to get the helper and the sudoers line. Inside the she Docker image there is no local helper — untick *This host* in Settings, or leave it and the host tier reports "helper not installed"; remote hosts work from Docker as long as `ssh`/`scp` are in the image.
+**Updating the helper.** she ships a new helper version now and then; the Hosts tab shows the helper version, marks older ones *outdated* and offers *Update helper* there (and *Deploy helper* for a host that has none yet, plus *Update all helpers* when more than one is behind). The installed helper replaces itself with the copy she sends (`self-update`, through the one sudo rule it already has — no root login, no second rule), on the she host and on remote hosts alike. Only a helper older than v4 cannot do that yet: run the setup command on the host once more (or `sudo she --install` on the she host). Existing installations: re-run `sudo she --install` once to get the helper and the sudoers line. Inside the she Docker image there is no local helper, so the she host reports "helper not installed" and stays that way; remote hosts work from Docker as long as `ssh`/`scp` are in the image.
 
 ## For adapter authors
 
