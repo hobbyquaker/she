@@ -19,10 +19,17 @@
     let diagnosing = $state(false);
     let diagnosis = $state<DynsecDiagnosis | null>(null);
 
+    let { active = false, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
+
     type SubTab = 'status' | 'users' | 'brokerconfig' | 'listeners' | 'certs' | 'ssh' | 'logs' | 'advanced' | 'passwd';
+    const SUB_TABS: SubTab[] = ['status', 'users', 'brokerconfig', 'listeners', 'certs', 'ssh', 'logs', 'advanced', 'passwd'];
     const TAB_KEY = 'she-broker-tab';
     let tab = $state<SubTab>((localStorage.getItem(TAB_KEY) as SubTab) ?? 'status');
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
+
+    // ── URL: #/broker/<tab> ────────────────────────────────────────────────────
+    $effect(() => { if (sub && SUB_TABS.includes(sub as SubTab) && sub !== tab) tab = sub as SubTab; });
+    $effect(() => { if (active) onsub?.(tab); });
 
     let status = $state<BrokerStatus | null>(null);
     let statusError = $state('');

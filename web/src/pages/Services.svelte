@@ -4,13 +4,26 @@
     import HostsConfig from './services/HostsConfig.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
-    let { onstatus }: { onstatus?: (status: Status, title: string) => void } = $props();
+    let {
+        onstatus,
+        active = false,
+        sub = null,
+        onsub,
+    }: { onstatus?: (status: Status, title: string) => void; active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
     type SubTab = 'instances' | 'hosts' | 'hostsconf';
     const TAB_KEY = 'she-services-tab';
     const stored = localStorage.getItem(TAB_KEY); // may still hold the retired 'catalog' tab
     let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? 'hosts' : stored === 'hostsconf' ? 'hostsconf' : 'instances');
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
+
+    // ── URL: #/adapters/<slug> ─────────────────────────────────────────────────
+    // the slugs are what the tabs are called on screen, not their internal names
+    const SLUGS: Record<SubTab, string> = { instances: 'instances', hosts: 'installations', hostsconf: 'hosts' };
+    const fromSlug = (slug: string | null) => (Object.keys(SLUGS) as SubTab[]).find((t) => SLUGS[t] === slug) ?? null;
+    $effect(() => { const t = fromSlug(sub); if (t && t !== tab) tab = t; });
+    // reported whenever this page is the one on screen, so the hash always names the open tab
+    $effect(() => { if (active) onsub?.(SLUGS[tab]); });
 
     // bump to make the Instances tab reload after host-side changes (update, install)
     let generation = $state(0);

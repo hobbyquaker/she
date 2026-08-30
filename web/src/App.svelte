@@ -17,13 +17,20 @@
     type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
     const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages'];
 
-    function pageFromHash(): Page {
-        const raw = location.hash.slice(1);
-        const hash = (raw === 'services' ? 'adapters' : raw) as Page; // old bookmarks
-        return validPages.includes(hash) ? hash : 'scripts';
+    /**
+     * The hash is `#/<page>[/<sub-tab>]` — the leading slash is cosmetic, the sub-tab is
+     * whatever the page's own sub-navigation is showing. `#page` from an old bookmark
+     * (and `#services`, the page's old name) still resolves.
+     */
+    function routeFromHash(): { page: Page; sub: string | null } {
+        const raw = location.hash.replace(/^#\/?/, '');
+        const [rawPage, rawSub] = raw.split('/');
+        const p = (rawPage === 'services' ? 'adapters' : rawPage) as Page;
+        return { page: validPages.includes(p) ? p : 'scripts', sub: rawSub || null };
     }
 
-    let page = $state<Page>(pageFromHash());
+    let page = $state<Page>(routeFromHash().page);
+    let sub = $state<string | null>(routeFromHash().sub);
     let stats = $state<DaemonStatus | null>(null);
     let statsOpen = $state(false);
     let versionOpen = $state(false);
@@ -153,14 +160,33 @@
 
     function navigate(p: Page) {
         page = p;
-        location.hash = p;
+        sub = null; // the page reports the tab it is on, and that fills the hash back in
+        location.hash = hashFor(p, null);
+    }
+
+    function hashFor(p: Page, s: string | null) {
+        return `#/${p}${s ? '/' + s : ''}`;
+    }
+
+    /**
+     * A page telling us which of its tabs is showing. It replaces the history entry instead
+     * of adding one: switching a sub-tab is not a separate step to go back through.
+     */
+    function setSub(p: Page, s: string) {
+        if (page !== p || sub === s) return;
+        sub = s;
+        history.replaceState(null, '', hashFor(p, s));
     }
 
     onMount(async () => {
-        // Set hash on initial load if missing
-        if (!location.hash) location.hash = page;
+        // Normalise what is in the address bar (missing, or an old #page bookmark) without
+        // adding a history entry for it
+        const canonical = hashFor(page, sub);
+        if (location.hash !== canonical) history.replaceState(null, '', canonical);
         const onHashChange = () => {
-            page = pageFromHash();
+            const r = routeFromHash();
+            page = r.page;
+            sub = r.sub;
         };
         window.addEventListener('hashchange', onHashChange);
         // Back from a background tab: Chrome (macOS) may not repaint until an input event, timers were
@@ -506,12 +532,12 @@
         <ConfirmDialog bind:this={dialog} />
         <div class="page-wrap" class:hidden={page !== 'scripts'}><Scripts active={page === 'scripts'} /></div>
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
-        <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT /></div>
+        <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT active={page === 'mqtt'} sub={page === 'mqtt' ? sub : null} onsub={(s) => setSub('mqtt', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
-        <div class="page-wrap" class:hidden={page !== 'security'}><Security /></div>
-        {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'adapters'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} /></div>{/if}
+        <div class="page-wrap" class:hidden={page !== 'security'}><Security active={page === 'security'} sub={page === 'security' ? sub : null} onsub={(s) => setSub('security', s)} /></div>
+        {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'adapters'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} active={page === 'adapters'} sub={page === 'adapters' ? sub : null} onsub={(s) => setSub('adapters', s)} /></div>{/if}
         <div class="page-wrap" class:hidden={page !== 'secrets'}><Secrets active={page === 'secrets'} /></div>
-        <div class="page-wrap" class:hidden={page !== 'db'}><DB /></div>
+        <div class="page-wrap" class:hidden={page !== 'db'}><DB active={page === 'db'} sub={page === 'db' ? sub : null} onsub={(s) => setSub('db', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
         <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>
     </main>

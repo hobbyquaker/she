@@ -7,6 +7,8 @@
     import ViewChat from './ViewChat.svelte';
     import MonacoEditor from '../lib/MonacoEditor.svelte';
 
+    let { active = false, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
+
     // ---- Document state ----
     let docIds: string[] = $state([]);
     let selectedDocId: string | null = $state(null);
@@ -34,6 +36,14 @@
     // ---- Tabs inside DB panel ----
     const PANEL_KEY = 'she-db-panel';
     let panel: 'docs' | 'views' = $state((localStorage.getItem(PANEL_KEY) as 'docs' | 'views') ?? 'docs');
+
+    // ── URL: #/db/<slug> ───────────────────────────────────────────────────────
+    const PANEL_SLUGS = { docs: 'documents', views: 'views' } as const;
+    $effect(() => {
+        if (sub === 'documents' && panel !== 'docs') panel = 'docs';
+        else if (sub === 'views' && panel !== 'views') panel = 'views';
+    });
+    $effect(() => { if (active) onsub?.(PANEL_SLUGS[panel]); });
 
     // ---- New document dialog ----
     let newDocId = $state('');

@@ -8,6 +8,8 @@
         type DynsecRole, type AclCheckResult,
     } from '../lib/api.js';
 
+    let { active = false, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
+
     /* ── Non-reactive data store ──────────────────────────────────────────────
      * topicMap holds all known topic values. It is intentionally NOT $state —
      * that avoids making Svelte deeply track a 2000-entry Map. Reactivity is
@@ -326,6 +328,13 @@
     let aclMode      = $state(false);
     /* ── HA discovery view (M10) ─────────────────────────────────────────── */
     let haMode       = $state(false);
+
+    // ── URL: #/mqtt/topics or #/mqtt/discovery ────────────────────────────────
+    $effect(() => {
+        if (sub === 'discovery' && !haMode) haMode = true;
+        else if (sub === 'topics' && haMode) haMode = false;
+    });
+    $effect(() => { if (active) onsub?.(haMode ? 'discovery' : 'topics'); });
     let aclLoading   = $state(false);
     let aclData      = $state<AclData | null>(null);
     let aclInspect   = $state<string | null>(null);

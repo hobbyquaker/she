@@ -834,7 +834,7 @@
                     {#if servicesEnabled}
                     <div class="field">
                         <label for="svc-hosts-link">Hosts</label>
-                        <div class="feature-desc" style="padding-left:0">Which hosts she manages adapters on — this host, remote hosts over SSH, the setup command and the SSH key — lives on the Adapters page: <button id="svc-hosts-link" type="button" class="link-btn" onclick={() => { location.hash = 'adapters'; localStorage.setItem('she-services-tab', 'hostsconf'); }}>open Adapters → Hosts</button></div>
+                        <div class="feature-desc" style="padding-left:0">Which hosts she manages adapters on — this host, remote hosts over SSH, the setup command and the SSH key — lives on the Adapters page: <button id="svc-hosts-link" type="button" class="link-btn" onclick={() => { location.hash = '#/adapters/hosts'; }}>open Adapters → Hosts</button></div>
                     </div>
                     <div class="field">
                         <label>

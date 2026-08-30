@@ -69,7 +69,7 @@
     });
 
     function openScript(path: string, line?: number, column?: number) {
-        location.hash = 'scripts';
+        location.hash = '#/scripts';
         window.dispatchEvent(new CustomEvent('she:open-script', { detail: { path, line, column } }));
     }
 
