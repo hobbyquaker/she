@@ -1159,8 +1159,9 @@ export interface ServicesInventory {
     legacyCount: number;
 }
 
-export function getServiceInstances(): Promise<ServicesInventory> {
-    return request('GET', '/she/services/instances');
+/** `refresh`: ask npm again for the adapters' latest versions instead of the daemon's 24 h cache. */
+export function getServiceInstances(refresh = false): Promise<ServicesInventory> {
+    return request('GET', '/she/services/instances' + (refresh ? '?refresh=1' : ''));
 }
 
 export function restartServiceInstance(name: string): Promise<{ ok: boolean }> {

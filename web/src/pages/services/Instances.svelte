@@ -58,7 +58,7 @@
     async function load(refresh = false) {
         loading = true; refreshing = refreshing || refresh; loadError = null;
         try {
-            const [inv, h] = await Promise.all([getServiceInstances(), getServiceHosts(refresh).catch(() => ({ hosts: [] as ServiceHost[] }))]);
+            const [inv, h] = await Promise.all([getServiceInstances(refresh), getServiceHosts(refresh).catch(() => ({ hosts: [] as ServiceHost[] }))]);
             mqttInstances = inv.instances;
             hosts = h.hosts;
         } catch (e: unknown) {

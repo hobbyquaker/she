@@ -479,6 +479,38 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect((await httpRequest('GET', port, '/she/services/hosts')).body.cached).toBe(true);
     });
 
+    test('a refresh asks npm again for the latest versions', async () => {
+        // the version published after the daemon's 24 h cache was filled must show up on a refresh
+        let hits = 0;
+        let published = '1.2.0';
+        npmRegistry.setFetch(async (url) => {
+            if (!url.includes('/cul2mqtt/latest')) return { ok: false, status: 404 };
+            hits++;
+            return { ok: true, json: async () => ({ version: published }) };
+        });
+        try {
+            let r = await httpRequest('GET', port, '/she/services/hosts?refresh=1');
+            const adapter = () => r.body.hosts[0].adapters.find((a) => a.name === 'cul2mqtt');
+            expect(adapter().latestVersion).toBe('1.2.0');
+            const afterFirst = hits;
+
+            published = '1.3.0';
+            r = await httpRequest('GET', port, '/she/services/hosts?refresh=1');
+            expect(adapter().latestVersion).toBe('1.3.0');
+            expect(hits).toBeGreaterThan(afterFirst);
+
+            // without the refresh the cached answer is kept — no request per listing
+            published = '1.4.0';
+            const cached = hits;
+            r = await httpRequest('GET', port, '/she/services/hosts');
+            expect(adapter().latestVersion).toBe('1.3.0');
+            expect(hits).toBe(cached);
+        } finally {
+            npmRegistry.setFetch(async (url) => (url.includes('/cul2mqtt/latest') ? { ok: true, json: async () => ({ version: '1.2.0' }) } : { ok: false, status: 404 }));
+            npmRegistry.clearCache();
+        }
+    });
+
     test('follow: start, renew, stop', async () => {
         let r = await httpRequest('POST', port, '/she/services/hosts/local/units/cul2mqtt/cul/logs/follow');
         expect(r.body).toEqual({ ok: true, following: true, renewed: false });

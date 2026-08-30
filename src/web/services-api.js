@@ -132,17 +132,18 @@ function publish(topic, payload) {
     });
 }
 
-// GET /she/services/instances
+// GET /she/services/instances[?refresh=1]
 router.get('/instances', async (req, res) => {
     if (!_store) return res.json({ enabled: false, instances: [], coreCount: 0, legacyCount: 0 });
     const cfg = getServicesConfig(req);
     const result = analyzeServices(_store.mqttEntries());
-    // update badge: one registry lookup per adapter (cached 24 h)
+    // update badge: one registry lookup per adapter (cached 24 h, asked again on a refresh)
     const adapters = [...new Set(result.instances.filter((i) => i.adapter).map((i) => i.adapter))];
-    const latest = new Map(await Promise.all(adapters.map(async (a) => [a, await npmRegistry.latestVersion(a)])));
+    const latest = new Map(await Promise.all(adapters.map(async (a) => [a, await npmRegistry.latestVersion(a, { force: req.query.refresh === '1' })])));
     const instances = await Promise.all(
         result.instances.map(async (i) => {
             if (!i.adapter) return { ...i, latestVersion: null, updateAvailable: null };
+            // unforced on purpose: the lookup above just put the fresh answer in the cache
             const { updateAvailable } = await npmRegistry.updateInfo(i.adapter, i.version);
             return { ...i, latestVersion: latest.get(i.adapter) ?? null, updateAvailable };
         }),
@@ -556,7 +557,7 @@ router.get('/hosts', async (req, res) => {
     if (!fresh && _hostsCache && _hostsCache.key === key && Date.now() - _hostsCache.ts < HOSTS_TTL) {
         return res.json({ hosts: await _hostsCache.promise, cached: true });
     }
-    const promise = listHosts(req);
+    const promise = listHosts(req, { force: fresh });
     _hostsCache = { key, ts: Date.now(), promise };
     res.json({ hosts: await promise, cached: false });
 });
@@ -574,7 +575,12 @@ function withCpuShare(hostName, instances, now = Date.now()) {
     });
 }
 
-async function listHosts(req) {
+/**
+ * @param {object} req
+ * @param {{force?: boolean}} [opts] `force`: ask npm again for the latest versions instead of
+ *   taking the 24 h cached answer — a refresh on the listing means "is any of this outdated now?"
+ */
+async function listHosts(req, opts = {}) {
     return Promise.all(
         hostEntries(req).map(async ({ cfg, driver }) => {
             const base = {
@@ -588,11 +594,11 @@ async function listHosts(req) {
                 const { stdout } = await driver.exec(['list']);
                 const list = parseList(stdout);
                 if (!cfg.hostname && list.hostname) saveHostname(req, cfg.name, list.hostname);
-                // update badge per installed adapter: one registry lookup each (cached 24 h)
+                // update badge per installed adapter: one registry lookup each (cached 24 h, asked again on a refresh)
                 const adapters = await Promise.all(
                     (list.adapters || []).map(async (a) => {
                         try {
-                            const { latest, updateAvailable } = await npmRegistry.updateInfo(a.name, a.version);
+                            const { latest, updateAvailable } = await npmRegistry.updateInfo(a.name, a.version, { force: opts.force });
                             return { ...a, latestVersion: latest || null, updateAvailable };
                         } catch {
                             return { ...a, latestVersion: null, updateAvailable: null };

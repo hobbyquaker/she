@@ -39,10 +39,10 @@ async function latestVersion(name, opts = {}) {
     if (!validName(name)) return null;
     const now = opts.now ?? Date.now();
     const hit = _cache.get(name);
-    if (hit && !opts.force) {
-        if (hit.promise) return hit.promise;
-        if (now - hit.ts < TTL) return hit.version;
-    }
+    // a forced lookup ignores the cached answer, but not a forced one already on its way:
+    // the same adapter installed on five hosts is one request, not five
+    if (hit && hit.promise && (!opts.force || hit.forced)) return hit.promise;
+    if (hit && !opts.force && now - hit.ts < TTL) return hit.version;
     const promise = (async () => {
         try {
             const res = await _fetch(`${REGISTRY}/${name}/latest`, { signal: AbortSignal.timeout(10000) });
@@ -53,7 +53,7 @@ async function latestVersion(name, opts = {}) {
             return hit ? hit.version : null; // keep the last good answer
         }
     })();
-    _cache.set(name, { version: hit ? hit.version : null, ts: now, promise });
+    _cache.set(name, { version: hit ? hit.version : null, ts: now, promise, forced: Boolean(opts.force) });
     const version = await promise;
     _cache.set(name, { version, ts: now });
     return version;
@@ -63,10 +63,12 @@ async function latestVersion(name, opts = {}) {
  * Newer version available? null when unknown.
  * @param {string} name
  * @param {string|null} installed
+ * @param {{force?: boolean, now?: number}} [opts] `force` asks the registry again instead of
+ *   answering from the 24 h cache — what the refresh button on a listing wants.
  * @returns {Promise<{latest: string|null, updateAvailable: boolean|null}>}
  */
-async function updateInfo(name, installed) {
-    const latest = await latestVersion(name);
+async function updateInfo(name, installed, opts = {}) {
+    const latest = await latestVersion(name, opts);
     if (!latest || !installed) return { latest, updateAvailable: null };
     let updateAvailable = null;
     try {
