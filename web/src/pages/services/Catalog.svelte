@@ -3,10 +3,15 @@
      * Catalog tab (I7): adapters on npm — the trusted publishers' packages whose latest version
      * depends on mqtt-interfaces-core — with "install on <host>".
      */
-    import { onMount } from 'svelte';
+    import { onMount, untrack } from 'svelte';
     import { getServicesCatalog, getServiceHosts, installServicePackage, type Catalog, type CatalogPackage, type ServiceHost } from '../../lib/api.js';
 
-    let { oninstalled, active = false }: { oninstalled?: (host: string, adapter: string) => void; active?: boolean } = $props();
+    let {
+        oninstalled,
+        active = false,
+        generation = 0,
+        origin = null,
+    }: { oninstalled?: (host: string, adapter: string) => void; active?: boolean; generation?: number; origin?: string | null } = $props();
 
     let cat     = $state<Catalog | null>(null);
     let hosts   = $state<ServiceHost[]>([]);
@@ -41,6 +46,16 @@
         if (!active || loaded) return;
         loaded = true;
         load();
+    });
+    // an install or uninstall on another tab changes where the packages are installed — ask the
+    // hosts again (the mutation already invalidated the daemon's listing cache). Only once the
+    // tab has loaded at all: before that there is nothing on screen to go stale.
+    let seenGeneration = 0;
+    $effect(() => {
+        const g = generation;
+        if (g === seenGeneration) return;
+        seenGeneration = g;
+        untrack(() => { if (loaded && origin !== 'catalog') load(); });
     });
     onMount(() => () => { if (poll) clearTimeout(poll); });
     const refreshing = $derived(Boolean(cat?.refreshing));

@@ -101,7 +101,7 @@
     <!-- tabs stay mounted: switching must not re-run the host listing -->
     <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances onstatus={(s, t) => { instStatus = s; instTitle = t; }} {generation} {origin} onchanged={() => changed('instances')} /></div>
     <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => changed('hosts')} onupdates={(n) => (adapterUpdates = n)} {generation} {origin} addPreset={addRequest} /></div>
-    <div class="tab-wrap" class:hidden={tab !== 'catalog'}><Catalog active={active && tab === 'catalog'} oninstalled={installedFromCatalog} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'catalog'}><Catalog active={active && tab === 'catalog'} oninstalled={installedFromCatalog} {generation} {origin} /></div>
     <div class="tab-wrap" class:hidden={tab !== 'hostsconf'}><HostsConfig onchanged={() => changed('hostsconf')} onupdates={(n) => (helperUpdates = n)} onnodeupdates={(n) => (nodeUpdates = n)} {generation} {origin} /></div>
 </div>
 
