@@ -443,10 +443,12 @@
         </button>
         {/if}
         <button class:active={page === 'secrets'} onclick={() => navigate('secrets')}>
-            <!-- Secrets icon: key -->
+            <!-- Secrets icon: a closed padlock, same shape as the lock on the Secrets page -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="5" cy="11" r="3"/>
-                <path d="M7.2 8.8 14 2M11 5l2 2M9 7l2 2"/>
+                <rect x="3" y="7" width="10" height="7" rx="1.5"/>
+                <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>
+                <circle cx="8" cy="9.9" r="1.15" stroke-width="1.1"/>
+                <path d="M8 11v1.2" stroke-width="1.1"/>
             </svg>
             Secrets
         </button>
