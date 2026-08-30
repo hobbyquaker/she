@@ -184,6 +184,7 @@
         <span class="muted">
             {hosts.length} host{hosts.length === 1 ? '' : 's'} — managed on the Hosts tab{#if emptyHosts > 0}, {emptyHosts} without adapters not shown{/if}
         </span>
+        {#if loading}<span class="spinner" title="Asking every host…"></span>{/if}
         <span class="spacer"></span>
         {#if updateAllBusy && updateAllAt}<span class="muted">{updateAllAt}</span>{/if}
         {#if notice}<span class="muted">{notice}</span>{/if}
@@ -191,7 +192,7 @@
 
     <div class="content">
         {#if loading && hosts.length === 0}
-            <div class="muted">Loading…</div>
+            <div class="loading-row"><span class="spinner"></span> Asking every host — a host over a slow link can take a moment…</div>
         {:else if error}
             <div class="err-box">{error}</div>
         {/if}
@@ -291,6 +292,12 @@
     .mono { font-family: var(--font-mono, monospace); font-size: 11px; }
     /* the reload glyph turns while the listing is being fetched — same as the Catalog tab */
     @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+        display: inline-block; width: 12px; height: 12px; flex-shrink: 0;
+        border: 2px solid var(--fg-dim); border-top-color: var(--fg-brand); border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+    }
+    .loading-row { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12px; padding: 4px 0; }
     .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
     .card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
     .card.unmanaged { border-style: dashed; }

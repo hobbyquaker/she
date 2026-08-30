@@ -524,6 +524,7 @@
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload"><span class:spinning={loading}>↺</span></button>
             <button class="ghost" onclick={openAdd}>+ Add remote host</button>
             <span class="muted">{remotes.length + 1} host{remotes.length === 0 ? '' : 's'}</span>
+            {#if loading}<span class="spinner" title="Asking every host…"></span>{/if}
             {#if outdatedHosts.length > 1}
                 <button class="ghost sm" onclick={updateAllHelpers} disabled={helperAllBusy || helperBusy !== null} title="Replace she-servicectl on every host that runs an older one, in turn">
                     {helperAllBusy ? `Updating ${helperAllAt}…` : `Update all helpers (${outdatedHosts.length})`}
