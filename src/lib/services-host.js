@@ -179,6 +179,8 @@ function parseList(stdout) {
         helperOutdated: (Number(data.helper) || 0) < HELPER_VERSION,
         hostname: data.hostname || null,
         node: data.node || null,
+        /** uname -m of the host (helper v15+): which node builds exist for it */
+        arch: data.arch || null,
         brokerEnv: data.brokerEnv === true,
         adapters: Array.isArray(data.adapters) ? data.adapters : [],
         instances: Array.isArray(data.instances) ? data.instances : [],

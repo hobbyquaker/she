@@ -31,7 +31,7 @@
 #   she-servicectl files  <adapter> <instance>                     JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
 #   she-servicectl file   <adapter> <instance> read|write <path>  a file inside those two directories (write: content on stdin)
 #   she-servicectl asset  <adapter> <relpath>                      a file shipped in the adapter package (example, schema)
-#   she-servicectl node update [--lts|--latest|--stable]           install/refresh tj/n (downloaded, no npm), then n install <label> — JSON with the version before and after
+#   she-servicectl node update [--lts|--latest|--stable|--version X.Y.Z]  install/refresh tj/n (downloaded, no npm), then n install <label|version> — JSON with the version before and after
 #   she-servicectl restart-all                                     restart every running instance on this host (after a node update, say)
 #   she-servicectl self-update                                     replace this script with the one on stdin (she ships it)
 #   she-servicectl remove-key                                      drop the public key on stdin from the calling user's authorized_keys
@@ -289,9 +289,13 @@ cmd_version() {
 cmd_list() {
     hostname=$(hostname 2>/dev/null || uname -n)
     node=$(command -v node >/dev/null 2>&1 && node --version 2>/dev/null || true)
-    printf '{"helper":%s,"hostname":"%s","node":%s,"brokerEnv":%s,"adapters":[' \
+    # the machine type decides which node builds exist for this host (an old Pi has none
+    # past the armv6l/armv7l lines) — she reads it off nodejs.org's index per architecture
+    arch=$(uname -m 2>/dev/null || true)
+    printf '{"helper":%s,"hostname":"%s","node":%s,"arch":%s,"brokerEnv":%s,"adapters":[' \
         "$VERSION" "$(json_escape "$hostname")" \
         "$([ -n "$node" ] && printf '"%s"' "$node" || printf 'null')" \
+        "$([ -n "$arch" ] && printf '"%s"' "$(json_escape "$arch")" || printf 'null')" \
         "$([ -f "$BROKER_ENV" ] && printf 'true' || printf 'false')"
     first=1
     adapters=""
@@ -727,6 +731,14 @@ cmd_node() {
             --lts) spec=lts ;;
             --latest) spec=latest ;;
             --stable) spec=stable ;;
+            # an exact release: what a label resolves to depends on the architecture, and she
+            # resolved it against the builds that exist for this host before asking
+            --version)
+                shift
+                [ $# -gt 0 ] || die "--version needs a version"
+                printf '%s' "$1" | grep -Eq '^v?[0-9]{1,3}(\.[0-9]{1,3}){0,2}$' || die "invalid version: $1"
+                spec=$1
+                ;;
             *) die "unknown option: $1" ;;
         esac
         shift

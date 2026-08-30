@@ -1234,6 +1234,8 @@ export interface ServiceHost {
     helper?: number;
     helperOutdated?: boolean;
     node?: string | null;
+    /** uname -m of the host (helper v15+) — which node builds exist for it */
+    arch?: string | null;
     brokerEnv?: boolean;
     adapters?: ServiceHostAdapter[];
     instances?: ServiceHostInstance[];
@@ -1481,8 +1483,9 @@ export interface NodeUpdateResult {
     restartRequired: boolean;
 }
 
-export function updateHostNode(host: string, channel: NodeChannel = 'lts'): Promise<NodeUpdateResult> {
-    return request('POST', `${svcHost(host)}/node/update`, { channel });
+/** `version`: the exact release resolved for that host's architecture; without it n resolves the label itself. */
+export function updateHostNode(host: string, channel: NodeChannel = 'lts', version: string | null = null): Promise<NodeUpdateResult> {
+    return request('POST', `${svcHost(host)}/node/update`, { channel, version });
 }
 
 /** What a node update would install — asked once for all hosts, cached by the daemon. */
@@ -1491,6 +1494,12 @@ export interface NodeReleases {
     /** codename of that LTS line, e.g. "Krypton" */
     ltsName: string | null;
     latest: string | null;
+    /**
+     * The same two, per machine type — keyed both by node's name for it and by what `uname -m`
+     * says, so a host's reported arch looks up directly. The newest lines have no build for an
+     * old Pi, where `lts`/`latest` above would promise a version that cannot be installed.
+     */
+    byArch?: Record<string, { lts: string | null; latest: string | null }>;
     fetchedAt: number | null;
     /** nodejs.org could not be reached; the versions are the last known ones (or null) */
     stale: boolean;

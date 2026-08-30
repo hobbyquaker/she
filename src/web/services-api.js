@@ -30,7 +30,7 @@
  *   POST   /she/services/ssh/keygen                                  generate it
  *   POST   /she/services/hosts/:host/test                            run `she-servicectl version` → ok / code
  *   GET    /she/services/node/releases[?refresh=1]                   what a node update would install: the newest lts and latest release
- *   POST   /she/services/hosts/:host/node/update                     { channel: stable|lts|latest } update Node.js with tj/n (helper v13)
+ *   POST   /she/services/hosts/:host/node/update                     { channel: stable|lts|latest, version? } update Node.js with tj/n (helper v13, exact version v15)
  *   POST   /she/services/hosts/:host/instances/restart-all           restart every running instance (after a node update)
  *   POST   /she/services/hosts/:host/helper/deploy                   scp the helper to a remote host, install it, print the sudoers line
  *   POST   /she/services/hosts/:host/helper/remove                   { mode: key|all, force? } remove she from the host (I11), drop the host entry
@@ -1056,16 +1056,22 @@ router.get('/node/releases', async (req, res) => {
     res.json(await nodeReleases.releases({ force: req.query.refresh === '1' }));
 });
 
-// POST /she/services/hosts/:host/node/update { channel?: 'lts' | 'latest' }
+// POST /she/services/hosts/:host/node/update { channel?: 'lts' | 'latest', version?: 'vX.Y.Z' }
 router.post('/hosts/:host/node/update', async (req, res) => {
     const entry = resolve(req, res);
     if (!entry) return;
     // n's own labels, passed through as they are: stable and lts both mean the newest LTS
     const channel = (req.body && req.body.channel) || 'lts';
     if (!['stable', 'lts', 'latest'].includes(channel)) return res.status(400).json({ error: "channel must be 'stable', 'lts' or 'latest'" });
+    // A label means something else on a host whose architecture the newest lines are not built
+    // for — n would resolve `lts` to a release that has no download for an old Pi. The caller
+    // resolved it against that host's builds, so the exact version is what gets installed.
+    const version = (req.body && req.body.version) || null;
+    if (version !== null && !/^v?\d{1,3}(\.\d{1,3}){0,2}$/.test(String(version))) return res.status(400).json({ error: 'invalid version' });
+    const spec = version ? ['--version', String(version)] : ['--' + channel];
     try {
         // downloading and unpacking a node build on a small host takes a while
-        const { stdout } = await entry.driver.exec(['node', 'update', '--' + channel], { timeout: 900000 });
+        const { stdout } = await entry.driver.exec(['node', 'update', ...spec], { timeout: 900000 });
         let result = {};
         try {
             result = JSON.parse(stdout);

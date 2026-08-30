@@ -239,6 +239,42 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         }
     });
 
+    test('GET /node/releases resolves the newest build per architecture', async () => {
+        // an old Pi has no build of the newest lines: offering it one promises an install that
+        // cannot work — index.json lists the files of each release, so ask those
+        nodeReleases.clearCache();
+        nodeReleases.setFetch(async () => ({
+            ok: true,
+            json: async () => [
+                { version: 'v26.8.1', lts: false, files: ['linux-x64', 'linux-arm64'] },
+                { version: 'v24.20.0', lts: 'Krypton', files: ['linux-x64', 'linux-arm64'] },
+                { version: 'v23.11.1', lts: false, files: ['linux-x64', 'linux-arm64', 'linux-armv7l'] },
+                { version: 'v22.20.0', lts: 'Jod', files: ['linux-x64', 'linux-arm64', 'linux-armv7l'] },
+            ],
+        }));
+        try {
+            const r = await httpRequest('GET', port, '/she/services/node/releases');
+            expect(r.body).toMatchObject({ latest: 'v26.8.1', lts: 'v24.20.0' });
+            expect(r.body.byArch.x64).toEqual({ lts: 'v24.20.0', latest: 'v26.8.1' });
+            expect(r.body.byArch.armv7l).toEqual({ lts: 'v22.20.0', latest: 'v23.11.1' });
+            // a host reports what uname says, and that name finds the same entry
+            expect(r.body.byArch.x86_64).toEqual(r.body.byArch.x64);
+            expect(r.body.byArch.aarch64).toEqual(r.body.byArch.arm64);
+            // nothing is built for it at all
+            expect(r.body.byArch.armv6l).toBeUndefined();
+        } finally {
+            nodeReleases.clearCache();
+        }
+    });
+
+    test('node update installs the exact version it was given', async () => {
+        fs.writeFileSync(logFile, '');
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/node/update', { channel: 'lts', version: 'v22.20.0' });
+        expect(r.status).toBe(200);
+        expect(calls().find((c) => c.args[0] === 'node').args).toEqual(['node', 'update', '--version', 'v22.20.0']);
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/node/update', { version: '22; rm -rf /' })).status).toBe(400);
+    });
+
     test('GET /node/releases keeps the last answer when nodejs.org is unreachable', async () => {
         nodeReleases.clearCache();
         nodeReleases.setFetch(async () => {

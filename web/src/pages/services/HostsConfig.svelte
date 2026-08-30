@@ -107,8 +107,18 @@
         { key: 'lts', label: 'LTS' },
         { key: 'latest', label: 'latest' },
     ];
+    /**
+     * What a channel installs on that host. The newest lines are not built for every machine —
+     * an old Pi (armv6l/armv7l) has none of them — so the release list is read per architecture
+     * and only falls back to the global one for a host that does not report its arch (helper
+     * older than v15) or one nodejs.org has no linux builds for.
+     */
+    const releasesFor = (st: ServiceHost | null) => (st?.arch && releases?.byArch?.[st.arch]) || releases || null;
     // n resolves both stable and lts to the newest long-term-support release
-    const targetOf = (c: NodeChannel) => (c === 'latest' ? releases?.latest : releases?.lts) ?? null;
+    const targetOf = (c: NodeChannel, st: ServiceHost | null) => {
+        const r = releasesFor(st);
+        return (c === 'latest' ? r?.latest : r?.lts) ?? null;
+    };
 
     /** -1 / 0 / 1 for two "vX.Y.Z" strings; null when either is unknown. */
     function cmpVersion(a: string | null | undefined, b: string | null | undefined): number | null {
@@ -131,8 +141,9 @@
     let nodeUpdateCount = $derived(
         status.filter((h) => {
             if (!h.ok || !h.node || !releases) return false;
-            const onLatestLine = !!releases.latest && majorOf(h.node) === majorOf(releases.latest);
-            const target = onLatestLine ? releases.latest : releases.lts;
+            const r = releasesFor(h);
+            const onLatestLine = !!r?.latest && majorOf(h.node) === majorOf(r.latest);
+            const target = onLatestLine ? r?.latest : r?.lts;
             return !!target && cmpVersion(target, h.node) === 1;
         }).length,
     );
@@ -141,15 +152,17 @@
     /** All three labels, each either an update to offer or a "you are on it" state. */
     function channelsFor(st: ServiceHost): { key: NodeChannel; label: string; target: string | null; current: boolean; downgrade: boolean }[] {
         return CHANNELS.map((c) => {
-            const target = targetOf(c.key);
+            const target = targetOf(c.key, st);
             return { ...c, target, current: !!target && target === st.node, downgrade: cmpVersion(target, st.node) === -1 };
         });
     }
 
     async function updateNode(hostName: string, channel: NodeChannel) {
-        const isLocal = statusOf(hostName)?.local === true;
+        const st = statusOf(hostName) ?? null;
+        const isLocal = st?.local === true;
+        const target = targetOf(channel, st);
         const ok = await dialog?.show(
-            `Install Node.js ${targetOf(channel) ?? `"${channel}"`} on ${hostName} with n install ${channel}? ` +
+            `Install Node.js ${target ?? `"${channel}"`} on ${hostName} with n install ${target ?? channel}? ` +
                 'This replaces the host\'s node binary; running adapters keep the current version until they are restarted.' +
                 (isLocal ? ' she runs on this host too — it keeps the old binary until the daemon itself is restarted.' : ''),
             { confirm: 'Update Node.js' },
@@ -158,7 +171,7 @@
         nodeBusy = hostName;
         restartResult = { ...restartResult, [hostName]: undefined as any };
         try {
-            const r = await updateHostNode(hostName, channel);
+            const r = await updateHostNode(hostName, channel, target);
             nodeResult = { ...nodeResult, [hostName]: r };
             status = (await getServiceHosts(true)).hosts;
             onchanged?.();
@@ -442,6 +455,12 @@
 {/snippet}
 
 <!-- node version of the host, and updating it through tj/n (helper v13) -->
+<!-- what uname -m says: the machine the adapters run on, and what decides which node builds
+     exist for it — an old Pi is armv6l/armv7l and has none of the newest lines -->
+{#snippet platform(arch: string)}
+    <span class="badge-arch mono" title="Machine type of this host (uname -m) — the Node.js releases below are the ones built for it">{arch}</span>
+{/snippet}
+
 {#snippet nodeRow(name: string, st: ServiceHost)}
     {@const offers = channelsFor(st)}
     <div class="node-row">
@@ -466,6 +485,8 @@
         {/each}
         {#if releases?.stale}
             <span class="muted" title="nodejs.org could not be reached — these may not be the current versions">versions may be stale</span>
+        {:else if st.arch && releases?.byArch?.[st.arch] && releases.latest && releasesFor(st)?.latest !== releases.latest}
+            <span class="muted" title="nodejs.org publishes no {st.arch} build of the newer lines — {releases.latest} is the newest overall">newest for {st.arch}; {releases.latest} elsewhere</span>
         {/if}
     </div>
     {#if nodeResult[name]}
@@ -597,6 +618,7 @@
                 <div class="card-head">
                     <span class="dot" class:ok={localStatus?.ok} class:err={localStatus && !localStatus.ok}></span>
                     <span class="name">{localStatus?.hostname ?? 'this host'}</span>
+                    {#if localStatus?.arch}{@render platform(localStatus.arch)}{/if}
                     <span class="muted">the she host itself</span>
                     <span class="spacer"></span>
                     {#if localStatus?.ok}{@render helper('local', localStatus)}{/if}
@@ -613,6 +635,7 @@
                     <div class="card-head">
                         <span class="dot" class:ok={st?.ok} class:err={st && !st.ok}></span>
                         <span class="name">{r.hostname || st?.hostname || r.host}</span>
+                        {#if st?.arch}{@render platform(st.arch)}{/if}
                         <span class="muted mono">{r.user || daemonUser || '?'}@{r.host}{r.port ? `:${r.port}` : ''}</span>
                         {#if r.identityFile}<span class="muted" title={r.identityFile}>own key</span>{/if}
                         <span class="spacer"></span>
@@ -737,6 +760,10 @@
     }
 
     /* a channel the host is already on */
+    .badge-arch {
+        border: 1px solid var(--border); border-radius: 8px; padding: 0 6px;
+        font-size: 10px; line-height: 15px; color: var(--fg-muted);
+    }
     .ok-pill {
         background: rgba(39,174,96,0.12);
         border: 1px solid rgba(39,174,96,0.35);
