@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { getConfig, patchConfig, getBrokerStatus, getBrokerLocalCheck, type BrokerLocalCheck } from '../../lib/api.js';
+    import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
 
     // ── Config ─────────────────────────────────────────────────────────────────
     interface SshConfig {
@@ -93,7 +94,12 @@
         }
     }
 
+    let dialog = $state<ConfirmDialog>();
+
     async function generateKeypair() {
+        // regenerating throws away the key the broker host trusts — the same guard the
+        // services key on the Adapters → Hosts tab has
+        if (pubkey && !(await dialog?.show('Regenerate the broker SSH keypair? The broker host trusts the current public key — after this it needs the new one in the SSH user\'s authorized_keys before she can reach it again.', { confirm: 'Regenerate', danger: true }))) return;
         genLoading = true;
         genError = '';
         try {
@@ -163,6 +169,7 @@
     );
 </script>
 
+<ConfirmDialog bind:this={dialog} />
 <div class="mosquitto-page">
     {#if loadError}<div class="err">{loadError}</div>{/if}
 
