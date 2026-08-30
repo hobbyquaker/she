@@ -719,7 +719,7 @@ fetch_n() {
 }
 
 cmd_node() {
-    [ $# -ge 1 ] || die "usage: node update [--lts|--stable]"
+    [ $# -ge 1 ] || die "usage: node update [--lts|--stable|--latest|--version X.Y.Z]"
     action=$1
     shift
     [ "$action" = update ] || die "unknown node action: $action"

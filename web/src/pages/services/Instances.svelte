@@ -637,8 +637,10 @@
         border-collapse: collapse;
         font-size: 12px;
         color: var(--fg);
-        /* fixed layout + explicit widths: the columns stay put whatever is filtered away, and
-           the drawer squeezes the wrapper into a scroll instead of re-laying out the table */
+        /* fixed layout + explicit widths: the data columns stay put whatever is filtered away,
+           and the drawer squeezes the wrapper into a scroll instead of re-laying out the table.
+           The one exception is the action column, measured from the widest visible row — a
+           filter can narrow it when it hides the wide rows. */
         table-layout: fixed;
         width: max-content;
         min-width: 100%;
