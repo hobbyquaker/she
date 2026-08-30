@@ -87,9 +87,15 @@
         }
     }
 
-    /** The adapter's author on GitHub, taken from the repository owner; npm profile otherwise. */
+    /**
+     * The adapter's author on GitHub: the repository owner the daily sweep resolved, or — for a
+     * package the sweep has not enriched yet — the owner read straight off the repository URL.
+     * Only a package without a GitHub repository falls back to the npm profile.
+     */
     function authorLink(p: CatalogPackage): { href: string; label: string; title: string } {
         if (p.ownerUrl && p.owner) return { href: p.ownerUrl, label: p.owner, title: `${p.owner} on GitHub` };
+        const owner = p.repository?.match(/github\.com[/:]([^/#?]+)/i)?.[1];
+        if (owner) return { href: `https://github.com/${owner}`, label: owner, title: `${owner} on GitHub` };
         return { href: `https://www.npmjs.com/~${p.publisher}`, label: p.publisher, title: `${p.publisher} on npm` };
     }
 
@@ -137,7 +143,7 @@
                                 <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
                             </a>
                         {/if}
-                        {#if p.stars !== null}
+                        {#if typeof p.stars === 'number'}
                             <a class="stars" href={p.repository ?? '#'} target="_blank" rel="noopener" title="{p.stars} star{p.stars === 1 ? '' : 's'} on GitHub">
                                 <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .8l2.2 4.5 5 .7-3.6 3.5.9 4.9L8 12.1l-4.5 2.3.9-4.9L.8 6l5-.7L8 .8z"/></svg>
                                 {fmtStars(p.stars)}
