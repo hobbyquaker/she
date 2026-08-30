@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, tick, untrack } from 'svelte';
     import Scripts from './pages/Scripts.svelte';
     import Config from './pages/Config.svelte';
     import Logs from './pages/Logs.svelte';
@@ -160,6 +160,55 @@
         location.reload(); // deadline hit — reload anyway
     }
 
+    /**
+     * The window must never be narrower than the top bar, or its entries are pushed out of
+     * reach. Which entries exist depends on what is enabled (Broker, Adapters, Matter, DB) and
+     * on the update dots, so the minimum is measured from the bar itself rather than guessed:
+     * the sum of its children, which do not shrink, ignoring the spacer that eats the slack.
+     */
+    let navEl = $state<HTMLElement>();
+    let navMin = $state(0);
+
+    function measureNav() {
+        if (!navEl) return;
+        const style = getComputedStyle(navEl);
+        const gap = parseFloat(style.columnGap) || 0;
+        const kids = [...navEl.children] as HTMLElement[];
+        let width = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + gap * Math.max(0, kids.length - 1);
+        for (const el of kids) {
+            if (el.classList.contains('nav-spacer')) continue; // absorbs the slack, needs none
+            width += el.getBoundingClientRect().width;
+        }
+        const next = Math.ceil(width) + 8;
+        if (next > 0 && next !== navMin) navMin = next;
+    }
+
+    // Watch the bar itself and every entry in it: fonts arriving, a zoom change or an update
+    // dot appearing all change what the bar needs. Re-observed whenever entries come and go.
+    let navObserver: ResizeObserver | null = null;
+    function watchNav() {
+        if (!navEl || !navObserver) return;
+        navObserver.disconnect();
+        navObserver.observe(navEl);
+        for (const el of navEl.children) navObserver.observe(el);
+        measureNav();
+    }
+
+    onMount(() => {
+        navObserver = new ResizeObserver(() => measureNav());
+        watchNav();
+        return () => {
+            navObserver?.disconnect();
+            navObserver = null;
+        };
+    });
+
+    // entries appear and disappear with what is enabled — re-measure once the bar is redrawn
+    $effect(() => {
+        void [brokerEnabled, servicesEnabled, stats?.matterEnabled, stats?.dbEnabled, stats?.latestVersion, stats?.docker];
+        tick().then(() => untrack(watchNav));
+    });
+
     function navigate(p: Page) {
         page = p;
         sub = null; // the page reports the tab it is on, and that fills the hash back in
@@ -290,14 +339,14 @@
 <svelte:document onclick={() => { if (statsOpen) statsOpen = false; if (versionOpen) versionOpen = false; }} />
 
 {#if authReady && !showLogin}
-<div class="shell">
+<div class="shell" style={navMin ? `min-width: ${navMin}px` : undefined}>
     {#if stats?.safeMode}
         <div class="safe-banner">
             <strong>⚠ SAFE MODE</strong> — no user script is running and the script directory is not watched. She was killed instead of stopped last time, which usually means a script blocked the event loop. Edit or delete it, then restart.
             <button class="safe-restart" onclick={restart}>Restart daemon</button>
         </div>
     {/if}
-    <nav>
+    <nav bind:this={navEl}>
         <span class="brand">she</span>
         <button class:active={page === 'scripts'} onclick={() => navigate('scripts')}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -596,9 +645,9 @@
         display: flex;
         flex-direction: column;
         height: 100vh;
-        /* enough for the whole top bar with every page enabled — narrower than this the nav
-           items would be pushed out of reach, so the window scrolls sideways instead */
-        min-width: 1040px;
+        /* the real minimum is measured from the top bar and set inline; this is the floor
+           until that first measurement lands */
+        min-width: 560px;
     }
     /* Safe mode (S4): full width above the nav bar — impossible to miss, and it stays
        out of the way of the page below (the Scripts tab must remain fully usable). */
@@ -658,7 +707,10 @@
     button:hover { background: var(--bg-hover); }
     button.active { background: var(--bg-active); color: var(--fg-text); }
 
-    .nav-spacer { flex: 1; }
+    .nav-spacer { flex: 1 1 0; min-width: 0; }
+    /* nothing in the bar shrinks — it is the bar's width that sets the window minimum */
+    nav > * { flex-shrink: 0; }
+    nav button { white-space: nowrap; }
 
     .stats-wrap {
         position: relative;
