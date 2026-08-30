@@ -36,5 +36,13 @@ export default [
             },
         },
     },
+    {
+        // *.svelte.js fixtures are compiled by the Svelte compiler, not run by node: runes are theirs
+        files: ['**/*.svelte.js'],
+        languageOptions: {
+            sourceType: 'module',
+            globals: { $state: 'readonly', $derived: 'readonly', $effect: 'readonly', $props: 'readonly', $bindable: 'readonly' },
+        },
+    },
     prettierRecommended,
 ];

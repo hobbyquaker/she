@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, untrack } from 'svelte';
     import { subscribeWs } from '../lib/ws.js';
     import { listDocs, getDoc, putDoc, deleteDoc, listViews, getView, putView, deleteView, getViewResult, getConfig, type ViewDefinition, type ViewResult } from '../lib/api.js';
     import { mqttWildcard } from '../lib/mqtt-wildcards.js';
@@ -39,9 +39,13 @@
 
     // ── URL: #/db/<slug> ───────────────────────────────────────────────────────
     const PANEL_SLUGS = { docs: 'documents', views: 'views' } as const;
+    // see Services.svelte for why the guard is needed: this effect re-runs on every panel change
+    let seenSub: string | null | undefined = undefined;
     $effect(() => {
-        if (sub === 'documents' && panel !== 'docs') panel = 'docs';
-        else if (sub === 'views' && panel !== 'views') panel = 'views';
+        if (sub === seenSub) return;
+        seenSub = sub;
+        const want = sub === 'documents' ? 'docs' : sub === 'views' ? 'views' : null;
+        if (want) untrack(() => { if (panel !== want) panel = want; });
     });
     $effect(() => { if (active) onsub?.(PANEL_SLUGS[panel]); });
 

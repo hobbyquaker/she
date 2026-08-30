@@ -330,9 +330,13 @@
     let haMode       = $state(false);
 
     // ── URL: #/mqtt/topics or #/mqtt/discovery ────────────────────────────────
+    // see Services.svelte for why the guard is needed: this effect re-runs on every view change
+    let seenSub: string | null | undefined = undefined;
     $effect(() => {
-        if (sub === 'discovery' && !haMode) haMode = true;
-        else if (sub === 'topics' && haMode) haMode = false;
+        if (sub === seenSub) return;
+        seenSub = sub;
+        const want = sub === 'discovery' ? true : sub === 'topics' ? false : null;
+        if (want !== null) untrack(() => { if (haMode !== want) haMode = want; });
     });
     $effect(() => { if (active) onsub?.(haMode ? 'discovery' : 'topics'); });
     let aclLoading   = $state(false);

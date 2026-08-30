@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { untrack } from 'svelte';
     import Instances from './services/Instances.svelte';
     import Hosts from './services/Hosts.svelte';
     import HostsConfig from './services/HostsConfig.svelte';
@@ -21,7 +22,18 @@
     // the slugs are what the tabs are called on screen, not their internal names
     const SLUGS: Record<SubTab, string> = { instances: 'instances', hosts: 'installations', hostsconf: 'hosts' };
     const fromSlug = (slug: string | null) => (Object.keys(SLUGS) as SubTab[]).find((t) => SLUGS[t] === slug) ?? null;
-    $effect(() => { const t = fromSlug(sub); if (t && t !== tab) tab = t; });
+    // Writing `tab` from an effect makes that effect re-run whenever the tab changes — untrack
+    // does not help, it tracks writes too. Without the guard a click would re-enter here with
+    // the hash still on the old slug and put the tab straight back, which is exactly what
+    // happened. seenSub is a plain variable: it only remembers what the url last said, so the
+    // effect steers the tab when the url changed and stays out of the way when the user clicked.
+    let seenSub: string | null | undefined = undefined;
+    $effect(() => {
+        if (sub === seenSub) return;
+        seenSub = sub;
+        const t = fromSlug(sub);
+        if (t) untrack(() => { if (t !== tab) tab = t; });
+    });
     // reported whenever this page is the one on screen, so the hash always names the open tab
     $effect(() => { if (active) onsub?.(SLUGS[tab]); });
 

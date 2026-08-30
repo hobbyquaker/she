@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, untrack } from 'svelte';
     import { getBrokerStatus, brokerDynsecDeactivate, brokerDynsecDiagnose, type BrokerStatus, type DynsecDiagnosis } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import Users from './broker/Users.svelte';
@@ -28,7 +28,13 @@
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
 
     // ── URL: #/broker/<tab> ────────────────────────────────────────────────────
-    $effect(() => { if (sub && SUB_TABS.includes(sub as SubTab) && sub !== tab) tab = sub as SubTab; });
+    // see Services.svelte for why the guard is needed: this effect re-runs on every tab change
+    let seenSub: string | null | undefined = undefined;
+    $effect(() => {
+        if (sub === seenSub) return;
+        seenSub = sub;
+        if (sub && SUB_TABS.includes(sub as SubTab)) untrack(() => { if (sub !== tab) tab = sub as SubTab; });
+    });
     $effect(() => { if (active) onsub?.(tab); });
 
     let status = $state<BrokerStatus | null>(null);
