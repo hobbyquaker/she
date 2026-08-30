@@ -8,6 +8,7 @@
     import InputDialog from '../../lib/InputDialog.svelte';
     import { subscribeWs } from '../../lib/ws.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
+    import MultiSelect from '../../lib/MultiSelect.svelte';
     import InstanceDetail from './InstanceDetail.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
@@ -122,9 +123,9 @@
     }
     let fInstance = $state('');
     let fAdapter  = $state('');
-    let fHost     = $state('');
-    let fState    = $state('');
-    const colFiltered = $derived(!!(fInstance || fAdapter || fHost || fState));
+    let fHosts    = $state<string[]>([]);
+    let fStates   = $state<string[]>([]);
+    const colFiltered = $derived(!!fInstance || !!fAdapter || fHosts.length > 0 || fStates.length > 0);
 
     const hostOf  = (r: Row) => r.mqtt?.host ?? r.host?.hostname ?? r.host?.name ?? '';
     const stateOf = (r: Row) => connState(r).label;
@@ -133,7 +134,6 @@
 
     // what the table, the counters and the nav dot work on
     let shown = $derived(showUnmanaged ? rows : rows.filter(r => !(r.mqtt?.legacy && !r.unit)));
-    let adapterOptions = $derived([...new Set(shown.map(r => r.adapter).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b)));
     let hostOptions    = $derived([...new Set(shown.map(hostOf).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
     let stateOptions   = $derived([...new Set(shown.map(stateOf))].sort((a, b) => a.localeCompare(b)));
 
@@ -149,10 +149,11 @@
                 (r.mqtt?.version ?? '').toLowerCase().includes(q),
             );
         }
-        if (qi)      out = out.filter(r => r.instance.toLowerCase().includes(qi));
-        if (fAdapter) out = out.filter(r => r.adapter === fAdapter);
-        if (fHost)    out = out.filter(r => hostOf(r) === fHost);
-        if (fState)   out = out.filter(r => stateOf(r) === fState);
+        const qa = fAdapter.trim().toLowerCase();
+        if (qi) out = out.filter(r => r.instance.toLowerCase().includes(qi));
+        if (qa) out = out.filter(r => (r.adapter ?? '').toLowerCase().includes(qa));
+        if (fHosts.length)  out = out.filter(r => fHosts.includes(hostOf(r)));
+        if (fStates.length) out = out.filter(r => fStates.includes(stateOf(r)));
 
         const cmp = (a: Row, b: Row) => {
             switch (sortKey) {
@@ -341,7 +342,7 @@
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again"><span class:spinning={refreshing}>↺</span></button>
             <span class="count">{visible.length}{#if filter || colFiltered} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}</span>
             {#if colFiltered}
-                <button class="ghost sm" onclick={() => { fInstance = ''; fAdapter = ''; fHost = ''; fState = ''; }} title="Clear the column filters">clear filters</button>
+                <button class="ghost sm" onclick={() => { fInstance = ''; fAdapter = ''; fHosts = []; fStates = []; }} title="Clear the column filters">clear filters</button>
             {/if}
             <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
                 <input type="checkbox" bind:checked={showUnmanaged} />
@@ -390,24 +391,9 @@
                         </tr>
                         <tr class="filter-row">
                             <th><input class="col-f" type="search" placeholder="filter…" bind:value={fInstance} aria-label="Filter by instance" /></th>
-                            <th>
-                                <select class="col-f" bind:value={fAdapter} aria-label="Filter by adapter">
-                                    <option value="">all adapters</option>
-                                    {#each adapterOptions as a (a)}<option value={a}>{a}</option>{/each}
-                                </select>
-                            </th>
-                            <th>
-                                <select class="col-f" bind:value={fHost} aria-label="Filter by host">
-                                    <option value="">all hosts</option>
-                                    {#each hostOptions as h (h)}<option value={h}>{h}</option>{/each}
-                                </select>
-                            </th>
-                            <th>
-                                <select class="col-f" bind:value={fState} aria-label="Filter by state">
-                                    <option value="">all states</option>
-                                    {#each stateOptions as st (st)}<option value={st}>{st}</option>{/each}
-                                </select>
-                            </th>
+                            <th><input class="col-f" type="search" placeholder="filter…" bind:value={fAdapter} aria-label="Filter by adapter" /></th>
+                            <th><MultiSelect bind:selected={fHosts} options={hostOptions} noun="hosts" title="Show only these hosts" /></th>
+                            <th><MultiSelect bind:selected={fStates} options={stateOptions} noun="states" title="Show only these states" /></th>
                             <th colspan="6"></th>
                         </tr>
                     </thead>
