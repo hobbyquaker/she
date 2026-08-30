@@ -13,7 +13,9 @@
     let loading = $state(true);
     let error   = $state('');
     let filter  = $state('');
-    let target  = $state<Record<string, string>>({}); // package → host name
+    // the package the "where should it go" dialog is open for, and the host picked in it
+    let installFor = $state<CatalogPackage | null>(null);
+    let installHost = $state('');
     let busy    = $state<string | null>(null);
     let notice  = $state('');
     let output  = $state('');
@@ -48,29 +50,35 @@
     function installedOn(p: CatalogPackage): { host: string; version: string | null }[] {
         return okHosts.flatMap(h => (h.adapters ?? []).filter(a => a.name === p.name).map(a => ({ host: h.hostname ?? h.name, version: a.version })));
     }
-    /** -1 older, 0 same, 1 newer (numeric dotted compare; unparsable → 0) */
-    function cmpVersion(a: string | null, b: string): number {
-        if (!a) return -1;
-        const pa = a.split(/[.-]/).map(Number), pb = b.split(/[.-]/).map(Number);
-        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-            const x = pa[i] ?? 0, y = pb[i] ?? 0;
-            if (Number.isNaN(x) || Number.isNaN(y)) return 0;
-            if (x !== y) return x < y ? -1 : 1;
-        }
-        return 0;
+    /** Hosts the adapter could still be installed on. */
+    function free(p: CatalogPackage): ServiceHost[] {
+        const taken = installedNames(p);
+        return okHosts.filter(h => !taken.has(h.name));
     }
-    function hostFor(p: CatalogPackage): string {
-        return target[p.name] ?? okHosts[0]?.name ?? '';
+
+    /** Hosts this adapter is already on — those are not install targets, updates live on Installations. */
+    function installedNames(p: CatalogPackage): Set<string> {
+        return new Set(okHosts.filter(h => (h.adapters ?? []).some(a => a.name === p.name)).map(h => h.name));
     }
-    async function install(p: CatalogPackage) {
-        const host = hostFor(p);
-        if (!host) return;
+
+    function openInstall(p: CatalogPackage) {
+        const taken = installedNames(p);
+        installHost = (okHosts.find(h => !taken.has(h.name)) ?? okHosts[0])?.name ?? '';
+        installFor = p;
+    }
+
+    async function install() {
+        const p = installFor;
+        const host = installHost;
+        if (!p || !host) return;
+        installFor = null;
         busy = p.name; notice = ''; output = '';
         try {
             const r = await installServicePackage(host, p.name);
             output = r.output;
-            notice = `${p.name} installed on ${host} — add an instance under Add instance.`;
-            oninstalled?.(hostFor(p), p.name);
+            const label = okHosts.find(h => h.name === host);
+            notice = `${p.name} installed on ${label?.hostname ?? host} — add an instance under Add instance.`;
+            oninstalled?.(host, p.name);
             await load();
         } catch (e: any) {
             notice = e.message ?? String(e);
@@ -78,6 +86,7 @@
             busy = null;
         }
     }
+
     function fmtDate(s: string | null): string {
         return s ? new Date(s).toLocaleDateString() : '';
     }
@@ -111,9 +120,6 @@
             <div class="muted intro">Packages of the trusted npm publishers whose latest version depends on <span class="mono">mqtt-interfaces-core</span>. Installing runs <span class="mono">npm install -g &lt;adapter&gt;@latest</span> on the host through the helper; instances are created afterwards under <em>Add instance</em>.</div>
             {#each visible as p (p.name)}
                 {@const on = installedOn(p)}
-                {@const sel = okHosts.find(h => h.name === hostFor(p))}
-                {@const cur = on.find(o => o.host === (sel?.hostname ?? sel?.name))}
-                {@const rel = cur ? cmpVersion(cur.version, p.version) : -1}
                 <div class="pkg">
                     <div class="pkg-head">
                         <a class="name mono" href={'https://www.npmjs.com/package/' + p.name} target="_blank" rel="noopener" title="{p.name} on npm">{p.name}</a>
@@ -129,24 +135,17 @@
                     <div class="desc">{p.description}</div>
                     <div class="pkg-foot">
                         {#if on.length}
-                            <span class="muted">installed on {#each on as o, i (o.host)}{i > 0 ? ', ' : ''}{o.host}{#if o.version} ({o.version}{o.version !== p.version ? ` → ${p.version} available` : ''}){/if}{/each}</span>
+                            <span class="muted">installed on {#each on as o, i (o.host)}{i > 0 ? ', ' : ''}{o.host}{#if o.version} ({o.version}){/if}{/each}{#if on.some(o => o.version && o.version !== p.version)} — updates live on the Installations tab{/if}</span>
                         {:else}
                             <span class="muted">not installed on a managed host</span>
                         {/if}
                         <span class="spacer"></span>
-                        {#if okHosts.length}
-                            <select value={hostFor(p)} onchange={(e) => (target = { ...target, [p.name]: (e.target as HTMLSelectElement).value })}>
-                                {#each okHosts as h (h.name)}<option value={h.name}>{h.hostname ?? h.name}</option>{/each}
-                            </select>
-                            {#if cur && rel === 0}
-                                <span class="muted" title="{cur.version} installed on {cur.host}">up to date</span>
-                            {:else if cur && rel > 0}
-                                <span class="muted" title="{cur.version} installed on {cur.host}, npm has {p.version}">newer than npm</span>
-                            {:else}
-                                <button onclick={() => install(p)} disabled={busy !== null}>{busy === p.name ? 'Installing…' : cur ? 'Update' : 'Install'}</button>
-                            {/if}
-                        {:else}
+                        {#if okHosts.length === 0}
                             <span class="muted">no reachable host</span>
+                        {:else if free(p).length === 0}
+                            <span class="muted" title="Updating an installed adapter is done on the Installations tab">on every host</span>
+                        {:else}
+                            <button onclick={() => openInstall(p)} disabled={busy !== null}>{busy === p.name ? 'Installing…' : 'Install'}</button>
                         {/if}
                     </div>
                 </div>
@@ -156,6 +155,44 @@
         {/if}
     </div>
 </div>
+
+<!-- Where should it go: one npm install per host, so the host is a deliberate choice -->
+{#if installFor}
+    {@const p = installFor}
+    {@const taken = installedNames(p)}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="modal-back" role="presentation" onclick={() => (installFor = null)}>
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="modal" role="dialog" tabindex="-1" aria-modal="true" aria-label="Install {p.name}" onclick={(e) => e.stopPropagation()}>
+            <div class="modal-title">Install <span class="mono">{p.name}</span></div>
+            <div class="modal-text">
+                Which host should it run on? <span class="mono">npm install -g {p.name}@latest</span> runs there through the helper;
+                the instance itself is created afterwards under <em>Add instance</em>.
+            </div>
+            <div class="host-list">
+                {#each okHosts as h (h.name)}
+                    {@const isTaken = taken.has(h.name)}
+                    <label class="host-row" class:disabled={isTaken}>
+                        <input type="radio" name="install-host" value={h.name} bind:group={installHost} disabled={isTaken} />
+                        <span class="radio"></span>
+                        <span class="host-name">{h.hostname ?? h.name}</span>
+                        {#if isTaken}
+                            <span class="muted">already installed — update it on the Installations tab</span>
+                        {:else if h.node}
+                            <span class="muted mono">node {h.node}</span>
+                        {/if}
+                    </label>
+                {/each}
+            </div>
+            <div class="modal-actions">
+                <button class="ghost" onclick={() => (installFor = null)}>Cancel</button>
+                <button onclick={install} disabled={!installHost}>Install on {okHosts.find(h => h.name === installHost)?.hostname ?? installHost}</button>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') installFor = null; }} />
 
 <style>
     .catalog { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -179,7 +216,38 @@
     .badge.n-cloud { background: rgba(86,156,214,0.18); color: #569cd6; }
     .badge.n-bluetooth { background: rgba(155,89,182,0.18); color: #9b59b6; }
     .badge.n-serial, .badge.n-usb { background: rgba(127,140,141,0.22); color: var(--fg-muted); }
-    select { background: var(--bg-app); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; padding: 2px 4px; }
+    /* "where should it go" dialog */
+    .modal-back {
+        position: fixed; inset: 0; z-index: 50;
+        background: rgba(0,0,0,0.45);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .modal {
+        background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+        padding: 14px 16px; width: min(460px, 92vw);
+        display: flex; flex-direction: column; gap: 10px; font-size: 12px; color: var(--fg);
+    }
+    .modal-title { font-size: 14px; font-weight: 600; }
+    .modal-text { color: var(--fg-muted); line-height: 1.5; }
+    .host-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow: auto; }
+    .host-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 5px 6px; border-radius: 4px; cursor: pointer;
+    }
+    .host-row:hover:not(.disabled) { background: var(--bg-hover); }
+    .host-row.disabled { cursor: default; opacity: 0.65; }
+    .host-row input { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .radio {
+        flex-shrink: 0; width: 12px; height: 12px; border-radius: 50%;
+        border: 1.5px solid var(--border); background: var(--bg-input); position: relative;
+    }
+    .host-row input:checked + .radio { border-color: var(--accent); }
+    .host-row input:checked + .radio::after {
+        content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--accent);
+    }
+    .host-name { font-weight: 600; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
     button { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: default; }
     button.ghost { background: none; border: 1px solid var(--border); color: var(--fg-muted); }
