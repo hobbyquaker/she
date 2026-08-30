@@ -2,6 +2,8 @@
 // Fake she-servicectl for unit tests: canned answers, records calls to $FAKE_LOG.
 'use strict';
 const fs = require('fs');
+// the version she considers current, so a helper bump does not have to be repeated here
+const { HELPER_VERSION } = require('../../../src/lib/services-host');
 const args = process.argv.slice(2);
 const log = process.env.FAKE_LOG;
 let stdin = '';
@@ -19,12 +21,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '13');
+        console.log(process.env.FAKE_HELPER_VERSION || String(HELPER_VERSION));
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 13),
+                helper: Number(process.env.FAKE_HELPER_VERSION || HELPER_VERSION),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -207,7 +209,7 @@ switch (cmd) {
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 12 -> 13 at /usr/local/bin/she-servicectl');
+        console.log(`she-servicectl updated ${HELPER_VERSION - 1} -> ${HELPER_VERSION} at /usr/local/bin/she-servicectl`);
         break;
     case 'files':
         console.log(
