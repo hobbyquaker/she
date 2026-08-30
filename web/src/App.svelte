@@ -304,6 +304,22 @@
             {:else if mqttConnected}<span class="nav-dot nav-dot--ok" title="MQTT connected"></span>
             {/if}
         </button>
+        {#if brokerEnabled}
+        <button class:active={page === 'security'} onclick={() => navigate('security')}>
+            <!-- Broker icon: mosquitto mark — three arc pairs radiating from the body, proboscis pointing down -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M8.36,5.73 A2.6,2.6 0 0,1 9.38,10.50"/>
+                <path d="M7.64,5.73 A2.6,2.6 0 0,0 6.62,10.50"/>
+                <path d="M9.16,3.95 A4.5,4.5 0 0,1 10.38,12.12"/>
+                <path d="M6.84,3.95 A4.5,4.5 0 0,0 5.62,12.12"/>
+                <path d="M10.40,2.37 A6.4,6.4 0 0,1 11.39,13.73"/>
+                <path d="M5.60,2.37 A6.4,6.4 0 0,0 4.61,13.73"/>
+                <path d="M7.15,8.3 L8,15.4 L8.85,8.3 Z" fill="currentColor" stroke="none"/>
+                <circle cx="8" cy="8.3" r="1.45" fill="currentColor" stroke="none"/>
+            </svg>
+            Broker
+        </button>
+        {/if}
         {#if servicesEnabled}
         <button class:active={page === 'adapters'} onclick={() => navigate('adapters')}>
             <!-- Services icon: stacked boxes -->
@@ -318,18 +334,6 @@
             {#if servicesStatus === 'warn'}<span class="nav-dot nav-dot--warn" title={servicesTitle}></span>
             {:else}<span class="nav-dot nav-dot--none"></span>
             {/if}
-        </button>
-        {/if}
-        {#if brokerEnabled}
-        <button class:active={page === 'security'} onclick={() => navigate('security')}>
-            <!-- Broker icon: antenna / broadcast -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="8" cy="10" r="2"/>
-                <path d="M5,7 A4,4 0,0,1 11,7"/>
-                <path d="M3,5 A6.5,6.5 0,0,1 13,5"/>
-                <line x1="8" y1="12" x2="8" y2="15"/>
-            </svg>
-            Broker
         </button>
         {/if}
         {#if stats?.matterEnabled}

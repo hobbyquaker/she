@@ -16,6 +16,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 const { execFile, spawn } = require('child_process');
 const { promisify } = require('util');
@@ -29,6 +30,9 @@ const { getBrokerLogBuffer } = require('./log-ws');
 
 // Default SSH identity file respects the configured data directory
 const DEFAULT_SSH_KEY = path.join(sheConfig['data-dir'], 'ssh', 'broker_id_ed25519');
+
+// ssh-deploy falls back to the account she runs under when broker.ssh.user is unset
+const DEFAULT_SSH_USER = os.userInfo().username;
 
 const router = express.Router();
 
@@ -110,7 +114,7 @@ router.get('/status', (req, res) => {
         }
     }
 
-    res.json({ dynsec: ds, sys, sshKeyDefault: DEFAULT_SSH_KEY, sshConfigured, sshHost });
+    res.json({ dynsec: ds, sys, sshKeyDefault: DEFAULT_SSH_KEY, sshUserDefault: DEFAULT_SSH_USER, sshConfigured, sshHost });
 });
 
 // ── mosquitto.conf ─────────────────────────────────────────────────────────────

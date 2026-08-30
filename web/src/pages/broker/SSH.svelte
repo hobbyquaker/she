@@ -16,6 +16,8 @@
     let saveOk = $state(false);
     let saveError = $state('');
     let sshKeyDefault = $state('~/.she/ssh/broker_id_ed25519');
+    // ssh-deploy falls back to the account she runs under when no user is configured
+    let sshUserDefault = $state('');
 
     // ── Mode (local vs SSH) ────────────────────────────────────────────────────
     let mode = $state<'local' | 'ssh'>('local');
@@ -46,6 +48,7 @@
             ]);
             fullConfig = fullCfg;
             if (brokerStatus.sshKeyDefault) sshKeyDefault = brokerStatus.sshKeyDefault;
+            if (brokerStatus.sshUserDefault) sshUserDefault = brokerStatus.sshUserDefault;
             const broker = (fullConfig.broker ?? {}) as Record<string, unknown>;
             cfg = (broker.ssh ?? {}) as SshConfig;
             if (!cfg.port) cfg.port = 22;
@@ -124,10 +127,39 @@
         navigator.clipboard.writeText(text).catch(() => {});
     }
 
+    // The user actually used for ssh/scp: the configured one, else the account she runs as
+    const effectiveUser = $derived((cfg.user ?? '').trim() || sshUserDefault);
+
     const installCmd = $derived(
-        cfg.identityFile && cfg.user && cfg.host
-            ? `ssh-copy-id -i ${cfg.identityFile}.pub ${cfg.user}@${cfg.host}`
+        cfg.identityFile && effectiveUser && cfg.host
+            ? `ssh-copy-id -i ${cfg.identityFile}.pub ${effectiveUser}@${cfg.host}`
             : '',
+    );
+
+    // ── sudoers hint for a non-root SSH user ──────────────────────────────────
+    const configDir = $derived(
+        (((fullConfig.broker ?? {}) as Record<string, unknown>).configDir as string) || '/etc/mosquitto',
+    );
+    const dynsecPath = $derived(`${configDir}/dynamic-security.json`);
+
+    const sudoersSnippet = $derived(
+        `sudo tee /etc/sudoers.d/she-broker >/dev/null <<'EOF'\n` +
+            `${effectiveUser || '<ssh-user>'} ALL=(root) NOPASSWD: /usr/bin/systemctl reload mosquitto, ` +
+            `/usr/bin/systemctl restart mosquitto, ` +
+            `/usr/bin/mosquitto_passwd, ` +
+            `/usr/bin/cat -- ${configDir}/*, ` +
+            `/usr/bin/rm -f ${dynsecPath}, ` +
+            `/usr/bin/chown mosquitto\\:mosquitto ${dynsecPath}, ` +
+            `/usr/bin/chmod 644 ${dynsecPath}\n` +
+            `EOF\n` +
+            `sudo chmod 440 /etc/sudoers.d/she-broker\n` +
+            `sudo visudo -c`,
+    );
+
+    const fileAccessSnippet = $derived(
+        `sudo usermod -aG mosquitto ${effectiveUser || '<ssh-user>'}\n` +
+            `sudo chown -R root:mosquitto ${configDir}\n` +
+            `sudo chmod -R g+rwX ${configDir}`,
     );
 </script>
 
@@ -183,10 +215,11 @@
     <div class="section">
         <h3>SSH connection</h3>
         <p class="hint">Used for file operations: reading/writing mosquitto.conf and installing certificates on the broker host. User/ACL management always uses the MQTT port directly.</p>
+        <p class="hint">Leaving the user empty uses <code>{sshUserDefault || '(the account she runs as)'}</code> — the account the she process runs under, not <code>root</code>.</p>
         <div class="fields">
             <label>Host<input bind:value={cfg.host} placeholder="192.168.1.10 or broker.local" /></label>
             <label>Port<input type="number" bind:value={cfg.port} min="1" max="65535" /></label>
-            <label>SSH user<input bind:value={cfg.user} placeholder="root" /></label>
+            <label>SSH user<input bind:value={cfg.user} placeholder={sshUserDefault || 'she'} /></label>
             <label>Identity file (private key)<input bind:value={cfg.identityFile} placeholder={sshKeyDefault} /></label>
         </div>
     </div>
@@ -228,9 +261,73 @@
             <button onclick={testConnection} disabled={testLoading || !cfg.host}>{testLoading ? 'Testing…' : 'Test SSH connection'}</button>
             {#if testResult}
             <span class="test-result" class:ok={testResult.startsWith('✓')} class:fail={testResult.startsWith('✗')}>{testResult}</span>
-            {/if}
+        
+    {#if effectiveUser !== 'root'}
+    <div class="section">
+        <h3>Permissions for a non-root SSH user</h3>
+        <p class="hint">
+            <code>{effectiveUser || 'the SSH user'}</code> is not <code>root</code>, so it needs two things on the broker host: write access to
+            <code>{configDir}</code> (mosquitto.conf, ACL and cert files are copied there with scp, which cannot use sudo) and a sudo rule for the
+            few commands she runs remotely. Run both blocks <em>on the broker host</em> as an administrator.
+        </p>
+        <label>
+            1. File access to {configDir}
+            <div class="pubkey-row">
+                <pre class="snippet">{fileAccessSnippet}</pre>
+                <button class="copy-btn" onclick={() => copyToClipboard(fileAccessSnippet)}>Copy</button>
+            </div>
+        </label>
+        <label>
+            2. sudo rule (/etc/sudoers.d/she-broker)
+            <div class="pubkey-row">
+                <pre class="snippet">{sudoersSnippet}</pre>
+                <button class="copy-btn" onclick={() => copyToClipboard(sudoersSnippet)}>Copy</button>
+            </div>
+        </label>
+        <p class="hint">
+            Covers <code>systemctl reload/restart mosquitto</code>, <code>mosquitto_passwd</code>, reading ACL files, and the dynamic-security
+            file the Setup Wizard writes. Check the binary paths on the broker host with <code>command -v systemctl mosquitto_passwd cat rm chown chmod</code>
+            — sudoers needs absolute paths and some distributions use <code>/bin</code> instead of <code>/usr/bin</code>. The group-write step gives
+            the <code>mosquitto</code> group write access to its own config; use a dedicated group instead if that is too broad for you. Group
+            membership takes effect on the next SSH connection.
+        </p>
+    </div>
+    {/if}
+    {/if}
         </div>
     </div>
+
+    {#if effectiveUser !== 'root'}
+    <div class="section">
+        <h3>Permissions for a non-root SSH user</h3>
+        <p class="hint">
+            <code>{effectiveUser || 'the SSH user'}</code> is not <code>root</code>, so it needs two things on the broker host: write access to
+            <code>{configDir}</code> (mosquitto.conf, ACL and cert files are copied there with scp, which cannot use sudo) and a sudo rule for the
+            few commands she runs remotely. Run both blocks <em>on the broker host</em> as an administrator.
+        </p>
+        <label>
+            1. File access to {configDir}
+            <div class="pubkey-row">
+                <pre class="snippet">{fileAccessSnippet}</pre>
+                <button class="copy-btn" onclick={() => copyToClipboard(fileAccessSnippet)}>Copy</button>
+            </div>
+        </label>
+        <label>
+            2. sudo rule (/etc/sudoers.d/she-broker)
+            <div class="pubkey-row">
+                <pre class="snippet">{sudoersSnippet}</pre>
+                <button class="copy-btn" onclick={() => copyToClipboard(sudoersSnippet)}>Copy</button>
+            </div>
+        </label>
+        <p class="hint">
+            Covers <code>systemctl reload/restart mosquitto</code>, <code>mosquitto_passwd</code>, reading ACL files, and the dynamic-security
+            file the Setup Wizard writes. Check the binary paths on the broker host with <code>command -v systemctl mosquitto_passwd cat rm chown chmod</code>
+            — sudoers needs absolute paths and some distributions use <code>/bin</code> instead of <code>/usr/bin</code>. The group-write step gives
+            the <code>mosquitto</code> group write access to its own config; use a dedicated group instead if that is too broad for you. Group
+            membership takes effect on the next SSH connection.
+        </p>
+    </div>
+    {/if}
     {/if}
 
     {#if saveError}<div class="err">{saveError}</div>{/if}
@@ -354,6 +451,21 @@
 
     .pubkey-row { display: flex; gap: 6px; align-items: flex-start; }
     .pubkey-row textarea, .pubkey-row input { flex: 1; font-family: monospace; font-size: 11px; }
+
+    .snippet {
+        background: var(--input-bg, #2a2a2a);
+        border: 1px solid var(--border, #444);
+        border-radius: 4px;
+        color: var(--text, #eee);
+        flex: 1;
+        font-family: monospace;
+        font-size: 11px;
+        line-height: 1.5;
+        margin: 0;
+        overflow-x: auto;
+        padding: 6px 8px;
+        white-space: pre;
+    }
 
     .test-result { font-size: 12px; }
     .test-result.ok { color: #8c8; }

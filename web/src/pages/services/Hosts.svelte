@@ -45,6 +45,11 @@
     }
     onMount(() => { load(); });
 
+    // cards sorted by the label they show (hostname, falling back to the configured name)
+    let sortedHosts = $derived(
+        [...hosts].sort((a, b) => (a.hostname ?? a.name).localeCompare(b.hostname ?? b.name, undefined, { numeric: true, sensitivity: 'base' })),
+    );
+
     // adapter updates waiting on any host — drives the yellow dot on the Installations sub-tab
     let updateCount = $derived(hosts.reduce((n, h) => n + (h.adapters ?? []).filter(a => a.updateAvailable).length, 0));
     $effect(() => { onupdates?.(updateCount); });
@@ -157,7 +162,7 @@
             <div class="err-box">{error}</div>
         {/if}
 
-        {#each hosts as h (h.name)}
+        {#each sortedHosts as h (h.name)}
             <div class="card">
                 <div class="card-head">
                     <span class="dot" class:ok={h.ok} class:err={!h.ok}></span>

@@ -78,6 +78,10 @@
     const statusOf = (name: string) => status.find((s) => s.name === name) ?? null;
     const localStatus = $derived(status.find((s) => s.local) ?? null);
 
+    /** Cards are indexed by position (edit/remove use the index), so the list itself is kept sorted by label. */
+    const byLabel = (a: Remote, b: Remote) =>
+        (a.hostname || a.host).localeCompare(b.hostname || b.host, undefined, { numeric: true, sensitivity: 'base' });
+
     function fromConfig(cfg: Record<string, unknown>) {
         const svc = cfg.services as Record<string, unknown> | undefined;
         const list = Array.isArray(svc?.hosts) ? (svc!.hosts as any[]) : null;
@@ -85,7 +89,7 @@
         remotes = (list ?? []).filter((h) => h && h.ssh).map((h) => ({
             host: String(h.ssh.host ?? ''), port: typeof h.ssh.port === 'number' ? h.ssh.port : '',
             user: String(h.ssh.user ?? ''), identityFile: String(h.ssh.identityFile ?? ''), hostname: String(h.hostname ?? ''),
-        }));
+        })).sort(byLabel);
         snapshot = JSON.stringify({ local, remotes });
     }
     async function load(refresh = false) {
@@ -209,7 +213,7 @@
     }
     function addManual() {
         if (!form.host.trim()) return;
-        remotes = [...remotes, { ...form, host: form.host.trim(), user: form.user.trim(), identityFile: form.identityFile.trim(), hostname: form.hostname.trim() }];
+        remotes = [...remotes, { ...form, host: form.host.trim(), user: form.user.trim(), identityFile: form.identityFile.trim(), hostname: form.hostname.trim() }].sort(byLabel);
         view = 'list';
         flash('host added — Save to keep it');
     }
