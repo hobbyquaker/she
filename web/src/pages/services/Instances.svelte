@@ -420,7 +420,7 @@
                 <span class="checkmark"></span>
                 show unmanaged ({unmanagedCount})
             </label>
-            <span class="hint">To add an instance click <em>+ instance</em> on the Installations tab</span>
+            <span class="bar-hint">To add an instance click <em>+ instance</em> on the Installations tab</span>
             <span class="spacer"></span>
             {#if notice}<span class="result">{notice}</span>{/if}
         </div>
@@ -611,8 +611,8 @@
     .chk:hover .checkmark { border-color: var(--accent); }
     .result { color: var(--fg-muted); font-size: 11px; white-space: normal; }
     /* where the thing this tab cannot do itself is done */
-    .hint { color: var(--fg-muted); font-size: 11px; }
-    .hint em { font-style: normal; color: var(--fg); }
+    .bar-hint { color: var(--fg-muted); font-size: 11px; }
+    .bar-hint em { font-style: normal; color: var(--fg); }
 
     button {
         background: var(--accent); border: none; color: #fff;
