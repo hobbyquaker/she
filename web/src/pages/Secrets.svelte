@@ -4,7 +4,7 @@
     import { listSecrets, putSecret, deleteSecret, markSecret, type SecretsOverview, type SecretGroup } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
 
-    let { active = true }: { active?: boolean } = $props();
+    let { active = true, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
     let overview = $state<SecretsOverview | null>(null);
     let selected = $state<string | null>(null);
@@ -39,6 +39,22 @@
             loadedOnce = true;
             load();
         }
+    });
+
+    // ── URL: #/secrets/<group> ─────────────────────────────────────────────────
+    // The address bar names the group on screen, and a link to one opens it. A group name has
+    // no slashes, so it is a single segment; load() drops one that does not exist.
+    let seenSub: string | null | undefined = undefined;
+    $effect(() => {
+        const want = sub;
+        if (want === seenSub) return;
+        seenSub = want;
+        if (want && want !== selected) selected = want;
+    });
+    $effect(() => {
+        if (!active) return;
+        seenSub = selected ?? '';
+        onsub?.(selected ?? '');
     });
 
     function flash(msg: string) {

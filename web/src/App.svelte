@@ -598,7 +598,7 @@
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
         <div class="page-wrap" class:hidden={page !== 'broker'}><Security active={page === 'broker'} sub={page === 'broker' ? sub : null} onsub={(s) => setSub('broker', s)} /></div>
         {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'adapters'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} active={page === 'adapters'} sub={page === 'adapters' ? sub : null} onsub={(s) => setSub('adapters', s)} /></div>{/if}
-        <div class="page-wrap" class:hidden={page !== 'secrets'}><Secrets active={page === 'secrets'} /></div>
+        <div class="page-wrap" class:hidden={page !== 'secrets'}><Secrets active={page === 'secrets'} sub={page === 'secrets' ? sub : null} onsub={(s) => setSub('secrets', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'db'}><DB active={page === 'db'} sub={page === 'db' ? sub : null} onsub={(s) => setSub('db', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
         <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>
