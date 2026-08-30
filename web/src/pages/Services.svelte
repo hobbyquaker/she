@@ -2,6 +2,7 @@
     import { untrack } from 'svelte';
     import Instances from './services/Instances.svelte';
     import Hosts from './services/Hosts.svelte';
+    import Catalog from './services/Catalog.svelte';
     import HostsConfig from './services/HostsConfig.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
@@ -12,15 +13,16 @@
         onsub,
     }: { onstatus?: (status: Status, title: string) => void; active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
-    type SubTab = 'instances' | 'hosts' | 'hostsconf';
+    type SubTab = 'instances' | 'hosts' | 'catalog' | 'hostsconf';
+    const TABS: SubTab[] = ['instances', 'hosts', 'catalog', 'hostsconf'];
     const TAB_KEY = 'she-services-tab';
-    const stored = localStorage.getItem(TAB_KEY); // may still hold the retired 'catalog' tab
-    let tab = $state<SubTab>(stored === 'hosts' || stored === 'catalog' ? 'hosts' : stored === 'hostsconf' ? 'hostsconf' : 'instances');
+    const stored = localStorage.getItem(TAB_KEY) as SubTab | null;
+    let tab = $state<SubTab>(stored && TABS.includes(stored) ? stored : 'instances');
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
 
     // ── URL: #/adapters/<slug> ─────────────────────────────────────────────────
     // the slugs are what the tabs are called on screen, not their internal names
-    const SLUGS: Record<SubTab, string> = { instances: 'instances', hosts: 'installations', hostsconf: 'hosts' };
+    const SLUGS: Record<SubTab, string> = { instances: 'instances', hosts: 'installations', catalog: 'catalog', hostsconf: 'hosts' };
     const fromSlug = (slug: string | null) => (Object.keys(SLUGS) as SubTab[]).find((t) => SLUGS[t] === slug) ?? null;
     // Writing `tab` from an effect makes that effect re-run whenever the tab changes — untrack
     // does not help, it tracks writes too. Without the guard a click would re-enter here with
@@ -44,6 +46,16 @@
     function changed(from: SubTab) {
         origin = from;
         generation++;
+    }
+
+    // Installing from the catalog puts the adapter on a host — the instance is made on
+    // Installations, so the tab is switched and handed the host and adapter to open its form with.
+    let addRequest = $state<{ host: string; adapter: string; n: number } | null>(null);
+    let addSeq = 0;
+    function installedFromCatalog(host: string, adapter: string) {
+        addRequest = { host, adapter, n: ++addSeq };
+        changed('catalog');
+        tab = 'hosts';
     }
 
     // pending updates, reported by the tabs that know about them: adapter packages on
@@ -74,6 +86,7 @@
             Installations
             {#if adapterUpdates > 0}<span class="tab-dot" title="{adapterUpdates} adapter update{adapterUpdates === 1 ? '' : 's'} available"></span>{/if}
         </button>
+        <button class:active={tab === 'catalog'} onclick={() => (tab = 'catalog')}>Catalog</button>
         <button class:active={tab === 'hostsconf'} onclick={() => (tab = 'hostsconf')}>
             Hosts
             {#if helperUpdates + nodeUpdates > 0}
@@ -87,7 +100,8 @@
 
     <!-- tabs stay mounted: switching must not re-run the host listing -->
     <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances onstatus={(s, t) => { instStatus = s; instTitle = t; }} {generation} {origin} onchanged={() => changed('instances')} /></div>
-    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => changed('hosts')} onupdates={(n) => (adapterUpdates = n)} {generation} {origin} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => changed('hosts')} onupdates={(n) => (adapterUpdates = n)} {generation} {origin} addPreset={addRequest} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'catalog'}><Catalog active={active && tab === 'catalog'} oninstalled={installedFromCatalog} /></div>
     <div class="tab-wrap" class:hidden={tab !== 'hostsconf'}><HostsConfig onchanged={() => changed('hostsconf')} onupdates={(n) => (helperUpdates = n)} onnodeupdates={(n) => (nodeUpdates = n)} {generation} {origin} /></div>
 </div>
 

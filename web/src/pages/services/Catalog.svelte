@@ -6,7 +6,7 @@
     import { onMount } from 'svelte';
     import { getServicesCatalog, getServiceHosts, installServicePackage, type Catalog, type CatalogPackage, type ServiceHost } from '../../lib/api.js';
 
-    let { oninstalled }: { oninstalled?: (host: string, adapter: string) => void } = $props();
+    let { oninstalled, active = false }: { oninstalled?: (host: string, adapter: string) => void; active?: boolean } = $props();
 
     let cat     = $state<Catalog | null>(null);
     let hosts   = $state<ServiceHost[]>([]);
@@ -35,7 +35,14 @@
             loading = false;
         }
     }
-    onMount(() => { load(); return () => { if (poll) clearTimeout(poll); }; });
+    // the tab stays mounted with the others, so the listing waits for the first look at it
+    let loaded = false;
+    $effect(() => {
+        if (!active || loaded) return;
+        loaded = true;
+        load();
+    });
+    onMount(() => () => { if (poll) clearTimeout(poll); });
     const refreshing = $derived(Boolean(cat?.refreshing));
     function fmtWhen(ts?: number) { return ts ? new Date(ts).toLocaleString() : ''; }
 

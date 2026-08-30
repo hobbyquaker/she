@@ -8,15 +8,22 @@
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
 
     import AddInstance, { type AddPreset } from './AddInstance.svelte';
-    import Catalog from './Catalog.svelte';
     let {
         onchanged,
         onupdates,
         generation = 0,
         origin = null,
-    }: { onchanged?: () => void; onupdates?: (count: number) => void; generation?: number; origin?: string | null } = $props();
-    // the tab shows the host list, the add-instance form (host + adapter fixed) or the catalog — each covering the whole tab
-    type View = { kind: 'list' } | { kind: 'add'; preset: AddPreset } | { kind: 'catalog' };
+        addPreset = null,
+    }: {
+        onchanged?: () => void;
+        onupdates?: (count: number) => void;
+        generation?: number;
+        origin?: string | null;
+        /** an install on the Catalog tab asks for the add form of that host and adapter */
+        addPreset?: { host: string; adapter: string; n: number } | null;
+    } = $props();
+    // the tab shows the host list or the add-instance form (host + adapter fixed), covering the whole tab
+    type View = { kind: 'list' } | { kind: 'add'; preset: AddPreset };
     let view = $state<View>({ kind: 'list' });
     let addN = 0;
     function openAdd(host: string, adapter: string) {
@@ -25,6 +32,14 @@
     function back() {
         view = { kind: 'list' };
     }
+    // an install finished on the Catalog tab: it switched here, the form opens on its adapter
+    let seenAdd = 0;
+    $effect(() => {
+        const p = addPreset;
+        if (!p || p.n === seenAdd) return;
+        seenAdd = p.n;
+        untrack(() => openAdd(p.host, p.adapter));
+    });
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
@@ -181,17 +196,9 @@
         <span class="muted">a systemd instance of the adapter on the host, configured from its --config-schema</span>
     </div>
     <AddInstance preset={view.preset} oninstalled={() => { load(true); onchanged?.(); }} onclose={back} />
-    {:else if view.kind === 'catalog'}
-    <div class="sheet-head">
-        <button class="ghost sm" onclick={back}>← Installations</button>
-        <strong>Install adapter</strong>
-        <span class="muted">packages of the trusted npm publishers built on mqtt-interfaces-core</span>
-    </div>
-    <Catalog oninstalled={(host, adapter) => { load(true); onchanged?.(); openAdd(host, adapter); }} />
     {:else}
     <div class="bar">
         <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask every host again (otherwise the listing is cached for a minute)"><span class:spinning={loading}>↺</span></button>
-        <button class="ghost" onclick={() => (view = { kind: 'catalog' })} title="Install an adapter from the catalog — the trusted publishers' packages on npm">Install adapter</button>
         {#if pending.length > 0}
             <button class="ghost" onclick={updateAll} disabled={updateAllBusy || busy !== null} title="Update every adapter that has a newer version, one after another">
                 {updateAllBusy ? 'Updating…' : `Update all (${pending.length})`}
