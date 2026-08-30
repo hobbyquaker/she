@@ -483,7 +483,7 @@
             </div>
             <div class="box">
                 <div class="box-title">By hand: existing SSH access</div>
-                <div class="muted">Put the public key (below on the Hosts tab) into <span class="mono">~/.ssh/authorized_keys</span> of the SSH user on the host — <span class="mono">root</span> needs nothing else, another user needs the helper's sudoers line (Installations → Deploy helper prints it).</div>
+                <div class="muted">Put the public key (below on the Hosts tab) into <span class="mono">~/.ssh/authorized_keys</span> of the SSH user on the host — <span class="mono">root</span> needs nothing else, another user needs the helper's sudoers line (<em>Deploy helper</em> above prints it).</div>
                 <div class="grid">
                     <label><span>host</span><input type="text" placeholder="zigbee.lan" bind:value={form.host} spellcheck="false" /></label>
                     <label><span>port</span><input type="number" placeholder="22" bind:value={form.port} /></label>
@@ -542,7 +542,16 @@
                         <span class="muted mono">{r.user || daemonUser || '?'}@{r.host}{r.port ? `:${r.port}` : ''}</span>
                         {#if r.identityFile}<span class="muted" title={r.identityFile}>own key</span>{/if}
                         <span class="spacer"></span>
-                        {#if st?.ok}{@render helper(r.host, st)}{/if}
+                        {#if st?.ok}{@render helper(r.host, st)}
+                        {:else if st && !st.ok}
+                            <!-- the host has no usable helper yet: deploying it lives here too, next to the host entry -->
+                            <button
+                                class="ghost sm"
+                                onclick={() => updateHelper(r.host)}
+                                disabled={helperBusy !== null}
+                                title="Copy she-servicectl to the host and install it (prints the sudoers line when sudo refuses)"
+                            >{helperBusy === r.host ? 'Deploying…' : 'Deploy helper'}</button>
+                        {/if}
                         <button class="ghost sm" onclick={() => test(r)} disabled={testing !== null || !r.host.trim()}>Test</button>{@render mark(r.host)}
                         <button class="ghost sm" class:active={editing === i} onclick={() => (editing = editing === i ? null : i)}>Edit</button>
                         <button class="ghost sm" class:active={removeOpen === i} onclick={() => (removeOpen = removeOpen === i ? null : i)} title="Remove she from the host: only its SSH key, or everything the setup command created">Remove from host…</button>

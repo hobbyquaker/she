@@ -2,8 +2,8 @@
     import { onMount } from 'svelte';
     import {
         getServiceHosts, updateServiceAdapter,
-        deployServiceHelper, getServiceInstances, uninstallServiceAdapter,
-        type ServiceHost, type HelperDeployResult, type ServiceInstance,
+        getServiceInstances, uninstallServiceAdapter,
+        type ServiceHost, type ServiceInstance,
     } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
 
@@ -91,10 +91,6 @@
         }
     }
 
-    /* ── I5: connection test + helper deploy ───────────────────────────────── */
-    let deployResult = $state<Record<string, HelperDeployResult | { error: string }>>({});
-    let hostBusy = $state<string | null>(null);
-
     async function uninstall(h: ServiceHost, adapter: string, names: string[]) {
         const where = h.hostname ?? h.name;
         const msg = names.length
@@ -112,18 +108,6 @@
             notice = e.message ?? String(e);
         } finally {
             busy = null;
-        }
-    }
-    async function deployHelper(h: ServiceHost) {
-        hostBusy = h.name;
-        try {
-            const r = await deployServiceHelper(h.name);
-            deployResult = { ...deployResult, [h.name]: r };
-            if (r.ok) await load();
-        } catch (e: any) {
-            deployResult = { ...deployResult, [h.name]: { error: e.message ?? String(e) } };
-        } finally {
-            hostBusy = null;
         }
     }
 
@@ -169,37 +153,22 @@
                     <span class="name">{h.hostname ?? h.name}</span>
                     <span class="muted">{h.local ? 'this host' : `${h.ssh?.user ?? ''}@${h.ssh?.host}`}</span>
                     <span class="spacer"></span>
-                    {#if !h.ok || h.helperOutdated}
-                        <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title={h.ok ? `Helper v${h.helper} is older than the one she ships — replace it (the helper updates itself through its sudo rule)` : 'Copy she-servicectl to the host and install it'}>{h.ok ? 'Update helper' : 'Deploy helper'}</button>
+                    <!-- the helper itself is managed on the Hosts tab, next to the host it belongs to -->
+                    {#if h.ok && h.helperOutdated}
+                        <span class="muted" title="she ships a newer she-servicectl — update it on the Hosts tab">helper v{h.helper}, outdated</span>
                     {/if}
                 </div>
-                {#if deployResult[h.name]}
-                    {@const d = deployResult[h.name]}
-                    <div class="deploy-box" class:deploy-ok={'ok' in d && d.ok}>
-                        {#if 'error' in d}
-                            {d.error}
-                        {:else if d.ok}
-                            Helper v{d.helper} {d.method === 'self-update' ? 'updated on' : 'installed on'} {h.hostname ?? h.name}{d.method === 'self-update' ? '' : ` and allowed for ${d.user}`}.
-                        {:else}
-                            {#if d.installed}Helper installed, but <span class="mono">sudo</span> does not allow it for <span class="mono">{d.user}</span> yet.{:else}Helper uploaded to the SSH user's home; installing it needs root.{/if}
-                            Run on the host as an admin:
-                            <pre class="mono">{(d.instructions ?? []).join('\n')}</pre>
-                            {#if d.error}<div class="muted">{d.error}</div>{/if}
-                        {/if}
-                    </div>
-                {/if}
-
                 {#if !h.ok}
                     <div class="err-box">
                         {h.error}
                         {#if h.code === 'HELPER_MISSING' && h.local}
                             <div class="hint">Install the helper on this host: <code>sudo she --install</code> (copies <code>she-servicectl</code> to <code>/usr/local/bin</code> and allows it in <code>/etc/sudoers.d/she</code>).</div>
                         {:else if h.code === 'HELPER_MISSING'}
-                            <div class="hint">The helper is not on this host yet — <em>Deploy helper</em> copies it over and prints the sudoers line to add, or run the one-line setup command from the Hosts tab on the host as root.</div>
+                            <div class="hint">The helper is not on this host yet — deploy it from the Hosts tab, or run the one-line setup command there on the host as root.</div>
                         {:else if h.code === 'SUDO_DENIED' && h.local}
                             <div class="hint">Add to <code>/etc/sudoers.d/she</code>: <code>she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> — <code>sudo she --install</code> does this.</div>
                         {:else if h.code === 'SUDO_DENIED'}
-                            <div class="hint">Allow the helper for <code>{h.ssh?.user}</code> on the host: <code>{h.ssh?.user} ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> in <code>/etc/sudoers.d/she-services</code> — <em>Deploy helper</em> prints the exact commands.</div>
+                            <div class="hint">Allow the helper for <code>{h.ssh?.user}</code> on the host: <code>{h.ssh?.user} ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl</code> in <code>/etc/sudoers.d/she-services</code> — <em>Deploy helper</em> on the Hosts tab prints the exact commands.</div>
                         {:else if h.code === 'SSH_FAILED'}
                             <div class="hint">SSH to <code>{h.ssh?.user}@{h.ssh?.host}:{h.ssh?.port}</code> failed — is the services public key (Hosts tab) in that user's <code>~/.ssh/authorized_keys</code>, and the host reachable? The setup command in the Hosts tab does the whole host setup in one go.</div>
                         {:else if h.code === 'UNSUPPORTED'}
@@ -305,8 +274,5 @@
     .err-box { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.35); border-radius: 3px; color: #e88; padding: 6px 10px; }
     .hint { margin-top: 4px; color: var(--fg-muted); }
     .hint code { color: var(--accent); }
-    .deploy-box { background: rgba(230,126,34,0.10); border: 1px solid rgba(230,126,34,0.35); border-radius: 3px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; }
-    .deploy-box.deploy-ok { background: rgba(39,174,96,0.12); border-color: rgba(39,174,96,0.35); }
-    .deploy-box pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; }
     pre.out { margin: 0; max-height: 240px; overflow: auto; background: var(--bg-app); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-size: 11px; white-space: pre-wrap; }
 </style>
