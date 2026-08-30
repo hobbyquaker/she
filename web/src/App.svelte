@@ -595,7 +595,7 @@
         <div class="page-wrap" class:hidden={page !== 'scripts'}><Scripts active={page === 'scripts'} sub={page === 'scripts' ? sub : null} onsub={(s) => setSub('scripts', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT active={page === 'mqtt'} sub={page === 'mqtt' ? sub : null} onsub={(s) => setSub('mqtt', s)} /></div>
-        <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
+        <div class="page-wrap" class:hidden={page !== 'matter'}><Matter active={page === 'matter'} sub={page === 'matter' ? sub : null} onsub={(s) => setSub('matter', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'broker'}><Security active={page === 'broker'} sub={page === 'broker' ? sub : null} onsub={(s) => setSub('broker', s)} /></div>
         {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'adapters'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} active={page === 'adapters'} sub={page === 'adapters' ? sub : null} onsub={(s) => setSub('adapters', s)} /></div>{/if}
         <div class="page-wrap" class:hidden={page !== 'secrets'}><Secrets active={page === 'secrets'} sub={page === 'secrets' ? sub : null} onsub={(s) => setSub('secrets', s)} /></div>

@@ -6,6 +6,8 @@
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
 
+    let { active = true, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
+
     interface AttrAction { label: string; command: string; args?: Record<string, unknown>; }
     const ATTR_ACTIONS: Record<string, Record<string, AttrAction[]>> = {
         onOff: {
@@ -400,6 +402,24 @@
 
     const LS_MATTER_NODE = 'she:matter:selectedNodeId';
 
+    // ── URL: #/matter/<nodeId> ─────────────────────────────────────────────────
+    // The address bar names the device on screen, and a link to one opens it. `selectedId` is
+    // the node asked for, set before its details are fetched — `selected` only arrives with the
+    // answer, and the url must not fall back to "nothing open" in between.
+    let selectedId = $state<string | null>(null);
+    let seenSub: string | null | undefined = undefined;
+    $effect(() => {
+        const want = sub;
+        if (want === seenSub) return;
+        seenSub = want;
+        if (want && want !== selectedId) selectDevice(want);
+    });
+    $effect(() => {
+        if (!active) return;
+        seenSub = selectedId ?? '';
+        onsub?.(selectedId ?? '');
+    });
+
     async function loadDevices() {
         try {
             devices = await listMatterDevices();
@@ -411,8 +431,10 @@
             }
             // Restore persisted selection, or default to first device.
             if (devices.length > 0 && !selected) {
+                // the url wins over the device that was open last
+                const wanted = selectedId && devices.find((d) => d.nodeId === selectedId) ? selectedId : null;
                 const saved = localStorage.getItem(LS_MATTER_NODE);
-                const target = (saved && devices.find((d) => d.nodeId === saved)) ? saved : devices[0].nodeId;
+                const target = wanted ?? ((saved && devices.find((d) => d.nodeId === saved)) ? saved : devices[0].nodeId);
                 selectDevice(target);
             }
         } catch {
@@ -422,6 +444,7 @@
     }
 
     async function selectDevice(nodeId: string) {
+        selectedId = nodeId;
         loading = true;
         error = null;
         try {
@@ -462,7 +485,7 @@
         if (!(await dialog.show(`Unpair device ${nodeId}?`, { confirm: 'Unpair', danger: true }))) return;
         try {
             await unpairMatter(nodeId);
-            if (selected?.nodeId === nodeId) selected = null;
+            if (selected?.nodeId === nodeId) { selected = null; selectedId = null; }
             await loadDevices();
         } catch (e: unknown) {
             error = e instanceof Error ? e.message : String(e);
