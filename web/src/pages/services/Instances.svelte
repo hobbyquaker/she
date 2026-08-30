@@ -111,18 +111,62 @@
         return [...out.values()].sort((a, b) => a.instance.localeCompare(b.instance));
     });
     let unmanagedCount = $derived(rows.filter(r => r.mqtt?.legacy && !r.unit).length);
+
+    /* ── Sorting and per-column filters (instance, adapter, host, state) ───── */
+    type SortKey = 'instance' | 'adapter' | 'host' | 'state';
+    let sortKey = $state<SortKey>('instance');
+    let sortDir = $state<1 | -1>(1);
+    function toggleSort(k: SortKey) {
+        if (sortKey === k) sortDir = sortDir === 1 ? -1 : 1;
+        else { sortKey = k; sortDir = 1; }
+    }
+    let fInstance = $state('');
+    let fAdapter  = $state('');
+    let fHost     = $state('');
+    let fState    = $state('');
+    const colFiltered = $derived(!!(fInstance || fAdapter || fHost || fState));
+
+    const hostOf  = (r: Row) => r.mqtt?.host ?? r.host?.hostname ?? r.host?.name ?? '';
+    const stateOf = (r: Row) => connState(r).label;
+    /* worst first, so one click on State brings what needs attention to the top */
+    const SEVERITY = { err: 0, warn: 1, ok: 2, none: 3 } as const;
+
     // what the table, the counters and the nav dot work on
     let shown = $derived(showUnmanaged ? rows : rows.filter(r => !(r.mqtt?.legacy && !r.unit)));
+    let adapterOptions = $derived([...new Set(shown.map(r => r.adapter).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b)));
+    let hostOptions    = $derived([...new Set(shown.map(hostOf).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
+    let stateOptions   = $derived([...new Set(shown.map(stateOf))].sort((a, b) => a.localeCompare(b)));
 
     let visible = $derived.by(() => {
         const q = filter.trim().toLowerCase();
-        if (!q) return shown;
-        return shown.filter(r =>
-            r.instance.toLowerCase().includes(q) ||
-            (r.adapter ?? '').toLowerCase().includes(q) ||
-            (r.mqtt?.host ?? r.host?.hostname ?? '').toLowerCase().includes(q) ||
-            (r.mqtt?.version ?? '').toLowerCase().includes(q),
-        );
+        const qi = fInstance.trim().toLowerCase();
+        let out = shown;
+        if (q) {
+            out = out.filter(r =>
+                r.instance.toLowerCase().includes(q) ||
+                (r.adapter ?? '').toLowerCase().includes(q) ||
+                (r.mqtt?.host ?? r.host?.hostname ?? '').toLowerCase().includes(q) ||
+                (r.mqtt?.version ?? '').toLowerCase().includes(q),
+            );
+        }
+        if (qi)      out = out.filter(r => r.instance.toLowerCase().includes(qi));
+        if (fAdapter) out = out.filter(r => r.adapter === fAdapter);
+        if (fHost)    out = out.filter(r => hostOf(r) === fHost);
+        if (fState)   out = out.filter(r => stateOf(r) === fState);
+
+        const cmp = (a: Row, b: Row) => {
+            switch (sortKey) {
+                case 'adapter': return (a.adapter ?? '').localeCompare(b.adapter ?? '');
+                case 'host':    return hostOf(a).localeCompare(hostOf(b));
+                case 'state': {
+                    const d = SEVERITY[connState(a).cls] - SEVERITY[connState(b).cls];
+                    return d !== 0 ? d : stateOf(a).localeCompare(stateOf(b));
+                }
+                default: return 0;
+            }
+        };
+        // instance is the tie-breaker everywhere, so rows never jump around between equal keys
+        return [...out].sort((a, b) => (cmp(a, b) || a.instance.localeCompare(b.instance)) * sortDir);
     });
     let hostProblems = $derived(hosts.filter(h => !h.ok && h.code !== 'UNSUPPORTED'));
 
@@ -280,6 +324,12 @@
     }
 </script>
 
+{#snippet sortable(key: SortKey, label: string)}
+    <button class="sort" class:on={sortKey === key} onclick={() => toggleSort(key)}>
+        {label}<span class="arrow">{sortKey === key ? (sortDir === 1 ? '▲' : '▼') : ''}</span>
+    </button>
+{/snippet}
+
 <ConfirmDialog bind:this={dialog} />
 <InputDialog bind:this={inputDialog} />
 <svelte:window onmousemove={onWinMouseMove} onmouseup={onWinMouseUp} />
@@ -289,7 +339,10 @@
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again"><span class:spinning={refreshing}>↺</span></button>
-            <span class="count">{visible.length}{#if filter} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}</span>
+            <span class="count">{visible.length}{#if filter || colFiltered} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}</span>
+            {#if colFiltered}
+                <button class="ghost sm" onclick={() => { fInstance = ''; fAdapter = ''; fHost = ''; fState = ''; }} title="Clear the column filters">clear filters</button>
+            {/if}
             <label class="chk" title="Topics with only a <name>/connected and no <name>/info — pre-core adapters, but also ESPHome devices and the like">
                 <input type="checkbox" bind:checked={showUnmanaged} />
                 <span class="checkmark"></span>
@@ -324,16 +377,38 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Instance</th>
-                            <th>Adapter</th>
-                            <th>Host</th>
-                            <th>State</th>
+                            <th>{@render sortable('instance', 'Instance')}</th>
+                            <th>{@render sortable('adapter', 'Adapter')}</th>
+                            <th>{@render sortable('host', 'Host')}</th>
+                            <th title="Sorted worst first: down, then device offline, then online">{@render sortable('state', 'State')}</th>
                             <th class="c-up">Uptime</th>
                             <th class="num c-mem" title="resident memory — reported by the adapter (core 0.8+) or by systemd on the host">Mem</th>
                             <th class="num c-cpu" title="share of one core — reported by the adapter over its stats interval, or from systemd between two host listings">CPU</th>
                             <th class="num c-ell" title="event loop lag — the peak the adapter measured over its stats interval (core 0.8+); no systemd fallback">EL lag</th>
                             <th>Log level</th>
                             <th class="c-act"></th>
+                        </tr>
+                        <tr class="filter-row">
+                            <th><input class="col-f" type="search" placeholder="filter…" bind:value={fInstance} aria-label="Filter by instance" /></th>
+                            <th>
+                                <select class="col-f" bind:value={fAdapter} aria-label="Filter by adapter">
+                                    <option value="">all adapters</option>
+                                    {#each adapterOptions as a (a)}<option value={a}>{a}</option>{/each}
+                                </select>
+                            </th>
+                            <th>
+                                <select class="col-f" bind:value={fHost} aria-label="Filter by host">
+                                    <option value="">all hosts</option>
+                                    {#each hostOptions as h (h)}<option value={h}>{h}</option>{/each}
+                                </select>
+                            </th>
+                            <th>
+                                <select class="col-f" bind:value={fState} aria-label="Filter by state">
+                                    <option value="">all states</option>
+                                    {#each stateOptions as st (st)}<option value={st}>{st}</option>{/each}
+                                </select>
+                            </th>
+                            <th colspan="6"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -483,8 +558,25 @@
     th {
         text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted);
         padding: 5px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
-        background: var(--bg-app); white-space: nowrap;
+        background: var(--bg-app); white-space: nowrap; height: 26px;
     }
+
+    /* sort + filter header: the filter row sticks right below the label row */
+    .sort {
+        background: none; border: none; padding: 0; cursor: pointer;
+        font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 4px;
+    }
+    .sort:hover { color: var(--fg); }
+    .sort.on { color: var(--fg-text); }
+    .arrow { font-size: 8px; }
+
+    .filter-row th { top: 26px; padding: 3px 6px 5px; height: auto; font-weight: 400; }
+    .col-f {
+        width: 100%; min-width: 70px; max-width: 160px;
+        background: var(--bg-input); border: 1px solid var(--border); border-radius: 3px;
+        color: var(--fg); font-size: 11px; padding: 2px 4px;
+    }
+    .col-f:focus { outline: 1px solid var(--fg-brand); }
     td { padding: 5px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); vertical-align: top; white-space: nowrap; }
     tr.down .dname { color: #e74c3c; }
     tr.selected td { background: rgba(86,156,214,0.08); }
