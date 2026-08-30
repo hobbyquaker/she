@@ -411,7 +411,7 @@
         <div class="bar">
             <input class="filter-in" type="search" placeholder="Filter instances…" bind:value={filter} />
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload, asking every host again"><span class:spinning={refreshing}>↺</span></button>
-            <span class="count">{visible.length}{#if filter || colFiltered} / {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}</span>
+            <span class="count">{visible.length}{#if filter || colFiltered}{' '}/ {shown.length}{/if} instance{shown.length === 1 ? '' : 's'}</span>
             {#if colFiltered}
                 <button class="ghost sm" onclick={() => { fInstance = ''; fAdapter = ''; fHosts = []; fStates = []; }} title="Clear the column filters">clear filters</button>
             {/if}
@@ -427,7 +427,7 @@
         {#if hostProblems.length}
             <div class="bar warn-bar">
                 {#each hostProblems as h (h.name)}
-                    <span>host <strong>{h.name}</strong>: {h.error}{#if h.code === 'HELPER_MISSING'} — run <code>sudo she --install</code>{/if}</span>
+                    <span>host <strong>{h.name}</strong>: {h.error}{#if h.code === 'HELPER_MISSING'}{' '}— run <code>sudo she --install</code>{/if}</span>
                 {/each}
             </div>
         {/if}
@@ -438,7 +438,7 @@
             <div class="info err">{loadError}</div>
         {:else if shown.length === 0}
             <div class="info">
-                No xyz2mqtt services seen{#if unmanagedCount > 0} — {unmanagedCount} unmanaged row{unmanagedCount === 1 ? '' : 's'} hidden (only a <code>&lt;name&gt;/connected</code> topic; tick <em>show unmanaged</em>){/if}. Adapters built on
+                No xyz2mqtt services seen{#if unmanagedCount > 0}{' '}— {unmanagedCount} unmanaged row{unmanagedCount === 1 ? '' : 's'} hidden (only a <code>&lt;name&gt;/connected</code> topic; tick <em>show unmanaged</em>){/if}. Adapters built on
                 <a href="https://github.com/hobbyquaker/mqtt-interfaces-core" target="_blank" rel="noopener">mqtt-interfaces-core</a>
                 publish a retained <code>&lt;name&gt;/info</code> and <code>&lt;name&gt;/connected</code>; anything publishing just
                 <code>&lt;name&gt;/connected</code> — an ESPHome device, a script, a pre-core adapter — shows up as <em>unmanaged</em>. Instances installed on a managed host appear even before they connect.

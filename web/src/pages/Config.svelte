@@ -810,7 +810,7 @@
                             <input type="checkbox" checked={brokerEnabled} disabled={brokerChecking}
                                 onchange={(e) => onBrokerEnabledChange((e.target as HTMLInputElement).checked)} />
                             <span class="checkmark"></span>
-                            Mosquitto management{#if brokerChecking} — checking…{/if}
+                            Mosquitto management{#if brokerChecking}{' '}— checking…{/if}
                         </label>
                     </div>
                 </section>
@@ -860,7 +860,7 @@
                             <input type="checkbox" checked={matterEnabled} disabled={matterChecking}
                                 onchange={(e) => onMatterEnabledChange((e.target as HTMLInputElement).checked)} />
                             <span class="checkmark"></span>
-                            Matter controller{#if matterChecking} — checking…{/if}
+                            Matter controller{#if matterChecking}{' '}— checking…{/if}
                         </label>
                     </div>
                     {#if matterEnabled}

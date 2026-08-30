@@ -29,11 +29,11 @@
     <div class="rm-title">Remove she from {label}</div>
     <label class="rm-opt" class:disabled={local}>
         <input type="radio" bind:group={mode} value="key" disabled={local || busy} />
-        <span><b>Disconnect</b> — remove only this she's SSH key from the host. Helper, sudoers rule and the <span class="mono">she-services</span> user stay, so another she instance can keep managing the host.{#if local} (not applicable to the she host){/if}</span>
+        <span><b>Disconnect</b> — remove only this she's SSH key from the host. Helper, sudoers rule and the <span class="mono">she-services</span> user stay, so another she instance can keep managing the host.{#if local}{' '}(not applicable to the she host){/if}</span>
     </label>
     <label class="rm-opt">
         <input type="radio" bind:group={mode} value="all" disabled={busy} />
-        <span><b>Remove everything</b> — {#if !local}this she's key, {/if}the sudoers rule, <span class="mono">/usr/local/bin/she-servicectl</span>{#if !local} and the <span class="mono">she-services</span> user with its home directory{/if}.</span>
+        <span><b>Remove everything</b> — {#if !local}this she's key, {/if}the sudoers rule, <span class="mono">/usr/local/bin/she-servicectl</span>{#if !local}{' '}and the <span class="mono">she-services</span> user with its home directory{/if}.</span>
     </label>
     <div class="rm-note">Adapters, their instances, units, config files and <span class="mono">/etc/mqtt-interfaces/broker.env</span> are not touched — everything keeps running. The host is removed from she's settings.</div>
     {#if result && !result.ok && result.code === 'OTHER_KEYS'}

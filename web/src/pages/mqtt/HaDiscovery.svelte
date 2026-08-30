@@ -123,7 +123,7 @@
         </label>
         <button class="ghost" onclick={load} disabled={loading} title="Reload">↺</button>
         <input class="filter-in" type="search" placeholder="Filter devices…" bind:value={filter} />
-        <span class="count" title="devices / entities">{visible.length}{#if filter} / {devices.length}{/if} devices · {entityCount} entities</span>
+        <span class="count" title="devices / entities">{visible.length}{#if filter}{' '}/ {devices.length}{/if} devices · {entityCount} entities</span>
     </div>
 
     <div class="bar actions">

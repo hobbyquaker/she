@@ -604,7 +604,7 @@
                 </div>
                 {#if localStatus?.ok}{@render nodeRow('local', localStatus)}{/if}
                 {@render helperBox('local')}
-                {#if localStatus && !localStatus.ok}<div class="err-box in-card">{localStatus.error}{#if localStatus.code === 'HELPER_MISSING'} — run <span class="mono">sudo she --install</span>{/if}</div>{/if}
+                {#if localStatus && !localStatus.ok}<div class="err-box in-card">{localStatus.error}{#if localStatus.code === 'HELPER_MISSING'}{' '}— run <span class="mono">sudo she --install</span>{/if}</div>{/if}
             </div>
 
             {#each remotes as r, i (i)}

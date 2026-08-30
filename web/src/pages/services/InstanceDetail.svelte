@@ -203,7 +203,7 @@
     <div class="head">
         <div>
             <span class="title">{title}</span>{#if legacy}<span class="badge" title="pre-core single-instance unit — migrate it from the Instances tab">old unit</span>{/if}
-            <span class="sub mono">{adapter ?? (mqtt?.legacy ? 'unmanaged' : '')}{#if mqtt?.version} @{mqtt.version}{/if} · {host ?? hostname ?? 'not managed'}</span>
+            <span class="sub mono">{adapter ?? (mqtt?.legacy ? 'unmanaged' : '')}{#if mqtt?.version}{' '}@{mqtt.version}{/if} · {host ?? hostname ?? 'not managed'}</span>
             {#if unit}
                 <span class="badge" class:ok={unit.active === 'active'} class:err={unit.active === 'failed'} title="systemd: {unit.active}/{unit.sub}, {unit.unitFile}">{unit.active}{unit.unitFile === 'disabled' ? ' · disabled' : ''}</span>
             {/if}
@@ -277,7 +277,7 @@
             <div class="info-title">MQTT</div>
             {#if mqtt}
                 <dl class="kv">
-                    <dt>adapter</dt><dd class="mono">{mqtt.adapter ?? '—'}{#if mqtt.version} @{mqtt.version}{/if}{#if mqtt.updateAvailable} <span class="badge-upd" title="npm has {mqtt.latestVersion}">update: {mqtt.latestVersion}</span>{/if}</dd>
+                    <dt>adapter</dt><dd class="mono">{mqtt.adapter ?? '—'}{#if mqtt.version}{' '}@{mqtt.version}{/if}{#if mqtt.updateAvailable} <span class="badge-upd" title="npm has {mqtt.latestVersion}">update: {mqtt.latestVersion}</span>{/if}</dd>
                     <dt>connected</dt><dd>{connLabel()}{#if mqtt.connectedLc}{' '}· since {fmtDate(mqtt.connectedLc)}{/if}</dd>
                     <dt>uptime</dt><dd>{fmtUptime()}</dd>
                     <dt>host</dt><dd>{mqtt.host ?? '—'}{#if mqtt.pid}{' '}· pid {mqtt.pid}{/if}</dd>

@@ -119,7 +119,7 @@
         <input class="filter-in" type="search" placeholder="Filter adapters…" bind:value={filter} />
         <button class="ghost" onclick={() => load(true)} disabled={loading || refreshing} title="Ask the npm registry now (it is swept once a day anyway)"><span class:spinning={loading || refreshing}>↺</span></button>
         {#if refreshing}<span class="muted"><span class="spinner"></span> asking the npm registry — the list below is the last known state</span>
-        {:else if cat?.fetchedAt}<span class="muted" title={cat.stale ? 'the last sweep failed — this is the previous list' : 'swept once a day'}>updated {fmtWhen(cat.fetchedAt)}{#if cat.stale} (stale){/if}</span>{/if}
+        {:else if cat?.fetchedAt}<span class="muted" title={cat.stale ? 'the last sweep failed — this is the previous list' : 'swept once a day'}>updated {fmtWhen(cat.fetchedAt)}{#if cat.stale}{' '}(stale){/if}</span>{/if}
         {#if cat}
             <span class="muted">{visible.length} adapter{visible.length === 1 ? '' : 's'} by {cat.publishers.join(', ') || '—'}{#if cat.stale}{' '}· <span class="warn">stale — registry unreachable</span>{/if}</span>
         {/if}
@@ -166,7 +166,7 @@
                     <div class="desc">{p.description}</div>
                     <div class="pkg-foot">
                         {#if on.length}
-                            <span class="muted">installed on {#each on as o, i (o.host)}{i > 0 ? ', ' : ''}{o.host}{#if o.version} ({o.version}){/if}{/each}{#if on.some(o => o.version && o.version !== p.version)} — updates live on the Installations tab{/if}</span>
+                            <span class="muted">installed on {#each on as o, i (o.host)}{i > 0 ? ', ' : ''}{o.host}{#if o.version}{' '}({o.version}){/if}{/each}{#if on.some(o => o.version && o.version !== p.version)}{' '}— updates live on the Installations tab{/if}</span>
                         {:else}
                             <span class="muted">not installed on a managed host</span>
                         {/if}
