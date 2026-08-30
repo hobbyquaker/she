@@ -45,7 +45,7 @@
 
 set -eu
 
-VERSION=13
+VERSION=14
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -84,10 +84,25 @@ need_instance() {
     valid_instance "$1" || die "invalid instance name: $1"
 }
 
+# the command behind <adapter> belongs to an npm package of that name — what tells an adapter
+# apart from any other daemon that happens to keep its binary in /usr/local/bin
+npm_adapter_pkg() {
+    dir=$(adapter_dir "$1" 2>/dev/null) || return 1
+    [ "$(basename "$dir")" = "$1" ] && return 0
+    grep -Eq "\"name\"[[:space:]]*:[[:space:]]*\"(@[^\"/]*/)?$1\"" "$dir/package.json" 2>/dev/null
+}
+
 # a plain <adapter>.service of an npm-installed adapter (pre-core layout)
 legacy_unit() {
     [ -f "$UNIT_DIR/$1.service" ] || return 1
-    grep -Eq "(/node_modules/$1/|/usr/local/bin/$1( |$))" "$UNIT_DIR/$1.service" 2>/dev/null
+    # the unit naming the package directory is conclusive on its own
+    if grep -Eq "/node_modules/$1/" "$UNIT_DIR/$1.service" 2>/dev/null; then
+        return 0
+    fi
+    # ExecStart=/usr/local/bin/<name> alone is not: dnscrypt-proxy, dnsproxy and the like live
+    # there too. It counts only when that binary is an npm package called <adapter>.
+    grep -Eq "/usr/local/bin/$1( |$)" "$UNIT_DIR/$1.service" 2>/dev/null || return 1
+    npm_adapter_pkg "$1"
 }
 # the env file of a legacy unit: its EnvironmentFile= (leading - stripped), default /etc/default/<adapter>;
 # only /etc/default/<adapter> or something inside /etc/<adapter>/ is accepted
