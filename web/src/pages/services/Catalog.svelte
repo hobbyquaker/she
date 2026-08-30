@@ -108,7 +108,7 @@
         {#if refreshing}<span class="muted"><span class="spinner"></span> asking the npm registry — the list below is the last known state</span>
         {:else if cat?.fetchedAt}<span class="muted" title={cat.stale ? 'the last sweep failed — this is the previous list' : 'swept once a day'}>updated {fmtWhen(cat.fetchedAt)}{#if cat.stale} (stale){/if}</span>{/if}
         {#if cat}
-            <span class="muted">{visible.length} adapter{visible.length === 1 ? '' : 's'} by {cat.publishers.join(', ') || '—'}{#if cat.stale} · <span class="warn">stale — registry unreachable</span>{/if}</span>
+            <span class="muted">{visible.length} adapter{visible.length === 1 ? '' : 's'} by {cat.publishers.join(', ') || '—'}{#if cat.stale}{' '}· <span class="warn">stale — registry unreachable</span>{/if}</span>
         {/if}
         <span class="spacer"></span>
         {#if notice}<span class="muted">{notice}</span>{/if}
@@ -144,7 +144,7 @@
                             </a>
                         {/if}
                         <span class="muted">
-                            {p.version}{#if p.published} · {fmtDate(p.published)}{/if} · by
+                            {p.version}{#if p.published}{' '}· {fmtDate(p.published)}{/if} · by
                             <a class="author" href={authorLink(p).href} target="_blank" rel="noopener" title={authorLink(p).title}>{authorLink(p).label}</a>
                         </span>
                         {#each p.mqttInterfaces?.needs ?? [] as n (n)}<span class="badge n-{n}" title="what the adapter talks to (mqttInterfaces.needs)">{n}</span>{/each}

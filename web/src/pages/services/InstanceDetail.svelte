@@ -262,7 +262,7 @@
         </div>
         <div class="logmeta">
             <span class="muted mono">journalctl -u {unitName}</span>
-            <span class="muted">{visibleEntries.length}{#if visibleEntries.length !== entries.length} / {entries.length}{/if} lines{#if following} · following{/if}</span>
+            <span class="muted">{visibleEntries.length}{#if visibleEntries.length !== entries.length}{' '}/ {entries.length}{/if} lines{#if following}{' '}· following{/if}</span>
             {#if logError}<span class="err">{logError}</span>{/if}
         </div>
         <div class="log" bind:this={logEl}>
@@ -278,9 +278,9 @@
             {#if mqtt}
                 <dl class="kv">
                     <dt>adapter</dt><dd class="mono">{mqtt.adapter ?? '—'}{#if mqtt.version} @{mqtt.version}{/if}{#if mqtt.updateAvailable} <span class="badge-upd" title="npm has {mqtt.latestVersion}">update: {mqtt.latestVersion}</span>{/if}</dd>
-                    <dt>connected</dt><dd>{connLabel()}{#if mqtt.connectedLc} · since {fmtDate(mqtt.connectedLc)}{/if}</dd>
+                    <dt>connected</dt><dd>{connLabel()}{#if mqtt.connectedLc}{' '}· since {fmtDate(mqtt.connectedLc)}{/if}</dd>
                     <dt>uptime</dt><dd>{fmtUptime()}</dd>
-                    <dt>host</dt><dd>{mqtt.host ?? '—'}{#if mqtt.pid} · pid {mqtt.pid}{/if}</dd>
+                    <dt>host</dt><dd>{mqtt.host ?? '—'}{#if mqtt.pid}{' '}· pid {mqtt.pid}{/if}</dd>
                     <dt>spec</dt><dd>{mqtt.spec ?? '—'}</dd>
                     <dt>node</dt><dd>{mqtt.node ?? '—'}</dd>
                     <dt>started</dt><dd>{fmtDate(mqtt.started)}</dd>
@@ -302,7 +302,7 @@
             {#if unit}
                 <dl class="kv">
                     <dt>unit</dt><dd class="mono">{unitName}.service{#if legacy} <span class="muted">(pre-core layout)</span>{/if}</dd>
-                    <dt>host</dt><dd>{host}{#if hostname && hostname !== host} · hostname {hostname}{/if}</dd>
+                    <dt>host</dt><dd>{host}{#if hostname && hostname !== host}{' '}· hostname {hostname}{/if}</dd>
                     <dt>state</dt><dd>{unit.active} / {unit.sub} · {unit.unitFile}</dd>
                     <dt>since</dt><dd>{unit.since || '—'}</dd>
                     <dt>restarts</dt><dd>{unit.restarts}</dd>
