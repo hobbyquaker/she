@@ -31,6 +31,8 @@
 #   she-servicectl files  <adapter> <instance>                     JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
 #   she-servicectl file   <adapter> <instance> read|write <path>  a file inside those two directories (write: content on stdin)
 #   she-servicectl asset  <adapter> <relpath>                      a file shipped in the adapter package (example, schema)
+#   she-servicectl node update [--lts]                             install/refresh tj/n (downloaded, no npm), then n stable (or n lts) — JSON with the version before and after
+#   she-servicectl restart-all                                     restart every running instance on this host (after a node update, say)
 #   she-servicectl self-update                                     replace this script with the one on stdin (she ships it)
 #   she-servicectl remove-key                                      drop the public key on stdin from the calling user's authorized_keys
 #   she-servicectl teardown [--force]                              remove she from this host: that key, the sudoers rule, this script,
@@ -43,9 +45,16 @@
 
 set -eu
 
-VERSION=12
+VERSION=13
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
+
+# tj/n, pinned: n is a self-contained bash script, so it is installed by downloading that one
+# file — not with `npm install -g n`, which needs a node that may not be there yet and would
+# drop n into whatever prefix the current node uses (where the node n installs then shadows it).
+N_VERSION=10.2.0
+N_BIN=/usr/local/bin/n
+N_URL=https://raw.githubusercontent.com/tj/n/v$N_VERSION/bin/n
 
 die() { printf 'she-servicectl: %s\n' "$*" >&2; exit 2; }
 
@@ -103,6 +112,11 @@ need_any() {
 }
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
+
+# a JSON string, or null when the value is empty
+json_str() {
+    [ -n "$1" ] && printf '"%s"' "$(json_escape "$1")" || printf 'null'
+}
 
 json_escape() {
     # minimal JSON string escaping for the few free-form values (timestamps, paths)
@@ -651,6 +665,117 @@ cmd_teardown() {
     printf 'removed %s\n' "$self"
 }
 
+# ── node ────────────────────────────────────────────────────────────────────────
+# Node itself is managed with tj/n (https://github.com/tj/n). Running services keep the
+# binary they were started with, so restart-all is what a version change needs afterwards.
+
+# Download the pinned n and put it at $1. Checked the way self-update checks this script:
+# interpreter line, VERSION, and a syntax check — before anything is moved into place.
+fetch_n() {
+    tmp=$(mktemp) || die "mktemp failed"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$tmp" "$N_URL" || { rm -f "$tmp"; die "could not download n $N_VERSION from $N_URL"; }
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$tmp" "$N_URL" || { rm -f "$tmp"; die "could not download n $N_VERSION from $N_URL"; }
+    else
+        rm -f "$tmp"
+        die "neither curl nor wget on this host — cannot fetch n (and n needs one of them itself)"
+    fi
+    head -n 1 "$tmp" | grep -q '^#!.*bash' || { rm -f "$tmp"; die "downloaded file is not the n script"; }
+    grep -q "^VERSION=\"\{0,1\}$N_VERSION" "$tmp" || { rm -f "$tmp"; die "downloaded n is not version $N_VERSION"; }
+    bash -n "$tmp" 2>/dev/null || { rm -f "$tmp"; die "downloaded n failed the syntax check"; }
+    install -m 0755 "$tmp" "$1" || { rm -f "$tmp"; die "could not install n to $1"; }
+    rm -f "$tmp"
+}
+
+cmd_node() {
+    [ $# -ge 1 ] || die "usage: node update [--lts|--stable]"
+    action=$1
+    shift
+    [ "$action" = update ] || die "unknown node action: $action"
+    spec=stable
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --lts) spec=lts ;;
+            --stable) spec=stable ;;
+            *) die "unknown option: $1" ;;
+        esac
+        shift
+    done
+
+    command -v bash >/dev/null 2>&1 || die "n is a bash script and this host has no bash (Alpine: apk add bash curl)"
+    N_PREFIX=${N_PREFIX:-/usr/local}
+    export N_PREFIX
+
+    before=$(node --version 2>/dev/null || true)
+
+    have=""
+    if [ -x "$N_BIN" ]; then have=$("$N_BIN" --version 2>/dev/null || true); fi
+    n_installed=false
+    if [ "$have" != "$N_VERSION" ]; then
+        fetch_n "$N_BIN"
+        n_installed=true
+    fi
+
+    "$N_BIN" install "$spec" >&2 || die "n install $spec failed"
+
+    hash -r 2>/dev/null || true
+    installed_path="$N_PREFIX/bin/node"
+    installed=$("$installed_path" --version 2>/dev/null || true)
+    active_path=$(command -v node 2>/dev/null || true)
+    after=$(node --version 2>/dev/null || true)
+    # n put a node in N_PREFIX, but another one (distro package, nvm, an /opt/nodeXX wrapper)
+    # still wins on PATH — that is the version the adapters keep running on.
+    mismatch=false
+    if [ -n "$installed" ] && [ "$after" != "$installed" ]; then mismatch=true; fi
+
+    printf '{"spec":"%s","before":%s,"after":%s,"installed":%s,"activePath":%s,"installedPath":"%s","mismatch":%s,"n":"%s","nInstalled":%s}\n' \
+        "$spec" \
+        "$(json_str "$before")" "$(json_str "$after")" "$(json_str "$installed")" "$(json_str "$active_path")" \
+        "$(json_escape "$installed_path")" "$mismatch" "$N_VERSION" "$n_installed"
+}
+
+# Restart every instance that is currently running — units that are stopped or disabled
+# on purpose stay that way.
+cmd_restart_all() {
+    [ $# -eq 0 ] || die "usage: restart-all"
+    first=1
+    printf '{"restarted":['
+    for unit in "$UNIT_DIR"/*@.service; do
+        [ -f "$unit" ] || continue
+        a=$(basename "$unit" @.service)
+        valid_adapter "$a" || continue
+        installed_adapter "$a" || continue
+        for envf in "/etc/$a"/*.env; do
+            [ -f "$envf" ] || continue
+            i=$(basename "$envf" .env)
+            valid_instance "$i" || continue
+            systemctl is-active --quiet "$a@$i.service" || continue
+            if err=$(systemctl restart "$a@$i.service" 2>&1); then ok=true; else ok=false; fi
+            [ $first -eq 1 ] || printf ','
+            first=0
+            printf '{"adapter":"%s","instance":"%s","ok":%s,"error":%s}' \
+                "$a" "$i" "$ok" \
+                "$([ "$ok" = true ] && printf 'null' || printf '"%s"' "$(json_escape "$err")")"
+        done
+    done
+    for unit in "$UNIT_DIR"/*.service; do
+        [ -f "$unit" ] || continue
+        a=$(basename "$unit" .service)
+        case "$a" in *@) continue ;; esac
+        valid_adapter "$a" || continue
+        legacy_unit "$a" || continue
+        systemctl is-active --quiet "$a.service" || continue
+        if err=$(systemctl restart "$a.service" 2>&1); then ok=true; else ok=false; fi
+        [ $first -eq 1 ] || printf ','
+        first=0
+        printf '{"adapter":"%s","instance":"-","ok":%s,"error":%s}' \
+            "$a" "$ok" \
+            "$([ "$ok" = true ] && printf 'null' || printf '"%s"' "$(json_escape "$err")")"
+    done
+    printf ']}\n'
+}
+
 cmd_npm() {
     [ $# -ge 2 ] || die "usage: npm <adapter> version|origin|install|update|uninstall [--purge]"
     need_adapter "$1"
@@ -697,6 +822,8 @@ case "$c" in
     install) cmd_install "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
     npm) cmd_npm "$@" ;;
+    node) cmd_node "$@" ;;
+    restart-all) cmd_restart_all "$@" ;;
     files) cmd_files "$@" ;;
     file) cmd_file "$@" ;;
     asset) cmd_asset "$@" ;;

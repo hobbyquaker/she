@@ -660,11 +660,12 @@
     }
 
     /* ── Toolbar ── */
+    /* menubar tabs — the sub-navigation look shared by the Broker, MQTT, Adapters and DB pages */
     .toolbar {
         display: flex;
         align-items: center;
-        gap: 4px;
-        padding: 4px 8px;
+        gap: 2px;
+        padding: 6px 10px 0;
         border-bottom: 1px solid var(--border-sub);
         flex-shrink: 0;
     }
@@ -1096,19 +1097,23 @@
     .btn-confirm:hover { opacity: 0.85; }
 
     /* ── ACL overlay ── */
-    /* View switcher — same look as the DB page's Documents / Views panel tabs */
     .vt {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         background: none;
-        border: 1px solid var(--border);
-        color: var(--fg);
-        padding: 3px 12px;
-        border-radius: 4px;
-        font-size: 13px; /* the page-wide button rule is 12px — these follow the DB / Adapters tabs instead */
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--fg-muted);
         cursor: pointer;
+        font-size: 13px; /* the page-wide button rule is 12px — the sub-nav tabs are 13px */
+        padding: 5px 12px 6px;
+        margin-bottom: -1px;
     }
+    .vt:hover { color: var(--fg); }
     .vt.active {
-        background: var(--bg-active);
         color: var(--fg-text);
+        border-bottom-color: var(--fg-brand);
     }
 
     .acl-btn {
@@ -1125,6 +1130,7 @@
         margin-left: auto;
     }
     .acl-btn:hover { color: var(--fg); border-color: var(--fg-muted); }
+    .acl-btn, .acl-refresh { margin-bottom: 5px; }
     .acl-btn.active { background: rgba(86,156,214,0.12); border-color: rgba(86,156,214,0.35); color: var(--accent, #569cd6); }
     .acl-btn:disabled { opacity: 0.5; cursor: default; }
     .acl-refresh { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 13px; padding: 0 4px; }

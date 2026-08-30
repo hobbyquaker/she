@@ -426,6 +426,18 @@ Writes a new config file. All CLI option keys are accepted (camelCase).
 
 A daemon restart is required for the new config to take effect.
 
+### PATCH /she/config
+
+Writes a single branch of the config and leaves the rest of the file untouched. Pages that
+edit one section use this instead of PUT: sending the whole document back would carry the
+snapshot the page loaded when it was opened and silently revert what another page saved in
+the meantime.
+
+**Request body (JSON):** `{ "path": "broker.ssh", "value": { "host": "192.168.1.10", "user": "she" } }`
+
+`path` is a dotted key path (at most five segments, each `[A-Za-z0-9_-]+`); missing parents
+are created. Omitting `value` deletes the key. The response is the same as PUT's.
+
 ---
 
 ## Daemon — `/she/health`, `/she/status`, `/she/restart`
@@ -592,6 +604,8 @@ Everything a device sent is untrusted: strings are capped and stripped of contro
 | GET | `/she/services/setup.sh?token=…` | **no auth** | the generated POSIX bootstrap script, served once; 410 afterwards |
 | POST | `/she/services/setup/done?token=…` | **no auth**, `{ hostname, user }` | callback from the script: adds `{ hostname, ssh: { host: <caller address>, user: "she-services" } }` to `services.hosts` (or updates an existing entry); single use |
 | POST | `/she/services/hosts/:host/test` | | always 200: `{ ok: true, helper }` or `{ ok: false, code, error }` |
+| POST | `/she/services/hosts/:host/node/update` | `{ channel?: "stable" \| "lts" }` | update Node.js on the host with [tj/n](https://github.com/tj/n) (the pinned `n` script is downloaded and verified when the host does not have it — no npm involved): `{ ok, spec, before, after, installed, installedPath, activePath, mismatch, n, nInstalled, restartRequired }`; `mismatch` = another node still wins on PATH; **400** `{ code: "HELPER_OUTDATED" }` below helper v13 |
+| POST | `/she/services/hosts/:host/instances/restart-all` | | restart every *running* instance on the host (what a node update needs afterwards): `{ ok, restarted: [{ adapter, instance }], failed: [{ adapter, instance, error }] }` |
 | POST | `/she/services/hosts/:host/helper/deploy` | | remote hosts only: scp the shipped helper, try `sudo -n install`; `{ ok, uploaded, installed, sudoers, helper?, code?, instructions?, user }` — `instructions` are the commands an admin runs when sudo refused |
 | POST | `/she/services/hosts/:host/helper/remove` | `{ mode: "key" \| "all", force? }` | remove she from the host: `key` = only this she's public key leaves the SSH user's `authorized_keys`; `all` = key, sudoers rule, helper and the `she-services` user (`{ ok: false, code: "OTHER_KEYS" }` while other keys remain, unless `force`); adapters and instances stay. On success the host entry is removed from config.json: `{ ok, mode, output, removedHost }` |
 | GET / POST | `/she/services/ssh/pubkey` · `/she/services/ssh/keygen` | | the services SSH identity (`<data-dir>/ssh/services_id_ed25519`): read the public key / generate the keypair |

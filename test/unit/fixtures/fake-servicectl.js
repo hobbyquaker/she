@@ -19,12 +19,12 @@ const die = (m) => {
 const [cmd] = args;
 switch (cmd) {
     case 'version':
-        console.log(process.env.FAKE_HELPER_VERSION || '12');
+        console.log(process.env.FAKE_HELPER_VERSION || '13');
         break;
     case 'list':
         console.log(
             JSON.stringify({
-                helper: Number(process.env.FAKE_HELPER_VERSION || 12),
+                helper: Number(process.env.FAKE_HELPER_VERSION || 13),
                 hostname: 'zigbee',
                 node: 'v22.12.0',
                 brokerEnv: true,
@@ -72,6 +72,26 @@ switch (cmd) {
         break;
     case 'unit':
         if (args[3] === 'status') console.log('ActiveState=active\nSubState=running');
+        break;
+    case 'node':
+        if (process.env.FAKE_OLD_HELPER) die('unknown command: node');
+        if (args[1] !== 'update') die('unknown node action: ' + args[1]);
+        console.log(
+            JSON.stringify({
+                spec: args[2] === '--lts' ? 'lts' : 'stable',
+                before: 'v20.11.0',
+                after: process.env.FAKE_NODE_AFTER || 'v24.2.0',
+                installed: 'v24.2.0',
+                activePath: process.env.FAKE_NODE_ACTIVE_PATH || '/usr/local/bin/node',
+                installedPath: '/usr/local/bin/node',
+                mismatch: Boolean(process.env.FAKE_NODE_MISMATCH),
+                n: '10.2.0',
+                nInstalled: true,
+            }),
+        );
+        break;
+    case 'restart-all':
+        console.log(JSON.stringify({ restarted: [{ adapter: 'cul2mqtt', instance: 'cul', ok: true, error: null }] }));
         break;
     case 'logs':
         console.log(JSON.stringify({ __REALTIME_TIMESTAMP: '1700000000000000', PRIORITY: '6', MESSAGE: 'mqtt < connected', _PID: '42' }));
@@ -187,7 +207,7 @@ switch (cmd) {
     case 'self-update':
         if (process.env.FAKE_NO_SELF_UPDATE) die('unknown command: self-update');
         if (process.env.FAKE_LOG) fs.writeFileSync(process.env.FAKE_LOG + '.selfupdate', stdin);
-        console.log('she-servicectl updated 11 -> 12 at /usr/local/bin/she-servicectl');
+        console.log('she-servicectl updated 12 -> 13 at /usr/local/bin/she-servicectl');
         break;
     case 'files':
         console.log(

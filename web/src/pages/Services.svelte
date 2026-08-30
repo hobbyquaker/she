@@ -61,13 +61,13 @@
         overflow: hidden;
     }
 
-    /* same look as the DB page's Documents / Views panel tabs */
+    /* menubar tabs — the sub-navigation look shared by the Broker, MQTT, Adapters and DB pages */
     .sub-nav {
         display: flex;
         align-items: center;
-        gap: 4px;
-        padding: 4px 8px;
-        border-bottom: 1px solid var(--border-sub, var(--border));
+        gap: 2px;
+        padding: 6px 10px 0;
+        border-bottom: 1px solid var(--border-sub);
         flex-shrink: 0;
     }
 
@@ -76,17 +76,20 @@
         align-items: center;
         gap: 6px;
         background: none;
-        border: 1px solid var(--border);
-        color: var(--fg);
-        padding: 3px 12px;
-        border-radius: 4px;
-        font-size: 13px;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--fg-muted);
         cursor: pointer;
+        font-size: 13px;
+        padding: 5px 12px 6px;
+        margin-bottom: -1px;
     }
 
+    .sub-nav button:hover { color: var(--fg); }
+
     .sub-nav button.active {
-        background: var(--bg-active);
         color: var(--fg-text);
+        border-bottom-color: var(--fg-brand);
     }
 
     /* same yellow as the main nav's update dots */

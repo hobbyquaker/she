@@ -125,6 +125,8 @@ she-servicectl npm    <adapter> version|origin|install|update|uninstall [--purge
 she-servicectl files  <adapter> <instance>                  JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
 she-servicectl file   <adapter> <instance> read|write <path> a file inside those two directories (write: content on stdin, .bak kept)
 she-servicectl asset  <adapter> <relpath>                   a file shipped in the adapter package (example, schema)
+she-servicectl node   update [--lts|--stable]                download the pinned tj/n if needed, then n install stable (or lts); JSON: version before/after, what n installed, mismatch
+she-servicectl restart-all                                  restart every running instance on the host (what a node update needs afterwards)
 she-servicectl self-update                                  replace the script with the one on stdin (checked: header, VERSION, sh -n; .bak kept)
 she-servicectl remove-key                                   drop the public key on stdin from the calling user's authorized_keys
 she-servicectl teardown [--force]                           remove she from the host: that key, the sudoers rule, the script, the she-services user
@@ -134,6 +136,12 @@ she-servicectl version
 ```
 
 For adapters that run with a non-system Node (a wrapper in `/usr/local/bin` pointing at e.g. `/opt/node22/bin/node`), the helper uses that node and its npm.
+
+**Node.js on a host.** The Hosts tab shows each host's node version next to the helper version, with *Update to stable* / *LTS* beside it. Both run `she-servicectl node update`, then `n install stable` (or `lts`) with `N_PREFIX` at `/usr/local`.
+
+[tj/n](https://github.com/tj/n) is a single self-contained bash script, and the helper installs it as one: it downloads the pinned version (`N_VERSION` in the helper) from the tj/n tag to `/usr/local/bin/n` with `curl` or `wget`, checking the interpreter line, the `VERSION` line and `bash -n` before it moves the file into place — the same three checks `self-update` makes for the helper itself. `npm install -g n` is deliberately *not* used: a host that has no node has no npm either, so npm cannot bootstrap the very thing that installs node, and it would put `n` into whatever prefix the current node uses — which the node `n` then installs into `/usr/local` shadows. A host that already has the pinned `n` skips the download.
+
+The result box reports the version before and after. When another installation (a distro package, nvm, an `/opt/nodeXX` wrapper) still wins on PATH, it says so with both paths instead of claiming an upgrade the adapters will never see. Services keep the node binary they were started with, so a real version change offers *Restart all instances* (`she-servicectl restart-all` — only units that are actually running; stopped or disabled ones stay that way).
 
 **Updating the helper.** she ships a new helper version now and then; the Hosts tab shows the helper version and marks older ones *outdated*; *Update helper* on the Installations tab replaces it. The installed helper replaces itself with the copy she sends (`self-update`, through the one sudo rule it already has — no root login, no second rule), on the she host and on remote hosts alike. Only a helper older than v4 cannot do that yet: run the setup command on the host once more (or `sudo she --install` on the she host). Existing installations: re-run `sudo she --install` once to get the helper and the sudoers line. Inside the she Docker image there is no local helper — untick *This host* in Settings, or leave it and the host tier reports "helper not installed"; remote hosts work from Docker as long as `ssh`/`scp` are in the image.
 

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, getBrokerStatus, getBrokerLocalCheck, type BrokerLocalCheck } from '../../lib/api.js';
+    import { getConfig, patchConfig, getBrokerStatus, getBrokerLocalCheck, type BrokerLocalCheck } from '../../lib/api.js';
 
     // ── Config ─────────────────────────────────────────────────────────────────
     interface SshConfig {
@@ -79,11 +79,11 @@
         saveError = '';
         saveOk = false;
         try {
-            const broker = ((fullConfig.broker ?? {}) as Record<string, unknown>);
             // In local mode clear the host so broker-api routes to local file ops
             const sshToSave = mode === 'local' ? { ...cfg, host: '' } : cfg;
-            const updated = { ...fullConfig, broker: { ...broker, ssh: sshToSave } };
-            await putConfig(updated);
+            // only this branch is written — fullConfig is the snapshot from onMount and
+            // would revert anything saved elsewhere (adapter hosts, for instance) since then
+            await patchConfig('broker.ssh', sshToSave);
             saveOk = true;
             setTimeout(() => (saveOk = false), 3000);
         } catch (e: any) {

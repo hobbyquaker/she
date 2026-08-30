@@ -40,6 +40,8 @@
         savedContent: string;
         model: monaco.editor.ITextModel | null;
         logEntries: LogEntry[];
+        /** the tab is on screen but its content is still on the wire (slow link, VPN) */
+        loading?: boolean;
     }
 
     let tree = $state<TreeEntry[]>([]);
@@ -675,28 +677,66 @@ declare const she: {
     }
 
     async function openTabLoad(path: string, andSwitch: boolean) {
+        // The tab appears at once and shows a spinner — over a slow link the read below
+        // takes seconds, and a click that seems to do nothing reads as a hung UI.
+        tabs = [...tabs, { path, dirty: false, savedContent: '', model: null, logEntries: [], loading: true }];
+        if (andSwitch) await switchTab(path);
         try {
             const { content } = await readScript(path);
+            if (!tabs.some((t) => t.path === path)) return; // closed while it was loading
             const model = modelFor(path, content);
-            // Seed log history for this script from the daemon's jsonl log file.
-            let logEntries: LogEntry[] = [];
-            try {
-                const history = await getHistoryEntries();
-                logEntries = history.filter((e) => {
-                    const m = e.msg.match(/^([^:\n]+\.js):\s/);
-                    return m && m[1] === path;
-                });
-            } catch { /* best-effort */ }
-            tabs = [...tabs, { path, dirty: false, savedContent: content, model, logEntries }];
-            if (andSwitch) await switchTab(path);
-        } catch (e: any) { error = (e as Error).message; }
+            tabs = tabs.map((t) => (t.path === path ? { ...t, savedContent: content, model, loading: false } : t));
+            if (activeTab === path) await switchTab(path);
+            // Log history is a second round trip — the editor must not wait for it.
+            loadTabLogHistory(path);
+        } catch (e: any) {
+            error = (e as Error).message;
+            const wasActive = activeTab === path;
+            tabs = tabs.filter((t) => t.path !== path);
+            if (wasActive) {
+                activeTab = tabs[tabs.length - 1]?.path ?? null;
+                if (activeTab) await switchTab(activeTab);
+                else editor.setModel(emptyModel);
+            }
+        }
+    }
+
+    /** Seed log history for a script from the daemon's jsonl log file. */
+    async function loadTabLogHistory(path: string) {
+        try {
+            const history = await getHistoryEntries();
+            const logEntries = history.filter((e) => {
+                const m = e.msg.match(/^([^:\n]+\.js):\s/);
+                return m && m[1] === path;
+            });
+            if (logEntries.length === 0) return;
+            tabs = tabs.map((t) => (t.path === path ? { ...t, logEntries } : t));
+        } catch { /* best-effort */ }
     }
 
     async function openTab(path: string) { await openTabInternal(path, true); }
 
+    const activeTabLoading = $derived(!!tabs.find((t) => t.path === activeTab)?.loading);
+
     async function switchTab(path: string) {
         const tab = tabs.find(t => t.path === path);
-        if (!tab?.model) return;
+        if (!tab) return;
+        if (!tab.model) {
+            // still loading: show the tab as active with an empty editor behind the spinner
+            if (!tab.loading) return;
+            closeHistoryDiff();
+            proposedCode = null;
+            activeTab = path;
+            suppressChange = true;
+            editor.setModel(emptyModel);
+            editor.updateOptions({ readOnly: true });
+            suppressChange = false;
+            await tick();
+            tabBarEl?.querySelector<HTMLElement>(`[data-tab-path="${CSS.escape(path)}"]`)
+                ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+            updateTabScrollBounds();
+            return;
+        }
         if (tab.model.isDisposed()) {
             // should not happen any more; recover instead of crashing the click handler
             tab.model = modelFor(path, tab.savedContent);
@@ -706,6 +746,7 @@ declare const she: {
         activeTab = path;
         suppressChange = true;
         editor.setModel(tab.model);
+        editor.updateOptions({ readOnly: false });
         suppressChange = false;
         runSyntaxCheck();
         await tick();
@@ -749,7 +790,7 @@ declare const she: {
     async function save() {
         if (!activeTab) return;
         const tab = tabs.find(t => t.path === activeTab);
-        if (!tab) return;
+        if (!tab || tab.loading) return; // the editor still holds the empty placeholder buffer
         saving = true;
         try {
             const value = editor.getValue();
@@ -1602,7 +1643,8 @@ declare const she: {
                             onkeydown={(e) => e.key === 'Enter' && switchTab(tab.path)}
                         >
                             <span class="tab-label">{tab.path.split('/').pop()}</span>
-                            {#if tab.dirty}<span class="tab-dirty">●</span>{/if}
+                            {#if tab.loading}<span class="tab-spinner" title="Loading…"></span>
+                            {:else if tab.dirty}<span class="tab-dirty">●</span>{/if}
                             <button class="tab-close" title="Close" onclick={(e) => { e.stopPropagation(); closeTab(tab.path); }}>×</button>
                         </div>
                     {/each}
@@ -1729,6 +1771,12 @@ declare const she: {
             <div class="editor-left">
                 <div class="editor-stack">
                     <div class="editor-container" bind:this={editorContainer}></div>
+                    {#if activeTabLoading}
+                        <div class="editor-loading">
+                            <span class="spinner"></span>
+                            <span>Loading {activeTab?.split('/').pop()}…</span>
+                        </div>
+                    {/if}
                     {#if !activeTab}
                         <div class="welcome">
                             <div class="welcome-inner">
@@ -2164,6 +2212,33 @@ declare const she: {
     .chat-container {
         display: flex; flex-direction: column;
         min-width: 200px; max-width: 700px; flex-shrink: 0;
+    }
+
+    /* Loading state: a tab opens on click and spins until its content arrives. */
+    @keyframes she-spin { to { transform: rotate(360deg); } }
+    .tab-spinner, .spinner {
+        display: inline-block;
+        border: 2px solid var(--fg-dim);
+        border-top-color: var(--fg-brand);
+        border-radius: 50%;
+        animation: she-spin 0.7s linear infinite;
+        flex-shrink: 0;
+    }
+    .tab-spinner { width: 9px; height: 9px; }
+    .spinner { width: 18px; height: 18px; }
+
+    .editor-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: var(--bg-app);
+        color: var(--fg-muted);
+        font-size: 13px;
     }
 
     .tab-bar-wrap {

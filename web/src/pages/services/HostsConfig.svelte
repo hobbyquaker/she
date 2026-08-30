@@ -3,9 +3,10 @@
        saved explicitly (Save); the setup command / manual form live in a view covering the tab. */
     import { onMount, onDestroy } from 'svelte';
     import {
-        getConfig, putConfig, getServiceHosts, testServicesSsh, testServiceHost, getServicesSshPubkey, generateServicesSshKey,
+        getConfig, patchConfig, getServiceHosts, testServicesSsh, testServiceHost, getServicesSshPubkey, generateServicesSshKey,
         createServicesSetupCommand, getServicesSetupState, getDaemonStatus, deployServiceHelper,
-        type ServiceHost, type SetupCommand, type HelperDeployResult,
+        updateHostNode, restartAllInstances,
+        type ServiceHost, type SetupCommand, type HelperDeployResult, type NodeUpdateResult, type RestartAllResult,
     } from '../../lib/api.js';
     import RemoveHelper from './RemoveHelper.svelte';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
@@ -50,6 +51,49 @@
             helperResult = { ...helperResult, [hostName]: { error: e.message ?? String(e) } };
         } finally {
             helperBusy = null;
+        }
+    }
+
+    // ── Node.js on the host (tj/n, helper v13) ─────────────────────────────────
+    // The adapters run on the host's node, so it is managed where the host is: n installs
+    // the requested channel, and the running instances keep the old binary until restarted.
+    let nodeBusy = $state<string | null>(null);
+    let nodeResult = $state<Record<string, NodeUpdateResult | { error: string }>>({});
+    let restartBusy = $state<string | null>(null);
+    let restartResult = $state<Record<string, RestartAllResult | { error: string }>>({});
+
+    async function updateNode(hostName: string, channel: 'stable' | 'lts') {
+        const isLocal = statusOf(hostName)?.local === true;
+        const ok = await dialog?.show(
+            `Install the latest ${channel === 'lts' ? 'LTS' : 'stable'} Node.js on ${hostName} with n? ` +
+                'This replaces the host\'s node binary; running adapters keep the current version until they are restarted.' +
+                (isLocal ? ' she runs on this host too — it keeps the old binary until the daemon itself is restarted.' : ''),
+            { confirm: 'Update Node.js' },
+        );
+        if (!ok) return;
+        nodeBusy = hostName;
+        restartResult = { ...restartResult, [hostName]: undefined as any };
+        try {
+            const r = await updateHostNode(hostName, channel);
+            nodeResult = { ...nodeResult, [hostName]: r };
+            status = (await getServiceHosts(true)).hosts;
+            onchanged?.();
+        } catch (e: any) {
+            nodeResult = { ...nodeResult, [hostName]: { error: e.message ?? String(e) } };
+        } finally {
+            nodeBusy = null;
+        }
+    }
+
+    async function restartAll(hostName: string) {
+        restartBusy = hostName;
+        try {
+            restartResult = { ...restartResult, [hostName]: await restartAllInstances(hostName) };
+            onchanged?.();
+        } catch (e: any) {
+            restartResult = { ...restartResult, [hostName]: { error: e.message ?? String(e) } };
+        } finally {
+            restartBusy = null;
         }
     }
 
@@ -128,8 +172,6 @@
         saving = true;
         error = '';
         try {
-            const cfg = await getConfig();
-            const svc = { ...((cfg.services as Record<string, unknown>) ?? {}) };
             const hosts: Record<string, unknown>[] = [];
             if (local) hosts.push({ name: 'local' });
             for (const r of remotes) {
@@ -140,9 +182,7 @@
                 if (r.identityFile.trim()) ssh.identityFile = r.identityFile.trim();
                 hosts.push({ ...(r.hostname.trim() ? { hostname: r.hostname.trim() } : {}), ssh });
             }
-            svc.hosts = hosts;
-            cfg.services = svc;
-            await putConfig(cfg);
+            await patchConfig('services.hosts', hosts);
             window.dispatchEvent(new CustomEvent('she:config-changed'));
             snapshot = JSON.stringify({ local, remotes });
             editing = null;
@@ -286,6 +326,61 @@
     {/if}
 {/snippet}
 
+<!-- node version of the host, and updating it through tj/n (helper v13) -->
+{#snippet nodeRow(name: string, st: ServiceHost)}
+    <div class="node-row">
+        <span class="muted">Node.js</span>
+        <span class="mono">{st.node ?? 'unknown'}</span>
+        <button
+            class="ghost sm"
+            onclick={() => updateNode(name, 'stable')}
+            disabled={nodeBusy !== null || restartBusy !== null}
+            title="Install the current stable Node.js with n (installs n itself if the host does not have it)"
+        >{nodeBusy === name ? 'Updating…' : 'Update to stable'}</button>
+        <button
+            class="ghost sm"
+            onclick={() => updateNode(name, 'lts')}
+            disabled={nodeBusy !== null || restartBusy !== null}
+            title="Install the current LTS Node.js with n"
+        >LTS</button>
+    </div>
+    {#if nodeResult[name]}
+        {@const n = nodeResult[name]}
+        <div class="deploy-box in-card" class:deploy-ok={'ok' in n && n.ok}>
+            {#if 'error' in n}
+                {n.error}
+            {:else if n.mismatch}
+                n installed Node.js <span class="mono">{n.installed}</span> to <span class="mono">{n.installedPath}</span>, but
+                <span class="mono">{n.activePath ?? 'node'}</span> still wins on PATH with <span class="mono">{n.after ?? 'nothing'}</span> —
+                the adapters keep running on that one. Remove the other install (distro package, nvm, an <span class="mono">/opt</span> wrapper)
+                or put <span class="mono">{n.installedPath.replace('/node', '')}</span> first in PATH.
+            {:else if n.restartRequired}
+                Node.js {n.before ?? '—'} → <span class="mono">{n.after}</span> (n {n.n}{#if n.nInstalled}, installed{/if}).
+                The running instances still use the old binary — restart them to pick up the new one.
+                <div class="node-row">
+                    <button class="ghost sm" onclick={() => restartAll(name)} disabled={restartBusy !== null || nodeBusy !== null}>
+                        {restartBusy === name ? 'Restarting…' : 'Restart all instances'}
+                    </button>
+                </div>
+            {:else}
+                Node.js <span class="mono">{n.after ?? n.before}</span> is already the current {n.spec === 'lts' ? 'LTS' : 'stable'} release (n {n.n}{#if n.nInstalled}, installed{/if}).
+            {/if}
+        </div>
+    {/if}
+    {#if restartResult[name]}
+        {@const r = restartResult[name]}
+        <div class="deploy-box in-card" class:deploy-ok={'ok' in r && r.ok}>
+            {#if 'error' in r}
+                {r.error}
+            {:else if r.restarted.length === 0 && r.failed.length === 0}
+                No running instances on this host.
+            {:else}
+                Restarted {r.restarted.length} instance{r.restarted.length === 1 ? '' : 's'}{#if r.failed.length > 0}, {r.failed.length} failed: {r.failed.map((f) => `${f.adapter}@${f.instance}`).join(', ')}{/if}.
+            {/if}
+        </div>
+    {/if}
+{/snippet}
+
 {#snippet helperBox(name: string)}
     {#if helperResult[name]}
         {@const d = helperResult[name]}
@@ -379,6 +474,7 @@
                         manage adapters here
                     </label>
                 </div>
+                {#if local && localStatus?.ok}{@render nodeRow('local', localStatus)}{/if}
                 {#if local}{@render helperBox('local')}{/if}
                 {#if local && localStatus && !localStatus.ok}<div class="err-box in-card">{localStatus.error}{#if localStatus.code === 'HELPER_MISSING'} — run <span class="mono">sudo she --install</span>{/if}</div>{/if}
             </div>
@@ -398,6 +494,7 @@
                         <button class="ghost sm" class:active={removeOpen === i} onclick={() => (removeOpen = removeOpen === i ? null : i)} title="Remove she from the host: only its SSH key, or everything the setup command created">Remove from host…</button>
                         <button class="ghost sm" onclick={() => dropFromList(i)} title="Remove from the list (nothing on the host changes)">×</button>
                     </div>
+                    {#if st?.ok}{@render nodeRow(r.host, st)}{/if}
                     {@render helperBox(r.host)}
                     {#if st && !st.ok}<div class="err-box in-card">{st.error}</div>{/if}
                     {#if editing === i}
@@ -495,4 +592,12 @@
     button.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     button.ghost.active { color: var(--accent); border-color: var(--accent); }
     button.sm { padding: 1px 7px; font-size: 11px; }
+
+    .node-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 10px 0;
+        font-size: 12px;
+    }
 </style>

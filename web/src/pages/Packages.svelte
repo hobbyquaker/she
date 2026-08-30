@@ -10,7 +10,7 @@
         checkOutdatedDeps,
         restartDaemon,
         getConfig,
-        putConfig,
+        patchConfig,
         type DepEntry,
         type DepOutdatedEntry,
         type NpmSearchResult,
@@ -71,8 +71,7 @@
             : [...pinnedPackages, name];
         pinnedPackages = newPinned;
         try {
-            const cfg = await getConfig();
-            await putConfig({ ...cfg, pinnedPackages: newPinned });
+            await patchConfig('pinnedPackages', newPinned);
         } catch { /* best-effort */ }
     }
 

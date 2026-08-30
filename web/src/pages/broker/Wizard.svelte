@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { getConfig, putConfig, brokerRestart, brokerDynsecReinit } from '../../lib/api.js';
+    import { patchConfig, brokerRestart, brokerDynsecReinit } from '../../lib/api.js';
 
     // ── Props ──────────────────────────────────────────────────────────────────
     interface Props {
@@ -66,17 +66,9 @@
             if (!res.ok || !data.ok) throw new Error(data.error ?? 'Bootstrap failed');
             bootstrapResult = data;
             // Save credentials to config.json
-            const cfg = await getConfig();
-            const broker = ((cfg.broker ?? {}) as Record<string, unknown>);
-            await putConfig({
-                ...cfg,
-                broker: {
-                    ...broker,
-                    dynsec: {
-                        adminUsername: data.adminUsername,
-                        adminPassword: data.adminPassword,
-                    },
-                },
+            await patchConfig('broker.dynsec', {
+                adminUsername: data.adminUsername,
+                adminPassword: data.adminPassword,
             });
             // Re-initialise the dynsec MQTT client in the running daemon so the
             // status badge reflects the new credentials immediately (without a
@@ -110,17 +102,9 @@
         savingManual = true;
         error = '';
         try {
-            const cfg = await getConfig();
-            const broker = ((cfg.broker ?? {}) as Record<string, unknown>);
-            await putConfig({
-                ...cfg,
-                broker: {
-                    ...broker,
-                    dynsec: {
-                        adminUsername: manualUsername,
-                        adminPassword: manualPassword,
-                    },
-                },
+            await patchConfig('broker.dynsec', {
+                adminUsername: manualUsername,
+                adminPassword: manualPassword,
             });
             step = 'done';
         } catch (e: any) {

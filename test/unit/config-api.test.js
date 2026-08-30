@@ -143,3 +143,65 @@ describe('PUT /she/config', () => {
         expect(res.status).toBe(500);
     });
 });
+
+describe('PATCH /she/config', () => {
+    let tmpDir, configPath, startServer, stopServer, port;
+
+    beforeEach(async () => {
+        jest.resetModules();
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-config-test-'));
+        configPath = path.join(tmpDir, 'config.json');
+        ({ startServer, stopServer } = require('../../src/web/server'));
+        port = await startServer(0, { configPath });
+    });
+
+    afterEach(async () => {
+        await stopServer();
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    test('writes one branch and leaves everything else on disk untouched', async () => {
+        fs.writeFileSync(configPath, JSON.stringify({ url: 'mqtt://b', services: { enabled: true, hosts: [{ name: 'local' }] }, broker: { enabled: true } }));
+        const res = await httpRequest('PATCH', port, '/she/config', { path: 'broker.ssh', value: { host: 'pi', user: 'she' } });
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ ok: true, restartRequired: true });
+        expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({
+            url: 'mqtt://b',
+            services: { enabled: true, hosts: [{ name: 'local' }] },
+            broker: { enabled: true, ssh: { host: 'pi', user: 'she' } },
+        });
+    });
+
+    test('replaces an array branch wholesale', async () => {
+        fs.writeFileSync(configPath, JSON.stringify({ services: { hosts: [{ name: 'local' }, { ssh: { host: 'a' } }] } }));
+        await httpRequest('PATCH', port, '/she/config', { path: 'services.hosts', value: [{ ssh: { host: 'b' } }] });
+        expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({ services: { hosts: [{ ssh: { host: 'b' } }] } });
+    });
+
+    test('creates missing parents and the file itself', async () => {
+        const res = await httpRequest('PATCH', port, '/she/config', { path: 'broker.dynsec', value: { adminUsername: 'admin' } });
+        expect(res.status).toBe(200);
+        expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({ broker: { dynsec: { adminUsername: 'admin' } } });
+    });
+
+    test('omitting value deletes the key', async () => {
+        fs.writeFileSync(configPath, JSON.stringify({ broker: { enabled: true, ssh: { host: 'pi' } } }));
+        await httpRequest('PATCH', port, '/she/config', { path: 'broker.ssh' });
+        expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({ broker: { enabled: true } });
+    });
+
+    test('restartRequired is false for a frontend-only key', async () => {
+        const res = await httpRequest('PATCH', port, '/she/config', { path: 'pinnedPackages', value: ['mqtt'] });
+        expect(res.body.restartRequired).toBe(false);
+    });
+
+    test('rejects a malformed path', async () => {
+        const res = await httpRequest('PATCH', port, '/she/config', { path: 'broker/../etc', value: 1 });
+        expect(res.status).toBe(400);
+    });
+
+    test('rejects a missing path', async () => {
+        const res = await httpRequest('PATCH', port, '/she/config', { value: 1 });
+        expect(res.status).toBe(400);
+    });
+});

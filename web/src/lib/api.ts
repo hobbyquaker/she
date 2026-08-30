@@ -288,6 +288,16 @@ export function putConfig(cfg: Record<string, unknown>): Promise<{ ok: boolean; 
     return request('PUT', '/she/config', cfg);
 }
 
+/**
+ * Write one branch of the config (`broker.ssh`, `services.hosts`, …) without touching the rest.
+ * Pages that edit a subtree must use this: sending the whole document back would carry the
+ * snapshot the page loaded on mount and revert whatever another page saved in the meantime.
+ * Omit `value` to delete the key.
+ */
+export function patchConfig(path: string, value?: unknown): Promise<{ ok: boolean; restartRequired: boolean }> {
+    return request('PATCH', '/she/config', value === undefined ? { path } : { path, value });
+}
+
 // ---- sheDB API ----
 
 export interface ViewDefinition {
@@ -1441,6 +1451,41 @@ export function generateServicesSshKey(): Promise<{ publicKey: string; identityF
 
 export function testServiceHost(host: string): Promise<{ ok: boolean; helper?: number | null; code?: string; error?: string }> {
     return request('POST', `${svcHost(host)}/test`);
+}
+
+// ---- Services: Node.js on a host (tj/n, helper v13) ----
+
+export interface NodeUpdateResult {
+    ok: boolean;
+    spec: 'stable' | 'lts';
+    /** active node before and after the update — equal when the host was already current */
+    before: string | null;
+    after: string | null;
+    /** what n put into its prefix, and where */
+    installed: string | null;
+    installedPath: string;
+    /** the node that actually wins on PATH — another install can shadow the one n just made */
+    activePath: string | null;
+    mismatch: boolean;
+    /** the pinned n version, and whether this run downloaded it */
+    n: string | null;
+    nInstalled: boolean;
+    /** the active node version changed, so the running instances still use the old binary */
+    restartRequired: boolean;
+}
+
+export function updateHostNode(host: string, channel: 'stable' | 'lts' = 'stable'): Promise<NodeUpdateResult> {
+    return request('POST', `${svcHost(host)}/node/update`, { channel });
+}
+
+export interface RestartAllResult {
+    ok: boolean;
+    restarted: { adapter: string; instance: string }[];
+    failed: { adapter: string; instance: string; error: string }[];
+}
+
+export function restartAllInstances(host: string): Promise<RestartAllResult> {
+    return request('POST', `${svcHost(host)}/instances/restart-all`);
 }
 
 // ---- Services: remote host bootstrap (I9) ----

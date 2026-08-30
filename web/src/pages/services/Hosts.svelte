@@ -167,7 +167,7 @@
                 <div class="card-head">
                     <span class="dot" class:ok={h.ok} class:err={!h.ok}></span>
                     <span class="name">{h.hostname ?? h.name}</span>
-                    <span class="muted">{h.local ? 'this host' : `${h.ssh?.user ?? ''}@${h.ssh?.host}`}{#if h.node} · node {h.node}{/if}</span>
+                    <span class="muted">{h.local ? 'this host' : `${h.ssh?.user ?? ''}@${h.ssh?.host}`}</span>
                     <span class="spacer"></span>
                     {#if !h.ok || h.helperOutdated}
                         <button class="ghost sm" onclick={() => deployHelper(h)} disabled={hostBusy !== null} title={h.ok ? `Helper v${h.helper} is older than the one she ships — replace it (the helper updates itself through its sudo rule)` : 'Copy she-servicectl to the host and install it'}>{h.ok ? 'Update helper' : 'Deploy helper'}</button>

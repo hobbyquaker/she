@@ -345,12 +345,9 @@
             if (ai?.apiKey)   aiApiKey   = ai.apiKey;
             aiPreset = detectAiPreset(aiProvider, aiBaseUrl);
             previousPreset = aiPreset;
-            extra = Object.fromEntries(Object.entries(cfg).filter(([k]) => !KNOWN.has(k)));
-            // Keep the full broker object in extra so non-enabled fields survive a save
-            if (brokerCfg) extra = { ...extra, broker: brokerCfg };
+            extra = captureExtra(cfg);
             const servicesCfg = cfg.services as Record<string, unknown> | undefined;
             servicesEnabled = servicesCfg?.enabled === true;
-            if (servicesCfg) extra = { ...extra, services: servicesCfg };
             const tp = servicesCfg?.trustedPublishers;
             servicesPublishers = Array.isArray(tp) ? tp.join(', ') : 'hobbyquaker';
         } catch (e: any) {
@@ -449,9 +446,26 @@
         brokerEnabled = false;
     }
 
+    /** Everything this page does not edit itself — kept verbatim through a save. */
+    function captureExtra(cfg: Record<string, unknown>): Record<string, unknown> {
+        const rest = Object.fromEntries(Object.entries(cfg).filter(([k]) => !KNOWN.has(k)));
+        // the full broker and services objects, so fields the page has no input for survive
+        if (cfg.broker) rest.broker = cfg.broker;
+        if (cfg.services) rest.services = cfg.services;
+        return rest;
+    }
+
     async function save() {
         errMsg = '';
         msg    = '';
+        // re-read: this page writes the whole document, and the copy from onMount would
+        // revert whatever the Adapters or Broker pages saved while it was open
+        try {
+            extra = captureExtra(await getConfig());
+        } catch (e: any) {
+            errMsg = e.message;
+            return;
+        }
         const cfg: Record<string, unknown> = { ...extra };
 
         if (mqttHost)     cfg.url             = `${mqttProtocol}://${mqttHost}`;

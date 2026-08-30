@@ -29,6 +29,8 @@
  *   GET    /she/services/ssh/pubkey                                  public key of the services identity (I5)
  *   POST   /she/services/ssh/keygen                                  generate it
  *   POST   /she/services/hosts/:host/test                            run `she-servicectl version` → ok / code
+ *   POST   /she/services/hosts/:host/node/update                     { channel: stable|lts } update Node.js with tj/n (helper v13)
+ *   POST   /she/services/hosts/:host/instances/restart-all           restart every running instance (after a node update)
  *   POST   /she/services/hosts/:host/helper/deploy                   scp the helper to a remote host, install it, print the sudoers line
  *   POST   /she/services/hosts/:host/helper/remove                   { mode: key|all, force? } remove she from the host (I11), drop the host entry
  *   POST   /she/services/setup/token                                 mint a one-time token + the curl | bash command (I9)
@@ -1027,6 +1029,59 @@ router.post('/hosts/:host/adapters/:adapter/update', async (req, res) => {
         res.json({ ok: failed.length === 0, output: stdout, restarted, failed });
     } catch (err) {
         hostError(res, err);
+    }
+});
+
+/** The two node commands need helper v13; older hosts answer with "unknown command". */
+function nodeHostError(res, err) {
+    if (/unknown command/i.test(err.message || '')) {
+        return res.status(400).json({
+            error: 'the she-servicectl helper on this host is too old for Node.js management — update it on the Hosts tab',
+            code: 'HELPER_OUTDATED',
+        });
+    }
+    return hostError(res, err);
+}
+
+// POST /she/services/hosts/:host/node/update { channel?: 'stable' | 'lts' }
+router.post('/hosts/:host/node/update', async (req, res) => {
+    const entry = resolve(req, res);
+    if (!entry) return;
+    const channel = (req.body && req.body.channel) || 'stable';
+    if (channel !== 'stable' && channel !== 'lts') return res.status(400).json({ error: "channel must be 'stable' or 'lts'" });
+    try {
+        // downloading and unpacking a node build on a small host takes a while
+        const { stdout } = await entry.driver.exec(['node', 'update', '--' + channel], { timeout: 900000 });
+        let result = {};
+        try {
+            result = JSON.parse(stdout);
+        } catch {
+            return res.status(500).json({ error: 'helper returned unexpected output', output: stdout });
+        }
+        invalidateHosts();
+        res.json({ ok: true, ...result, restartRequired: result.before !== result.after });
+    } catch (err) {
+        nodeHostError(res, err);
+    }
+});
+
+// POST /she/services/hosts/:host/instances/restart-all
+router.post('/hosts/:host/instances/restart-all', async (req, res) => {
+    const entry = resolve(req, res);
+    if (!entry) return;
+    try {
+        const { stdout } = await entry.driver.exec(['restart-all'], { timeout: 300000 });
+        let result = { restarted: [] };
+        try {
+            result = JSON.parse(stdout);
+        } catch {
+            return res.status(500).json({ error: 'helper returned unexpected output', output: stdout });
+        }
+        const restarted = (result.restarted || []).filter((r) => r.ok);
+        const failed = (result.restarted || []).filter((r) => !r.ok);
+        res.json({ ok: failed.length === 0, restarted, failed });
+    } catch (err) {
+        nodeHostError(res, err);
     }
 });
 

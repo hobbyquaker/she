@@ -160,7 +160,7 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(r.status).toBe(200);
         expect(r.body.hosts).toHaveLength(1);
         const h = r.body.hosts[0];
-        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 12, helperOutdated: false, brokerEnv: true });
+        expect(h).toMatchObject({ name: 'local', local: true, ok: true, hostname: 'zigbee', helper: 13, helperOutdated: false, brokerEnv: true });
         expect(h.adapters[0]).toMatchObject({ name: 'cul2mqtt', version: '1.1.1', origin: 'registry' });
         expect(h.instances[0]).toMatchObject({ adapter: 'cul2mqtt', instance: 'cul', active: 'active', unitFile: 'enabled' });
     });
@@ -183,6 +183,52 @@ describe('services-api Tier 1 routes (fake helper)', () => {
             // the listing above is now cached against the older driver: refill it with the real one
             await httpRequest('GET', port, '/she/services/hosts?refresh=1');
         }
+    });
+
+    test('node update runs n on the host and flags the pending restart', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/node/update', { channel: 'lts' });
+        expect(r.status).toBe(200);
+        expect(r.body).toMatchObject({ ok: true, spec: 'lts', before: 'v20.11.0', after: 'v24.2.0', n: '10.2.0', nInstalled: true, mismatch: false, restartRequired: true });
+        expect(calls().some((c) => c.args.join(' ') === 'node update --lts')).toBe(true);
+    });
+
+    test('node update reports a node that another install shadows', async () => {
+        api.setDriverFactory((h) =>
+            host.createLocalDriver({
+                helper: FAKE,
+                sudo: false,
+                name: h.name,
+                env: { ...driverEnv, FAKE_NODE_MISMATCH: '1', FAKE_NODE_AFTER: 'v20.11.0', FAKE_NODE_ACTIVE_PATH: '/opt/node20/bin/node' },
+            }),
+        );
+        try {
+            const r = await httpRequest('POST', port, '/she/services/hosts/local/node/update', {});
+            // n installed a new node, but PATH still resolves the old one — nothing to restart yet
+            expect(r.body).toMatchObject({ ok: true, mismatch: true, installed: 'v24.2.0', after: 'v20.11.0', activePath: '/opt/node20/bin/node', restartRequired: false });
+        } finally {
+            api.setDriverFactory(defaultDrivers);
+        }
+    });
+
+    test('node update rejects an unknown channel', async () => {
+        expect((await httpRequest('POST', port, '/she/services/hosts/local/node/update', { channel: 'nightly' })).status).toBe(400);
+    });
+
+    test('node update on an older helper answers HELPER_OUTDATED', async () => {
+        api.setDriverFactory((h) => host.createLocalDriver({ helper: FAKE, sudo: false, name: h.name, env: { ...driverEnv, FAKE_OLD_HELPER: '1' } }));
+        try {
+            const r = await httpRequest('POST', port, '/she/services/hosts/local/node/update', {});
+            expect(r.status).toBe(400);
+            expect(r.body.code).toBe('HELPER_OUTDATED');
+        } finally {
+            api.setDriverFactory(defaultDrivers);
+        }
+    });
+
+    test('restart-all reports what it restarted', async () => {
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/instances/restart-all');
+        expect(r.status).toBe(200);
+        expect(r.body).toEqual({ ok: true, restarted: [{ adapter: 'cul2mqtt', instance: 'cul', ok: true, error: null }], failed: [] });
     });
 
     test('unknown host / bad names', async () => {
@@ -531,7 +577,7 @@ describe('ssh driver (fake ssh/scp)', () => {
 
         test('POST /hosts/:host/test reports ok or code', async () => {
             await setup();
-            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 12 });
+            expect((await httpRequest('POST', port, '/she/services/hosts/zigbee/test')).body).toEqual({ ok: true, helper: 13 });
             await new Promise((r) => server.close(r));
             server = null;
             await setup({ FAKE_SSH_FAIL: '1' });
@@ -542,7 +588,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup();
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 12, method: 'self-update', user: 'she' });
+            expect(r.body).toMatchObject({ ok: true, installed: true, sudoers: true, helper: 13, method: 'self-update', user: 'she' });
             expect(fs.readFileSync(logFile + '.selfupdate', 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             r = await httpRequest('POST', port, '/she/services/hosts/local/helper/deploy');
             expect(r.body).toMatchObject({ ok: true, method: 'self-update' });
@@ -552,7 +598,7 @@ describe('ssh driver (fake ssh/scp)', () => {
             await setup({ FAKE_NO_SELF_UPDATE: '1' });
             let r = await httpRequest('POST', port, '/she/services/hosts/zigbee/helper/deploy');
             expect(r.status).toBe(200);
-            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 12, user: 'she', method: 'install' });
+            expect(r.body).toMatchObject({ ok: true, uploaded: true, installed: true, sudoers: true, helper: 13, user: 'she', method: 'install' });
             expect(fs.readFileSync(path.join(dir, 'installed-helper'), 'utf8')).toBe(fs.readFileSync(host.HELPER_SOURCE, 'utf8'));
             await new Promise((res) => server.close(res));
             server = null;
@@ -738,7 +784,7 @@ describe("per-instance 'use she broker settings'", () => {
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'bad host' })).status).toBe(400);
         expect((await httpRequest('POST', port, '/she/services/ssh/test', { host: 'h', port: 70000 })).status).toBe(400);
         const r = await httpRequest('POST', port, '/she/services/ssh/test', { host: 'zigbee.lan', port: '22', user: 'she' });
-        expect(r.body).toEqual({ ok: true, helper: 12 });
+        expect(r.body).toEqual({ ok: true, helper: 13 });
     });
 });
 

@@ -235,28 +235,35 @@
         overflow: hidden;
     }
 
+    /* menubar tabs — the sub-navigation look shared by the Broker, MQTT, Adapters and DB pages */
     .sub-nav {
         display: flex;
+        align-items: center;
         gap: 2px;
         padding: 6px 10px 0;
-        border-bottom: 1px solid var(--border, #333);
+        border-bottom: 1px solid var(--border-sub);
         flex-shrink: 0;
     }
 
     .sub-nav button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         background: none;
         border: none;
         border-bottom: 2px solid transparent;
-        color: var(--text-muted, #888);
+        color: var(--fg-muted);
         cursor: pointer;
         font-size: 13px;
         padding: 5px 12px 6px;
         margin-bottom: -1px;
     }
 
+    .sub-nav button:hover { color: var(--fg); }
+
     .sub-nav button.active {
-        color: var(--text, #eee);
-        border-bottom-color: var(--accent, #569cd6);
+        color: var(--fg-text);
+        border-bottom-color: var(--fg-brand);
     }
 
     .tab-content {
