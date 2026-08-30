@@ -37,17 +37,37 @@
     const PANEL_KEY = 'she-db-panel';
     let panel: 'docs' | 'views' = $state((localStorage.getItem(PANEL_KEY) as 'docs' | 'views') ?? 'docs');
 
-    // ── URL: #/db/<slug> ───────────────────────────────────────────────────────
+    // ── URL: #/db/<panel>[/<id>] ───────────────────────────────────────────────
+    // The address bar names the open document or view, and a link to one opens it:
+    // #/db/documents/device/licht_aquarium. An id carries slashes of its own, so everything
+    // after the panel belongs to it.
     const PANEL_SLUGS = { docs: 'documents', views: 'views' } as const;
     // see Services.svelte for why the guard is needed: this effect re-runs on every panel change
     let seenSub: string | null | undefined = undefined;
     $effect(() => {
         if (sub === seenSub) return;
         seenSub = sub;
-        const want = sub === 'documents' ? 'docs' : sub === 'views' ? 'views' : null;
-        if (want) untrack(() => { if (panel !== want) panel = want; });
+        const [slug, ...rest] = (sub ?? '').split('/');
+        const want = slug === 'documents' ? 'docs' : slug === 'views' ? 'views' : null;
+        if (!want) return;
+        const id = rest.join('/');
+        // a deep link, the back button, an edited address: show what the url names
+        untrack(() => {
+            if (panel !== want) panel = want;
+            if (!id) return;
+            if (want === 'docs') {
+                if (id !== selectedDocId) selectDoc(id);
+            } else if (id !== selectedViewId) selectView(id);
+        });
     });
-    $effect(() => { if (active) onsub?.(PANEL_SLUGS[panel]); });
+    // ...and the other way round: whatever is open names itself in the url
+    $effect(() => {
+        if (!active) return;
+        const id = panel === 'docs' ? selectedDocId : selectedViewId;
+        const s = PANEL_SLUGS[panel] + (id ? '/' + id : '');
+        seenSub = s;
+        onsub?.(s);
+    });
 
     // ---- New document dialog ----
     let newDocId = $state('');
