@@ -596,6 +596,9 @@
         display: flex;
         flex-direction: column;
         height: 100vh;
+        /* enough for the whole top bar with every page enabled — narrower than this the nav
+           items would be pushed out of reach, so the window scrolls sideways instead */
+        min-width: 1040px;
     }
     /* Safe mode (S4): full width above the nav bar — impossible to miss, and it stays
        out of the way of the page below (the Scripts tab must remain fully usable). */

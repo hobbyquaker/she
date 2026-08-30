@@ -136,7 +136,10 @@
                 background: var(--bg-app);
                 color: var(--fg);
                 height: 100vh;
-                overflow: hidden;
+                /* the shell has a min-width (the top bar must stay reachable): let the page
+                   scroll sideways below it, but never vertically — every page scrolls itself */
+                overflow-x: auto;
+                overflow-y: hidden;
             }
         </style>
         <script>
