@@ -55,6 +55,31 @@
         }
     }
 
+    let helperAllBusy = $state(false);
+    let helperAllAt = $state('');
+    let outdatedHosts = $derived(status.filter((h) => h.ok && h.helperOutdated).map((h) => h.name));
+
+    async function updateAllHelpers() {
+        const todo = outdatedHosts;
+        if (todo.length === 0 || helperAllBusy) return;
+        helperAllBusy = true;
+        try {
+            for (const [i, name] of todo.entries()) {
+                helperAllAt = `${i + 1} of ${todo.length}: ${name}`;
+                try {
+                    helperResult = { ...helperResult, [name]: await deployServiceHelper(name) };
+                } catch (e: any) {
+                    helperResult = { ...helperResult, [name]: { error: e.message ?? String(e) } };
+                }
+            }
+            status = (await getServiceHosts(true)).hosts;
+            onchanged?.();
+        } finally {
+            helperAllBusy = false;
+            helperAllAt = '';
+        }
+    }
+
     // ── Node.js on the host (tj/n, helper v13) ─────────────────────────────────
     // The adapters run on the host's node, so it is managed where the host is: n installs
     // the requested channel, and the running instances keep the old binary until restarted.
@@ -502,6 +527,11 @@
             <button class="ghost" onclick={() => load(true)} disabled={loading} title="Reload"><span class:spinning={loading}>↺</span></button>
             <button class="ghost" onclick={openAdd}>+ Add remote host</button>
             <span class="muted">{remotes.length + (local ? 1 : 0)} host{remotes.length + (local ? 1 : 0) === 1 ? '' : 's'}</span>
+            {#if outdatedHosts.length > 1}
+                <button class="ghost sm" onclick={updateAllHelpers} disabled={helperAllBusy || helperBusy !== null} title="Replace she-servicectl on every host that runs an older one, in turn">
+                    {helperAllBusy ? `Updating ${helperAllAt}…` : `Update all helpers (${outdatedHosts.length})`}
+                </button>
+            {/if}
             <span class="spacer"></span>
             {#if notice}<span class="ok">{notice}</span>{/if}
             {#if dirty}
