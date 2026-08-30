@@ -45,7 +45,7 @@
 
 set -eu
 
-VERSION=14
+VERSION=15
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -84,26 +84,41 @@ need_instance() {
     valid_instance "$1" || die "invalid instance name: $1"
 }
 
-# the command behind <adapter> belongs to an npm package of that name — what tells an adapter
-# apart from any other daemon that happens to keep its binary in /usr/local/bin
-npm_adapter_pkg() {
-    dir=$(adapter_dir "$1" 2>/dev/null) || return 1
-    [ "$(basename "$dir")" = "$1" ] && return 0
-    grep -Eq "\"name\"[[:space:]]*:[[:space:]]*\"(@[^\"/]*/)?$1\"" "$dir/package.json" 2>/dev/null
+# where npm keeps globally installed packages
+npm_roots() {
+    r=$(command -v npm >/dev/null 2>&1 && npm root -g 2>/dev/null || true)
+    printf '%s\n/usr/local/lib/node_modules\n' "$r" | grep -v '^$' | LC_ALL=C sort -u
 }
 
-# a plain <adapter>.service of an npm-installed adapter (pre-core layout)
+# package.json of an npm-installed <adapter>: from a global root, or from wherever the command
+# behind the name lives (a unit may run the package without a binary on PATH at all)
+adapter_pkg_json() {
+    for root in $(npm_roots); do
+        if [ -f "$root/$1/package.json" ]; then printf '%s' "$root/$1/package.json"; return 0; fi
+    done
+    dir=$(adapter_dir "$1" 2>/dev/null) || return 1
+    [ -f "$dir/package.json" ] || return 1
+    printf '%s' "$dir/package.json"
+}
+
+# an mqtt-interfaces adapter: the package says so itself, either with the mqttInterfaces block
+# the core reads or by depending on the core. The same question npm_adapters asks — a host runs
+# plenty of other things, npm packages among them.
+mqtt_interfaces_pkg() {
+    pkg=$(adapter_pkg_json "$1") || return 1
+    grep -q '"mqttInterfaces"' "$pkg" 2>/dev/null && return 0
+    grep -q '"mqtt-interfaces-core"' "$pkg" 2>/dev/null
+}
+
+# a plain <adapter>.service of an npm-installed adapter (pre-core layout). That the unit runs the
+# package or a binary of that name is not enough on its own: dnscrypt-proxy keeps its binary in
+# /usr/local/bin, nut-display is an npm package — neither is an adapter.
 legacy_unit() {
     [ -f "$UNIT_DIR/$1.service" ] || return 1
-    # the unit naming the package directory is conclusive on its own
-    if grep -Eq "/node_modules/$1/" "$UNIT_DIR/$1.service" 2>/dev/null; then
-        return 0
-    fi
-    # ExecStart=/usr/local/bin/<name> alone is not: dnscrypt-proxy, dnsproxy and the like live
-    # there too. It counts only when that binary is an npm package called <adapter>.
-    grep -Eq "/usr/local/bin/$1( |$)" "$UNIT_DIR/$1.service" 2>/dev/null || return 1
-    npm_adapter_pkg "$1"
+    grep -Eq "(/node_modules/$1/|/usr/local/bin/$1( |$))" "$UNIT_DIR/$1.service" 2>/dev/null || return 1
+    mqtt_interfaces_pkg "$1"
 }
+
 # the env file of a legacy unit: its EnvironmentFile= (leading - stripped), default /etc/default/<adapter>;
 # only /etc/default/<adapter> or something inside /etc/<adapter>/ is accepted
 legacy_env_file() {
@@ -254,10 +269,6 @@ read_env_stdin() {
 
 # ── adapters installed with npm but without a template unit yet ─────────────────
 # (a catalog install is `npm install -g <adapter>`; the unit appears with the first `--install`)
-npm_roots() {
-    r=$(command -v npm >/dev/null 2>&1 && npm root -g 2>/dev/null || true)
-    printf '%s\n/usr/local/lib/node_modules\n' "$r" | grep -v '^$' | LC_ALL=C sort -u
-}
 npm_adapters() {
     for root in $(npm_roots); do
         for pkg in "$root"/*/package.json; do
