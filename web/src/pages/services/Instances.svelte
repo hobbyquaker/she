@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, untrack } from 'svelte';
     import {
         getServiceInstances, restartServiceInstance, setServiceLogLevel, getServiceRetained, wipeServiceRetained,
         getServiceHosts, serviceUnitAction, uninstallService, migrateServiceLegacy, LEGACY_INSTANCE,
@@ -12,7 +12,18 @@
     import InstanceDetail from './InstanceDetail.svelte';
 
     type Status = 'none' | 'ok' | 'warn' | 'err';
-    let { onstatus, generation = 0 }: { onstatus?: (status: Status, title: string) => void; generation?: number } = $props();
+    let {
+        onstatus,
+        generation = 0,
+        origin = null,
+        onchanged,
+    }: {
+        onstatus?: (status: Status, title: string) => void;
+        generation?: number;
+        /** which tab made the change — this one does not reload its own work */
+        origin?: string | null;
+        onchanged?: () => void;
+    } = $props();
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> } = $state(null as any);
 
@@ -75,8 +86,16 @@
         return () => { unsub(); clearInterval(tick); if (reloadTimer) clearTimeout(reloadTimer); };
     });
 
-    // host-side changes (update, install, uninstall) from the other tabs
-    $effect(() => { if (generation > 0) load(); });
+    // host-side changes (update, install, a host added or removed) from the other tabs.
+    // Guarded and untracked on purpose: load() reads state it also writes, so an unguarded
+    // effect would keep re-triggering itself (see subnav-routing.test.js for the same trap).
+    let seenGeneration = 0;
+    $effect(() => {
+        const g = generation;
+        if (g === seenGeneration) return;
+        seenGeneration = g;
+        untrack(() => { if (origin !== 'instances') load(true); });
+    });
 
     /* ── Correlation (SV-14): info.host ↔ host.hostname, instance ↔ unit instance ── */
     let rows = $derived.by((): Row[] => {
@@ -214,12 +233,14 @@
         on ? s.add(key) : s.delete(key);
         busy = s;
     }
-    async function run(r: Row, label: string, fn: () => Promise<unknown>, okMsg: string) {
+    async function run(r: Row, label: string, fn: () => Promise<unknown>, okMsg: string, { tellOthers = false } = {}) {
         setBusy(r.key, true); notice = null;
         try {
             await fn();
             notice = okMsg;
             setTimeout(load, 600);
+            // an instance that came or went changes what the other tabs list, too
+            if (tellOthers) onchanged?.();
         } catch (e: unknown) {
             notice = `${label} failed: ${e instanceof Error ? e.message : String(e)}`;
         } finally {
@@ -249,7 +270,7 @@
             { initial: r.mqtt?.instance ?? '', placeholder: 'instance name', confirm: 'Migrate' },
         );
         if (!name) return;
-        return run(r, 'Migrate', () => migrateServiceLegacy(r.host!.name, r.unit!.adapter, name.trim()), `${r.unit.adapter}.service migrated to ${r.unit.adapter}@${name.trim()} on ${r.host.name}.`);
+        return run(r, 'Migrate', () => migrateServiceLegacy(r.host!.name, r.unit!.adapter, name.trim()), `${r.unit.adapter}.service migrated to ${r.unit.adapter}@${name.trim()} on ${r.host.name}.`, { tellOthers: true });
     }
     async function uninstall(r: Row) {
         if (!r.host || !r.unit) return;
@@ -259,7 +280,7 @@
         );
         if (!ok) return;
         if (detailKey === r.key) detailKey = null;
-        return run(r, 'Uninstall', () => uninstallService(r.host!.name, r.unit!.adapter, r.instance), `${r.unit.adapter}@${r.instance} removed from ${r.host.name}.`);
+        return run(r, 'Uninstall', () => uninstallService(r.host!.name, r.unit!.adapter, r.instance), `${r.unit.adapter}@${r.instance} removed from ${r.host.name}.`, { tellOthers: true });
     }
     async function wipe(r: Row) {
         setBusy(r.key, true); notice = null;

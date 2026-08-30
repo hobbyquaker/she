@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, untrack } from 'svelte';
     import {
         getServiceHosts, updateServiceAdapter,
         getServiceInstances, uninstallServiceAdapter,
@@ -9,7 +9,12 @@
 
     import AddInstance, { type AddPreset } from './AddInstance.svelte';
     import Catalog from './Catalog.svelte';
-    let { onchanged, onupdates }: { onchanged?: () => void; onupdates?: (count: number) => void } = $props();
+    let {
+        onchanged,
+        onupdates,
+        generation = 0,
+        origin = null,
+    }: { onchanged?: () => void; onupdates?: (count: number) => void; generation?: number; origin?: string | null } = $props();
     // the tab shows the host list, the add-instance form (host + adapter fixed) or the catalog — each covering the whole tab
     type View = { kind: 'list' } | { kind: 'add'; preset: AddPreset } | { kind: 'catalog' };
     let view = $state<View>({ kind: 'list' });
@@ -44,6 +49,17 @@
         }
     }
     onMount(() => { load(); });
+
+    // a host added or removed on the Hosts tab, an instance gone on Instances — ask the
+    // hosts again (refresh: the daemon caches the listing for a minute). Guarded and
+    // untracked so the reload cannot feed back into the effect that started it.
+    let seenGeneration = 0;
+    $effect(() => {
+        const g = generation;
+        if (g === seenGeneration) return;
+        seenGeneration = g;
+        untrack(() => { if (origin !== 'hosts') load(true); });
+    });
 
     // cards sorted by the label they show (hostname, falling back to the configured name)
     let sortedHosts = $derived(

@@ -66,3 +66,45 @@ export function makePage(initialTab, initialSub, { guard = true } = {}) {
         stop,
     };
 }
+
+/**
+ * The other half of the same trap, in the tab-reload wiring: an effect that reloads when
+ * another tab reports a change, where load() reads a state it also writes (`refreshing`).
+ * Unguarded, the write feeds back into the effect and the tab reloads forever — an endless
+ * round of requests to every host. The guard remembers the generation it last acted on.
+ */
+export function makeReloader({ guard = true, cap = 40 } = {}) {
+    let generation = $state(0);
+    let refreshing = $state(false);
+    let loads = 0;
+    let seen = 0;
+
+    async function load(refresh) {
+        loads++;
+        if (loads > cap) return; // a runaway must not hang the test
+        refreshing = refreshing || refresh; // the read-and-write that closes the loop
+        await Promise.resolve();
+        refreshing = false;
+    }
+
+    const stop = $effect.root(() => {
+        $effect(() => {
+            const g = generation;
+            if (guard) {
+                if (g === seen) return;
+                seen = g;
+                untrack(() => load(true));
+                return;
+            }
+            if (g > 0) load(true);
+        });
+    });
+
+    return {
+        change: () => generation++,
+        get loads() {
+            return loads;
+        },
+        stop,
+    };
+}

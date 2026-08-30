@@ -37,8 +37,14 @@
     // reported whenever this page is the one on screen, so the hash always names the open tab
     $effect(() => { if (active) onsub?.(SLUGS[tab]); });
 
-    // bump to make the Instances tab reload after host-side changes (update, install)
+    // Every tab shows a slice of the same host state, so a change on one is news for the others:
+    // the counter bumps, and each tab reloads unless it is the one that made the change.
     let generation = $state(0);
+    let origin = $state<SubTab | null>(null);
+    function changed(from: SubTab) {
+        origin = from;
+        generation++;
+    }
 
     // pending updates, reported by the tabs that know about them: adapter packages on
     // Installations, the she-servicectl helper on Hosts. Each puts a yellow dot on its own
@@ -80,9 +86,9 @@
     </div>
 
     <!-- tabs stay mounted: switching must not re-run the host listing -->
-    <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances onstatus={(s, t) => { instStatus = s; instTitle = t; }} {generation} /></div>
-    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => generation++} onupdates={(n) => (adapterUpdates = n)} /></div>
-    <div class="tab-wrap" class:hidden={tab !== 'hostsconf'}><HostsConfig onchanged={() => generation++} onupdates={(n) => (helperUpdates = n)} onnodeupdates={(n) => (nodeUpdates = n)} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'instances'}><Instances onstatus={(s, t) => { instStatus = s; instTitle = t; }} {generation} {origin} onchanged={() => changed('instances')} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'hosts'}><Hosts onchanged={() => changed('hosts')} onupdates={(n) => (adapterUpdates = n)} {generation} {origin} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'hostsconf'}><HostsConfig onchanged={() => changed('hostsconf')} onupdates={(n) => (helperUpdates = n)} onnodeupdates={(n) => (nodeUpdates = n)} {generation} {origin} /></div>
 </div>
 
 <style>

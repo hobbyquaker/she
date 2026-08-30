@@ -1,7 +1,7 @@
 <script lang="ts">
     /* Adapters → Hosts: which hosts she manages adapters on (moved here from Settings). Edits are
        saved explicitly (Save); the setup command / manual form live in a view covering the tab. */
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, untrack } from 'svelte';
     import {
         getConfig, patchConfig, getServiceHosts, testServicesSsh, testServiceHost, getServicesSshPubkey, generateServicesSshKey,
         createServicesSetupCommand, getServicesSetupState, getDaemonStatus, deployServiceHelper,
@@ -16,7 +16,15 @@
         onchanged,
         onupdates,
         onnodeupdates,
-    }: { onchanged?: () => void; onupdates?: (count: number) => void; onnodeupdates?: (count: number) => void } = $props();
+        generation = 0,
+        origin = null,
+    }: {
+        onchanged?: () => void;
+        onupdates?: (count: number) => void;
+        onnodeupdates?: (count: number) => void;
+        generation?: number;
+        origin?: string | null;
+    } = $props();
 
     type Remote = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
     let remotes = $state<Remote[]>([]);
@@ -236,6 +244,29 @@
         } catch { /* best effort */ }
     }
     onMount(() => load());
+
+    // something changed on another tab (an adapter installed, an instance removed): ask the
+    // hosts again. Unsaved edits in this form win — only the status half is refreshed then.
+    // The generation guard and untrack keep this out of a loop: reading `dirty` and then
+    // reloading the form would re-trigger the effect through the very state it writes.
+    let seenGeneration = 0;
+    $effect(() => {
+        const g = generation;
+        if (g === seenGeneration) return;
+        seenGeneration = g;
+        untrack(() => {
+            if (origin === 'hostsconf') return;
+            void (async () => {
+                if (dirty) {
+                    try {
+                        status = (await getServiceHosts(true)).hosts;
+                    } catch { /* keep what is on screen */ }
+                } else {
+                    await load(true);
+                }
+            })();
+        });
+    });
     onMount(async () => {
         try {
             releases = await getNodeReleases();

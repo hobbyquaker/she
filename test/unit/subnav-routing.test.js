@@ -1,8 +1,10 @@
 'use strict';
 
 /**
- * Regression test for the sub-navigation routing (#/adapters/instances): clicking a sub-tab
- * must switch it and update the url, and editing the url must switch the tab.
+ * Regression tests for the two places the Adapters page drives Svelte effects: the
+ * sub-navigation routing (#/adapters/instances) and the cross-tab reload. Both hit the same
+ * trap — an effect that writes state it also reads re-runs itself — so both are pinned here,
+ * including the unguarded variants, which must still misbehave.
  *
  * Svelte runs in the browser, so the model in fixtures/subnav-model.svelte.js is compiled
  * with the real compiler and executed against the real client runtime in a child process —
@@ -23,7 +25,7 @@ import { compileModule } from 'svelte/compiler';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const settle = () => new Promise((r) => setTimeout(r, 5));
+const settle = () => new Promise((r) => setTimeout(r, 25)); // generous: a loaded machine still gets several turns
 const out = path.join(process.cwd(), '.subnav-model.' + process.pid + '.mjs');
 fs.writeFileSync(out, compileModule(fs.readFileSync(process.env.MODEL, 'utf8'), { generate: 'client', filename: 'model.svelte.js' }).js.code);
 
@@ -60,6 +62,23 @@ try {
     check('without the guard a click is undone (the 1.45.0 bug)', g.tab, 'hostsconf');
     g.stop();
 
+    // the tab-reload guard: one reload per change, not a runaway
+    const { makeReloader } = await import('file://' + out);
+    const r1 = makeReloader();
+    r1.change();
+    await settle();
+    check('a reported change reloads the tab once', r1.loads, 1);
+    r1.change();
+    await settle();
+    check('and once more for the next change', r1.loads, 2);
+    r1.stop();
+
+    const r2 = makeReloader({ guard: false });
+    r2.change();
+    await settle();
+    check('without the guard the reload runs away', r2.loads > 2, true);
+    r2.stop();
+
     console.log(JSON.stringify(results));
 } finally {
     fs.rmSync(out, { force: true });
@@ -82,6 +101,6 @@ try {
     test('every case holds', () => {
         const failed = results.filter((r) => !r.ok);
         expect(failed.map((r) => `${r.name}: got ${JSON.stringify(r.got)}, want ${JSON.stringify(r.want)}`)).toEqual([]);
-        expect(results).toHaveLength(5);
+        expect(results).toHaveLength(8);
     });
 });
