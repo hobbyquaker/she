@@ -597,7 +597,7 @@
                 <div class="card-head">
                     <span class="dot" class:ok={localStatus?.ok} class:err={localStatus && !localStatus.ok}></span>
                     <span class="name">{localStatus?.hostname ?? 'this host'}</span>
-                    <span class="muted">the she host itself, via <span class="mono">she-servicectl</span> (installed by <span class="mono">sudo she --install</span>)</span>
+                    <span class="muted">the she host itself</span>
                     <span class="spacer"></span>
                     {#if localStatus?.ok}{@render helper('local', localStatus)}{/if}
                     <button class="ghost sm" onclick={testLocal} disabled={testing !== null}>Test</button>{@render mark('local')}
