@@ -12,7 +12,11 @@
     import RemoveHelper from './RemoveHelper.svelte';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
 
-    let { onchanged, onupdates }: { onchanged?: () => void; onupdates?: (count: number) => void } = $props();
+    let {
+        onchanged,
+        onupdates,
+        onnodeupdates,
+    }: { onchanged?: () => void; onupdates?: (count: number) => void; onnodeupdates?: (count: number) => void } = $props();
 
     type Remote = { host: string; port: number | ''; user: string; identityFile: string; hostname: string };
     let remotes = $state<Remote[]>([]);
@@ -108,6 +112,23 @@
         }
         return 0;
     }
+
+    /**
+     * Hosts with a Node.js worth updating — the yellow dot on the Hosts sub-tab and, through it,
+     * on the Adapters entry in the main nav. A host that tracks an LTS line is only compared
+     * against LTS: `latest` there is a jump to another major, not an update, and would leave the
+     * dot on forever. A host already on the latest line is compared against latest.
+     */
+    const majorOf = (v: string | null | undefined) => (v ? Number(v.replace(/^v/, '').split('.')[0]) || 0 : 0);
+    let nodeUpdateCount = $derived(
+        status.filter((h) => {
+            if (!h.ok || !h.node || !releases) return false;
+            const onLatestLine = !!releases.latest && majorOf(h.node) === majorOf(releases.latest);
+            const target = onLatestLine ? releases.latest : releases.lts;
+            return !!target && cmpVersion(target, h.node) === 1;
+        }).length,
+    );
+    $effect(() => { onnodeupdates?.(nodeUpdateCount); });
 
     /** All three labels, each either an update to offer or a "you are on it" state. */
     function channelsFor(st: ServiceHost): { key: NodeChannel; label: string; target: string | null; current: boolean; downgrade: boolean }[] {
