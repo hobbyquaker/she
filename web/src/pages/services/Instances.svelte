@@ -376,6 +376,12 @@
         {:else}
             <div class="table-wrap">
                 <table>
+                    <!-- fixed widths: neither a filter nor the detail drawer may move the columns -->
+                    <colgroup>
+                        <col class="w-inst" /><col class="w-adapter" /><col class="w-host" /><col class="w-state" />
+                        <col class="w-up" /><col class="w-mem" /><col class="w-cpu" /><col class="w-ell" />
+                        <col class="w-lvl" /><col class="w-act" />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>{@render sortable('instance', 'Instance')}</th>
@@ -540,7 +546,27 @@
     /* the reload glyph turns while the listing is being fetched — same as the Catalog tab */
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinning { display: inline-block; animation: spin 0.8s linear infinite; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--fg); }
+    table {
+        border-collapse: collapse;
+        font-size: 12px;
+        color: var(--fg);
+        /* fixed layout + explicit widths: the columns stay put whatever is filtered away, and
+           the drawer squeezes the wrapper into a scroll instead of re-laying out the table */
+        table-layout: fixed;
+        width: max-content;
+        min-width: 100%;
+    }
+    .w-inst { width: 200px; }
+    .w-adapter { width: 150px; }
+    .w-host { width: 180px; }
+    .w-state { width: 150px; }
+    .w-up { width: 74px; }
+    .w-mem { width: 74px; }
+    .w-cpu { width: 62px; }
+    .w-ell { width: 74px; }
+    .w-lvl { width: 84px; }
+    .w-act { width: 528px; }
+    td { overflow: hidden; text-overflow: ellipsis; }
     th {
         text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted);
         padding: 5px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
@@ -595,10 +621,6 @@
 
     th.num, td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
     /* values that tick (uptime, mem, cpu, lag) get a fixed width so the table stops reflowing on every stats update */
-    .c-up { width: 74px; }
-    .c-mem { width: 74px; }
-    .c-cpu { width: 62px; }
-    .c-ell { width: 74px; }
     /* event loop lag past 100 ms — the adapter's loop was blocked that long */
     td.num.hot { color: #d4ac0d; }
 </style>
