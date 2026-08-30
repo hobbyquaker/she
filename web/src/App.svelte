@@ -14,18 +14,20 @@
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
     import { subscribeWs, subscribeLog, getLogBuffer, ensureConnected } from './lib/ws.js';
 
-    type Page = 'scripts' | 'mqtt' | 'matter' | 'security' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
-    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'security', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages'];
+    type Page = 'scripts' | 'mqtt' | 'matter' | 'broker' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
+    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'broker', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages'];
+    /** pages that were once called something else — old bookmarks keep working */
+    const RENAMED: Record<string, Page> = { services: 'adapters', security: 'broker' };
 
     /**
      * The hash is `#/<page>[/<sub-tab>]` — the leading slash is cosmetic, the sub-tab is
      * whatever the page's own sub-navigation is showing. `#page` from an old bookmark
-     * (and `#services`, the page's old name) still resolves.
+     * (and `#services` / `#security`, the pages' old names) still resolves.
      */
     function routeFromHash(): { page: Page; sub: string | null } {
         const raw = location.hash.replace(/^#\/?/, '');
         const [rawPage, rawSub] = raw.split('/');
-        const p = (rawPage === 'services' ? 'adapters' : rawPage) as Page;
+        const p = (RENAMED[rawPage] ?? rawPage) as Page;
         return { page: validPages.includes(p) ? p : 'scripts', sub: rawSub || null };
     }
 
@@ -228,7 +230,7 @@
                 outdatedDepsCount = Object.keys(o).filter(n => !pinnedPackages.includes(n)).length;
                 const wasBrokerEnabled = brokerEnabled;
                 brokerEnabled = (cfg.broker as any)?.enabled === true;
-                if (wasBrokerEnabled && !brokerEnabled && page === 'security') navigate('scripts');
+                if (wasBrokerEnabled && !brokerEnabled && page === 'broker') navigate('scripts');
                 const wasServicesEnabled = servicesEnabled;
                 servicesEnabled = (cfg.services as any)?.enabled === true;
                 if (wasServicesEnabled && !servicesEnabled && page === 'adapters') navigate('scripts');
@@ -332,7 +334,7 @@
             {/if}
         </button>
         {#if brokerEnabled}
-        <button class:active={page === 'security'} onclick={() => navigate('security')}>
+        <button class:active={page === 'broker'} onclick={() => navigate('broker')}>
             <!-- Broker icon: mosquitto mark — three arc pairs radiating from the body, proboscis pointing down -->
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                 <path d="M8.36,5.73 A2.6,2.6 0 0,1 9.38,10.50"/>
@@ -535,7 +537,7 @@
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT active={page === 'mqtt'} sub={page === 'mqtt' ? sub : null} onsub={(s) => setSub('mqtt', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter /></div>
-        <div class="page-wrap" class:hidden={page !== 'security'}><Security active={page === 'security'} sub={page === 'security' ? sub : null} onsub={(s) => setSub('security', s)} /></div>
+        <div class="page-wrap" class:hidden={page !== 'broker'}><Security active={page === 'broker'} sub={page === 'broker' ? sub : null} onsub={(s) => setSub('broker', s)} /></div>
         {#if servicesEnabled}<div class="page-wrap" class:hidden={page !== 'adapters'}><Services onstatus={(s, t) => { servicesStatus = s; servicesTitle = t; }} active={page === 'adapters'} sub={page === 'adapters' ? sub : null} onsub={(s) => setSub('adapters', s)} /></div>{/if}
         <div class="page-wrap" class:hidden={page !== 'secrets'}><Secrets active={page === 'secrets'} /></div>
         <div class="page-wrap" class:hidden={page !== 'db'}><DB active={page === 'db'} sub={page === 'db' ? sub : null} onsub={(s) => setSub('db', s)} /></div>
