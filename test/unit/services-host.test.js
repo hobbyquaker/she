@@ -193,10 +193,12 @@ describe('services-api Tier 1 routes (fake helper)', () => {
         expect(calls().some((c) => c.args.join(' ') === 'node update --latest')).toBe(true);
     });
 
-    test("node update defaults to lts, and n's old 'stable' alias still means lts", async () => {
+    test("node update defaults to lts and hands n's own labels through", async () => {
         await httpRequest('POST', port, '/she/services/hosts/local/node/update', {});
         await httpRequest('POST', port, '/she/services/hosts/local/node/update', { channel: 'stable' });
-        expect(calls().filter((c) => c.args.join(' ') === 'node update --lts')).toHaveLength(2);
+        // stable and lts are the same release to n, but the label it is asked for is its own
+        expect(calls().filter((c) => c.args.join(' ') === 'node update --lts')).toHaveLength(1);
+        expect(calls().filter((c) => c.args.join(' ') === 'node update --stable')).toHaveLength(1);
     });
 
     test('node update reports a node that another install shadows', async () => {

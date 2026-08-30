@@ -30,7 +30,7 @@
  *   POST   /she/services/ssh/keygen                                  generate it
  *   POST   /she/services/hosts/:host/test                            run `she-servicectl version` → ok / code
  *   GET    /she/services/node/releases[?refresh=1]                   what a node update would install: the newest lts and latest release
- *   POST   /she/services/hosts/:host/node/update                     { channel: lts|latest } update Node.js with tj/n (helper v13)
+ *   POST   /she/services/hosts/:host/node/update                     { channel: stable|lts|latest } update Node.js with tj/n (helper v13)
  *   POST   /she/services/hosts/:host/instances/restart-all           restart every running instance (after a node update)
  *   POST   /she/services/hosts/:host/helper/deploy                   scp the helper to a remote host, install it, print the sudoers line
  *   POST   /she/services/hosts/:host/helper/remove                   { mode: key|all, force? } remove she from the host (I11), drop the host entry
@@ -1054,9 +1054,9 @@ router.get('/node/releases', async (req, res) => {
 router.post('/hosts/:host/node/update', async (req, res) => {
     const entry = resolve(req, res);
     if (!entry) return;
-    // 'stable' is n's old alias for lts — accepted so an older client keeps working
-    const channel = (req.body && req.body.channel) === 'stable' ? 'lts' : (req.body && req.body.channel) || 'lts';
-    if (channel !== 'lts' && channel !== 'latest') return res.status(400).json({ error: "channel must be 'lts' or 'latest'" });
+    // n's own labels, passed through as they are: stable and lts both mean the newest LTS
+    const channel = (req.body && req.body.channel) || 'lts';
+    if (!['stable', 'lts', 'latest'].includes(channel)) return res.status(400).json({ error: "channel must be 'stable', 'lts' or 'latest'" });
     try {
         // downloading and unpacking a node build on a small host takes a while
         const { stdout } = await entry.driver.exec(['node', 'update', '--' + channel], { timeout: 900000 });

@@ -78,7 +78,7 @@ switch (cmd) {
         if (args[1] !== 'update') die('unknown node action: ' + args[1]);
         console.log(
             JSON.stringify({
-                spec: args[2] === '--latest' ? 'latest' : 'lts',
+                spec: (args[2] || '--lts').replace(/^--/, ''),
                 before: 'v20.11.0',
                 after: process.env.FAKE_NODE_AFTER || 'v24.2.0',
                 installed: 'v24.2.0',

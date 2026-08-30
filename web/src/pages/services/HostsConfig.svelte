@@ -67,10 +67,12 @@
     // "stable" is only n's old alias for lts, not a third channel)
     let releases = $state<NodeReleases | null>(null);
     const CHANNELS: { key: NodeChannel; label: string }[] = [
+        { key: 'stable', label: 'stable' },
         { key: 'lts', label: 'LTS' },
         { key: 'latest', label: 'latest' },
     ];
-    const targetOf = (c: NodeChannel) => (c === 'lts' ? releases?.lts : releases?.latest) ?? null;
+    // n resolves both stable and lts to the newest long-term-support release
+    const targetOf = (c: NodeChannel) => (c === 'latest' ? releases?.latest : releases?.lts) ?? null;
 
     /** -1 / 0 / 1 for two "vX.Y.Z" strings; null when either is unknown. */
     function cmpVersion(a: string | null | undefined, b: string | null | undefined): number | null {
@@ -83,25 +85,18 @@
         return 0;
     }
 
-    /** The channels worth offering for a host: the ones it does not already run. */
-    function channelsFor(st: ServiceHost): { key: NodeChannel; label: string; target: string | null; downgrade: boolean }[] {
-        const seen = new Set<string>();
+    /** All three labels, each either an update to offer or a "you are on it" state. */
+    function channelsFor(st: ServiceHost): { key: NodeChannel; label: string; target: string | null; current: boolean; downgrade: boolean }[] {
         return CHANNELS.map((c) => {
             const target = targetOf(c.key);
-            return { ...c, target, downgrade: cmpVersion(target, st.node) === -1 };
-        }).filter((c) => {
-            if (!c.target) return true; // versions unknown — offer the button anyway
-            if (c.target === st.node) return false; // already on it
-            if (seen.has(c.target)) return false; // lts and latest are the same release
-            seen.add(c.target);
-            return true;
+            return { ...c, target, current: !!target && target === st.node, downgrade: cmpVersion(target, st.node) === -1 };
         });
     }
 
     async function updateNode(hostName: string, channel: NodeChannel) {
         const isLocal = statusOf(hostName)?.local === true;
         const ok = await dialog?.show(
-            `Install the ${channel === 'lts' ? 'newest LTS' : 'latest'} Node.js (${targetOf(channel) ?? 'version unknown'}) on ${hostName} with n? ` +
+            `Install Node.js ${targetOf(channel) ?? `"${channel}"`} on ${hostName} with n install ${channel}? ` +
                 'This replaces the host\'s node binary; running adapters keep the current version until they are restarted.' +
                 (isLocal ? ' she runs on this host too — it keeps the old binary until the daemon itself is restarted.' : ''),
             { confirm: 'Update Node.js' },
@@ -379,19 +374,23 @@
         <span class="muted">Node.js</span>
         <span class="mono">{st.node ?? 'unknown'}</span>
         {#each offers as c (c.key)}
-            <button
-                class="ghost sm"
-                onclick={() => updateNode(name, c.key)}
-                disabled={nodeBusy !== null || restartBusy !== null}
-                title="{c.downgrade ? 'Switch' : 'Update'} this host to the {c.key === 'lts' ? 'newest long-term-support' : 'newest'} Node.js release with n{releases?.ltsName && c.key === 'lts' ? ` (${releases.ltsName})` : ''}"
-            >
-                {nodeBusy === name ? 'Updating…' : `${c.downgrade ? 'Switch to' : 'Update to'} ${c.label}`}
-                {#if c.target}<span class="ver-pill">{c.target}</span>{/if}
-            </button>
+            {#if c.current}
+                <span class="ok-pill" title="This host runs the {c.key === 'latest' ? 'newest Node.js release' : `newest long-term-support release${releases?.ltsName ? ` (${releases.ltsName})` : ''}`} — nothing to install">
+                    {c.label} <span class="mono">{c.target}</span> ✓
+                </span>
+            {:else}
+                <button
+                    class="ghost sm"
+                    onclick={() => updateNode(name, c.key)}
+                    disabled={nodeBusy !== null || restartBusy !== null}
+                    title="{c.downgrade ? 'Switch' : 'Update'} this host to what n installs for {c.key}: the {c.key === 'latest' ? 'newest' : 'newest long-term-support'} Node.js release{releases?.ltsName && c.key !== 'latest' ? ` (${releases.ltsName})` : ''}"
+                >
+                    {nodeBusy === name ? 'Updating…' : `${c.downgrade ? 'Switch to' : 'Update'} ${c.label}`}
+                    {#if c.target}<span class="ver-pill">{c.target}</span>{/if}
+                </button>
+            {/if}
         {/each}
-        {#if offers.length === 0}
-            <span class="muted">up to date{#if releases?.lts === st.node && releases?.latest === st.node} — newest release and LTS{:else if releases?.lts === st.node} — newest LTS{#if releases?.ltsName} ({releases.ltsName}){/if}{:else} — newest release{/if}</span>
-        {:else if releases?.stale}
+        {#if releases?.stale}
             <span class="muted" title="nodejs.org could not be reached — these may not be the current versions">versions may be stale</span>
         {/if}
     </div>
@@ -415,7 +414,7 @@
                     </button>
                 </div>
             {:else}
-                Node.js <span class="mono">{n.after ?? n.before}</span> is already the current {n.spec === 'lts' ? 'LTS' : 'latest'} release (n {n.n}{#if n.nInstalled}, installed{/if}).
+                Node.js <span class="mono">{n.after ?? n.before}</span> is already what n installs for <span class="mono">{n.spec}</span> (n {n.n}{#if n.nInstalled}, installed{/if}).
             {/if}
         </div>
     {/if}
@@ -667,6 +666,18 @@
         margin-left: 5px;
         padding: 0 5px;
     }
+
+    /* a channel the host is already on */
+    .ok-pill {
+        background: rgba(39,174,96,0.12);
+        border: 1px solid rgba(39,174,96,0.35);
+        border-radius: 9px;
+        color: var(--fg-ok);
+        font-size: 11px;
+        padding: 1px 8px;
+        white-space: nowrap;
+    }
+    .ok-pill .mono { font-size: 10px; }
 
     /* dismiss × in the corner of a result box */
     .box-x {

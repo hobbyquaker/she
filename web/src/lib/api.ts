@@ -1455,8 +1455,11 @@ export function testServiceHost(host: string): Promise<{ ok: boolean; helper?: n
 
 // ---- Services: Node.js on a host (tj/n, helper v13) ----
 
-/** n's two version labels: lts = newest long-term-support release, latest = newest of all. */
-export type NodeChannel = 'lts' | 'latest';
+/**
+ * n's version labels, passed through as they are: `stable` and `lts` both resolve to the
+ * newest long-term-support release (stable is n's older name for it), `latest` to the newest.
+ */
+export type NodeChannel = 'stable' | 'lts' | 'latest';
 
 export interface NodeUpdateResult {
     ok: boolean;

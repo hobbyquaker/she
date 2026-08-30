@@ -31,7 +31,7 @@
 #   she-servicectl files  <adapter> <instance>                     JSON listing of /etc/<adapter>/ and /var/lib/<adapter>/<instance>/
 #   she-servicectl file   <adapter> <instance> read|write <path>  a file inside those two directories (write: content on stdin)
 #   she-servicectl asset  <adapter> <relpath>                      a file shipped in the adapter package (example, schema)
-#   she-servicectl node update [--lts|--latest]                    install/refresh tj/n (downloaded, no npm), then n install lts (or latest) — JSON with the version before and after
+#   she-servicectl node update [--lts|--latest|--stable]           install/refresh tj/n (downloaded, no npm), then n install <label> — JSON with the version before and after
 #   she-servicectl restart-all                                     restart every running instance on this host (after a node update, say)
 #   she-servicectl self-update                                     replace this script with the one on stdin (she ships it)
 #   she-servicectl remove-key                                      drop the public key on stdin from the calling user's authorized_keys
@@ -693,14 +693,14 @@ cmd_node() {
     action=$1
     shift
     [ "$action" = update ] || die "unknown node action: $action"
-    # n's labels: lts = newest long-term-support release, latest = newest release of all.
-    # (n also accepts "stable", but only as its own old alias for lts — not a third channel.)
+    # the label is handed to n as it is: stable and lts both resolve to the newest
+    # long-term-support release (stable is n's older name for it), latest to the newest of all
     spec=lts
     while [ $# -gt 0 ]; do
         case "$1" in
             --lts) spec=lts ;;
             --latest) spec=latest ;;
-            --stable) spec=lts ;;
+            --stable) spec=stable ;;
             *) die "unknown option: $1" ;;
         esac
         shift
