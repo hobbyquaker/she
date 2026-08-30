@@ -14,6 +14,7 @@ const StateStore = require('../../src/lib/state-store');
 const host = require('../../src/lib/services-host');
 const api = require('../../src/web/services-api');
 const npmRegistry = require('../../src/lib/npm-registry');
+const nodeReleases = require('../../src/lib/node-releases');
 
 // the hosts listing looks up the latest version of every installed adapter — no network in tests
 beforeAll(() => {
@@ -186,10 +187,16 @@ describe('services-api Tier 1 routes (fake helper)', () => {
     });
 
     test('node update runs n on the host and flags the pending restart', async () => {
-        const r = await httpRequest('POST', port, '/she/services/hosts/local/node/update', { channel: 'lts' });
+        const r = await httpRequest('POST', port, '/she/services/hosts/local/node/update', { channel: 'latest' });
         expect(r.status).toBe(200);
-        expect(r.body).toMatchObject({ ok: true, spec: 'lts', before: 'v20.11.0', after: 'v24.2.0', n: '10.2.0', nInstalled: true, mismatch: false, restartRequired: true });
-        expect(calls().some((c) => c.args.join(' ') === 'node update --lts')).toBe(true);
+        expect(r.body).toMatchObject({ ok: true, spec: 'latest', before: 'v20.11.0', after: 'v24.2.0', n: '10.2.0', nInstalled: true, mismatch: false, restartRequired: true });
+        expect(calls().some((c) => c.args.join(' ') === 'node update --latest')).toBe(true);
+    });
+
+    test("node update defaults to lts, and n's old 'stable' alias still means lts", async () => {
+        await httpRequest('POST', port, '/she/services/hosts/local/node/update', {});
+        await httpRequest('POST', port, '/she/services/hosts/local/node/update', { channel: 'stable' });
+        expect(calls().filter((c) => c.args.join(' ') === 'node update --lts')).toHaveLength(2);
     });
 
     test('node update reports a node that another install shadows', async () => {
@@ -207,6 +214,40 @@ describe('services-api Tier 1 routes (fake helper)', () => {
             expect(r.body).toMatchObject({ ok: true, mismatch: true, installed: 'v24.2.0', after: 'v20.11.0', activePath: '/opt/node20/bin/node', restartRequired: false });
         } finally {
             api.setDriverFactory(defaultDrivers);
+        }
+    });
+
+    test('GET /node/releases reports what an update would install', async () => {
+        nodeReleases.clearCache();
+        nodeReleases.setFetch(async () => ({
+            ok: true,
+            json: async () => [
+                { version: 'v26.8.1', lts: false },
+                { version: 'v25.0.0', lts: false },
+                { version: 'v24.20.0', lts: 'Krypton' },
+                { version: 'v22.20.0', lts: 'Jod' },
+            ],
+        }));
+        try {
+            const r = await httpRequest('GET', port, '/she/services/node/releases');
+            expect(r.status).toBe(200);
+            expect(r.body).toMatchObject({ latest: 'v26.8.1', lts: 'v24.20.0', ltsName: 'Krypton', stale: false });
+        } finally {
+            nodeReleases.clearCache();
+        }
+    });
+
+    test('GET /node/releases keeps the last answer when nodejs.org is unreachable', async () => {
+        nodeReleases.clearCache();
+        nodeReleases.setFetch(async () => {
+            throw new Error('offline');
+        });
+        try {
+            const r = await httpRequest('GET', port, '/she/services/node/releases');
+            expect(r.status).toBe(200);
+            expect(r.body).toMatchObject({ latest: null, lts: null, stale: true });
+        } finally {
+            nodeReleases.clearCache();
         }
     });
 

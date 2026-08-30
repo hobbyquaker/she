@@ -5,8 +5,9 @@
     import {
         getConfig, patchConfig, getServiceHosts, testServicesSsh, testServiceHost, getServicesSshPubkey, generateServicesSshKey,
         createServicesSetupCommand, getServicesSetupState, getDaemonStatus, deployServiceHelper,
-        updateHostNode, restartAllInstances,
+        updateHostNode, restartAllInstances, getNodeReleases,
         type ServiceHost, type SetupCommand, type HelperDeployResult, type NodeUpdateResult, type RestartAllResult,
+        type NodeChannel, type NodeReleases,
     } from '../../lib/api.js';
     import RemoveHelper from './RemoveHelper.svelte';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
@@ -62,10 +63,45 @@
     let restartBusy = $state<string | null>(null);
     let restartResult = $state<Record<string, RestartAllResult | { error: string }>>({});
 
-    async function updateNode(hostName: string, channel: 'stable' | 'lts') {
+    // what a click would install — asked once for all hosts (n's labels: lts and latest;
+    // "stable" is only n's old alias for lts, not a third channel)
+    let releases = $state<NodeReleases | null>(null);
+    const CHANNELS: { key: NodeChannel; label: string }[] = [
+        { key: 'lts', label: 'LTS' },
+        { key: 'latest', label: 'latest' },
+    ];
+    const targetOf = (c: NodeChannel) => (c === 'lts' ? releases?.lts : releases?.latest) ?? null;
+
+    /** -1 / 0 / 1 for two "vX.Y.Z" strings; null when either is unknown. */
+    function cmpVersion(a: string | null | undefined, b: string | null | undefined): number | null {
+        if (!a || !b) return null;
+        const parts = (v: string) => v.replace(/^v/, '').split('.').map((n) => Number(n) || 0);
+        const [pa, pb] = [parts(a), parts(b)];
+        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+            if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0) ? -1 : 1;
+        }
+        return 0;
+    }
+
+    /** The channels worth offering for a host: the ones it does not already run. */
+    function channelsFor(st: ServiceHost): { key: NodeChannel; label: string; target: string | null; downgrade: boolean }[] {
+        const seen = new Set<string>();
+        return CHANNELS.map((c) => {
+            const target = targetOf(c.key);
+            return { ...c, target, downgrade: cmpVersion(target, st.node) === -1 };
+        }).filter((c) => {
+            if (!c.target) return true; // versions unknown — offer the button anyway
+            if (c.target === st.node) return false; // already on it
+            if (seen.has(c.target)) return false; // lts and latest are the same release
+            seen.add(c.target);
+            return true;
+        });
+    }
+
+    async function updateNode(hostName: string, channel: NodeChannel) {
         const isLocal = statusOf(hostName)?.local === true;
         const ok = await dialog?.show(
-            `Install the latest ${channel === 'lts' ? 'LTS' : 'stable'} Node.js on ${hostName} with n? ` +
+            `Install the ${channel === 'lts' ? 'newest LTS' : 'latest'} Node.js (${targetOf(channel) ?? 'version unknown'}) on ${hostName} with n? ` +
                 'This replaces the host\'s node binary; running adapters keep the current version until they are restarted.' +
                 (isLocal ? ' she runs on this host too — it keeps the old binary until the daemon itself is restarted.' : ''),
             { confirm: 'Update Node.js' },
@@ -161,6 +197,11 @@
         } catch { /* best effort */ }
     }
     onMount(() => load());
+    onMount(async () => {
+        try {
+            releases = await getNodeReleases();
+        } catch { /* the buttons fall back to plain labels */ }
+    });
     onDestroy(() => stopPoll());
 
     function flash(msg: string) {
@@ -328,21 +369,26 @@
 
 <!-- node version of the host, and updating it through tj/n (helper v13) -->
 {#snippet nodeRow(name: string, st: ServiceHost)}
+    {@const offers = channelsFor(st)}
     <div class="node-row">
         <span class="muted">Node.js</span>
         <span class="mono">{st.node ?? 'unknown'}</span>
-        <button
-            class="ghost sm"
-            onclick={() => updateNode(name, 'stable')}
-            disabled={nodeBusy !== null || restartBusy !== null}
-            title="Install the current stable Node.js with n (installs n itself if the host does not have it)"
-        >{nodeBusy === name ? 'Updating…' : 'Update to stable'}</button>
-        <button
-            class="ghost sm"
-            onclick={() => updateNode(name, 'lts')}
-            disabled={nodeBusy !== null || restartBusy !== null}
-            title="Install the current LTS Node.js with n"
-        >LTS</button>
+        {#each offers as c (c.key)}
+            <button
+                class="ghost sm"
+                onclick={() => updateNode(name, c.key)}
+                disabled={nodeBusy !== null || restartBusy !== null}
+                title="{c.downgrade ? 'Switch' : 'Update'} this host to the {c.key === 'lts' ? 'newest long-term-support' : 'newest'} Node.js release with n{releases?.ltsName && c.key === 'lts' ? ` (${releases.ltsName})` : ''}"
+            >
+                {nodeBusy === name ? 'Updating…' : `${c.downgrade ? 'Switch to' : 'Update to'} ${c.label}`}
+                {#if c.target}<span class="ver-pill">{c.target}</span>{/if}
+            </button>
+        {/each}
+        {#if offers.length === 0}
+            <span class="muted">up to date{#if releases?.lts === st.node && releases?.latest === st.node} — newest release and LTS{:else if releases?.lts === st.node} — newest LTS{#if releases?.ltsName} ({releases.ltsName}){/if}{:else} — newest release{/if}</span>
+        {:else if releases?.stale}
+            <span class="muted" title="nodejs.org could not be reached — these may not be the current versions">versions may be stale</span>
+        {/if}
     </div>
     {#if nodeResult[name]}
         {@const n = nodeResult[name]}
@@ -363,7 +409,7 @@
                     </button>
                 </div>
             {:else}
-                Node.js <span class="mono">{n.after ?? n.before}</span> is already the current {n.spec === 'lts' ? 'LTS' : 'stable'} release (n {n.n}{#if n.nInstalled}, installed{/if}).
+                Node.js <span class="mono">{n.after ?? n.before}</span> is already the current {n.spec === 'lts' ? 'LTS' : 'latest'} release (n {n.n}{#if n.nInstalled}, installed{/if}).
             {/if}
         </div>
     {/if}
@@ -592,6 +638,18 @@
     button.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     button.ghost.active { color: var(--accent); border-color: var(--accent); }
     button.sm { padding: 1px 7px; font-size: 11px; }
+
+    /* version a click would install, in the button itself */
+    .ver-pill {
+        background: var(--bg-widget);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--fg-brand);
+        font-family: monospace;
+        font-size: 10px;
+        margin-left: 5px;
+        padding: 0 5px;
+    }
 
     .node-row {
         display: flex;

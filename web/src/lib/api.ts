@@ -1455,9 +1455,12 @@ export function testServiceHost(host: string): Promise<{ ok: boolean; helper?: n
 
 // ---- Services: Node.js on a host (tj/n, helper v13) ----
 
+/** n's two version labels: lts = newest long-term-support release, latest = newest of all. */
+export type NodeChannel = 'lts' | 'latest';
+
 export interface NodeUpdateResult {
     ok: boolean;
-    spec: 'stable' | 'lts';
+    spec: NodeChannel;
     /** active node before and after the update — equal when the host was already current */
     before: string | null;
     after: string | null;
@@ -1474,8 +1477,23 @@ export interface NodeUpdateResult {
     restartRequired: boolean;
 }
 
-export function updateHostNode(host: string, channel: 'stable' | 'lts' = 'stable'): Promise<NodeUpdateResult> {
+export function updateHostNode(host: string, channel: NodeChannel = 'lts'): Promise<NodeUpdateResult> {
     return request('POST', `${svcHost(host)}/node/update`, { channel });
+}
+
+/** What a node update would install — asked once for all hosts, cached by the daemon. */
+export interface NodeReleases {
+    lts: string | null;
+    /** codename of that LTS line, e.g. "Krypton" */
+    ltsName: string | null;
+    latest: string | null;
+    fetchedAt: number | null;
+    /** nodejs.org could not be reached; the versions are the last known ones (or null) */
+    stale: boolean;
+}
+
+export function getNodeReleases(refresh = false): Promise<NodeReleases> {
+    return request('GET', `/she/services/node/releases${refresh ? '?refresh=1' : ''}`);
 }
 
 export interface RestartAllResult {
