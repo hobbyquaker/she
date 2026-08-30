@@ -65,6 +65,43 @@
         return [...byHost.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     });
 
+    // ── Update all ─────────────────────────────────────────────────────────────
+    // One package at a time: each update restarts the instances of that adapter, and a
+    // host doing several npm installs at once is how a small box runs out of memory.
+    let updateAllBusy = $state(false);
+    let updateAllAt = $state('');
+    let pending = $derived(
+        sortedHosts.flatMap((h) => (h.adapters ?? []).filter((a) => a.updateAvailable).map((a) => ({ host: h, adapter: a.name }))),
+    );
+
+    async function updateAll() {
+        const todo = pending;
+        if (todo.length === 0 || updateAllBusy) return;
+        const what = todo.map((t) => `${t.adapter} on ${t.host.hostname ?? t.host.name}`).join('\n');
+        if (!(await dialog.show(`Update ${todo.length} adapter${todo.length === 1 ? '' : 's'}, one after another?\n\n${what}\n\nRunning instances of each are restarted as it goes.`, { confirm: 'Update all' }))) return;
+        updateAllBusy = true; notice = ''; output = '';
+        const done: string[] = [];
+        const failed: string[] = [];
+        try {
+            for (const [i, t] of todo.entries()) {
+                updateAllAt = `${i + 1} of ${todo.length}: ${t.adapter} on ${t.host.hostname ?? t.host.name}`;
+                try {
+                    // manual deploys need an explicit force, and are skipped rather than asked about here
+                    const r = await updateServiceAdapter(t.host.name, t.adapter);
+                    (r.ok ? done : failed).push(`${t.adapter}@${t.host.name}`);
+                } catch (e: any) {
+                    failed.push(`${t.adapter}@${t.host.name}: ${e.message ?? String(e)}`);
+                }
+            }
+            notice = `${done.length} adapter${done.length === 1 ? '' : 's'} updated${failed.length ? `, ${failed.length} failed: ${failed.join(', ')}` : ''}.`;
+            onchanged?.();
+            await load(true);
+        } finally {
+            updateAllBusy = false;
+            updateAllAt = '';
+        }
+    }
+
     async function update(h: ServiceHost, adapter: string, force = false) {
         busy = `${h.name}/${adapter}`; notice = ''; output = '';
         try {
@@ -134,8 +171,14 @@
     <div class="bar">
         <button class="ghost" onclick={() => load(true)} disabled={loading} title="Ask every host again (otherwise the listing is cached for a minute)"><span class:spinning={loading}>↺</span></button>
         <button class="ghost" onclick={() => (view = { kind: 'catalog' })} title="Install an adapter from the catalog — the trusted publishers' packages on npm">Install adapter</button>
+        {#if pending.length > 0}
+            <button class="ghost" onclick={updateAll} disabled={updateAllBusy || busy !== null} title="Update every adapter that has a newer version, one after another">
+                {updateAllBusy ? 'Updating…' : `Update all (${pending.length})`}
+            </button>
+        {/if}
         <span class="muted">{hosts.length} host{hosts.length === 1 ? '' : 's'} — managed on the Hosts tab</span>
         <span class="spacer"></span>
+        {#if updateAllBusy && updateAllAt}<span class="muted">{updateAllAt}</span>{/if}
         {#if notice}<span class="muted">{notice}</span>{/if}
     </div>
 
