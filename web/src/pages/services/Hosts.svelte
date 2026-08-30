@@ -207,6 +207,7 @@
         <span class="muted">
             {hosts.length} host{hosts.length === 1 ? '' : 's'} — managed on the Hosts tab{#if emptyHosts > 0}, {emptyHosts} without adapters not shown{/if}
         </span>
+        <span class="hint">To install an adapter click <em>Install</em> on the Catalog tab</span>
         {#if loading}<span class="spinner" title="Asking every host…"></span>{/if}
         <span class="spacer"></span>
         {#if updateAllBusy && updateAllAt}<span class="muted">{updateAllAt}</span>{/if}
@@ -338,6 +339,10 @@
     td { overflow: hidden; text-overflow: ellipsis; }
     th { text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
     td { padding: 4px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); }
+    /* where the thing this tab cannot do itself is done */
+    .hint { color: var(--fg-muted); font-size: 11px; }
+    .hint em { font-style: normal; color: var(--fg); }
+
     .c-act { text-align: right; white-space: nowrap; }
     .sheet-head { display: flex; align-items: center; gap: 10px; padding: 5px 12px; border-bottom: 1px solid var(--border); font-size: 12px; flex-shrink: 0; }
     td.c-act button + button { margin-left: 4px; }
