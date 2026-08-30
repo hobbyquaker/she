@@ -191,9 +191,12 @@
     let hostProblems = $derived(hosts.filter(h => !h.ok && h.code !== 'UNSUPPORTED'));
 
     // The action column is only as wide as the widest row's buttons: a width sized for the
-    // worst case (every action at once) would leave a hole in front of every ordinary row and
-    // push the table into a horizontal scroll. Measured after each render, since which buttons
-    // a row shows depends on its state.
+    // worst case (every action at once) leaves a hole in front of every ordinary row and pushes
+    // the table into a horizontal scroll. Measured after each render, since which buttons a row
+    // shows depends on its state — and measured from the buttons themselves, because the strip
+    // around them is stretched by whatever width the column happens to have.
+    const ACT_GAP = 4; // .acts gap
+    const ACT_PAD = 16; // td padding, left + right
     let tableEl: HTMLTableElement | null = $state(null);
     let actWidth = $state(0);
     $effect(() => {
@@ -201,9 +204,14 @@
         const table = tableEl;
         if (!table) return;
         let max = 0;
-        for (const el of table.querySelectorAll<HTMLElement>('.acts')) max = Math.max(max, el.scrollWidth);
-        // + cell padding, + 1 for the sub-pixel the integer scrollWidth may have dropped
-        if (max) actWidth = max + 17;
+        for (const strip of table.querySelectorAll<HTMLElement>('.acts')) {
+            const buttons = [...strip.children];
+            if (!buttons.length) continue;
+            const w = buttons.reduce((sum, b) => sum + b.getBoundingClientRect().width, 0)
+                + ACT_GAP * (buttons.length - 1);
+            max = Math.max(max, w);
+        }
+        if (max) actWidth = Math.ceil(max) + ACT_PAD;
     });
 
     // Nav dot: worst case — any 0/unknown → err, any 1 → warn, all 2 → ok
@@ -444,6 +452,9 @@
                         <col class="w-inst" /><col class="w-adapter" /><col class="w-host" /><col class="w-state" />
                         <col class="w-up" /><col class="w-mem" /><col class="w-cpu" /><col class="w-ell" />
                         <col class="w-lvl" /><col class="w-act" style:width={actWidth ? `${actWidth}px` : null} />
+                        <!-- auto width: in a fixed layout this column takes whatever is left over,
+                             so a window wider than the table does not stretch the real columns -->
+                        <col />
                     </colgroup>
                     <thead>
                         <tr>
@@ -457,13 +468,14 @@
                             <th class="num c-ell" title="event loop lag — the peak the adapter measured over its stats interval (core 0.8+); no systemd fallback">EL lag</th>
                             <th>Log level</th>
                             <th class="c-act"></th>
+                            <th class="w-fill"></th>
                         </tr>
                         <tr class="filter-row">
                             <th><input class="col-f" type="search" placeholder="filter…" bind:value={fInstance} aria-label="Filter by instance" /></th>
                             <th><input class="col-f" type="search" placeholder="filter…" bind:value={fAdapter} aria-label="Filter by adapter" /></th>
                             <th><MultiSelect bind:selected={fHosts} options={hostOptions} noun="hosts" title="Show only these hosts" /></th>
                             <th><MultiSelect bind:selected={fStates} options={stateOptions} noun="states" title="Show only these states" /></th>
-                            <th colspan="6"></th>
+                            <th colspan="7"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -546,6 +558,7 @@
                                         {/if}
                                     </span>
                                 </td>
+                                <td class="w-fill"></td>
                             </tr>
                         {/each}
                     </tbody>
@@ -636,6 +649,7 @@
     .w-ell { width: 74px; }
     .w-lvl { width: 84px; }
     .w-act { width: 528px; } /* replaced by the measured width once the rows are laid out */
+    .w-fill { padding: 0; }
     td { overflow: hidden; text-overflow: ellipsis; }
     th {
         text-align: left; font-weight: 600; font-size: 11px; color: var(--fg-muted);
