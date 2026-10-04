@@ -12,6 +12,9 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 
 ## Table of Contents
 
+**Bugs**
+- [B9 — Memory leak since 1.20: heap out of memory after about 12 days](#b9--memory-leak-since-120-heap-out-of-memory-after-about-12-days) ⚠️
+
 **Script Engine**
 - [S2 — Per-script resource limits / blocking callback detection](#s2--per-script-resource-limits--blocking-callback-detection) 🔨 *(only worker-thread isolation left)*
 - [S3 — Graceful WebSocket shutdown](#s3--graceful-websocket-shutdown)
@@ -55,6 +58,37 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [T4 — Rapid hot-reload integration tests](#t4--rapid-hot-reload-integration-tests)
 
 ---
+
+## Bugs
+
+### B9 — Memory leak since 1.20: heap out of memory after about 12 days
+
+⚠️ *Cause not found yet — needs a heap snapshot.*
+
+**Seen in production.** The daemon ended with `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` (SIGABRT, default V8 heap limit of about 2 GB on a 4 GB host) on 2026-09-22 after 12.9 days and on 2026-10-04 after 12.2 days, both on 1.51.1. systemd restarted it; the restart came up in safe mode (see [A10](#a10--safe-mode-only-for-crashes-that-repeat-early)).
+
+**When it started.** Peak memory per run from the journal (`systemd: Consumed … memory peak`, runs longer than a day):
+
+| she | run | peak | growth |
+| --- | --- | --- | --- |
+| 0.18.1 | 11.5 d | 330 MB | ~29 MB/day |
+| 1.19.1 | 4.7 / 8.9 / 10.4 / **28.8 d** | 355 / 373 / 402 / **516 MB** | ~18–76 MB/day, flat over a month |
+| 1.20.9 | 2.7 d | 864 MB | ~320 MB/day |
+| 1.21.1 | 7.7 d | 1016 MB | ~133 MB/day |
+| 1.51.0 | 9.1 d | 1843 MB | ~203 MB/day |
+| 1.51.1 | 12.9 / 12.2 d | 3379 / 3174 MB → OOM | ~261 MB/day |
+
+So something that arrived between 1.19.1 (fine for 29 days) and 1.20.9 grows without bound. **Confounded**: almost every user script was rewritten between 2026-08-14 and 2026-08-18, the same days as 1.20.0–1.20.9, and the log volume grew from ~104k lines/day (2026-09-23) to ~124k (2026-10-03). The in-memory log ring buffers are capped (`LOG_BUFFER_MAX`, `BROKER_LOG_BUFFER_MAX` = 500), so they are not it.
+
+**Candidates from 1.20.x** to look at first: the state store change "empty payloads remove topics" (B2), `she.mqtt.age` and the `lc` carry-over (B5), matter listener handling (`34b6049` fixed one per-hot-reload leak — are there others?), script start waiting for the matter controller (M9). And per-script state that survives hot-reloads (the production scripts are edited in the IDE, each save is a reload).
+
+**Next steps.**
+
+1. Tell core from scripts: memory growth in safe mode (no scripts) over an hour or more.
+2. A heap snapshot of a run several days old, compared with one of a fresh run (`node --heapsnapshot-signal=SIGUSR2`, or `--heapsnapshot-near-heap-limit=1` so the next OOM leaves one behind) — the retainer chain names the culprit.
+3. Reproduce on a dev instance with the production scripts, measuring heap per hour.
+
+**Done when.** The cause is fixed, and a run lasts 30 days with a flat heap.
 
 ## Script Engine
 
