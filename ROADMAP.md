@@ -46,6 +46,7 @@ Status markers: 🔨 partially done / in progress · ⚠️ needs discussion or 
 - [A6 — AI-generated auto-commit messages](#a6--ai-generated-auto-commit-messages)
 - [A7 — Relicense to AGPL-3.0-or-later](#a7--relicense-to-agpl-30-or-later)
 - [A9 — Secrets: revealing values in the UI](#a9--secrets-revealing-values-in-the-ui) 🔨
+- [A10 — Safe mode only for crashes that repeat early](#a10--safe-mode-only-for-crashes-that-repeat-early)
 
 **Testing**
 - [T1 — Auth module unit tests](#t1--auth-module-unit-tests)
@@ -373,6 +374,26 @@ Filed 2026-08-26 while [A5](doc/roadmap-archive/A5.md) was fresh; the user would
 **Recommendation:** implement 3 now (small, no new attack surface, solves the "I want to see the username" half), and offer 2 as an opt-in setting (`secrets.allowReveal`, default off) for people who want the eye on secret fields too — with the re-auth/log/rate-limit friction, and the docs stating plainly that with it enabled a session can read every secret. Never 1.
 
 **Open for the user to decide:** whether the plain/secret flag is chosen at creation only (simpler, honest — turning a secret into "plain" later is a reveal by another name) or can be flipped; whether reveal in option 2 should require the password even in proxy/none auth modes (proposal: in `none` mode option 2 is not available at all).
+### A10 — Safe mode only for crashes that repeat early
+
+Today any unclean end of the previous run — the `.she-running` sentinel left behind with a dead PID — starts the next run in safe mode, with no user script loaded (`src/index.js`, `_sentinelState()` / `SAFE_MODE`, from [S4](doc/roadmap-archive/S4.md)). That is right for what S4 was built against: a script that blocks the event loop or crashes the daemon at load, where every restart would fail the same way. It is wrong for a crash that happens once after days of normal operation: systemd restarts the daemon, and the house then runs **without any automation** until someone notices and restarts it by hand.
+
+Seen in production on 2026-10-04: the daemon ended with "JavaScript heap out of memory" after 12 days of uptime (the same on 2026-09-22), systemd restarted it 5 s later, and it came up in safe mode — every script off, although the run before had worked for 12 days.
+
+**Wanted (user, 2026-10-04):** a crash on its own is not a reason for safe mode. Safe mode only when the crash **repeats** and happens **early** — the signature of a script that kills the daemon at or shortly after load.
+
+Proposal:
+
+- Keep a small crash record in the data directory next to the sentinel (`.she-crashes.json`: the start and end time of the last few unclean runs).
+- On a start with a stale sentinel, record the dead run's start time (written into the sentinel at start) and the time it was found dead. A run counts as an **early crash** when it died within `safeModeEarlyCrash` seconds of its start (default 300 s).
+- Enter safe mode only when the last `safeModeCrashCount` runs (default 3) all were early crashes within a window (default 30 min). A single crash, or crashes after a long uptime, restart normally and are logged at `warn` with the uptime of the dead run.
+- A run that stays up past the threshold clears the record.
+- `--safe-mode` and `safeModeAutoDetect: false` keep their meaning; the safe-mode banner says why it was entered (`3 crashes within 2 min of start`).
+
+Note: the restart loop needs systemd not to give up first — the unit has `Restart=on-failure`, `RestartSec=5s` and the default start limit (5 starts in 10 s), so three early crashes at least 5 s apart stay within it. Docker's `--restart unless-stopped` has no limit.
+
+**Done when.** Unit tests for the decision (one late crash → normal start; three early crashes → safe mode; an early crash after a healthy run → normal start), and the reason in the log and in the health endpoint.
+
 ## Testing
 
 ### T1 — Auth module unit tests
