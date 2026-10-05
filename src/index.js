@@ -259,6 +259,7 @@ const { domain, vm, fs, path, suncalc } = modules;
 const scheduler = modules['node-schedule'];
 
 const StateStore = require('./lib/state-store');
+const { trackTimeout } = require('./lib/script-timers');
 const sandboxModules = [];
 const store = new StateStore();
 if (typeof config.port !== 'undefined') require('./web/broker-api').setStore(store);
@@ -1061,8 +1062,7 @@ function runScript(script, name, _origin) {
                     scheduler.scheduleJob(pattern, () => {
                         // Track the random-delay timer so it is cancelled on unload
                         // if the job fires in the same tick as the script is reloaded.
-                        const id = setTimeout(() => _dispatch(name, scriptDomain.bind(callback)), (parseFloat(options.random) || 0) * 1000 * Math.random());
-                        _myTimers.add(id);
+                        trackTimeout(_myTimers, () => _dispatch(name, scriptDomain.bind(callback)), (parseFloat(options.random) || 0) * 1000 * Math.random());
                     }),
                 );
             } else {
@@ -1211,9 +1211,7 @@ function runScript(script, name, _origin) {
     const Sandbox = {
         setTimeout: (fn, delay, ...args) => {
             const wrapped = args.length ? () => fn(...args) : fn;
-            const id = setTimeout(() => _dispatch(name, wrapped), delay);
-            _myTimers.add(id);
-            return id;
+            return trackTimeout(_myTimers, () => _dispatch(name, wrapped), delay);
         },
         setInterval: (fn, delay, ...args) => {
             const wrapped = args.length ? () => fn(...args) : fn;
@@ -1296,9 +1294,7 @@ function runScript(script, name, _origin) {
     // sandbox modules that don't have direct access to the Sandbox context.
     she.setTimeout = (fn, delay, ...args) => {
         const wrapped = args.length ? () => fn(...args) : fn;
-        const id = setTimeout(() => _dispatch(name, wrapped), delay);
-        _myTimers.add(id);
-        return id;
+        return trackTimeout(_myTimers, () => _dispatch(name, wrapped), delay);
     };
     she.clearTimeout = (id) => {
         _myTimers.delete(id);
