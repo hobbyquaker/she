@@ -533,6 +533,7 @@ const nextOf = (job) => {
     }
 };
 const introspect = {
+    config: () => ({ name: config.name, variablePrefix: config.variablePrefix || 'var', version: pkg.version }),
     scripts: () =>
         Object.keys(scripts).map((file) => ({
             file,

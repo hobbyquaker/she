@@ -643,11 +643,20 @@ async function toolGetTopicHistory({ topic, from = '-24h', to, limit = 200 } = {
     if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
     const cap = Math.min(Math.max(1, Number(limit) || 200), 500);
     const tried = [];
-    for (const m of measurementCandidates(topic)) {
+    // influx4mqtt's measurements first, then she's own schema (measurement "mqtt", tag "topic", field "value")
+    const queries = measurementCandidates(topic).map((m) => [
+        m,
+        `SELECT "value" FROM "${m.replace(/"/g, '\\"')}" WHERE time >= ${fromMs}ms AND time <= ${toMs}ms ORDER BY time ASC LIMIT 5000`,
+    ]);
+    queries.push([
+        `mqtt (topic = ${topic})`,
+        `SELECT "value" FROM "mqtt" WHERE "topic" = '${String(topic).replace(/'/g, "\\'")}' AND time >= ${fromMs}ms AND time <= ${toMs}ms ORDER BY time ASC LIMIT 5000`,
+    ]);
+    for (const [m, q] of queries) {
         tried.push(m);
         let rows;
         try {
-            rows = await influx.v1Query(`SELECT "value" FROM "${m.replace(/"/g, '\\"')}" WHERE time >= ${fromMs}ms AND time <= ${toMs}ms ORDER BY time ASC LIMIT 5000`);
+            rows = await influx.v1Query(q);
         } catch (e) {
             return `InfluxDB query failed: ${e.message}`;
         }

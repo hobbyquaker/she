@@ -367,7 +367,7 @@ describe('search_mqtt_topics limit', () => {
 describe('prompt caching (I22)', () => {
     it('splits the prompt into a static and a dynamic part', () => {
         const parts = buildSystemPromptParts({ apiref: true }, { path: 'x.js', content: 'let a = 1;' }, null, null, null, [{ name: 'notes.md', content: 'hello' }]);
-        expect(parts.staticText).toMatch(/SHE Assistant/);
+        expect(parts.staticText).toMatch(/You are the she assistant/);
         expect(parts.staticText).toMatch(/she sandbox API/);
         expect(parts.staticText).not.toContain('let a = 1;');
         expect(parts.dynamicText).toContain('## Current script: x.js');
@@ -487,5 +487,81 @@ describe('several AI providers (I14)', () => {
             await new Promise((resolve) => server.close(resolve));
             fs.rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+
+describe('prompt profiles and the house section (I25)', () => {
+    const { houseSection, profileFor, stripThinking, thinkFilter } = require('../../src/web/ai-context');
+
+    it('the reference no longer teaches the wrong age and variable forms', () => {
+        const { staticText } = buildSystemPromptParts({ apiref: true, tools: true }, null, null, null, null, []);
+        expect(staticText).not.toMatch(/last received a message/);
+        expect(staticText).not.toMatch(/var::/);
+        expect(staticText).not.toMatch(/she\.mqtt\.set\(/);
+        expect(staticText).not.toMatch(/No require/);
+        expect(staticText).toMatch(/age\(topic, \['message'\]\)/);
+        expect(staticText).toMatch(/var\/set\/<name>/);
+        expect(staticText).toContain('## Tools');
+        expect(staticText).toContain('@new-file');
+    });
+
+    it('the compact profile uses the short reference, the steps, no tools section without support, and a budget', () => {
+        const withTools = buildSystemPromptParts({ apiref: true, tools: true }, null, null, null, null, [], { profile: 'compact', toolsOffered: true });
+        expect(withTools.staticText).toContain('## she sandbox API (the common part)');
+        expect(withTools.staticText).toContain('## How to work (step by step)');
+        expect(withTools.staticText).toContain('## Tools');
+        const noTools = buildSystemPromptParts({ apiref: true, tools: true }, null, null, null, null, [], { profile: 'compact', toolsOffered: false });
+        expect(noTools.staticText).not.toContain('## Tools');
+
+        const big = 'x'.repeat(5000);
+        const r = buildSystemPromptParts(
+            { apiref: true },
+            { path: 's.js', content: 'let a;' },
+            null,
+            null,
+            null,
+            [
+                { name: 'a.md', content: big },
+                { name: 'b.md', content: big },
+            ],
+            { profile: 'compact', budgetChars: 9000 },
+        );
+        expect(r.dropped).toEqual(['file:b.md']); // the newest attachment goes first and that already fits; the script stays
+        expect(r.dynamicText).toContain('## Attached file: a.md');
+        expect(r.dynamicText).toContain('## Current script: s.js');
+        expect(r.dynamicText).toContain('Left out to fit');
+    });
+
+    it('derives the house section from the daemon, with stable numbers', () => {
+        const entries = [];
+        for (let i = 0; i < 8702; i++) entries.push([`${i % 3 === 0 ? 'hm' : i % 3 === 1 ? 'zigbee2mqtt' : 'var'}/status/t${i}`, { val: i }]);
+        const text = houseSection(
+            { name: 'she', variablePrefix: 'var', version: '1.52.0' },
+            entries,
+            [
+                { instance: 'hm', adapter: 'hm2mqtt', connected: 2 },
+                { instance: 'cul', adapter: 'cul2mqtt', connected: 0 },
+            ],
+            [{ text: 'the bathroom PIR cannot see the shower' }],
+        );
+        expect(text).toContain("the daemon's MQTT name is `she` (she 1.52.0)");
+        expect(text).toMatch(/about 8700 topics/);
+        expect(text).toMatch(/`hm\/` \(2900\)/);
+        expect(text).toContain('`hm/` hm2mqtt, `cul/` cul2mqtt (offline)');
+        expect(text).toContain('- the bathroom PIR cannot see the shower');
+        expect(houseSection(null, null, [], [])).toBe('');
+    });
+
+    it('picks the profile by provider and strips thinking from local answers', () => {
+        expect(profileFor({ provider: 'anthropic' })).toBe('capable');
+        expect(profileFor({ provider: 'ollama' })).toBe('compact');
+        expect(profileFor({ provider: 'openai', baseUrl: 'http://localhost:1234' })).toBe('compact');
+        expect(profileFor({ provider: 'openai', baseUrl: 'https://api.groq.com/openai/v1' })).toBe('capable');
+        expect(profileFor({ provider: 'ollama', profile: 'capable' })).toBe('capable');
+        expect(stripThinking('<think>\nhmm\n</think>\n\nThe answer.')).toBe('The answer.');
+        const out = [];
+        const f = thinkFilter((t) => out.push(t));
+        for (const t of ['Hel', 'lo <th', 'ink>secret', ' stuff</th', 'ink> world', '!']) f(t);
+        expect(out.join('')).toBe('Hello world!');
     });
 });

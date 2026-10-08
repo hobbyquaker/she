@@ -20,7 +20,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const { buildSystemPrompt, buildSystemPromptParts } = require('./ai-context');
+const { buildSystemPrompt, buildSystemPromptParts, houseSection, profileFor, stripThinking, thinkFilter } = require('./ai-context');
 const { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool } = require('./ai-tools');
 const { STORAGE_ROOT } = require('../lib/storage');
 
@@ -157,7 +157,7 @@ async function callOpenAICompat(config, messages, tools) {
         return { toolCalls: choice.message.tool_calls, assistantMsg: choice.message, usage };
     }
 
-    const message = choice?.message?.content ?? choice?.text ?? '';
+    const message = stripThinking(choice?.message?.content ?? choice?.text ?? '');
     return { message, usage };
 }
 
@@ -217,9 +217,59 @@ async function callAnthropic(config, messages, tools) {
  * The system message with its static part marked (roadmap I22): Anthropic gets it as two blocks with a cache
  * breakpoint after the static one; other providers get the joined text.
  */
-function systemMessage(context, currentScript, currentView, currentDoc, extraFiles) {
-    const { staticText, dynamicText } = buildSystemPromptParts(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
+function systemMessage(context, currentScript, currentView, currentDoc, extraFiles, ai, toolsOffered) {
+    const profile = profileFor(ai);
+    const house = houseSectionFor();
+    const opts = { profile, house, toolsOffered, budgetChars: Number(ai?.promptBudgetChars) || undefined };
+    const { staticText, dynamicText, dropped } = buildSystemPromptParts(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || [], opts);
+    _log.debug(
+        `ai chat: profile ${profile}, prompt ${Math.round((staticText.length + dynamicText.length) / 100) / 10}k chars (static ${Math.round(staticText.length / 100) / 10}k)${dropped.length ? ', left out ' + dropped.join(', ') : ''}`,
+    );
     return { role: 'system', content: dynamicText ? staticText + '\n\n' + dynamicText : staticText, staticText, dynamicText };
+}
+
+/** the derived house section from the daemon's state; empty outside the daemon (tests) */
+let _notesProvider = () => [];
+function setNotesProvider(fn) {
+    _notesProvider = fn;
+}
+function houseSectionFor() {
+    try {
+        const cfg = _introspect?.config ? _introspect.config() : null;
+        const instances = _introspect?.instances ? _introspect.instances() : [];
+        return houseSection(cfg, _store?.mqttEntries ? _store.mqttEntries() : null, instances, _notesProvider() || []);
+    } catch (e) {
+        _log.warn('ai chat: house section: ' + e.message);
+        return '';
+    }
+}
+
+// Tool support of a local model (compact profile): Ollama says it in /api/show; others are assumed to support
+// tools and get the retry-without-tools of the resolver when they do not.
+const _toolSupport = new Map(); // `${baseUrl}|${model}` → { ok, at }
+async function providerSupportsTools(ai) {
+    if (!ai || ai.provider !== 'ollama') return true;
+    const base = (ai.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+    const key = base + '|' + ai.model;
+    const cached = _toolSupport.get(key);
+    if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached.ok;
+    let ok = true;
+    try {
+        const r = await fetch(`${base}/api/show`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: ai.model }),
+            signal: AbortSignal.timeout(5000),
+        });
+        if (r.ok) {
+            const json = await r.json();
+            if (Array.isArray(json.capabilities)) ok = json.capabilities.includes('tools');
+        }
+    } catch {
+        /* unknown: offer the tools */
+    }
+    _toolSupport.set(key, { ok, at: Date.now() });
+    return ok;
 }
 
 /** Anthropic's `system`: the static part as a cached block, the dynamic part after it */
@@ -420,6 +470,7 @@ async function parseSseStream(body, tokenExtractor, onToken, onEvent) {
  * Calls onToken(str) for each chunk, resolves when stream ends.
  */
 async function streamOpenAICompat(config, messages, onToken) {
+    onToken = thinkFilter(onToken); // a thinking model's <think>…</think> never reaches the chat
     const base = (config.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
     const url = `${base}/v1/chat/completions`;
     const headers = { 'Content-Type': 'application/json' };
@@ -613,8 +664,13 @@ router.get('/model-info', async (req, res) => {
 router.post('/prompt', (req, res) => {
     const { context = {}, currentScript, currentView, currentDoc, extraFiles } = req.body || {};
     try {
-        const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
-        res.json({ prompt });
+        const ai = readAiConfig(req.app.locals.configPath, typeof req.body?.providerOverride === 'string' ? req.body.providerOverride : undefined);
+        const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || [], {
+            profile: profileFor(ai),
+            house: houseSectionFor(),
+            toolsOffered: !!context.tools,
+        });
+        res.json({ prompt, profile: profileFor(ai) });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -634,11 +690,12 @@ router.post('/chat', async (req, res) => {
 
     const aiWithModel = { ...ai, model: effectiveModel };
     _log.debug(`ai chat: ${ai.id !== ai.provider ? ai.id + '/' : ''}${ai.provider} ${effectiveModel}${modelOverride || providerOverride ? ' (chosen in the chat)' : ' (config)'}`);
-    const fullMessages = [systemMessage(context, currentScript, currentView, currentDoc, extraFiles), ...providerMessages(messages)];
+    const useTools = !!context.tools && (await providerSupportsTools(aiWithModel));
+    const fullMessages = [systemMessage(context, currentScript, currentView, currentDoc, extraFiles, aiWithModel, useTools), ...providerMessages(messages)];
 
     try {
         let result;
-        if (context.tools) {
+        if (useTools) {
             const toolContext = {
                 store: _store,
                 scriptDir: req.app.locals.scriptDir || null,
@@ -678,8 +735,9 @@ router.post('/chat/stream', async (req, res) => {
 
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
     let system;
+    const useTools = !!context.tools && (await providerSupportsTools(aiWithModel));
     try {
-        system = systemMessage(context, currentScript, currentView, currentDoc, extraFiles);
+        system = systemMessage(context, currentScript, currentView, currentDoc, extraFiles, aiWithModel, useTools);
     } catch (e) {
         return res.status(500).json({ error: `Failed to build system prompt: ${e.message}` });
     }
@@ -696,7 +754,7 @@ router.post('/chat/stream', async (req, res) => {
     const fullMessages = [system, ...providerMessages(messages)];
 
     try {
-        if (context.tools) {
+        if (useTools) {
             // Tool-calling mode: resolve tools non-streaming (emitting events), then
             // send the final answer as a single token so the client sees it immediately.
             const toolContext = {
@@ -814,12 +872,15 @@ router.delete('/conversations/:id', (req, res) => {
 module.exports = {
     router,
     init,
+    setNotesProvider,
     _internal: {
         callAnthropic,
         answerText,
         readAiConfig,
         normalizeAiConfig,
         resolveAi,
+        providerSupportsTools,
+        houseSectionFor,
         listAnthropicModels,
         ANTHROPIC_FALLBACK_MODELS,
         providerMessages,
