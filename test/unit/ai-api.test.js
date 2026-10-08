@@ -7,7 +7,7 @@ const path = require('path');
 const express = require('express');
 
 const { router, init, _internal } = require('../../src/web/ai-api');
-const { callAnthropic, answerText, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages } = _internal;
+const { callAnthropic, answerText, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages, anthropicSystem, plainMessages, buildSystemPromptParts } = _internal;
 
 /** a fetch stub answering every call with the given status and JSON (or SSE text) body */
 function fetchStub(status, body, headers = { 'content-type': 'application/json' }) {
@@ -129,6 +129,7 @@ describe('POST /she/ai/chat/stream', () => {
         });
         const body = JSON.parse(global.fetch.mock.calls[0][1].body);
         expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
+        expect(body.system[0].cache_control).toEqual({ type: 'ephemeral' });
     });
 
     it('streams the text deltas and ends with [DONE]', async () => {
@@ -349,5 +350,36 @@ describe('search_mqtt_topics limit', () => {
         const out = await executeTool('search_mqtt_topics', { query: 'bath', limit: 500 }, { store });
         expect(out.split('\n').filter((l) => l.startsWith('home/')).length).toBe(120);
         expect(out).toMatch(/^120 of 120 matching topic\(s\):/);
+    });
+});
+
+describe('prompt caching (I22)', () => {
+    it('splits the prompt into a static and a dynamic part', () => {
+        const parts = buildSystemPromptParts({ apiref: true }, { path: 'x.js', content: 'let a = 1;' }, null, null, null, [{ name: 'notes.md', content: 'hello' }]);
+        expect(parts.staticText).toMatch(/SHE Assistant/);
+        expect(parts.staticText).toMatch(/she sandbox API/);
+        expect(parts.staticText).not.toContain('let a = 1;');
+        expect(parts.dynamicText).toContain('## Current script: x.js');
+        expect(parts.dynamicText).toContain('## Attached file: notes.md');
+    });
+
+    it('sends Anthropic the static part as a cached block and the dynamic part after it', () => {
+        expect(anthropicSystem({ role: 'system', content: 's\n\nd', staticText: 's', dynamicText: 'd' })).toEqual([
+            { type: 'text', text: 's', cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: 'd' },
+        ]);
+        expect(anthropicSystem({ role: 'system', content: 'plain' })).toBe('plain');
+    });
+
+    it('gives OpenAI-compatible endpoints role and content only', () => {
+        expect(
+            plainMessages([
+                { role: 'system', content: 'c', staticText: 's', dynamicText: 'd' },
+                { role: 'user', content: 'u' },
+            ]),
+        ).toEqual([
+            { role: 'system', content: 'c' },
+            { role: 'user', content: 'u' },
+        ]);
     });
 });

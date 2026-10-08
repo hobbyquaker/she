@@ -20,7 +20,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
-const { buildSystemPrompt } = require('./ai-context');
+const { buildSystemPrompt, buildSystemPromptParts } = require('./ai-context');
 const { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool } = require('./ai-tools');
 const { STORAGE_ROOT } = require('../lib/storage');
 
@@ -77,7 +77,7 @@ async function callOpenAICompat(config, messages, tools) {
     const headers = { 'Content-Type': 'application/json' };
     if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
 
-    const body = { model: config.model, messages, stream: false };
+    const body = { model: config.model, messages: plainMessages(messages), stream: false };
     if (tools?.length) body.tools = tools;
 
     const res = await fetch(url, {
@@ -127,7 +127,7 @@ async function callAnthropic(config, messages, tools) {
 
     const body = {
         model: config.model,
-        system: systemMsg?.content || '',
+        system: anthropicSystem(systemMsg),
         messages: userMessages,
         // thinking tokens count against this on the current models; 4096 cut answers short
         max_tokens: 16384,
@@ -146,12 +146,7 @@ async function callAnthropic(config, messages, tools) {
     }
 
     const json = await res.json();
-    const usage = json.usage
-        ? {
-              prompt_tokens: json.usage.input_tokens,
-              completion_tokens: json.usage.output_tokens,
-          }
-        : undefined;
+    const usage = json.usage ? anthropicUsage(json.usage) : undefined;
 
     // Detect tool use response
     if (json.stop_reason === 'tool_use') {
@@ -167,6 +162,29 @@ async function callAnthropic(config, messages, tools) {
 }
 
 /**
+ * The system message with its static part marked (roadmap I22): Anthropic gets it as two blocks with a cache
+ * breakpoint after the static one; other providers get the joined text.
+ */
+function systemMessage(context, currentScript, currentView, currentDoc, extraFiles) {
+    const { staticText, dynamicText } = buildSystemPromptParts(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
+    return { role: 'system', content: dynamicText ? staticText + '\n\n' + dynamicText : staticText, staticText, dynamicText };
+}
+
+/** Anthropic's `system`: the static part as a cached block, the dynamic part after it */
+function anthropicSystem(systemMsg) {
+    if (!systemMsg) return '';
+    if (!systemMsg.staticText) return systemMsg.content || '';
+    const blocks = [{ type: 'text', text: systemMsg.staticText, cache_control: { type: 'ephemeral' } }];
+    if (systemMsg.dynamicText) blocks.push({ type: 'text', text: systemMsg.dynamicText });
+    return blocks;
+}
+
+/** role and content only, for the OpenAI-compatible endpoints (the system message carries more) */
+function plainMessages(messages) {
+    return messages.map((m) => (m.role === 'system' ? { role: 'system', content: m.content } : m));
+}
+
+/**
  * What a provider may see of a conversation: role and content only. The chat page stores more on its messages
  * (tool events, timestamps) and Anthropic rejects unknown fields; empty messages are left out too (Anthropic
  * rejects empty text, and the chat saved empty answers before B-13).
@@ -177,6 +195,14 @@ function providerMessages(messages) {
         .filter((m) => m && typeof m.role === 'string')
         .map((m) => ({ role: m.role, content: m.content }))
         .filter((m) => (typeof m.content === 'string' ? m.content.trim() !== '' : Array.isArray(m.content) ? m.content.length > 0 : m.content != null));
+}
+
+/** the token counts the journal shows, cache reads included */
+function anthropicUsage(u) {
+    const usage = { prompt_tokens: u.input_tokens, completion_tokens: u.output_tokens };
+    if (u.cache_read_input_tokens) usage.cache_read_tokens = u.cache_read_input_tokens;
+    if (u.cache_creation_input_tokens) usage.cache_write_tokens = u.cache_creation_input_tokens;
+    return usage;
 }
 
 /**
@@ -305,7 +331,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
  * @param {(json:object)=>string|null|undefined} tokenExtractor
  * @param {(token:string)=>void} onToken
  */
-async function parseSseStream(body, tokenExtractor, onToken) {
+async function parseSseStream(body, tokenExtractor, onToken, onEvent) {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -324,6 +350,7 @@ async function parseSseStream(body, tokenExtractor, onToken) {
                 if (data === '[DONE]') return;
                 try {
                     const json = JSON.parse(data);
+                    if (onEvent) onEvent(json);
                     const token = tokenExtractor(json);
                     if (token) onToken(token);
                 } catch {
@@ -349,7 +376,7 @@ async function streamOpenAICompat(config, messages, onToken) {
     const res = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ model: config.model, messages, stream: true }),
+        body: JSON.stringify({ model: config.model, messages: plainMessages(messages), stream: true }),
     });
 
     if (!res.ok) {
@@ -378,9 +405,9 @@ async function streamAnthropic(config, messages, onToken) {
         headers,
         body: JSON.stringify({
             model: config.model,
-            system: systemMsg?.content || '',
+            system: anthropicSystem(systemMsg),
             messages: userMessages,
-            max_tokens: 4096,
+            max_tokens: 16384,
             stream: true,
         }),
     });
@@ -390,7 +417,17 @@ async function streamAnthropic(config, messages, onToken) {
         throw new Error(`Anthropic API error ${res.status}: ${text.slice(0, 300)}`);
     }
 
-    await parseSseStream(res.body, (json) => json.delta?.text, onToken);
+    let usage;
+    await parseSseStream(
+        res.body,
+        (json) => json.delta?.text,
+        onToken,
+        (json) => {
+            if (json.type === 'message_start' && json.message?.usage) usage = anthropicUsage(json.message.usage);
+            if (json.type === 'message_delta' && json.usage?.output_tokens && usage) usage.completion_tokens = json.usage.output_tokens;
+        },
+    );
+    return { usage };
 }
 
 // ---------------------------------------------------------------------------
@@ -539,8 +576,7 @@ router.post('/chat', async (req, res) => {
 
     const aiWithModel = { ...ai, model: effectiveModel };
     _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
-    const fullMessages = [{ role: 'system', content: systemPrompt }, ...providerMessages(messages)];
+    const fullMessages = [systemMessage(context, currentScript, currentView, currentDoc, extraFiles), ...providerMessages(messages)];
 
     try {
         let result;
@@ -575,9 +611,9 @@ router.post('/chat/stream', async (req, res) => {
     _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
 
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
-    let systemPrompt;
+    let system;
     try {
-        systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
+        system = systemMessage(context, currentScript, currentView, currentDoc, extraFiles);
     } catch (e) {
         return res.status(500).json({ error: `Failed to build system prompt: ${e.message}` });
     }
@@ -591,15 +627,16 @@ router.post('/chat/stream', async (req, res) => {
 
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const fullMessages = [{ role: 'system', content: systemPrompt }, ...providerMessages(messages)];
+    const fullMessages = [system, ...providerMessages(messages)];
 
     try {
         if (context.tools) {
             // Tool-calling mode: resolve tools non-streaming (emitting events), then
             // send the final answer as a single token so the client sees it immediately.
             const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null, resultChars: ai.toolResultChars, fetchAllow: ai.fetchAllow };
-            const { message, detail } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
+            const { message, detail, usage } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
             if (!message || !message.trim()) throw new Error('The model returned an empty answer' + (detail ? ` (${detail})` : ''));
+            if (usage) _log.debug('ai chat: usage ' + JSON.stringify(usage));
             send({ token: message });
         } else {
             let tokens = 0;
@@ -607,12 +644,14 @@ router.post('/chat/stream', async (req, res) => {
                 tokens++;
                 send({ token: t });
             };
+            let streamed;
             if (ai.provider === 'anthropic') {
-                await streamAnthropic(aiWithModel, fullMessages, onToken);
+                streamed = await streamAnthropic(aiWithModel, fullMessages, onToken);
             } else {
                 await streamOpenAICompat(aiWithModel, fullMessages, onToken);
             }
             if (tokens === 0) throw new Error('The model returned an empty answer');
+            if (streamed?.usage) _log.debug('ai chat: usage ' + JSON.stringify(streamed.usage));
         }
 
         res.write('data: [DONE]\n\n');
@@ -699,4 +738,18 @@ router.delete('/conversations/:id', (req, res) => {
     res.json({ ok: true });
 });
 
-module.exports = { router, init, _internal: { callAnthropic, answerText, readAiConfig, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages } };
+module.exports = {
+    router,
+    init,
+    _internal: {
+        callAnthropic,
+        answerText,
+        readAiConfig,
+        listAnthropicModels,
+        ANTHROPIC_FALLBACK_MODELS,
+        providerMessages,
+        anthropicSystem,
+        plainMessages,
+        buildSystemPromptParts,
+    },
+};

@@ -31,6 +31,17 @@ const DB_DOC_PROMPT = fs.readFileSync(path.join(P, 'db-doc.md'), 'utf8').trim();
  * @returns {string}
  */
 function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, store, extraFiles) {
+    const { staticText, dynamicText } = buildSystemPromptParts(requestCtx, currentScript, currentView, currentDoc, store, extraFiles);
+    return dynamicText ? staticText + '\n\n' + dynamicText : staticText;
+}
+
+/**
+ * The same prompt in two parts (roadmap I22): what is the same for every request of this mode — the role and
+ * the API reference — and what changes per request — the current script or view or document, sheDB dumps,
+ * attachments. Anthropic caches the static part when it is sent as its own block with a cache breakpoint.
+ * @returns {{ staticText: string, dynamicText: string }}
+ */
+function buildSystemPromptParts(requestCtx, currentScript, currentView, currentDoc, store, extraFiles) {
     const isViewMode = !!currentView?.id;
     const isDocMode = !!currentDoc?.id;
 
@@ -43,11 +54,11 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
         basePrompt = SCRIPTS_BASE_PROMPT;
     }
 
-    const parts = [basePrompt];
-
+    const staticParts = [basePrompt];
     if (requestCtx.apiref && !isViewMode && !isDocMode) {
-        parts.push(SHE_API_REF);
+        staticParts.push(SHE_API_REF);
     }
+    const parts = [];
 
     if (currentScript?.path && typeof currentScript.content === 'string') {
         parts.push(`## Current script: ${currentScript.path}\n\`\`\`javascript\n${currentScript.content}\n\`\`\``);
@@ -110,7 +121,7 @@ function buildSystemPrompt(requestCtx, currentScript, currentView, currentDoc, s
         }
     }
 
-    return parts.join('\n\n');
+    return { staticText: staticParts.join('\n\n'), dynamicText: parts.join('\n\n') };
 }
 
-module.exports = { buildSystemPrompt };
+module.exports = { buildSystemPrompt, buildSystemPromptParts };
