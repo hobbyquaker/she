@@ -12,7 +12,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const dns = require('dns');
+const net = require('net');
 const { getLogBuffer } = require('./log-ws');
+const mqttWildcard = require('../lib/mqtt-wildcards');
+
+// A tool result goes into the conversation and stays there for every later turn (roadmap I21):
+// above this many characters it is cut with a note; lists page with offset/limit instead.
+const DEFAULT_RESULT_CHARS = 6000;
 
 // ---------------------------------------------------------------------------
 // Tool schemas
@@ -34,12 +41,21 @@ const TOOL_DEFINITIONS = [
                 properties: {
                     query: {
                         type: 'string',
-                        description: 'Case-insensitive substring to match against topic names. Pass empty string to list all topics.',
+                        description:
+                            'An MQTT filter with wildcards (+ one level, # the rest: "hm/status/+/LEVEL", "zigbee2mqtt/#") or a case-insensitive substring of the topic name ("bad"). Empty string lists all topics.',
                     },
+                    value: {
+                        type: 'string',
+                        description: 'Optional filter on the current value: a plain value for equality ("true", "on", "0"), or a comparison ("> 0", ">= 20", "!= off").',
+                    },
+                    changed_within: {
+                        type: 'string',
+                        description: 'Optional: only topics whose value changed within this time ("30m", "2h", "1d").',
+                    },
+                    offset: { type: 'integer', description: 'Skip this many matches (paging; default 0).' },
                     limit: {
                         type: 'integer',
-                        description:
-                            'Maximum number of topics to return (1-500, default 50). The result says how many matched in total; raise the limit or narrow the query to see the rest.',
+                        description: 'Maximum number of topics to return (1-500, default 50). The result says how many matched in total.',
                     },
                 },
                 required: ['query'],
@@ -79,6 +95,7 @@ const TOOL_DEFINITIONS = [
                         type: 'integer',
                         description: 'Maximum number of log lines to return (1-200, default 50).',
                     },
+                    offset: { type: 'integer', description: 'Skip this many lines from the newest end (paging into older lines; default 0).' },
                 },
                 required: [],
             },
@@ -132,8 +149,10 @@ const TOOL_DEFINITIONS = [
                 properties: {
                     filter: {
                         type: 'string',
-                        description: 'Optional case-insensitive substring to filter IDs. Pass empty string to list all (capped at 200).',
+                        description: 'Optional case-insensitive substring to filter IDs. Pass empty string to list all.',
                     },
+                    offset: { type: 'integer', description: 'Skip this many matching IDs (paging; default 0).' },
+                    limit: { type: 'integer', description: 'Maximum IDs to return (1-500, default 200). The result says how many matched in total.' },
                 },
                 required: [],
             },
@@ -150,6 +169,10 @@ const TOOL_DEFINITIONS = [
                     id: {
                         type: 'string',
                         description: 'The exact document ID to retrieve.',
+                    },
+                    path: {
+                        type: 'string',
+                        description: 'Optional dotted path into the document (e.g. "rooms.bath.lights") to read a part of a large document.',
                     },
                 },
                 required: ['id'],
@@ -192,6 +215,15 @@ const TOOL_DEFINITIONS_ANTHROPIC = TOOL_DEFINITIONS.map((t) => ({
  * @returns {string}
  */
 async function executeTool(name, args, ctx) {
+    const cap = Math.max(500, Number(ctx?.resultChars) || DEFAULT_RESULT_CHARS);
+    const result = await runTool(name, args || {}, ctx || {});
+    if (typeof result === 'string' && result.length > cap) {
+        return result.slice(0, cap) + `\n… cut after ${cap} characters (${result.length} total); narrow the query or page with offset/limit.`;
+    }
+    return result;
+}
+
+async function runTool(name, args, ctx) {
     try {
         switch (name) {
             case 'search_mqtt_topics':
@@ -203,7 +235,7 @@ async function executeTool(name, args, ctx) {
             case 'get_script_logs':
                 return toolGetScriptLogs(args);
             case 'she_fetch':
-                return await toolSheFetch(args);
+                return await toolSheFetch(args, ctx);
             case 'list_shedb_docs':
                 return toolListShedbDocs(args);
             case 'get_shedb_doc':
@@ -219,28 +251,92 @@ async function executeTool(name, args, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** a page of a list with the note the model needs to ask for the rest */
+function pageOf(list, offset, limit, maxLimit, defaultLimit) {
+    const skip = Math.max(0, Number(offset) || 0);
+    const cap = Math.min(Math.max(1, Number(limit) || defaultLimit), maxLimit);
+    const page = list.slice(skip, skip + cap);
+    const rest = list.length - skip - page.length;
+    const note = rest > 0 ? ` (offset ${skip}; ${rest} more: offset ${skip + page.length})` : skip > 0 ? ` (offset ${skip})` : '';
+    return { page, note };
+}
+
+/** "30m", "2h", "1d", "90s" or a number of seconds → milliseconds; NaN when unreadable */
+function parseDuration(v) {
+    if (typeof v === 'number') return v * 1000;
+    const m = String(v || '')
+        .trim()
+        .match(/^(\d+(?:\.\d+)?)\s*([smhd]?)$/i);
+    if (!m) return NaN;
+    const n = parseFloat(m[1]);
+    return n * { '': 1000, 's': 1000, 'm': 60000, 'h': 3600000, 'd': 86400000 }[m[2].toLowerCase()];
+}
+
+/** "> 0", ">= 1", "< 5", "!= off", "== true", "= on" or a plain value (equality) → predicate on a value */
+function valueMatcher(spec) {
+    const m = String(spec)
+        .trim()
+        .match(/^(>=|<=|!=|==|=|>|<)?\s*(.*)$/);
+    const op = m[1] || '=';
+    const rhsRaw = m[2];
+    let rhs = rhsRaw;
+    try {
+        rhs = JSON.parse(rhsRaw);
+    } catch {
+        /* a bare word stays a string */
+    }
+    const num = (x) => (typeof x === 'boolean' ? Number(x) : typeof x === 'number' ? x : parseFloat(x));
+    return (val) => {
+        if (op === '=' || op === '==') return val === rhs || String(val) === String(rhs);
+        if (op === '!=') return !(val === rhs || String(val) === String(rhs));
+        const a = num(val);
+        const b = num(rhs);
+        if (Number.isNaN(a) || Number.isNaN(b)) return false;
+        return op === '>' ? a > b : op === '>=' ? a >= b : op === '<' ? a < b : a <= b;
+    };
+}
+
+function ago(ms) {
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm';
+    if (s < 86400) return Math.floor(s / 3600) + 'h';
+    return Math.floor(s / 86400) + 'd';
+}
+
+// ---------------------------------------------------------------------------
 // Individual tools
 // ---------------------------------------------------------------------------
 
-function toolSearchMqttTopics({ query = '', limit = 50 }, store) {
+function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, limit = 50 }, store) {
     if (!store) return 'MQTT state store not available.';
-    const q = String(query).toLowerCase();
-    const cap = Math.min(Math.max(1, Number(limit) || 50), 500);
-    const results = [];
-    let total = 0;
+    const pattern = String(query).trim();
+    const isFilter = /[+#]/.test(pattern);
+    const q = pattern.toLowerCase();
+    const matchValue = value !== undefined && value !== null && String(value) !== '' ? valueMatcher(value) : null;
+    const withinMs = changed_within ? parseDuration(changed_within) : NaN;
+    if (changed_within && Number.isNaN(withinMs)) return `changed_within "${changed_within}" is not a duration; use e.g. "30m", "2h" or "1d".`;
+    const now = Date.now();
+    const hits = [];
     for (const [topic, obj] of store.mqttEntries()) {
-        if (!q || topic.toLowerCase().includes(q)) {
-            total++;
-            if (results.length < cap) results.push(`${topic}: ${JSON.stringify(obj.val)}`);
-        }
+        if (isFilter ? !mqttWildcard(topic, pattern) : q && !topic.toLowerCase().includes(q)) continue;
+        if (matchValue && !matchValue(obj.val)) continue;
+        const lc = obj.lc ?? obj.ts;
+        if (!Number.isNaN(withinMs) && !(lc && now - lc <= withinMs)) continue;
+        hits.push(`${topic}: ${JSON.stringify(obj.val)}${lc ? ` (changed ${ago(now - lc)} ago)` : ''}`);
     }
-    if (total > results.length) {
-        results.push(`… ${results.length} of ${total} matching topics shown; raise the limit (up to 500) or narrow the query for the rest.`);
+    if (hits.length === 0) {
+        return pattern
+            ? `No MQTT topics found matching "${query}"${matchValue ? ` with value ${value}` : ''}${changed_within ? ` changed within ${changed_within}` : ''}.`
+            : 'No MQTT topics tracked yet.';
     }
-    if (results.length === 0) {
-        return q ? `No MQTT topics found matching "${query}".` : 'No MQTT topics tracked yet.';
-    }
-    return `Found ${results.length} topic(s):\n${results.join('\n')}`;
+    const { page, note } = pageOf(hits, offset, limit, 500, 50);
+    const lines = [`${page.length} of ${hits.length} matching topic(s)${note}:`, ...page];
+    if (hits.length > page.length) lines.push('… raise the limit (up to 500), page with offset, or narrow the query for the rest.');
+    return lines.join('\n');
 }
 
 function toolReadScript({ path: relPath }, scriptDir) {
@@ -256,33 +352,94 @@ function toolReadScript({ path: relPath }, scriptDir) {
     return `## ${relPath}\n\`\`\`javascript\n${content}\n\`\`\``;
 }
 
-function toolGetScriptLogs({ script_name = '', limit = 50 }) {
+function toolGetScriptLogs({ script_name = '', limit = 50, offset = 0 }) {
     const cap = Math.min(Math.max(1, Number(limit) || 50), 200);
+    const skip = Math.max(0, Number(offset) || 0);
     const buf = getLogBuffer();
     const needle = String(script_name).toLowerCase();
     const filtered = needle ? buf.filter((e) => e.msg.toLowerCase().includes(needle)) : buf;
-    const recent = filtered.slice(-cap);
+    const end = Math.max(0, filtered.length - skip);
+    const recent = filtered.slice(Math.max(0, end - cap), end);
     if (recent.length === 0) {
         return needle ? `No log entries found mentioning "${script_name}".` : 'No log entries in buffer yet.';
     }
-    return recent
-        .map((e) => {
-            const t = new Date(e.ts).toISOString().slice(11, 19);
-            return `[${t}] ${e.level.toUpperCase()} ${e.msg}`;
-        })
-        .join('\n');
+    const older = end - recent.length;
+    const head = older > 0 ? `${recent.length} of ${filtered.length} lines (${older} older; offset ${skip + recent.length} for them):\n` : '';
+    return (
+        head +
+        recent
+            .map((e) => {
+                const t = new Date(e.ts).toISOString().slice(11, 19);
+                return `[${t}] ${e.level.toUpperCase()} ${e.msg}`;
+            })
+            .join('\n')
+    );
 }
 
 const MAX_FETCH_CHARS = 8000;
 
-async function toolSheFetch({ url }) {
+/**
+ * Private address ranges and local names the AI may not fetch (roadmap I23, decision D-4): a URL the model
+ * picked up from a page or a document must not reach the LAN. Hosts on the allow-list are exempt.
+ */
+function isPrivateAddress(ip) {
+    const v4 = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+    if (net.isIPv4(v4)) {
+        const [a, b] = v4.split('.').map(Number);
+        return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    }
+    const lower = ip.toLowerCase();
+    return lower === '::1' || lower === '::' || /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower);
+}
+
+function isLocalName(host) {
+    const h = host.toLowerCase().replace(/\.$/, '');
+    return h === 'localhost' || /\.(local|lan|home|internal|localdomain)$/.test(h) || !h.includes('.');
+}
+
+/** null when the host may be fetched, otherwise the reason */
+async function fetchRefusal(host, allow) {
+    const h = host.toLowerCase();
+    if (allow.some((a) => String(a).toLowerCase() === h)) return null;
+    if (!net.isIP(h) && isLocalName(h)) return `"${host}" is a local name`;
+    let addresses;
+    if (net.isIP(h)) addresses = [h];
+    else {
+        try {
+            addresses = (await dns.promises.lookup(h, { all: true })).map((r) => r.address);
+        } catch (e) {
+            return `"${host}" does not resolve (${e.code || e.message})`;
+        }
+    }
+    const priv = addresses.find(isPrivateAddress);
+    return priv ? `"${host}" is a private address (${priv})` : null;
+}
+
+async function toolSheFetch({ url }, ctx = {}) {
     if (!url || typeof url !== 'string') return 'url argument is required.';
     if (!/^https?:\/\//i.test(url)) return 'Only http and https URLs are supported.';
-    const res = await fetch(url, {
-        headers: { 'User-Agent': 'she-ai-agent/1.0' },
-        signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return `HTTP error ${res.status} ${res.statusText} fetching ${url}`;
+    const allow = Array.isArray(ctx.fetchAllow) ? ctx.fetchAllow : [];
+    let current = url;
+    let res;
+    for (let hop = 0; hop < 5; hop++) {
+        let parsed;
+        try {
+            parsed = new URL(current);
+        } catch {
+            return `"${current}" is not a valid URL.`;
+        }
+        const why = await fetchRefusal(parsed.hostname, allow);
+        if (why) return `Refused: ${why}; the AI may not fetch private or local addresses (ai.fetchAllow lists exceptions).`;
+        res = await fetch(current, {
+            headers: { 'User-Agent': 'she-ai-agent/1.0' },
+            signal: AbortSignal.timeout(15000),
+            redirect: 'manual',
+        });
+        const location = res.status >= 300 && res.status < 400 && res.headers.get('location');
+        if (!location) break;
+        current = new URL(location, current).toString(); // every hop is checked like the first
+    }
+    if (!res.ok) return `HTTP error ${res.status} ${res.statusText} fetching ${current}`;
     const ct = res.headers.get('content-type') || '';
     const text = await res.text();
     // Strip HTML tags for cleaner text
@@ -306,7 +463,7 @@ function toolGetMqttTopic({ topic }, store) {
     return `${topic}: ${JSON.stringify(obj.val)}\n  last updated: ${ts}\n  last changed: ${lc}`;
 }
 
-function toolListShedbDocs({ filter = '' }) {
+function toolListShedbDocs({ filter = '', offset = 0, limit = 200 }) {
     try {
         const core = require('./shedb').getCore();
         if (!core) return 'sheDB not initialised.';
@@ -314,22 +471,27 @@ function toolListShedbDocs({ filter = '' }) {
         const q = String(filter).toLowerCase();
         const filtered = q ? ids.filter((id) => id.toLowerCase().includes(q)) : ids;
         if (filtered.length === 0) return q ? `No documents found matching "${filter}".` : 'No documents in sheDB.';
-        const shown = filtered.slice(0, 200);
-        const suffix = filtered.length > 200 ? ` (capped at 200 of ${filtered.length} total)` : '';
-        return `${shown.length} document(s)${suffix}:\n${shown.join('\n')}`;
+        const { page, note } = pageOf(filtered, offset, limit, 500, 200);
+        return `${page.length} of ${filtered.length} document(s)${note}:\n${page.join('\n')}`;
     } catch (e) {
         return `sheDB not available: ${e.message}`;
     }
 }
 
-function toolGetShedbDoc({ id }) {
+function toolGetShedbDoc({ id, path: dotted = '' }) {
     if (!id || typeof id !== 'string') return 'id argument is required.';
     try {
         const core = require('./shedb').getCore();
         if (!core) return 'sheDB not initialised.';
-        const doc = core.docs[id];
+        let doc = core.docs[id];
         if (doc === undefined) return `Document "${id}" not found. Use list_shedb_docs to see available IDs.`;
-        return `## ${id}\n${JSON.stringify(doc, null, 2)}`;
+        if (dotted) {
+            for (const key of String(dotted).split('.')) {
+                if (doc === null || typeof doc !== 'object' || !(key in doc)) return `Document "${id}" has no path "${dotted}".`;
+                doc = doc[key];
+            }
+        }
+        return `## ${id}${dotted ? ' › ' + dotted : ''}\n${JSON.stringify(doc, null, 2)}`;
     } catch (e) {
         return `sheDB not available: ${e.message}`;
     }
@@ -361,4 +523,4 @@ function toolListMatterDevices() {
     }
 }
 
-module.exports = { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool };
+module.exports = { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool, _internal: { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf } };

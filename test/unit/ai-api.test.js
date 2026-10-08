@@ -342,12 +342,12 @@ describe('search_mqtt_topics limit', () => {
     it('shows 50 by default and says how many matched', async () => {
         const out = await executeTool('search_mqtt_topics', { query: 'bath' }, { store });
         expect(out.split('\n').filter((l) => l.startsWith('home/')).length).toBe(50);
-        expect(out).toMatch(/50 of 120 matching topics shown/);
+        expect(out).toMatch(/^50 of 120 matching topic\(s\)/);
     });
 
     it('takes a limit up to 500', async () => {
         const out = await executeTool('search_mqtt_topics', { query: 'bath', limit: 500 }, { store });
         expect(out.split('\n').filter((l) => l.startsWith('home/')).length).toBe(120);
-        expect(out).not.toMatch(/matching topics shown/);
+        expect(out).toMatch(/^120 of 120 matching topic\(s\):/);
     });
 });

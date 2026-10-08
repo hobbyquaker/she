@@ -545,7 +545,7 @@ router.post('/chat', async (req, res) => {
     try {
         let result;
         if (context.tools) {
-            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
+            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null, resultChars: ai.toolResultChars, fetchAllow: ai.fetchAllow };
             result = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, undefined);
         } else if (ai.provider === 'anthropic') {
             result = await callAnthropic(aiWithModel, fullMessages);
@@ -597,7 +597,7 @@ router.post('/chat/stream', async (req, res) => {
         if (context.tools) {
             // Tool-calling mode: resolve tools non-streaming (emitting events), then
             // send the final answer as a single token so the client sees it immediately.
-            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
+            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null, resultChars: ai.toolResultChars, fetchAllow: ai.fetchAllow };
             const { message, detail } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
             if (!message || !message.trim()) throw new Error('The model returned an empty answer' + (detail ? ` (${detail})` : ''));
             send({ token: message });
