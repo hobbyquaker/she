@@ -246,7 +246,32 @@ const TOOL_DEFINITIONS = [
                     to: { type: 'string', description: 'End: ISO 8601 or relative. Default now.' },
                     limit: { type: 'integer', description: 'Maximum points to return (1-500, default 200); longer series are reduced to change points, then thinned.' },
                 },
-                required: ['topic'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_timeline',
+            description:
+                'The changes of several MQTT topics merged into one chronological list from InfluxDB (when configured): one line per change with the time, the gap to the previous line, the topic and old → new. ' +
+                'Use it to reconstruct what happened in a room or around an event (a presence script, a heating cycle) instead of fetching the topics one by one and merging in your head.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    topics: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'The topics: a list, or one MQTT filter with + or # ("radar-x/status/#"); up to 20 topics are resolved from the known topics.',
+                    },
+                    from: { type: 'string', description: 'Start: ISO 8601 or relative ("-2h", "-1d"). Default "-24h".' },
+                    to: { type: 'string', description: 'End: ISO 8601 or relative. Default now.' },
+                    limit: {
+                        type: 'integer',
+                        description: 'Maximum lines (1-500, default 200); when there are more changes, the ones closest to a previous change of the same topic are dropped first.',
+                    },
+                },
+                required: ['topics'],
             },
         },
     },
@@ -466,6 +491,8 @@ async function runTool(name, args, ctx) {
                 return await toolGetMatterAttribute(args);
             case 'get_topic_history':
                 return await toolGetTopicHistory(args, ctx);
+            case 'get_timeline':
+                return await toolGetTimeline(args, ctx);
             case 'get_topic_messages':
                 return await toolGetTopicMessages(args, ctx);
             case 'list_scripts':
@@ -802,6 +829,91 @@ async function toolGetTopicHistory({ topic, topics, from = '-24h', to, limit = 2
               ? [resolved.note]
               : [];
     return [...head, ...blocks].join('\n\n');
+}
+
+/** a gap between two changes, short: "+12s", "+5m12s", "+2h05m", "+3d 4h" */
+function gapStr(ms) {
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `+${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `+${m}m${String(s % 60).padStart(2, '0')}s`;
+    const h = Math.floor(m / 60);
+    if (h < 48) return `+${h}h${String(m % 60).padStart(2, '0')}m`;
+    return `+${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+/** the longest common prefix of the topics, cut at a slash */
+function commonTopicPrefix(topics) {
+    if (topics.length < 2) return '';
+    let prefix = topics[0];
+    for (const t of topics.slice(1)) {
+        let i = 0;
+        while (i < prefix.length && i < t.length && prefix[i] === t[i]) i++;
+        prefix = prefix.slice(0, i);
+    }
+    const cut = prefix.lastIndexOf('/');
+    return cut === -1 ? '' : prefix.slice(0, cut + 1);
+}
+
+/**
+ * The timeline tool (roadmap I33): the change points of several topics merged and sorted. When there are more
+ * than the cap, the changes closest to the previous change of the same topic go first (a flapping sensor loses
+ * its flaps, a door its single opening never); the first change of every topic always stays.
+ */
+async function toolGetTimeline({ topics, topic, from = '-24h', to, limit = 200 } = {}, ctx = {}) {
+    const resolved = resolveTopics({ topic, topics }, ctx.store);
+    if (resolved.error) return resolved.error;
+    if (resolved.topics.length === 0) return 'topics is required: a list of topics or an MQTT filter.';
+    const { influx, error } = influxForHistory();
+    if (error) return error;
+    const now = Date.now();
+    const fromMs = parseTime(from, now);
+    const toMs = parseTime(to, now);
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
+    const cap = Math.min(Math.max(1, Number(limit) || 200), 500);
+    let results;
+    try {
+        results = await Promise.all(resolved.topics.map((t) => fetchTopicSeries(influx, t, fromMs, toMs)));
+    } catch (e) {
+        return `InfluxDB query failed: ${e.message}`;
+    }
+    const entries = [];
+    const missing = [];
+    results.forEach((r, i) => {
+        const t = resolved.topics[i];
+        if (r.rows.length === 0) {
+            missing.push(t);
+            return;
+        }
+        let prev;
+        let prevTime = null;
+        for (const row of r.rows) {
+            if (prevTime !== null && row.value === prev) continue;
+            entries.push({ time: row.time, topic: t, from: prevTime === null ? undefined : prev, to: row.value, gapSame: prevTime === null ? Infinity : row.time - prevTime });
+            prev = row.value;
+            prevTime = row.time;
+        }
+    });
+    if (entries.length === 0) return `No history for ${resolved.topics.join(', ')} between ${isoShort(fromMs)} and ${isoShort(toMs)}.`;
+    const total = entries.length;
+    let kept = entries;
+    if (entries.length > cap) {
+        // the changes with the largest distance to their topic's previous change stay (the first of each is Infinity)
+        kept = [...entries].sort((a, b) => b.gapSame - a.gapSame).slice(0, cap);
+    }
+    kept.sort((a, b) => a.time - b.time || a.topic.localeCompare(b.topic));
+    const prefix = commonTopicPrefix(resolved.topics);
+    const short = (t) => (prefix && t.startsWith(prefix) ? t.slice(prefix.length) : t);
+    const head = [
+        `Timeline of ${resolved.topics.length} topic(s)${prefix ? ` under ${prefix}` : ''} from ${isoShort(fromMs)} to ${isoShort(toMs)}: ${kept.length}${kept.length < total ? ` of ${total}` : ''} changes${kept.length < total ? ' (the ones closest to a previous change of the same topic dropped)' : ''}${resolved.note ? `; ${resolved.note}` : ''}.`,
+    ];
+    if (missing.length) head.push(`No history for: ${missing.map(short).join(', ')}.`);
+    const lines = kept.map((e, i) => {
+        const gap = i === 0 ? '' : gapStr(e.time - kept[i - 1].time);
+        const change = e.from === undefined ? `${JSON.stringify(e.to)} (first value in the window)` : `${JSON.stringify(e.from)} → ${JSON.stringify(e.to)}`;
+        return `${isoShort(e.time)}  ${gap.padStart(8)}  ${short(e.topic)}: ${change}`;
+    });
+    return [...head, ...lines].join('\n');
 }
 
 async function toolGetTopicMessages({ topic, from = '-24h', to, limit = 100 } = {}, ctx = {}) {
@@ -1302,5 +1414,7 @@ module.exports = {
         resolveTopics,
         fetchTopicSeries,
         influxForHistory,
+        gapStr,
+        commonTopicPrefix,
     },
 };

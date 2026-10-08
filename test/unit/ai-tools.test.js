@@ -510,3 +510,69 @@ describe('get_topic_history with several topics or a filter (I32)', () => {
         expect(await executeTool('get_topic_history', {}, { store })).toMatch(/topic \(or topics\) is required/);
     });
 });
+
+describe('get_timeline (I33)', () => {
+    const { gapStr, commonTopicPrefix } = _internal;
+    const store = {
+        mqttEntries: () => Object.entries({ 'radar-x/status/pir': { val: true }, 'radar-x/status/has_target': { val: false }, 'home/status/door/contact': { val: false } }),
+    };
+
+    it('formats gaps and finds the common prefix', () => {
+        expect(gapStr(12000)).toBe('+12s');
+        expect(gapStr(312000)).toBe('+5m12s');
+        expect(gapStr(2 * 3600000 + 5 * 60000)).toBe('+2h05m');
+        expect(gapStr(76 * 3600000)).toBe('+3d 4h');
+        expect(commonTopicPrefix(['radar-x/status/pir', 'radar-x/status/has_target'])).toBe('radar-x/status/');
+        expect(commonTopicPrefix(['radar-x/status/pir', 'home/status/door/contact'])).toBe('');
+        expect(commonTopicPrefix(['one'])).toBe('');
+    });
+
+    it('merges the change points of several topics in time order and thins the flapping topic first', async () => {
+        influx.getMode.mockReturnValue('v1');
+        influx.v1Query.mockImplementation(async (q) => {
+            if (q.includes('"radar-x//pir"'))
+                return [
+                    { time: 1000, value: false },
+                    { time: 5000, value: true },
+                    { time: 5500, value: true },
+                    { time: 9000, value: false },
+                ];
+            if (q.includes('"radar-x//has_target"'))
+                return [
+                    { time: 2000, value: false },
+                    { time: 6000, value: true },
+                    { time: 6200, value: false },
+                    { time: 6400, value: true },
+                    { time: 6600, value: false },
+                ];
+            if (q.includes('"home//door/contact"'))
+                return [
+                    { time: 3000, value: false },
+                    { time: 7000, value: true },
+                ];
+            return [];
+        });
+        const out = await executeTool(
+            'get_timeline',
+            { topics: ['radar-x/status/#', 'home/status/door/contact', 'home/status/nothing'], from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z' },
+            { store },
+        );
+        const lines = out.split('\n');
+        expect(lines[0]).toMatch(/^Timeline of 4 topic\(s\) from .* 10 changes\./);
+        expect(lines[1]).toBe('No history for: home/status/nothing.');
+        expect(lines[2]).toMatch(/00:00:01Z\s+radar-x\/status\/pir: false \(first value in the window\)$/);
+        expect(lines[3]).toMatch(/00:00:02Z\s+\+1s\s+radar-x\/status\/has_target: false \(first value in the window\)$/);
+        expect(lines[5]).toMatch(/00:00:05Z\s+\+2s\s+radar-x\/status\/pir: false → true$/);
+        expect(lines.at(-1)).toMatch(/00:00:09Z\s+\+2s\s+radar-x\/status\/pir: true → false$/);
+
+        const thin = await executeTool('get_timeline', { topics: 'radar-x/status/#', from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z', limit: 4 }, { store });
+        const tl = thin.split('\n');
+        expect(tl[0]).toMatch(/under radar-x\/status\/ .* 4 of 8 changes \(the ones closest/);
+        // the first value of each topic and the two widest-spaced changes stay; the 200 ms flaps go
+        expect(tl.slice(1).map((l) => l.match(/ {2}(\S+): /)[1])).toEqual(['pir', 'has_target', 'pir', 'has_target']);
+        expect(thin).not.toMatch(/00:00:06\.?2/);
+
+        expect(await executeTool('get_timeline', { topics: 'nothing/#' }, { store })).toMatch(/No known topic matches/);
+        expect(await executeTool('get_timeline', {}, { store })).toMatch(/topics is required/);
+    });
+});

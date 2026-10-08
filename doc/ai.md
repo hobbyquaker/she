@@ -58,7 +58,8 @@ The model reads the daemon through tools. Two tools change something, both behin
 | --- | --- |
 | `search_mqtt_topics` | topics by MQTT filter (`hm/status/+/LEVEL`) or substring, with value and change-age filters |
 | `get_mqtt_topic` | one topic's value, last message and last change |
-| `get_topic_history` | a topic's values over time from InfluxDB (she's own `influx` integration; influx4mqtt's measurements and she's schema) |
+| `get_topic_history` | the values of one or several topics (a list or an MQTT filter) over time from InfluxDB (she's own `influx` integration; influx4mqtt's measurements and she's schema) |
+| `get_timeline` | the changes of several topics merged in time order (Influx) |
 | `get_topic_messages` | the raw messages of a topic from Elasticsearch (`elastic` integration) |
 | `list_scripts`, `read_script` | the loaded scripts with subscriptions, publishes and schedules; a script's content |
 | `who_publishes`, `describe_device` | which script or adapter writes a topic; everything under one device, with its discovery entities |
