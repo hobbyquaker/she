@@ -19,6 +19,7 @@ function trackTimeout(timers, fn, delay, setTimeoutFn = setTimeout) {
         timers.delete(id);
         fn();
     }, delay);
+    if (id && typeof id === 'object') id.due = Date.now() + delay; // when it fires (roadmap I28: list_timers)
     timers.add(id);
     return id;
 }

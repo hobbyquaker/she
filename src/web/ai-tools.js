@@ -262,6 +262,88 @@ const TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'list_scripts',
+            description:
+                'The loaded scripts with what each one subscribes to, publishes to (as seen since the daemon started), and schedules. ' +
+                'Use it to find the script behind a topic or a behaviour before reading files; filter matches the script path or a topic.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    filter: { type: 'string', description: 'Substring of the script path or of a topic it uses. Empty: all scripts.' },
+                    offset: { type: 'integer', description: 'Skip this many scripts (paging; default 0).' },
+                    limit: { type: 'integer', description: 'Maximum scripts (1-200, default 50).' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'who_publishes',
+            description: 'Which script publishes a topic (as seen since the daemon started) and which adapter instance owns it (the first topic segment is the instance name).',
+            parameters: {
+                type: 'object',
+                properties: { topic: { type: 'string', description: 'The exact MQTT topic.' } },
+                required: ['topic'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'describe_device',
+            description:
+                'Everything known about one device: its topics grouped into status, set and maintenance with values and change ages, and its Home Assistant discovery entities when announced. ' +
+                'The name matches a topic segment (e.g. "Licht Bad", "echo_bad") or a discovery device name.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name: { type: 'string', description: 'Device name as it appears in topics or in the discovery.' },
+                    limit: { type: 'integer', description: 'Maximum topics per group (default 40).' },
+                },
+                required: ['name'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_services',
+            description:
+                'The adapter instances (xyz2mqtt services) she sees on the broker: name, adapter, version, host, connected state, uptime. Use it for "is X running" and "which adapters are there".',
+            parameters: {
+                type: 'object',
+                properties: { filter: { type: 'string', description: 'Substring of the instance name, adapter or host. Empty: all.' } },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_health',
+            description:
+                'The daemon\'s own state: started, MQTT connected, scripts loaded, safe mode, topics, message rate, handlers, memory, CPU, event-loop lag, Matter and sheDB counts. Use it first for "why is nothing happening".',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_timers',
+            description:
+                'Pending one-shot timers, intervals, schedule jobs and sun events per script with their next fire time. Use it for "why did it switch at …" and "what is still going to happen".',
+            parameters: {
+                type: 'object',
+                properties: { script: { type: 'string', description: 'Substring of a script path. Empty: every script with something pending.' } },
+                required: [],
+            },
+        },
+    },
 ];
 
 /** Same definitions in Anthropic tool format. */
@@ -316,6 +398,18 @@ async function runTool(name, args, ctx) {
                 return await toolGetTopicHistory(args, ctx);
             case 'get_topic_messages':
                 return await toolGetTopicMessages(args, ctx);
+            case 'list_scripts':
+                return toolListScripts(args, ctx);
+            case 'who_publishes':
+                return toolWhoPublishes(args, ctx);
+            case 'describe_device':
+                return toolDescribeDevice(args, ctx);
+            case 'list_services':
+                return toolListServices(args, ctx);
+            case 'get_health':
+                return toolGetHealth(ctx);
+            case 'list_timers':
+                return toolListTimers(args, ctx);
             default:
                 return `Unknown tool: ${name}`;
         }
@@ -606,6 +700,155 @@ async function toolGetTopicMessages({ topic, from = '-24h', to, limit = 100 } = 
         lines.push(`${isoShort(ts)}  ${String(src.payload ?? '')}`);
     }
     return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// The daemon's own state (roadmap I19, I27, I28) through the introspection the daemon hands to init()
+// ---------------------------------------------------------------------------
+
+const NO_INTROSPECT = 'The daemon did not expose its state to the AI (older she, or a test).';
+
+function inTime(ms) {
+    if (!ms) return 'unknown';
+    const diff = ms - Date.now();
+    return diff >= 0 ? `in ${ago(diff)} (${isoShort(ms)})` : `${ago(-diff)} overdue`;
+}
+
+function toolListScripts({ filter = '', offset = 0, limit = 50 } = {}, ctx = {}) {
+    if (!ctx.introspect?.scripts) return NO_INTROSPECT;
+    const q = String(filter).toLowerCase();
+    const all = ctx.introspect.scripts();
+    const hit = (sc) => !q || sc.label.toLowerCase().includes(q) || [...sc.subscriptions, ...sc.varSubscriptions, ...sc.publishes].some((t) => String(t).toLowerCase().includes(q));
+    const list = all.filter(hit).sort((a, b) => a.label.localeCompare(b.label));
+    if (list.length === 0) return q ? `No script matches "${filter}".` : 'No scripts loaded.';
+    const { page, note } = pageOf(list, offset, limit, 200, 50);
+    const lines = [`${page.length} of ${list.length} script(s)${note}:`];
+    const some = (arr, n = 12) => (arr.length <= n ? arr.join(', ') : arr.slice(0, n).join(', ') + ` … (${arr.length} total)`);
+    for (const sc of page) {
+        lines.push(`\n### ${sc.label}${sc.origin !== 'user' ? ` (${sc.origin})` : ''}`);
+        if (sc.subscriptions.length) lines.push(`- subscribes: ${some(sc.subscriptions)}`);
+        if (sc.varSubscriptions.length) lines.push(`- variable subscriptions: ${some(sc.varSubscriptions)}`);
+        if (sc.publishes.length) lines.push(`- publishes (seen): ${some(sc.publishes)}`);
+        const sched = [...sc.jobs.map((j) => `job ${inTime(j.next)}`), ...sc.sunEvents.map((e) => `${e.pattern} ${inTime(e.next)}`)];
+        if (sched.length) lines.push(`- schedules: ${some(sched, 6)}`);
+        if (sc.timers.length) lines.push(`- pending timers: ${sc.timers.length}`);
+    }
+    return lines.join('\n');
+}
+
+function toolWhoPublishes({ topic } = {}, ctx = {}) {
+    if (!topic) return 'topic is required.';
+    if (!ctx.introspect?.scripts) return NO_INTROSPECT;
+    const t = String(topic);
+    const lines = [];
+    const scripts = ctx.introspect.scripts().filter((sc) => sc.publishes.includes(t));
+    if (scripts.length) lines.push(`Scripts that published ${t} since the daemon started: ${scripts.map((sc) => sc.label).join(', ')}.`);
+    else lines.push(`No loaded script has published ${t} since the daemon started (publishes are recorded as they happen).`);
+    const instanceName = t.split('/')[0];
+    const inst = ctx.introspect.instances ? ctx.introspect.instances().find((i) => i.instance === instanceName) : null;
+    if (inst) {
+        lines.push(
+            `The topic's first segment "${instanceName}" is an adapter instance: ${inst.adapter || 'legacy adapter'}${inst.version ? ' ' + inst.version : ''}${inst.host ? ' on ' + inst.host : ''}, ${inst.connected === null ? 'state unknown' : inst.connected > 1 ? 'connected to its device' : inst.connected === 1 ? 'connected to the broker only' : 'offline'}${/\/status\//.test(t) ? ' — a status topic is written by the adapter from the device' : ''}.`,
+        );
+    } else if (ctx.introspect.instances) {
+        lines.push(`"${instanceName}" is no adapter instance known on the broker.`);
+    }
+    return lines.join('\n');
+}
+
+function toolDescribeDevice({ name, limit = 40 } = {}, ctx = {}) {
+    if (!name) return 'name is required.';
+    const store = ctx.store;
+    if (!store) return 'MQTT state store not available.';
+    const q = String(name).trim().toLowerCase();
+    const groups = { status: [], set: [], maintenance: [], other: [] };
+    const now = Date.now();
+    let total = 0;
+    for (const [topic, obj] of store.mqttEntries()) {
+        const segs = topic.split('/');
+        if (!segs.some((sg) => sg.toLowerCase() === q) && !topic.toLowerCase().includes('/' + q + '/') && !topic.toLowerCase().startsWith(q + '/')) continue;
+        total++;
+        const kind = segs[1] === 'status' ? 'status' : segs[1] === 'set' ? 'set' : segs[1] === 'maintenance' ? 'maintenance' : 'other';
+        const lc = obj.lc ?? obj.ts;
+        groups[kind].push(`${topic}: ${JSON.stringify(obj.val)}${lc ? ` (changed ${ago(now - lc)} ago)` : ''}`);
+    }
+    const lines = [];
+    if (total) {
+        lines.push(`${total} topic(s) for "${name}":`);
+        const cap = Math.min(Math.max(1, Number(limit) || 40), 200);
+        for (const kind of ['status', 'set', 'maintenance', 'other']) {
+            if (!groups[kind].length) continue;
+            lines.push(`\n## ${kind} (${groups[kind].length})`);
+            lines.push(...groups[kind].slice(0, cap));
+            if (groups[kind].length > cap) lines.push(`… ${groups[kind].length - cap} more; search_mqtt_topics with a filter for the rest`);
+        }
+    }
+    if (ctx.introspect?.devices) {
+        const devs = ctx.introspect.devices().filter((d) =>
+            String(d.name || d.id || '')
+                .toLowerCase()
+                .includes(q),
+        );
+        for (const d of devs) {
+            lines.push(`\n## Home Assistant discovery: ${d.name || d.id}${d.orphaned ? ' (orphaned: no state topic alive)' : ''}`);
+            for (const e of d.entities || [])
+                lines.push(`- ${e.component || e.configTopic?.split('/')[1] || 'entity'}: ${e.name || e.configTopic}${e.stateTopic ? ` ← ${e.stateTopic}` : ''}`);
+            if (d.refTopics?.length) lines.push(`- topics referenced: ${d.refTopics.slice(0, 20).join(', ')}${d.refTopics.length > 20 ? ' …' : ''}`);
+        }
+    }
+    if (!lines.length) return `Nothing known under "${name}": no topic segment and no discovery device matches. Try search_mqtt_topics with a substring.`;
+    return lines.join('\n');
+}
+
+function toolListServices({ filter = '' } = {}, ctx = {}) {
+    if (!ctx.introspect?.instances) return NO_INTROSPECT;
+    const q = String(filter).toLowerCase();
+    const list = ctx.introspect.instances().filter((i) => !q || [i.instance, i.adapter, i.host].some((x) => x && String(x).toLowerCase().includes(q)));
+    if (!list.length) return q ? `No adapter instance matches "${filter}".` : 'No adapter instances seen on the broker.';
+    const lines = [`${list.length} adapter instance(s):`];
+    for (const i of list) {
+        const state = i.connected === null ? 'unknown' : i.connected > 1 ? 'connected' : i.connected === 1 ? 'broker only' : 'offline';
+        lines.push(
+            `- ${i.instance}: ${i.adapter || 'legacy'}${i.version ? ' ' + i.version : ''}${i.host ? ' on ' + i.host : ''}, ${state}${i.uptime ? `, up ${ago(i.uptime)}` : ''}${i.maintenance ? ', maintenance topics' : ''}`,
+        );
+    }
+    return lines.join('\n');
+}
+
+function toolGetHealth(ctx = {}) {
+    if (!ctx.introspect?.health) return NO_INTROSPECT;
+    const h = ctx.introspect.health() || {};
+    const st = ctx.introspect.stats ? ctx.introspect.stats() || {} : {};
+    const lines = [
+        `started: ${h.started}, mqtt: ${h.mqttConfigured ? (h.mqttConnected ? 'connected' : 'DISCONNECTED') : 'not configured'}, scripts loaded: ${h.scripts}, safe mode: ${h.safeMode ? 'YES' : 'no'}`,
+    ];
+    if (st.topics !== undefined) lines.push(`topics: ${st.topics}, messages/s: ${st.mqttMsgPerSec}, handlers: ${st.handlers}`);
+    if (st.memMb !== undefined)
+        lines.push(`memory: ${st.memMb} MB, cpu: ${st.cpuPercent}%, event loop: ${st.eluPercent}% utilised, lag mean ${st.elMeanMs} ms max ${st.elMaxMs} ms`);
+    if (st.matterEnabled) lines.push(`matter: ${st.matterNodes} node(s), ${st.matterEndpoints} endpoint(s)`);
+    if (st.dbEnabled) lines.push(`sheDB: ${st.dbDocs} document(s), ${st.dbViews} view(s)`);
+    return lines.join('\n');
+}
+
+function toolListTimers({ script = '' } = {}, ctx = {}) {
+    if (!ctx.introspect?.scripts) return NO_INTROSPECT;
+    const q = String(script).toLowerCase();
+    const lines = [];
+    for (const sc of ctx.introspect.scripts()) {
+        if (q && !sc.label.toLowerCase().includes(q)) continue;
+        const items = [
+            ...sc.timers.map((t) => (t.every ? `interval every ${ago(t.every)}, next ${inTime(t.due)}` : `timer ${inTime(t.due)}`)),
+            ...sc.jobs.map((j) => `schedule job ${inTime(j.next)}`),
+            ...sc.sunEvents.map((e) => `${e.pattern} ${inTime(e.next)}`),
+        ];
+        if (!items.length) continue;
+        lines.push(`\n### ${sc.label}`);
+        items.sort();
+        lines.push(...items.slice(0, 30).map((x) => '- ' + x));
+        if (items.length > 30) lines.push(`… ${items.length - 30} more`);
+    }
+    if (!lines.length) return q ? `Nothing pending for scripts matching "${script}".` : 'Nothing pending in any script.';
+    return `Pending per script:` + lines.join('\n');
 }
 
 const MAX_FETCH_CHARS = 8000;

@@ -32,11 +32,15 @@ let _store = null;
  */
 let _log = console;
 
+let _introspect = null;
+
 /**
  * @param {object} store
  * @param {{ error: Function, warn: Function }} [log] — the daemon's logger; console until init
+ * @param {object} [introspect] — read-only views of the daemon (scripts, stats, health, services, devices)
  */
-function init(store, log) {
+function init(store, log, introspect) {
+    _introspect = introspect || null;
     if (log) _log = log;
     _store = store;
 }
@@ -587,6 +591,7 @@ router.post('/chat', async (req, res) => {
                 resultChars: ai.toolResultChars,
                 fetchAllow: ai.fetchAllow,
                 elasticIndex: ai.elasticIndex,
+                introspect: _introspect,
             };
             result = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, undefined);
         } else if (ai.provider === 'anthropic') {
@@ -645,6 +650,7 @@ router.post('/chat/stream', async (req, res) => {
                 resultChars: ai.toolResultChars,
                 fetchAllow: ai.fetchAllow,
                 elasticIndex: ai.elasticIndex,
+                introspect: _introspect,
             };
             const { message, detail, usage } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
             if (!message || !message.trim()) throw new Error('The model returned an empty answer' + (detail ? ` (${detail})` : ''));

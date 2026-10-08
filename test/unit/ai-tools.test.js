@@ -185,7 +185,7 @@ describe('Matter tools (I24)', () => {
                   ]
                 : [{ endpointId: 1, clusters: ['TemperatureMeasurement'] }],
         );
-        matter.getAttribute.mockImplementation(async (node, ep, cluster, attr) => (cluster === 'OnOff' ? true : cluster === 'LevelControl' ? 254 : null));
+        matter.getAttribute.mockImplementation(async (node, ep, cluster) => (cluster === 'OnOff' ? true : cluster === 'LevelControl' ? 254 : null));
     });
 
     it('lists devices with their state attributes inline for online nodes', async () => {
@@ -271,5 +271,119 @@ describe('history tools (I15)', () => {
         expect(out).toContain('2026-10-08 15:00:00Z  true');
         expect(search.mock.calls[0][0].index).toBe('mqtt-*');
         expect(search.mock.calls[0][0].query.bool.filter[0]).toEqual({ term: { topic: 'var/status/presence/bath' } });
+    });
+});
+
+describe("the daemon's state (I19, I27, I28)", () => {
+    const now = Date.now();
+    const introspect = {
+        scripts: () => [
+            {
+                file: '/s/licht/bath.js',
+                label: 'licht/bath.js',
+                origin: 'user',
+                subscriptions: ['var/status/presence/bath', 'home/status/bath/door'],
+                varSubscriptions: [],
+                publishes: ['home/set/bath/light'],
+                jobs: [{ next: now + 3600000 }],
+                sunEvents: [{ pattern: 'sunset', next: now + 7200000 }],
+                timers: [
+                    { due: now + 300000, every: null },
+                    { due: now + 60000, every: 60000 },
+                ],
+            },
+            {
+                file: '/s/misc/other.js',
+                label: 'misc/other.js',
+                origin: 'user',
+                subscriptions: ['home/status/kitchen/#'],
+                varSubscriptions: ['var::mode'],
+                publishes: [],
+                jobs: [],
+                sunEvents: [],
+                timers: [],
+            },
+        ],
+        instances: () => [
+            { instance: 'home', adapter: 'home2mqtt', version: '1.2.3', host: 'box', connected: 2, uptime: 86400000, maintenance: true },
+            { instance: 'old', adapter: null, version: null, host: null, connected: 0, uptime: null },
+        ],
+        health: () => ({ started: true, mqttConfigured: true, mqttConnected: true, scripts: 2, safeMode: false }),
+        stats: () => ({
+            topics: 8000,
+            mqttMsgPerSec: 42,
+            handlers: 450,
+            memMb: 300,
+            cpuPercent: 3,
+            eluPercent: 5,
+            elMeanMs: 1,
+            elMaxMs: 12,
+            matterEnabled: true,
+            matterNodes: 2,
+            matterEndpoints: 3,
+            dbEnabled: true,
+            dbDocs: 700,
+            dbViews: 9,
+        }),
+        devices: () => [
+            {
+                id: 'd1',
+                name: 'Bath Light',
+                entities: [{ component: 'light', name: 'Bath Light', stateTopic: 'home/status/bath/light' }],
+                refTopics: ['home/status/bath/light', 'home/set/bath/light'],
+                orphaned: false,
+            },
+        ],
+    };
+    const ctx = { introspect, store };
+
+    it('list_scripts shows subscriptions, publishes and schedules, filtered by a topic', async () => {
+        const out = await executeTool('list_scripts', { filter: 'presence' }, ctx);
+        expect(out).toMatch(/^1 of 1 script/);
+        expect(out).toContain('### licht/bath.js');
+        expect(out).toContain('- subscribes: var/status/presence/bath, home/status/bath/door');
+        expect(out).toContain('- publishes (seen): home/set/bath/light');
+        expect(out).toMatch(/- schedules: job in 1h.*sunset in 2h/);
+        expect(out).toContain('- pending timers: 2');
+        expect(await executeTool('list_scripts', {}, {})).toMatch(/did not expose/);
+    });
+
+    it('who_publishes names the script and the adapter instance', async () => {
+        const out = await executeTool('who_publishes', { topic: 'home/set/bath/light' }, ctx);
+        expect(out).toContain('Scripts that published home/set/bath/light since the daemon started: licht/bath.js.');
+        expect(out).toContain('"home" is an adapter instance: home2mqtt 1.2.3 on box, connected to its device');
+        const none = await executeTool('who_publishes', { topic: 'nobody/status/x' }, ctx);
+        expect(none).toMatch(/No loaded script has published/);
+        expect(none).toContain('"nobody" is no adapter instance');
+    });
+
+    it('describe_device groups the topics and adds the discovery entities', async () => {
+        const out = await executeTool('describe_device', { name: 'bath' }, ctx);
+        expect(out).toMatch(/^3 topic\(s\) for "bath":/);
+        expect(out).toContain('## status (3)');
+        expect(out).toContain('home/status/bath/light: 0.7 (changed 5s ago)');
+        expect(out).toContain('## Home Assistant discovery: Bath Light');
+        expect(out).toContain('- light: Bath Light ← home/status/bath/light');
+        expect(await executeTool('describe_device', { name: 'garage' }, ctx)).toMatch(/^Nothing known under "garage"/);
+    });
+
+    it('list_services, get_health and list_timers', async () => {
+        const services = await executeTool('list_services', {}, ctx);
+        expect(services).toContain('- home: home2mqtt 1.2.3 on box, connected, up 1d, maintenance topics');
+        expect(services).toContain('- old: legacy, offline');
+        expect(await executeTool('list_services', { filter: 'box' }, ctx)).toMatch(/^1 adapter instance/);
+
+        const health = await executeTool('get_health', {}, ctx);
+        expect(health).toContain('started: true, mqtt: connected, scripts loaded: 2, safe mode: no');
+        expect(health).toContain('topics: 8000, messages/s: 42, handlers: 450');
+        expect(health).toContain('matter: 2 node(s), 3 endpoint(s)');
+
+        const timers = await executeTool('list_timers', {}, ctx);
+        expect(timers).toContain('### licht/bath.js');
+        expect(timers).toMatch(/- interval every 1m, next in 1m/);
+        expect(timers).toMatch(/- timer in 5m/);
+        expect(timers).toMatch(/- sunset in 2h/);
+        expect(timers).not.toContain('misc/other.js');
+        expect(await executeTool('list_timers', { script: 'other' }, ctx)).toMatch(/Nothing pending for scripts matching/);
     });
 });
