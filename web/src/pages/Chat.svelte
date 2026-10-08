@@ -577,7 +577,8 @@
 
         try {
             await streamChatWithAI(
-                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, providerOverride: selectedProvider || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
+                // the provider sees role and content only; the tool events stay here (they made a long chat exceed the request limit)
+                { messages: messages.map(({ role, content }) => ({ role, content })), currentScript: activeScript, context, modelOverride: selectedModel || undefined, providerOverride: selectedProvider || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
                 (event) => {
