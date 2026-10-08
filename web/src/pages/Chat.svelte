@@ -26,7 +26,11 @@
 
     // ── Conversation persistence ──────────────────────────────────────────────
     const CONV_ID_KEY = 'she:conversationId';
-    function genId() { return crypto.randomUUID().replace(/-/g, '').slice(0, 16); }
+    // crypto.randomUUID exists in secure contexts only; over plain http on a hostname the chat must not crash
+    function genId() {
+        if (typeof crypto.randomUUID === 'function') return crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+        return Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+    }
 
     let conversationId = $state<string>(localStorage.getItem(CONV_ID_KEY) ?? genId());
     let conversations = $state<AiConversation[]>([]);
