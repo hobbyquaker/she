@@ -117,15 +117,26 @@
         { id: 'anthropic', label: 'Anthropic (paid)',                      provider: 'anthropic', baseUrl: '',                                                         defaultModel: 'claude-haiku-4-5-20251001',    freeNote: '',                                              apiKeyUrl: 'https://console.anthropic.com/settings/keys' },
     ];
 
-    let aiPreset   = $state('ollama');
-    let aiProvider = $state('ollama');
-    let aiBaseUrl  = $state('');
-    let aiModel    = $state('');
-    let aiApiKey   = $state('');
+    // Several provider entries (roadmap I14): each one a preset with its own URL, model and key; one is the default
+    interface AiEntry { id: string; label: string; preset: string; provider: string; baseUrl: string; model: string; apiKey: string }
+    let aiEntries = $state<AiEntry[]>([]);
+    let aiDefault = $state('');
+    let aiSettings: Record<string, unknown> = {}; // toolResultChars, fetchAllow, elasticIndex, … — kept as loaded
 
-    // Per-preset settings cache — remembers customised values when switching presets
-    const presetCache: Record<string, { baseUrl: string; model: string; apiKey: string }> = {};
-    let previousPreset = 'ollama';
+    function newEntry(presetId = 'ollama'): AiEntry {
+        const p = AI_PRESETS.find(x => x.id === presetId) ?? AI_PRESETS[0];
+        let id = p.id;
+        for (let n = 2; aiEntries.some(e => e.id === id); n++) id = p.id + '-' + n;
+        return { id, label: p.label.replace(/ \(.*\)$/, '').replace(/ —.*$/, ''), preset: p.id, provider: p.provider, baseUrl: p.baseUrl, model: p.defaultModel, apiKey: '' };
+    }
+    function addEntry() {
+        aiEntries = [...aiEntries, newEntry()];
+        if (!aiDefault) aiDefault = aiEntries[0].id;
+    }
+    function removeEntry(id: string) {
+        aiEntries = aiEntries.filter(e => e.id !== id);
+        if (aiDefault === id) aiDefault = aiEntries[0]?.id ?? '';
+    }
 
     function detectAiPreset(provider: string, baseUrl: string): string {
         if (provider === 'anthropic') return 'anthropic';
@@ -137,24 +148,16 @@
         return 'openai';
     }
 
-    function onPresetChange() {
-        // Save current values for the preset we're leaving
-        presetCache[previousPreset] = { baseUrl: aiBaseUrl, model: aiModel, apiKey: aiApiKey };
-
-        const p = AI_PRESETS.find(x => x.id === aiPreset);
+    function onPresetChange(entry: AiEntry) {
+        const p = AI_PRESETS.find(x => x.id === entry.preset);
         if (!p) return;
-        aiProvider = p.provider;
-
-        // Restore previously cached values, or fall back to preset defaults
-        const cached = presetCache[aiPreset];
-        aiBaseUrl = cached?.baseUrl ?? p.baseUrl;
-        aiModel   = cached?.model   ?? p.defaultModel;
-        aiApiKey  = cached?.apiKey  ?? '';
-
-        previousPreset = aiPreset;
+        entry.provider = p.provider;
+        entry.baseUrl = p.baseUrl;
+        entry.model = p.defaultModel;
+        if (!p.apiKeyUrl) entry.apiKey = '';
     }
 
-    const activePreset = $derived(AI_PRESETS.find(p => p.id === aiPreset));
+    const presetOf = (entry: AiEntry) => AI_PRESETS.find(p => p.id === entry.preset);
 
     // Unknown keys from config.json — preserved on save
     let extra          = $state<Record<string, unknown>>({});
@@ -338,13 +341,22 @@
             const ms = cfg['matter-storage'] as string | undefined;
             matterEnabled = !!ms;
             matterStorage = (ms && typeof ms === 'string' && ms !== 'true') ? ms : '';
-            const ai = cfg.ai as { provider?: string; baseUrl?: string; model?: string; apiKey?: string } | undefined;
-            if (ai?.provider) aiProvider = ai.provider;
-            if (ai?.baseUrl)  aiBaseUrl  = ai.baseUrl;
-            if (ai?.model)    aiModel    = ai.model;
-            if (ai?.apiKey)   aiApiKey   = ai.apiKey;
-            aiPreset = detectAiPreset(aiProvider, aiBaseUrl);
-            previousPreset = aiPreset;
+            const ai = cfg.ai as Record<string, unknown> | undefined;
+            const raw = Array.isArray(ai?.providers)
+                ? (ai!.providers as Record<string, unknown>[])
+                : ai?.provider ? [{ id: ai.provider, label: ai.provider, provider: ai.provider, baseUrl: ai.baseUrl, model: ai.model, apiKey: ai.apiKey }] : [];
+            aiEntries = raw.filter(e => e && typeof e.provider === 'string').map((e, i) => ({
+                id: String(e.id ?? (e.provider as string) + (i ? '-' + i : '')),
+                label: String(e.label ?? e.id ?? e.provider),
+                preset: detectAiPreset(e.provider as string, (e.baseUrl as string) ?? ''),
+                provider: e.provider as string,
+                baseUrl: (e.baseUrl as string) ?? '',
+                model: (e.model as string) ?? '',
+                apiKey: (e.apiKey as string) ?? '',
+            }));
+            aiDefault = aiEntries.some(e => e.id === ai?.default) ? String(ai!.default) : (aiEntries[0]?.id ?? '');
+            aiSettings = {};
+            for (const [k, v] of Object.entries(ai ?? {})) if (!['provider', 'baseUrl', 'model', 'apiKey', 'providers', 'default'].includes(k)) aiSettings[k] = v;
             extra = captureExtra(cfg);
             const servicesCfg = cfg.services as Record<string, unknown> | undefined;
             servicesEnabled = servicesCfg?.enabled === true;
@@ -554,13 +566,21 @@
         if (matterEnabled) {
             cfg['matter-storage'] = matterStorage || true;
         }
-        if (aiProvider) {
+        if (aiEntries.length > 0) {
             cfg.ai = {
-                provider: aiProvider,
-                ...(aiBaseUrl  ? { baseUrl:  aiBaseUrl }  : {}),
-                ...(aiModel    ? { model:    aiModel }    : {}),
-                ...(aiApiKey   ? { apiKey:   aiApiKey }   : {}),
+                ...aiSettings,
+                providers: aiEntries.map(e => ({
+                    id: e.id,
+                    label: e.label,
+                    provider: e.provider,
+                    ...(e.baseUrl ? { baseUrl: e.baseUrl } : {}),
+                    ...(e.model   ? { model:   e.model }   : {}),
+                    ...(e.apiKey  ? { apiKey:  e.apiKey }  : {}),
+                })),
+                default: aiEntries.some(e => e.id === aiDefault) ? aiDefault : aiEntries[0].id,
             };
+        } else {
+            delete cfg.ai;
         }
 
         saving = true;
@@ -1209,56 +1229,70 @@
                 {#if visibleSections.some(s => s.id === 'ai')}
                 <section id="sec-ai">
                     <h3>AI Assistant</h3>
-                    <div class="field">
-                        <label>
-                            Provider
-                            {@render tip('Choose a provider. Free options need a free API key from the provider\'s website — no credit card required.')}
-                        </label>
-                        <select bind:value={aiPreset} onchange={onPresetChange}>
-                            {#each AI_PRESETS as preset}
-                                <option value={preset.id}>{preset.label}</option>
-                            {/each}
-                        </select>
-                    </div>
-                    {#if activePreset?.freeNote || activePreset?.apiKeyUrl}
-                        <div class="preset-note" class:free={!!activePreset.freeNote}>
-                            {#if activePreset.freeNote}
-                                <span class="free-badge">FREE</span> {activePreset.freeNote}
+                    <p class="hint">Several providers can be configured; the chat window has a dropdown to switch between them. One is the default.</p>
+                    {#each aiEntries as entry (entry.id)}
+                        {@const preset = presetOf(entry)}
+                        <div class="ai-entry">
+                            <div class="ai-entry-head">
+                                <label class="ai-default">
+                                    <input type="radio" name="ai-default" value={entry.id} bind:group={aiDefault} /> default
+                                </label>
+                                <input class="ai-label" type="text" bind:value={entry.label} placeholder="Name shown in the chat" />
+                                <button type="button" class="ai-remove" onclick={() => removeEntry(entry.id)} title="Remove this provider">✕</button>
+                            </div>
+                            <div class="field">
+                                <label>
+                                    Provider
+                                    {@render tip('Choose a provider. Free options need a free API key from the provider\'s website — no credit card required.')}
+                                </label>
+                                <select bind:value={entry.preset} onchange={() => onPresetChange(entry)}>
+                                    {#each AI_PRESETS as p}
+                                        <option value={p.id}>{p.label}</option>
+                                    {/each}
+                                </select>
+                            </div>
+                            {#if preset?.freeNote || preset?.apiKeyUrl}
+                                <div class="preset-note" class:free={!!preset.freeNote}>
+                                    {#if preset.freeNote}
+                                        <span class="free-badge">FREE</span> {preset.freeNote}
+                                    {/if}
+                                    {#if preset.apiKeyUrl}
+                                        &nbsp;— <a href={preset.apiKeyUrl} target="_blank" rel="noreferrer">Get API key ↗</a>
+                                    {/if}
+                                </div>
                             {/if}
-                            {#if activePreset.apiKeyUrl}
-                                &nbsp;— <a href={activePreset.apiKeyUrl} target="_blank" rel="noreferrer">Get API key ↗</a>
+                            {#if entry.preset !== 'anthropic'}
+                                <div class="field">
+                                    <label>
+                                        Base URL
+                                        {@render tip('Base URL of the LLM API. Auto-filled for cloud presets. For Ollama: http://localhost:11434.')}
+                                    </label>
+                                    <input type="text" bind:value={entry.baseUrl} placeholder={
+                                        entry.preset === 'ollama'   ? 'http://localhost:11434' :
+                                        entry.preset === 'lmstudio' ? 'http://localhost:1234'  :
+                                        preset?.baseUrl ?? ''
+                                    } />
+                                </div>
+                            {/if}
+                            <div class="field">
+                                <label>
+                                    Model
+                                    {@render tip('Model identifier; the chat offers the provider\'s model list to switch. This one is the default for the entry.')}
+                                </label>
+                                <input type="text" bind:value={entry.model} placeholder={preset?.defaultModel || 'e.g. llama3.2'} />
+                            </div>
+                            {#if entry.preset !== 'ollama' && entry.preset !== 'lmstudio'}
+                                <div class="field">
+                                    <label>
+                                        API key
+                                        {@render tip('Stored in config.json. Not needed for local providers.')}
+                                    </label>
+                                    <input type="password" bind:value={entry.apiKey} placeholder="sk-…" autocomplete="off" />
+                                </div>
                             {/if}
                         </div>
-                    {/if}
-                    {#if aiPreset !== 'anthropic'}
-                        <div class="field">
-                            <label>
-                                Base URL
-                                {@render tip('Base URL of the LLM API. Auto-filled for cloud presets. For Ollama: http://localhost:11434.')} 
-                            </label>
-                            <input type="text" bind:value={aiBaseUrl} placeholder={
-                                aiPreset === 'ollama'   ? 'http://localhost:11434' :
-                                aiPreset === 'lmstudio' ? 'http://localhost:1234'  :
-                                activePreset?.baseUrl ?? ''
-                            } />
-                        </div>
-                    {/if}
-                    <div class="field">
-                        <label>
-                            Model
-                            {@render tip('Model identifier. Suggested default is filled in when you choose a preset.')} 
-                        </label>
-                        <input type="text" bind:value={aiModel} placeholder={activePreset?.defaultModel || 'e.g. llama3.2'} />
-                    </div>
-                    {#if aiPreset !== 'ollama' && aiPreset !== 'lmstudio'}
-                        <div class="field">
-                            <label>
-                                API key
-                                {@render tip('Stored in config.json. Not needed for local providers.')}
-                            </label>
-                            <input type="password" bind:value={aiApiKey} placeholder="sk-…" autocomplete="off" />
-                        </div>
-                    {/if}
+                    {/each}
+                    <button type="button" class="ai-add" onclick={addEntry}>+ Add provider</button>
                 </section>
                 {/if}
 
@@ -1670,4 +1704,12 @@
         overflow: hidden;
     }
     .link-btn { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font-size: inherit; text-decoration: underline; }
+    /* ── AI providers (I14) ────────────────────────────────────── */
+    .ai-entry { border: 1px solid var(--border, #444); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 0.8rem; }
+    .ai-entry-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
+    .ai-entry-head .ai-label { flex: 1; }
+    .ai-default { white-space: nowrap; font-size: 0.9em; }
+    .ai-remove { background: none; border: none; cursor: pointer; opacity: 0.6; }
+    .ai-remove:hover { opacity: 1; }
+    .ai-add { margin-top: 0.2rem; }
 </style>

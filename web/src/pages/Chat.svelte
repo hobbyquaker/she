@@ -40,6 +40,10 @@
     let modelNames = $state<Record<string, string>>({});
     let modelListError = $state<string>('');
     let selectedModel = $state<string>(localStorage.getItem('she:selectedModel') ?? '');
+    // the provider entry (I14): the config's default unless chosen here; stored like the model
+    let selectedProvider = $state<string>(localStorage.getItem('she:selectedProvider') ?? '');
+    const providerEntries = $derived(aiConfig?.providers ?? []);
+    const activeEntry = $derived(providerEntries.find(p => p.id === selectedProvider) ?? providerEntries.find(p => p.id === aiConfig?.default) ?? null);
 
     // Always-apply session flag (per script, resets on script change)
     let autoApplyScript = $state<string | null>(null);
@@ -139,11 +143,19 @@
             const c = await getAiConfig();
             aiConfig = c;
             if (c.configured) {
+                const entries = c.providers ?? [];
+                const providerFor = localStorage.getItem('she:selectedProviderFor');
+                if (!selectedProvider || !entries.some(p => p.id === selectedProvider) || providerFor !== (c.default ?? '')) {
+                    // no choice yet, the chosen entry is gone, or the default changed: follow the config
+                    selectedProvider = c.default ?? '';
+                    localStorage.setItem('she:selectedProviderFor', c.default ?? '');
+                }
+                const entryModel = entries.find(p => p.id === selectedProvider)?.model ?? c.model;
                 const chosenFor = localStorage.getItem('she:selectedModelFor');
-                if (!selectedModel || chosenFor !== c.model) {
-                    // no choice yet, or the choice was made against another config model: follow the config
-                    selectedModel = c.model;
-                    localStorage.setItem('she:selectedModelFor', c.model);
+                if (!selectedModel || chosenFor !== selectedProvider + ':' + entryModel) {
+                    // no choice yet, or the choice was made against another entry or config model: follow the config
+                    selectedModel = entryModel;
+                    localStorage.setItem('she:selectedModelFor', selectedProvider + ':' + entryModel);
                 }
             }
         } catch {}
@@ -154,17 +166,29 @@
         return () => window.removeEventListener('she:config-changed', reloadAiConfig);
     });
 
-    // Persist model selection across page reloads
+    // Persist model and provider selection across page reloads
     $effect(() => {
         if (selectedModel) localStorage.setItem('she:selectedModel', selectedModel);
     });
+    $effect(() => {
+        if (selectedProvider) localStorage.setItem('she:selectedProvider', selectedProvider);
+    });
+
+    function onProviderChange() {
+        // a new entry: its configured model, and its own model list
+        const entry = providerEntries.find(p => p.id === selectedProvider);
+        selectedModel = entry?.model ?? '';
+        localStorage.setItem('she:selectedModelFor', selectedProvider + ':' + (entry?.model ?? ''));
+    }
 
     $effect(() => {
         if (aiConfig?.provider) {
-            getAiModels().then(r => {
+            const providerId = selectedProvider || undefined;
+            const entryModel = activeEntry?.model ?? aiConfig?.model;
+            getAiModels(providerId).then(r => {
                 const list = r.models.slice();
-                // the config model is always offered, even when the provider's list does not know it
-                if (aiConfig?.model && !list.includes(aiConfig.model)) list.unshift(aiConfig.model);
+                // the entry's configured model is always offered, even when the provider's list does not know it
+                if (entryModel && !list.includes(entryModel)) list.unshift(entryModel);
                 availableModels = list;
                 modelNames = r.names ?? {};
                 modelListError = r.error ?? '';
@@ -175,7 +199,7 @@
 
     function modelLabel(m: string): string {
         const name = modelNames[m] ?? m;
-        return m === aiConfig?.model ? `${name} (config)` : name;
+        return m === (activeEntry?.model ?? aiConfig?.model) ? `${name} (config)` : name;
     }
 
     // Reset cached info when model changes
@@ -471,7 +495,7 @@
 
         try {
             await streamChatWithAI(
-                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
+                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, providerOverride: selectedProvider || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
                 (event) => { toolEvents = [...toolEvents, event]; },
@@ -530,7 +554,7 @@
         <span class="chat-title">AI Assistant</span>
         {#if aiConfig}
             <span class="chat-model" title="Provider: {aiConfig.provider}">
-                {#if canChat}{aiConfig.provider} · {selectedModel || aiConfig.model}{:else if aiConfig.provider}{aiConfig.provider} · pick a model below{:else}Not configured{/if}
+                {#if canChat}{activeEntry?.label ?? aiConfig.provider} · {selectedModel || activeEntry?.model || aiConfig.model}{:else if aiConfig.provider}{aiConfig.provider} · pick a model below{:else}Not configured{/if}
             </span>
         {/if}
         <button class="icon-hdr-btn" onclick={() => showHistory = !showHistory} title="Conversation history" class:active={showHistory}>
@@ -774,7 +798,15 @@
     <!-- Model bar -->
     {#if aiConfig?.provider && (configured || availableModels.length > 0)}
         <div class="model-bar">
-            <span class="model-provider">{aiConfig.provider}</span>
+            {#if providerEntries.length > 1}
+                <select class="model-select" bind:value={selectedProvider} onchange={onProviderChange} disabled={loading} title="Provider for this chat; the config default is marked">
+                    {#each providerEntries as p}
+                        <option value={p.id}>{p.label}{p.id === aiConfig.default ? ' (default)' : ''}</option>
+                    {/each}
+                </select>
+            {:else}
+                <span class="model-provider">{activeEntry?.label ?? aiConfig.provider}</span>
+            {/if}
             {#if availableModels.length > 0}
                 <select class="model-select" bind:value={selectedModel} disabled={loading} title={modelListError ? 'Model list unavailable: ' + modelListError : 'Model for this chat; the config model is the default'}>
                     {#each availableModels as m}

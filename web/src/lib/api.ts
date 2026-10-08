@@ -601,6 +601,8 @@ export interface AiChatRequest {
     currentView?: AiCurrentView | null;
     context: AiContext;
     modelOverride?: string;
+    /** the id of a configured provider entry (I14); the config's default without it */
+    providerOverride?: string;
     extraFiles?: AiExtraFile[];
 }
 
@@ -609,11 +611,22 @@ export interface AiChatResponse {
     usage?: { prompt_tokens: number; completion_tokens: number };
 }
 
+export interface AiProviderEntry {
+    id: string;
+    label: string;
+    provider: string;
+    model: string;
+    baseUrl: string;
+}
+
 export interface AiConfig {
     configured: boolean;
     provider: string;
     model: string;
     baseUrl: string;
+    /** the configured entries without their keys, and the default one (I14) */
+    default?: string;
+    providers?: AiProviderEntry[];
 }
 
 export interface OllamaModelDetails {
@@ -642,8 +655,8 @@ export function getAiConfig(): Promise<AiConfig> {
     return request('GET', '/she/ai/config');
 }
 
-export function getAiModels(): Promise<{ models: string[]; names?: Record<string, string>; error?: string }> {
-    return request('GET', '/she/ai/models');
+export function getAiModels(providerId?: string): Promise<{ models: string[]; names?: Record<string, string>; error?: string }> {
+    return request('GET', '/she/ai/models' + (providerId ? '?provider=' + encodeURIComponent(providerId) : ''));
 }
 
 export function getOllamaModelInfo(model: string): Promise<OllamaModelInfo> {

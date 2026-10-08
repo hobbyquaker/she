@@ -55,14 +55,62 @@ function init(store, log, introspect) {
  * @param {string|undefined} configPath
  * @returns {{ provider?: string, baseUrl?: string, model?: string, apiKey?: string }|null}
  */
-function readAiConfig(configPath) {
+function readAiConfig(configPath, providerId) {
     if (!configPath) return null;
+    let raw;
     try {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        return cfg.ai || null;
+        raw = JSON.parse(fs.readFileSync(configPath, 'utf8')).ai || null;
     } catch {
         return null;
     }
+    return resolveAi(raw, providerId);
+}
+
+const ENTRY_KEYS = ['provider', 'baseUrl', 'model', 'apiKey'];
+
+/**
+ * The provider entries of an `ai` config section (roadmap I14). Two shapes are read:
+ *   { provider, model, baseUrl, apiKey, …settings }                       — one entry, id = provider
+ *   { providers: [{ id, label, provider, model, baseUrl, apiKey }], default, …settings }
+ * Settings (toolResultChars, fetchAllow, elasticIndex) live on the section and apply to every entry.
+ * @returns {{ providers: Array<object>, defaultId: string|null, settings: object }}
+ */
+function normalizeAiConfig(raw) {
+    if (!raw || typeof raw !== 'object') return { providers: [], defaultId: null, settings: {} };
+    const settings = {};
+    for (const k of Object.keys(raw)) if (!ENTRY_KEYS.includes(k) && k !== 'providers' && k !== 'default') settings[k] = raw[k];
+    let providers = [];
+    if (Array.isArray(raw.providers)) {
+        providers = raw.providers
+            .filter((e) => e && typeof e === 'object' && e.provider)
+            .map((e, i) => ({
+                id: String(e.id || e.provider + (i ? '-' + i : '')),
+                label: String(e.label || e.id || e.provider),
+                provider: e.provider,
+                baseUrl: e.baseUrl || '',
+                model: e.model || '',
+                apiKey: e.apiKey || '',
+            }));
+    } else if (raw.provider) {
+        providers = [
+            { id: String(raw.provider), label: String(raw.provider), provider: raw.provider, baseUrl: raw.baseUrl || '', model: raw.model || '', apiKey: raw.apiKey || '' },
+        ];
+    }
+    const defaultId = providers.some((e) => e.id === raw.default) ? raw.default : providers[0]?.id || null;
+    return { providers, defaultId, settings };
+}
+
+/**
+ * One entry merged with the settings, in the shape the provider adapters take; the default entry when no id is
+ * given; `null` when nothing is configured; `{ unknown: id }` when the id names no entry.
+ */
+function resolveAi(raw, providerId) {
+    const { providers, defaultId, settings } = normalizeAiConfig(raw);
+    if (!providers.length) return null;
+    const id = providerId || defaultId;
+    const entry = providers.find((e) => e.id === id);
+    if (!entry) return { unknown: String(providerId) };
+    return { ...settings, ...entry, providers: providers.map(({ apiKey: _k, ...pub }) => pub), defaultId };
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +494,9 @@ router.get('/config', (req, res) => {
         provider: ai?.provider || '',
         model: ai?.model || '',
         baseUrl: ai?.baseUrl || '',
+        // the entries without keys, and which one is the default (roadmap I14)
+        default: ai?.defaultId || '',
+        providers: ai?.providers || [],
     });
 });
 
@@ -487,7 +538,8 @@ async function listAnthropicModels(ai) {
 
 // GET /she/ai/models — list available models for the configured provider
 router.get('/models', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
+    const ai = readAiConfig(req.app.locals.configPath, req.query.provider);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"`, models: [] });
     if (!ai?.provider) return res.json({ models: [] });
 
     const base = (ai.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
@@ -525,7 +577,8 @@ router.get('/models', async (req, res) => {
 // GET /she/ai/model-info — Ollama-specific: version, model details, running models
 // Query param: ?model=<name>  (defaults to configured model)
 router.get('/model-info', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
+    const ai = readAiConfig(req.app.locals.configPath, req.query.provider);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"` });
     if (!ai?.provider || !ai?.model) return res.status(400).json({ error: 'Not configured' });
     if (ai.provider !== 'ollama') return res.status(400).json({ error: 'Model info is only available for Ollama' });
 
@@ -569,8 +622,9 @@ router.post('/prompt', (req, res) => {
 
 // POST /she/ai/chat — non-streaming
 router.post('/chat', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, providerOverride, extraFiles } = req.body || {};
+    const ai = readAiConfig(req.app.locals.configPath, typeof providerOverride === 'string' ? providerOverride : undefined);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"` });
     const effectiveModel = modelOverride && typeof modelOverride === 'string' ? modelOverride : ai?.model;
     if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
@@ -579,7 +633,7 @@ router.post('/chat', async (req, res) => {
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = { ...ai, model: effectiveModel };
-    _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
+    _log.debug(`ai chat: ${ai.id !== ai.provider ? ai.id + '/' : ''}${ai.provider} ${effectiveModel}${modelOverride || providerOverride ? ' (chosen in the chat)' : ' (config)'}`);
     const fullMessages = [systemMessage(context, currentScript, currentView, currentDoc, extraFiles), ...providerMessages(messages)];
 
     try {
@@ -609,8 +663,9 @@ router.post('/chat', async (req, res) => {
 
 // POST /she/ai/chat/stream — SSE streaming
 router.post('/chat/stream', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, providerOverride, extraFiles } = req.body || {};
+    const ai = readAiConfig(req.app.locals.configPath, typeof providerOverride === 'string' ? providerOverride : undefined);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"` });
     const effectiveModel = modelOverride && typeof modelOverride === 'string' ? modelOverride : ai?.model;
     if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
@@ -619,7 +674,7 @@ router.post('/chat/stream', async (req, res) => {
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = { ...ai, model: effectiveModel };
-    _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
+    _log.debug(`ai chat: ${ai.id !== ai.provider ? ai.id + '/' : ''}${ai.provider} ${effectiveModel}${modelOverride || providerOverride ? ' (chosen in the chat)' : ' (config)'}`);
 
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
     let system;
@@ -763,6 +818,8 @@ module.exports = {
         callAnthropic,
         answerText,
         readAiConfig,
+        normalizeAiConfig,
+        resolveAi,
         listAnthropicModels,
         ANTHROPIC_FALLBACK_MODELS,
         providerMessages,

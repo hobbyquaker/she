@@ -7,7 +7,18 @@ const path = require('path');
 const express = require('express');
 
 const { router, init, _internal } = require('../../src/web/ai-api');
-const { callAnthropic, answerText, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages, anthropicSystem, plainMessages, buildSystemPromptParts } = _internal;
+const {
+    callAnthropic,
+    answerText,
+    listAnthropicModels,
+    ANTHROPIC_FALLBACK_MODELS,
+    providerMessages,
+    anthropicSystem,
+    plainMessages,
+    buildSystemPromptParts,
+    normalizeAiConfig,
+    resolveAi,
+} = _internal;
 
 /** a fetch stub answering every call with the given status and JSON (or SSE text) body */
 function fetchStub(status, body, headers = { 'content-type': 'application/json' }) {
@@ -381,5 +392,100 @@ describe('prompt caching (I22)', () => {
             { role: 'system', content: 'c' },
             { role: 'user', content: 'u' },
         ]);
+    });
+});
+
+describe('several AI providers (I14)', () => {
+    const list = {
+        providers: [
+            { id: 'claude', label: 'Anthropic', provider: 'anthropic', model: 'claude-opus-5-5', apiKey: 'k1' },
+            { id: 'local', label: 'Ollama', provider: 'ollama', baseUrl: 'http://ollama:11434', model: 'qwen3:30b' },
+        ],
+        default: 'local',
+        toolResultChars: 4000,
+        fetchAllow: ['nas.lan'],
+    };
+
+    it('reads the old single-object shape as one entry', () => {
+        const n = normalizeAiConfig({ provider: 'anthropic', model: 'm', apiKey: 'k', elasticIndex: 'mqtt-*' });
+        expect(n.providers).toEqual([{ id: 'anthropic', label: 'anthropic', provider: 'anthropic', baseUrl: '', model: 'm', apiKey: 'k' }]);
+        expect(n.defaultId).toBe('anthropic');
+        expect(n.settings).toEqual({ elasticIndex: 'mqtt-*' });
+        expect(normalizeAiConfig(null)).toEqual({ providers: [], defaultId: null, settings: {} });
+    });
+
+    it('resolves the default, a named entry, and an unknown id', () => {
+        const d = resolveAi(list);
+        expect(d.id).toBe('local');
+        expect(d.provider).toBe('ollama');
+        expect(d.toolResultChars).toBe(4000);
+        expect(d.fetchAllow).toEqual(['nas.lan']);
+        expect(d.providers.map((p) => p.id)).toEqual(['claude', 'local']);
+        expect(d.providers.find((p) => p.id === 'claude').apiKey).toBeUndefined(); // never listed
+        expect(resolveAi(list, 'claude').apiKey).toBe('k1');
+        expect(resolveAi(list, 'nope')).toEqual({ unknown: 'nope' });
+        expect(resolveAi(list, '').id).toBe('local');
+    });
+
+    it('the config route lists the entries without keys; the chat route takes a providerOverride', async () => {
+        const http = require('http');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ai-providers-'));
+        fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: list }));
+        const log = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
+        init(null, log);
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = path.join(dir, 'config.json');
+        app.use('/she/ai', router);
+        const server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const port = server.address().port;
+        const call = (method, p, body) =>
+            new Promise((resolve, reject) => {
+                const data = body ? JSON.stringify(body) : null;
+                const req = http.request(
+                    { host: '127.0.0.1', port, path: p, method, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {} },
+                    (res) => {
+                        let text = '';
+                        res.on('data', (c) => (text += c));
+                        res.on('end', () => resolve({ status: res.statusCode, text }));
+                    },
+                );
+                req.on('error', reject);
+                req.end(data);
+            });
+        const realFetch = global.fetch;
+        try {
+            const cfg = JSON.parse((await call('GET', '/she/ai/config')).text);
+            expect(cfg.default).toBe('local');
+            expect(cfg.provider).toBe('ollama');
+            expect(cfg.providers).toEqual([
+                { id: 'claude', label: 'Anthropic', provider: 'anthropic', baseUrl: '', model: 'claude-opus-5-5' },
+                { id: 'local', label: 'Ollama', provider: 'ollama', baseUrl: 'http://ollama:11434', model: 'qwen3:30b' },
+            ]);
+            expect(JSON.stringify(cfg)).not.toContain('k1');
+
+            global.fetch = jest.fn(
+                async () =>
+                    new Response('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n\n', {
+                        status: 200,
+                        headers: { 'content-type': 'text/event-stream' },
+                    }),
+            );
+            const r = await call('POST', '/she/ai/chat/stream', { messages: [{ role: 'user', content: 'x' }], context: { tools: false }, providerOverride: 'claude' });
+            expect(r.text).toContain('{"token":"hi"}');
+            expect(String(global.fetch.mock.calls[0][0])).toContain('api.anthropic.com');
+            expect(global.fetch.mock.calls[0][1].headers['x-api-key']).toBe('k1');
+            expect(JSON.parse(global.fetch.mock.calls[0][1].body).model).toBe('claude-opus-5-5');
+            expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('ai chat: claude/anthropic claude-opus-5-5 (chosen in the chat)'));
+
+            const bad = await call('POST', '/she/ai/chat/stream', { messages: [], context: {}, providerOverride: 'nope' });
+            expect(bad.status).toBe(400);
+            expect(JSON.parse(bad.text).error).toBe('unknown AI provider entry "nope"');
+        } finally {
+            global.fetch = realFetch;
+            await new Promise((resolve) => server.close(resolve));
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
