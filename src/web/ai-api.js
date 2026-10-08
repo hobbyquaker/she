@@ -18,11 +18,14 @@
 
 const express = require('express');
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 
-const { buildSystemPrompt } = require('./ai-context');
+const { buildSystemPrompt, buildSystemPromptParts, houseSection, profileFor, stripThinking, thinkFilter } = require('./ai-context');
 const { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool } = require('./ai-tools');
 const { STORAGE_ROOT } = require('../lib/storage');
+const memory = require('./ai-memory');
+const drafts = require('./ai-drafts');
 
 const router = express.Router();
 let _store = null;
@@ -32,11 +35,24 @@ let _store = null;
  */
 let _log = console;
 
+let _introspect = null;
+
 /**
  * @param {object} store
  * @param {{ error: Function, warn: Function }} [log] — the daemon's logger; console until init
+ * @param {object} [introspect] — read-only views of the daemon (scripts, stats, health, services, devices)
  */
-function init(store, log) {
+function init(store, log, introspect) {
+    _introspect = introspect || null;
+    memory.init(path.join(STORAGE_ROOT, 'ai'), (t) => {
+        try {
+            return require('../lib/secrets').redact(t);
+        } catch {
+            return t;
+        }
+    });
+    setNotesProvider(() => memory.list());
+    drafts.init(path.join(STORAGE_ROOT, 'ai', 'drafts'));
     if (log) _log = log;
     _store = store;
 }
@@ -51,14 +67,62 @@ function init(store, log) {
  * @param {string|undefined} configPath
  * @returns {{ provider?: string, baseUrl?: string, model?: string, apiKey?: string }|null}
  */
-function readAiConfig(configPath) {
+function readAiConfig(configPath, providerId) {
     if (!configPath) return null;
+    let raw;
     try {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        return cfg.ai || null;
+        raw = JSON.parse(fs.readFileSync(configPath, 'utf8')).ai || null;
     } catch {
         return null;
     }
+    return resolveAi(raw, providerId);
+}
+
+const ENTRY_KEYS = ['provider', 'baseUrl', 'model', 'apiKey'];
+
+/**
+ * The provider entries of an `ai` config section (roadmap I14). Two shapes are read:
+ *   { provider, model, baseUrl, apiKey, …settings }                       — one entry, id = provider
+ *   { providers: [{ id, label, provider, model, baseUrl, apiKey }], default, …settings }
+ * Settings (toolResultChars, fetchAllow, elasticIndex) live on the section and apply to every entry.
+ * @returns {{ providers: Array<object>, defaultId: string|null, settings: object }}
+ */
+function normalizeAiConfig(raw) {
+    if (!raw || typeof raw !== 'object') return { providers: [], defaultId: null, settings: {} };
+    const settings = {};
+    for (const k of Object.keys(raw)) if (!ENTRY_KEYS.includes(k) && k !== 'providers' && k !== 'default') settings[k] = raw[k];
+    let providers = [];
+    if (Array.isArray(raw.providers)) {
+        providers = raw.providers
+            .filter((e) => e && typeof e === 'object' && e.provider)
+            .map((e, i) => ({
+                id: String(e.id || e.provider + (i ? '-' + i : '')),
+                label: String(e.label || e.id || e.provider),
+                provider: e.provider,
+                baseUrl: e.baseUrl || '',
+                model: e.model || '',
+                apiKey: e.apiKey || '',
+            }));
+    } else if (raw.provider) {
+        providers = [
+            { id: String(raw.provider), label: String(raw.provider), provider: raw.provider, baseUrl: raw.baseUrl || '', model: raw.model || '', apiKey: raw.apiKey || '' },
+        ];
+    }
+    const defaultId = providers.some((e) => e.id === raw.default) ? raw.default : providers[0]?.id || null;
+    return { providers, defaultId, settings };
+}
+
+/**
+ * One entry merged with the settings, in the shape the provider adapters take; the default entry when no id is
+ * given; `null` when nothing is configured; `{ unknown: id }` when the id names no entry.
+ */
+function resolveAi(raw, providerId) {
+    const { providers, defaultId, settings } = normalizeAiConfig(raw);
+    if (!providers.length) return null;
+    const id = providerId || defaultId;
+    const entry = providers.find((e) => e.id === id);
+    if (!entry) return { unknown: String(providerId) };
+    return { ...settings, ...entry, providers: providers.map(({ apiKey: _k, ...pub }) => pub), defaultId };
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +141,7 @@ async function callOpenAICompat(config, messages, tools) {
     const headers = { 'Content-Type': 'application/json' };
     if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`;
 
-    const body = { model: config.model, messages, stream: false };
+    const body = { model: config.model, messages: plainMessages(messages), stream: false };
     if (tools?.length) body.tools = tools;
 
     const res = await fetch(url, {
@@ -105,7 +169,7 @@ async function callOpenAICompat(config, messages, tools) {
         return { toolCalls: choice.message.tool_calls, assistantMsg: choice.message, usage };
     }
 
-    const message = choice?.message?.content ?? choice?.text ?? '';
+    const message = stripThinking(choice?.message?.content ?? choice?.text ?? '');
     return { message, usage };
 }
 
@@ -127,7 +191,7 @@ async function callAnthropic(config, messages, tools) {
 
     const body = {
         model: config.model,
-        system: systemMsg?.content || '',
+        system: anthropicSystem(systemMsg),
         messages: userMessages,
         // thinking tokens count against this on the current models; 4096 cut answers short
         max_tokens: 16384,
@@ -146,12 +210,7 @@ async function callAnthropic(config, messages, tools) {
     }
 
     const json = await res.json();
-    const usage = json.usage
-        ? {
-              prompt_tokens: json.usage.input_tokens,
-              completion_tokens: json.usage.output_tokens,
-          }
-        : undefined;
+    const usage = json.usage ? anthropicUsage(json.usage) : undefined;
 
     // Detect tool use response
     if (json.stop_reason === 'tool_use') {
@@ -167,6 +226,79 @@ async function callAnthropic(config, messages, tools) {
 }
 
 /**
+ * The system message with its static part marked (roadmap I22): Anthropic gets it as two blocks with a cache
+ * breakpoint after the static one; other providers get the joined text.
+ */
+function systemMessage(context, currentScript, currentView, currentDoc, extraFiles, ai, toolsOffered) {
+    const profile = profileFor(ai);
+    const house = houseSectionFor();
+    const opts = { profile, house, toolsOffered, budgetChars: Number(ai?.promptBudgetChars) || undefined };
+    const { staticText, dynamicText, dropped } = buildSystemPromptParts(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || [], opts);
+    _log.debug(
+        `ai chat: profile ${profile}, prompt ${Math.round((staticText.length + dynamicText.length) / 100) / 10}k chars (static ${Math.round(staticText.length / 100) / 10}k)${dropped.length ? ', left out ' + dropped.join(', ') : ''}`,
+    );
+    return { role: 'system', content: dynamicText ? staticText + '\n\n' + dynamicText : staticText, staticText, dynamicText };
+}
+
+/** the derived house section from the daemon's state; empty outside the daemon (tests) */
+let _notesProvider = () => [];
+function setNotesProvider(fn) {
+    _notesProvider = fn;
+}
+function houseSectionFor() {
+    try {
+        const cfg = _introspect?.config ? _introspect.config() : null;
+        const instances = _introspect?.instances ? _introspect.instances() : [];
+        return houseSection(cfg, _store?.mqttEntries ? _store.mqttEntries() : null, instances, _notesProvider() || []);
+    } catch (e) {
+        _log.warn('ai chat: house section: ' + e.message);
+        return '';
+    }
+}
+
+// Tool support of a local model (compact profile): Ollama says it in /api/show; others are assumed to support
+// tools and get the retry-without-tools of the resolver when they do not.
+const _toolSupport = new Map(); // `${baseUrl}|${model}` → { ok, at }
+async function providerSupportsTools(ai) {
+    if (!ai || ai.provider !== 'ollama') return true;
+    const base = (ai.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+    const key = base + '|' + ai.model;
+    const cached = _toolSupport.get(key);
+    if (cached && Date.now() - cached.at < 10 * 60 * 1000) return cached.ok;
+    let ok = true;
+    try {
+        const r = await fetch(`${base}/api/show`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: ai.model }),
+            signal: AbortSignal.timeout(5000),
+        });
+        if (r.ok) {
+            const json = await r.json();
+            if (Array.isArray(json.capabilities)) ok = json.capabilities.includes('tools');
+        }
+    } catch {
+        /* unknown: offer the tools */
+    }
+    _toolSupport.set(key, { ok, at: Date.now() });
+    return ok;
+}
+
+/** Anthropic's `system`: the static part as a cached block, the dynamic part after it */
+function anthropicSystem(systemMsg) {
+    if (!systemMsg) return '';
+    if (!systemMsg.staticText) return systemMsg.content || '';
+    const blocks = [{ type: 'text', text: systemMsg.staticText, cache_control: { type: 'ephemeral' } }];
+    if (systemMsg.dynamicText) blocks.push({ type: 'text', text: systemMsg.dynamicText });
+    return blocks;
+}
+
+/** role and content only, for the OpenAI-compatible endpoints (the system message carries more) */
+function plainMessages(messages) {
+    return messages.map((m) => (m.role === 'system' ? { role: 'system', content: m.content } : m));
+}
+
+/**
  * What a provider may see of a conversation: role and content only. The chat page stores more on its messages
  * (tool events, timestamps) and Anthropic rejects unknown fields; empty messages are left out too (Anthropic
  * rejects empty text, and the chat saved empty answers before B-13).
@@ -177,6 +309,14 @@ function providerMessages(messages) {
         .filter((m) => m && typeof m.role === 'string')
         .map((m) => ({ role: m.role, content: m.content }))
         .filter((m) => (typeof m.content === 'string' ? m.content.trim() !== '' : Array.isArray(m.content) ? m.content.length > 0 : m.content != null));
+}
+
+/** the token counts the journal shows, cache reads included */
+function anthropicUsage(u) {
+    const usage = { prompt_tokens: u.input_tokens, completion_tokens: u.output_tokens };
+    if (u.cache_read_input_tokens) usage.cache_read_tokens = u.cache_read_input_tokens;
+    if (u.cache_creation_input_tokens) usage.cache_write_tokens = u.cache_creation_input_tokens;
+    return usage;
 }
 
 /**
@@ -208,9 +348,32 @@ function answerText(content) {
  * @param {((event: object) => void)|undefined} onEvent
  * @returns {Promise<{ message: string, usage?: object }>}
  */
+/** run a tool; a result of { text, event } sends the event to the chat and hands the text to the model */
+async function runToolForChat(name, args, ctx, onEvent) {
+    const out = await executeTool(name, args, ctx);
+    if (out && typeof out === 'object') {
+        if (out.event) onEvent?.(out.event);
+        return String(out.text ?? '');
+    }
+    return String(out ?? '');
+}
+
+/** which tools a request may offer: the ones whose backing the context carries */
+function toolAllowed(name, ctx) {
+    if (name === 'remember' || name === 'forget') return !!ctx.memory;
+    if (name === 'propose_script') return !!(ctx.drafts && ctx.scriptDir);
+    if (name === 'publish_mqtt') return !!(ctx.publish && ctx.publish.mode !== 'off' && ctx.publish.send);
+    return true;
+}
+
+function toolsFor(ai, ctx) {
+    const isAnthropic = ai.provider === 'anthropic';
+    return (isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS).filter((t) => toolAllowed(isAnthropic ? t.name : t.function.name, ctx || {}));
+}
+
 async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
     const isAnthropic = ai.provider === 'anthropic';
-    const tools = isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS;
+    const tools = toolsFor(ai, toolContext);
     let msgs = messages;
     let toolsUsed = false;
     // The tools stay on offer in every round (up to MAX_TOOL_ROUNDS): a search that was cut short can be refined,
@@ -261,7 +424,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
             for (const tc of result.toolCalls) {
                 const args = tc.input || {};
                 onEvent?.({ type: 'tool_call', name: tc.name, args });
-                const content = await executeTool(tc.name, args, toolContext);
+                const content = await runToolForChat(tc.name, args, toolContext, onEvent);
                 onEvent?.({ type: 'tool_result', name: tc.name, content });
                 toolResultBlocks.push({ type: 'tool_result', tool_use_id: tc.id, content });
             }
@@ -281,7 +444,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
                     args = {};
                 }
                 onEvent?.({ type: 'tool_call', name, args });
-                const content = await executeTool(name, args, toolContext);
+                const content = await runToolForChat(name, args, toolContext, onEvent);
                 onEvent?.({ type: 'tool_result', name, content });
                 msgs = [...msgs, { role: 'tool', tool_call_id: tc.id, content }];
             }
@@ -305,7 +468,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
  * @param {(json:object)=>string|null|undefined} tokenExtractor
  * @param {(token:string)=>void} onToken
  */
-async function parseSseStream(body, tokenExtractor, onToken) {
+async function parseSseStream(body, tokenExtractor, onToken, onEvent) {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -324,6 +487,7 @@ async function parseSseStream(body, tokenExtractor, onToken) {
                 if (data === '[DONE]') return;
                 try {
                     const json = JSON.parse(data);
+                    if (onEvent) onEvent(json);
                     const token = tokenExtractor(json);
                     if (token) onToken(token);
                 } catch {
@@ -341,6 +505,7 @@ async function parseSseStream(body, tokenExtractor, onToken) {
  * Calls onToken(str) for each chunk, resolves when stream ends.
  */
 async function streamOpenAICompat(config, messages, onToken) {
+    onToken = thinkFilter(onToken); // a thinking model's <think>…</think> never reaches the chat
     const base = (config.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
     const url = `${base}/v1/chat/completions`;
     const headers = { 'Content-Type': 'application/json' };
@@ -349,7 +514,7 @@ async function streamOpenAICompat(config, messages, onToken) {
     const res = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ model: config.model, messages, stream: true }),
+        body: JSON.stringify({ model: config.model, messages: plainMessages(messages), stream: true }),
     });
 
     if (!res.ok) {
@@ -378,9 +543,9 @@ async function streamAnthropic(config, messages, onToken) {
         headers,
         body: JSON.stringify({
             model: config.model,
-            system: systemMsg?.content || '',
+            system: anthropicSystem(systemMsg),
             messages: userMessages,
-            max_tokens: 4096,
+            max_tokens: 16384,
             stream: true,
         }),
     });
@@ -390,7 +555,17 @@ async function streamAnthropic(config, messages, onToken) {
         throw new Error(`Anthropic API error ${res.status}: ${text.slice(0, 300)}`);
     }
 
-    await parseSseStream(res.body, (json) => json.delta?.text, onToken);
+    let usage;
+    await parseSseStream(
+        res.body,
+        (json) => json.delta?.text,
+        onToken,
+        (json) => {
+            if (json.type === 'message_start' && json.message?.usage) usage = anthropicUsage(json.message.usage);
+            if (json.type === 'message_delta' && json.usage?.output_tokens && usage) usage.completion_tokens = json.usage.output_tokens;
+        },
+    );
+    return { usage };
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +580,9 @@ router.get('/config', (req, res) => {
         provider: ai?.provider || '',
         model: ai?.model || '',
         baseUrl: ai?.baseUrl || '',
+        // the entries without keys, and which one is the default (roadmap I14)
+        default: ai?.defaultId || '',
+        providers: ai?.providers || [],
     });
 });
 
@@ -446,7 +624,8 @@ async function listAnthropicModels(ai) {
 
 // GET /she/ai/models — list available models for the configured provider
 router.get('/models', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
+    const ai = readAiConfig(req.app.locals.configPath, req.query.provider);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"`, models: [] });
     if (!ai?.provider) return res.json({ models: [] });
 
     const base = (ai.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
@@ -484,7 +663,8 @@ router.get('/models', async (req, res) => {
 // GET /she/ai/model-info — Ollama-specific: version, model details, running models
 // Query param: ?model=<name>  (defaults to configured model)
 router.get('/model-info', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
+    const ai = readAiConfig(req.app.locals.configPath, req.query.provider);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"` });
     if (!ai?.provider || !ai?.model) return res.status(400).json({ error: 'Not configured' });
     if (ai.provider !== 'ollama') return res.status(400).json({ error: 'Model info is only available for Ollama' });
 
@@ -519,8 +699,13 @@ router.get('/model-info', async (req, res) => {
 router.post('/prompt', (req, res) => {
     const { context = {}, currentScript, currentView, currentDoc, extraFiles } = req.body || {};
     try {
-        const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
-        res.json({ prompt });
+        const ai = readAiConfig(req.app.locals.configPath, typeof req.body?.providerOverride === 'string' ? req.body.providerOverride : undefined);
+        const prompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || [], {
+            profile: profileFor(ai),
+            house: houseSectionFor(),
+            toolsOffered: !!context.tools,
+        });
+        res.json({ prompt, profile: profileFor(ai) });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -528,8 +713,9 @@ router.post('/prompt', (req, res) => {
 
 // POST /she/ai/chat — non-streaming
 router.post('/chat', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, providerOverride, extraFiles } = req.body || {};
+    const ai = readAiConfig(req.app.locals.configPath, typeof providerOverride === 'string' ? providerOverride : undefined);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"` });
     const effectiveModel = modelOverride && typeof modelOverride === 'string' ? modelOverride : ai?.model;
     if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
@@ -538,14 +724,24 @@ router.post('/chat', async (req, res) => {
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = { ...ai, model: effectiveModel };
-    _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
-    const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
-    const fullMessages = [{ role: 'system', content: systemPrompt }, ...providerMessages(messages)];
+    _log.debug(`ai chat: ${ai.id !== ai.provider ? ai.id + '/' : ''}${ai.provider} ${effectiveModel}${modelOverride || providerOverride ? ' (chosen in the chat)' : ' (config)'}`);
+    const useTools = !!context.tools && (await providerSupportsTools(aiWithModel));
+    const fullMessages = [systemMessage(context, currentScript, currentView, currentDoc, extraFiles, aiWithModel, useTools), ...providerMessages(messages)];
 
     try {
         let result;
-        if (context.tools) {
-            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
+        if (useTools) {
+            const toolContext = {
+                store: _store,
+                scriptDir: req.app.locals.scriptDir || null,
+                resultChars: ai.toolResultChars,
+                fetchAllow: ai.fetchAllow,
+                elasticIndex: ai.elasticIndex,
+                introspect: _introspect,
+                memory,
+                drafts,
+                publish: publishContext(ai, context, null),
+            };
             result = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, undefined);
         } else if (ai.provider === 'anthropic') {
             result = await callAnthropic(aiWithModel, fullMessages);
@@ -562,8 +758,9 @@ router.post('/chat', async (req, res) => {
 
 // POST /she/ai/chat/stream — SSE streaming
 router.post('/chat/stream', async (req, res) => {
-    const ai = readAiConfig(req.app.locals.configPath);
-    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, extraFiles } = req.body || {};
+    const { messages = [], currentScript, currentView, currentDoc, context = {}, modelOverride, providerOverride, extraFiles } = req.body || {};
+    const ai = readAiConfig(req.app.locals.configPath, typeof providerOverride === 'string' ? providerOverride : undefined);
+    if (ai?.unknown) return res.status(400).json({ error: `unknown AI provider entry "${ai.unknown}"` });
     const effectiveModel = modelOverride && typeof modelOverride === 'string' ? modelOverride : ai?.model;
     if (!ai?.provider || !effectiveModel) {
         return res.status(400).json({ error: 'AI provider not configured. Set ai.provider and ai.model in Config.' });
@@ -572,12 +769,13 @@ router.post('/chat/stream', async (req, res) => {
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = { ...ai, model: effectiveModel };
-    _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
+    _log.debug(`ai chat: ${ai.id !== ai.provider ? ai.id + '/' : ''}${ai.provider} ${effectiveModel}${modelOverride || providerOverride ? ' (chosen in the chat)' : ' (config)'}`);
 
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
-    let systemPrompt;
+    let system;
+    const useTools = !!context.tools && (await providerSupportsTools(aiWithModel));
     try {
-        systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
+        system = systemMessage(context, currentScript, currentView, currentDoc, extraFiles, aiWithModel, useTools);
     } catch (e) {
         return res.status(500).json({ error: `Failed to build system prompt: ${e.message}` });
     }
@@ -591,15 +789,26 @@ router.post('/chat/stream', async (req, res) => {
 
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const fullMessages = [{ role: 'system', content: systemPrompt }, ...providerMessages(messages)];
+    const fullMessages = [system, ...providerMessages(messages)];
 
     try {
-        if (context.tools) {
+        if (useTools) {
             // Tool-calling mode: resolve tools non-streaming (emitting events), then
             // send the final answer as a single token so the client sees it immediately.
-            const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
-            const { message, detail } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
+            const toolContext = {
+                store: _store,
+                scriptDir: req.app.locals.scriptDir || null,
+                resultChars: ai.toolResultChars,
+                fetchAllow: ai.fetchAllow,
+                elasticIndex: ai.elasticIndex,
+                introspect: _introspect,
+                memory,
+                drafts,
+                publish: publishContext(ai, context, send),
+            };
+            const { message, detail, usage } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
             if (!message || !message.trim()) throw new Error('The model returned an empty answer' + (detail ? ` (${detail})` : ''));
+            if (usage) _log.debug('ai chat: usage ' + JSON.stringify(usage));
             send({ token: message });
         } else {
             let tokens = 0;
@@ -607,12 +816,14 @@ router.post('/chat/stream', async (req, res) => {
                 tokens++;
                 send({ token: t });
             };
+            let streamed;
             if (ai.provider === 'anthropic') {
-                await streamAnthropic(aiWithModel, fullMessages, onToken);
+                streamed = await streamAnthropic(aiWithModel, fullMessages, onToken);
             } else {
                 await streamOpenAICompat(aiWithModel, fullMessages, onToken);
             }
             if (tokens === 0) throw new Error('The model returned an empty answer');
+            if (streamed?.usage) _log.debug('ai chat: usage ' + JSON.stringify(streamed.usage));
         }
 
         res.write('data: [DONE]\n\n');
@@ -622,6 +833,95 @@ router.post('/chat/stream', async (req, res) => {
         send({ error: e.message });
         res.end();
     }
+});
+
+// ---------------------------------------------------------------------------
+// Publish confirmations (roadmap I20, decision D-2): the tool waits for the user's click
+// ---------------------------------------------------------------------------
+
+const _pendingPublish = new Map(); // id → resolve(boolean)
+const PUBLISH_CONFIRM_MS = 120000;
+
+/** the publish context of a request: mode from the chat, the allow-list from the config, the daemon's send */
+function publishContext(ai, context, send) {
+    const mode = ['confirm', 'all'].includes(context?.publish) ? context.publish : 'off';
+    const sendFn = _introspect?.publish;
+    return {
+        mode,
+        allow: Array.isArray(ai?.publishAllow) ? ai.publishAllow : [],
+        send: sendFn
+            ? async (topic, payload, opts) => {
+                  await sendFn(topic, payload, opts);
+                  _log.info(`ai chat: published ${JSON.stringify(payload)} to ${topic}${opts?.retain ? ' (retained)' : ''}`);
+              }
+            : null,
+        confirm: (req) =>
+            new Promise((resolve) => {
+                const id = 'p' + crypto.randomBytes(4).toString('hex');
+                const timer = setTimeout(() => {
+                    _pendingPublish.delete(id);
+                    resolve('timeout');
+                }, PUBLISH_CONFIRM_MS);
+                _pendingPublish.set(id, (ok) => {
+                    clearTimeout(timer);
+                    _pendingPublish.delete(id);
+                    resolve(!!ok);
+                });
+                send?.({ type: 'publish_request', id, ...req });
+            }),
+    };
+}
+
+router.post('/publish/:id', (req, res) => {
+    const resolve = _pendingPublish.get(req.params.id);
+    if (!resolve) return res.status(404).json({ error: 'no pending publish with that id (answered or expired)' });
+    resolve(req.body?.ok === true);
+    res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Drafts — GET /she/ai/drafts/:id, POST /she/ai/drafts/:id/status (roadmap I16, decision D-1)
+// ---------------------------------------------------------------------------
+
+router.get('/drafts/:id', (req, res) => {
+    const d = drafts.get(req.params.id);
+    if (!d) return res.status(404).json({ error: 'no such draft' });
+    res.json(d);
+});
+
+router.post('/drafts/:id/status', (req, res) => {
+    const status = req.body?.status;
+    if (!['applied', 'discarded', 'open'].includes(status)) return res.status(400).json({ error: 'status must be applied, discarded or open' });
+    const d = drafts.setStatus(req.params.id, status);
+    if (!d) return res.status(404).json({ error: 'no such draft' });
+    _log.info(`ai chat: draft ${d.id} for ${d.path} ${status}`);
+    res.json({ ok: true, status: d.status });
+});
+
+// ---------------------------------------------------------------------------
+// Memory — GET/POST /she/ai/memory, PUT/DELETE /she/ai/memory/:id (roadmap I29)
+// ---------------------------------------------------------------------------
+
+router.get('/memory', (req, res) => {
+    res.json({ notes: memory.list(), max: memory.MAX_NOTES, maxChars: memory.MAX_CHARS });
+});
+
+router.post('/memory', (req, res) => {
+    const r = memory.add(req.body?.text, 'user');
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.json(r);
+});
+
+router.put('/memory/:id', (req, res) => {
+    const r = memory.update(req.params.id, req.body?.text);
+    if (r.error) return res.status(r.error.startsWith('no note') ? 404 : 400).json({ error: r.error });
+    res.json(r);
+});
+
+router.delete('/memory/:id', (req, res) => {
+    const r = memory.remove(req.params.id);
+    if (r.error) return res.status(404).json({ error: r.error });
+    res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -699,4 +999,24 @@ router.delete('/conversations/:id', (req, res) => {
     res.json({ ok: true });
 });
 
-module.exports = { router, init, _internal: { callAnthropic, answerText, readAiConfig, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages } };
+module.exports = {
+    router,
+    init,
+    setNotesProvider,
+    _tools: { toolsFor, toolAllowed },
+    _internal: {
+        callAnthropic,
+        answerText,
+        readAiConfig,
+        normalizeAiConfig,
+        resolveAi,
+        providerSupportsTools,
+        houseSectionFor,
+        listAnthropicModels,
+        ANTHROPIC_FALLBACK_MODELS,
+        providerMessages,
+        anthropicSystem,
+        plainMessages,
+        buildSystemPromptParts,
+    },
+};

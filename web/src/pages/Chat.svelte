@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, type AiConversation, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, listConversations, getConversation, saveConversation, deleteConversation, type AiConfig } from '../lib/api.js';
+    import { decideAiPublish, getAiDraft, setAiDraftStatus, writeScript, type AiNote, getAiMemory, addAiNote, updateAiNote, deleteAiNote, type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, type AiConversation, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, listConversations, getConversation, saveConversation, deleteConversation, type AiConfig } from '../lib/api.js';
     import { onMount } from 'svelte';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
@@ -40,6 +40,10 @@
     let modelNames = $state<Record<string, string>>({});
     let modelListError = $state<string>('');
     let selectedModel = $state<string>(localStorage.getItem('she:selectedModel') ?? '');
+    // the provider entry (I14): the config's default unless chosen here; stored like the model
+    let selectedProvider = $state<string>(localStorage.getItem('she:selectedProvider') ?? '');
+    const providerEntries = $derived(aiConfig?.providers ?? []);
+    const activeEntry = $derived(providerEntries.find(p => p.id === selectedProvider) ?? providerEntries.find(p => p.id === aiConfig?.default) ?? null);
 
     // Always-apply session flag (per script, resets on script change)
     let autoApplyScript = $state<string | null>(null);
@@ -49,6 +53,49 @@
 
     // Collapsed/expanded code block tracking
     let expandedBlocks = $state(new Set<string>());
+
+    // Memory panel (I29): the facts the user confirmed, kept per instance in the data directory
+    let showMemory = $state(false);
+    let notes = $state<AiNote[]>([]);
+    let memoryMax = $state(300);
+    let memoryError = $state('');
+    let newNote = $state('');
+    let editingId = $state<string | null>(null);
+    let editingText = $state('');
+    async function openMemory() {
+        showMemory = true;
+        memoryError = '';
+        try {
+            const r = await getAiMemory();
+            notes = r.notes;
+            memoryMax = r.max;
+        } catch (e: any) { memoryError = e.message; }
+    }
+    async function saveNewNote() {
+        if (!newNote.trim()) return;
+        memoryError = '';
+        try {
+            const r = await addAiNote(newNote);
+            if (!r.duplicate) notes = [...notes, r.note];
+            newNote = '';
+        } catch (e: any) { memoryError = e.message; }
+    }
+    async function saveEdit() {
+        if (!editingId) return;
+        memoryError = '';
+        try {
+            const r = await updateAiNote(editingId, editingText);
+            notes = notes.map(n => n.id === r.note.id ? r.note : n);
+            editingId = null;
+        } catch (e: any) { memoryError = e.message; }
+    }
+    async function removeNote(id: string) {
+        memoryError = '';
+        try {
+            await deleteAiNote(id);
+            notes = notes.filter(n => n.id !== id);
+        } catch (e: any) { memoryError = e.message; }
+    }
 
     // Ollama info popup
     let showInfoPopup = $state(false);
@@ -88,6 +135,9 @@
 
     let ctxApiref = $state(true);
     let ctxTools  = $state(true);
+    // publishing (I20, D-2): off by default; 'confirm' asks per publish, 'all' lets them through for the session
+    let ctxPublish = $state<'off' | 'confirm' | 'all'>((localStorage.getItem('she:aiPublish') as 'off' | 'confirm' | 'all') ?? 'off');
+    $effect(() => { localStorage.setItem('she:aiPublish', ctxPublish); });
 
     // File context chips
     let includeCurrentScript = $state(true);
@@ -104,7 +154,38 @@
     const context = $derived<AiContext>({
         apiref: ctxApiref,
         tools:  ctxTools,
+        publish: ctxPublish,
     });
+
+    // draft and publish cards (I16, I20)
+    function patchEvent(id: string, patch: Partial<AiToolEvent>) {
+        const touch = (evs?: AiToolEvent[]) => evs?.map(ev => ev.id === id ? { ...ev, ...patch } : ev);
+        toolEvents = touch(toolEvents) ?? [];
+        messages = messages.map(m => m.toolEvents ? { ...m, toolEvents: touch(m.toolEvents) } : m);
+    }
+    async function applyDraft(ev: AiToolEvent) {
+        if (!ev.id) return;
+        error = '';
+        try {
+            const d = await getAiDraft(ev.id);
+            await writeScript(d.path, d.content);
+            await setAiDraftStatus(ev.id, 'applied');
+            if (currentScript?.path === d.path) onApply?.(d.content);
+            patchEvent(ev.id, { status: 'applied' });
+            void persistConversation();
+        } catch (e: any) { error = e.message; }
+    }
+    async function discardDraft(ev: AiToolEvent) {
+        if (!ev.id) return;
+        try { await setAiDraftStatus(ev.id, 'discarded'); } catch {}
+        patchEvent(ev.id, { status: 'discarded' });
+        void persistConversation();
+    }
+    async function decidePublish(ev: AiToolEvent, ok: boolean) {
+        if (!ev.id) return;
+        try { await decideAiPublish(ev.id, ok); } catch (e: any) { error = e.message; }
+        patchEvent(ev.id, { decided: ok ? 'published' : 'skipped' });
+    }
 
     const configured = $derived(aiConfig?.configured ?? false);
     // Can chat if fully configured (model in config) OR if provider is set and a model is selected in the UI
@@ -139,11 +220,19 @@
             const c = await getAiConfig();
             aiConfig = c;
             if (c.configured) {
+                const entries = c.providers ?? [];
+                const providerFor = localStorage.getItem('she:selectedProviderFor');
+                if (!selectedProvider || !entries.some(p => p.id === selectedProvider) || providerFor !== (c.default ?? '')) {
+                    // no choice yet, the chosen entry is gone, or the default changed: follow the config
+                    selectedProvider = c.default ?? '';
+                    localStorage.setItem('she:selectedProviderFor', c.default ?? '');
+                }
+                const entryModel = entries.find(p => p.id === selectedProvider)?.model ?? c.model;
                 const chosenFor = localStorage.getItem('she:selectedModelFor');
-                if (!selectedModel || chosenFor !== c.model) {
-                    // no choice yet, or the choice was made against another config model: follow the config
-                    selectedModel = c.model;
-                    localStorage.setItem('she:selectedModelFor', c.model);
+                if (!selectedModel || chosenFor !== selectedProvider + ':' + entryModel) {
+                    // no choice yet, or the choice was made against another entry or config model: follow the config
+                    selectedModel = entryModel;
+                    localStorage.setItem('she:selectedModelFor', selectedProvider + ':' + entryModel);
                 }
             }
         } catch {}
@@ -154,17 +243,29 @@
         return () => window.removeEventListener('she:config-changed', reloadAiConfig);
     });
 
-    // Persist model selection across page reloads
+    // Persist model and provider selection across page reloads
     $effect(() => {
         if (selectedModel) localStorage.setItem('she:selectedModel', selectedModel);
     });
+    $effect(() => {
+        if (selectedProvider) localStorage.setItem('she:selectedProvider', selectedProvider);
+    });
+
+    function onProviderChange() {
+        // a new entry: its configured model, and its own model list
+        const entry = providerEntries.find(p => p.id === selectedProvider);
+        selectedModel = entry?.model ?? '';
+        localStorage.setItem('she:selectedModelFor', selectedProvider + ':' + (entry?.model ?? ''));
+    }
 
     $effect(() => {
         if (aiConfig?.provider) {
-            getAiModels().then(r => {
+            const providerId = selectedProvider || undefined;
+            const entryModel = activeEntry?.model ?? aiConfig?.model;
+            getAiModels(providerId).then(r => {
                 const list = r.models.slice();
-                // the config model is always offered, even when the provider's list does not know it
-                if (aiConfig?.model && !list.includes(aiConfig.model)) list.unshift(aiConfig.model);
+                // the entry's configured model is always offered, even when the provider's list does not know it
+                if (entryModel && !list.includes(entryModel)) list.unshift(entryModel);
                 availableModels = list;
                 modelNames = r.names ?? {};
                 modelListError = r.error ?? '';
@@ -175,7 +276,7 @@
 
     function modelLabel(m: string): string {
         const name = modelNames[m] ?? m;
-        return m === aiConfig?.model ? `${name} (config)` : name;
+        return m === (activeEntry?.model ?? aiConfig?.model) ? `${name} (config)` : name;
     }
 
     // Reset cached info when model changes
@@ -471,7 +572,7 @@
 
         try {
             await streamChatWithAI(
-                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
+                { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, providerOverride: selectedProvider || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
                 (event) => { toolEvents = [...toolEvents, event]; },
@@ -530,7 +631,7 @@
         <span class="chat-title">AI Assistant</span>
         {#if aiConfig}
             <span class="chat-model" title="Provider: {aiConfig.provider}">
-                {#if canChat}{aiConfig.provider} · {selectedModel || aiConfig.model}{:else if aiConfig.provider}{aiConfig.provider} · pick a model below{:else}Not configured{/if}
+                {#if canChat}{activeEntry?.label ?? aiConfig.provider} · {selectedModel || activeEntry?.model || aiConfig.model}{:else if aiConfig.provider}{aiConfig.provider} · pick a model below{:else}Not configured{/if}
             </span>
         {/if}
         <button class="icon-hdr-btn" onclick={() => showHistory = !showHistory} title="Conversation history" class:active={showHistory}>
@@ -601,6 +702,35 @@
                                         <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
                                         {#if ev.args && Object.keys(ev.args).length > 0}
                                             <span class="tool-args">{Object.entries(ev.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')}</span>
+                                        {/if}
+                                    </div>
+                                {:else if ev.type === 'draft'}
+                                    <div class="tool-event draft-card">
+                                        <div class="draft-head">
+                                            <span class="tool-icon">📝</span>
+                                            <strong>{ev.isNew ? 'New script' : 'Change'}: {ev.path}</strong>
+                                            <span class="draft-stats">+{ev.added ?? 0} −{ev.removed ?? 0}</span>
+                                            {#if ev.status === 'applied'}<span class="draft-state ok">applied</span>
+                                            {:else if ev.status === 'discarded'}<span class="draft-state">discarded</span>
+                                            {:else}
+                                                <button class="draft-btn apply" onclick={() => applyDraft(ev)}>Apply</button>
+                                                <button class="draft-btn" onclick={() => discardDraft(ev)}>Discard</button>
+                                            {/if}
+                                        </div>
+                                        {#if ev.note}<div class="draft-note">{ev.note}</div>{/if}
+                                        {#if ev.diff}
+                                            <pre class="draft-diff">{#each ev.diff.split('\n') as line}<span class:add={line.startsWith('+') && !line.startsWith('+++')} class:del={line.startsWith('-') && !line.startsWith('---')} class:hunk={line.startsWith('@@')}>{line}\n</span>{/each}</pre>
+                                        {/if}
+                                    </div>
+                                {:else if ev.type === 'publish_request'}
+                                    <div class="tool-event publish-card">
+                                        <span class="tool-icon">📡</span>
+                                        <span class="publish-text">publish <code>{ev.payload}</code> to <code>{ev.topic}</code>{#if ev.retain} (retained){/if}</span>
+                                        {#if ev.decided === 'published'}<span class="draft-state ok">published</span>
+                                        {:else if ev.decided === 'skipped'}<span class="draft-state">skipped</span>
+                                        {:else}
+                                            <button class="draft-btn apply" onclick={() => decidePublish(ev, true)}>Publish</button>
+                                            <button class="draft-btn" onclick={() => decidePublish(ev, false)}>Skip</button>
                                         {/if}
                                     </div>
                                 {:else}
@@ -720,6 +850,14 @@
         <label title="Let the AI query MQTT state, sheDB documents and Matter devices on demand. Disables real-time streaming.">
             <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 😎 Agent
         </label>
+        <label class="publish-switch" title="May the assistant publish MQTT messages? off: never; confirm: each one waits for your click; all: at once, for this session">
+            📡 Publish
+            <select bind:value={ctxPublish} disabled={!ctxTools}>
+                <option value="off">off</option>
+                <option value="confirm">confirm each</option>
+                <option value="all">allow all</option>
+            </select>
+        </label>
         <span class="req-size">{formatBytes(requestBytes)}{#if ollamaInfo?.contextLength}{@const pct = Math.min(100, Math.round(requestBytes / 4 / ollamaInfo.contextLength * 100))}<span class="ctx-indicator" title="~{pct}% of {ollamaInfo.contextLength.toLocaleString()} token context window used"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="var(--border-sub)" stroke-width="2"/><circle cx="6" cy="6" r="5" fill="none" stroke="{pct > 80 ? 'var(--fg-err)' : pct > 50 ? 'var(--fg-warn)' : 'var(--fg-ok)'}" stroke-width="2" stroke-dasharray="{(pct / 100 * 31.4).toFixed(1)} 31.4" stroke-dashoffset="7.85" stroke-linecap="round"/></svg></span>{/if}</span>
     </div>
 
@@ -774,7 +912,15 @@
     <!-- Model bar -->
     {#if aiConfig?.provider && (configured || availableModels.length > 0)}
         <div class="model-bar">
-            <span class="model-provider">{aiConfig.provider}</span>
+            {#if providerEntries.length > 1}
+                <select class="model-select" bind:value={selectedProvider} onchange={onProviderChange} disabled={loading} title="Provider for this chat; the config default is marked">
+                    {#each providerEntries as p}
+                        <option value={p.id}>{p.label}{p.id === aiConfig.default ? ' (default)' : ''}</option>
+                    {/each}
+                </select>
+            {:else}
+                <span class="model-provider">{activeEntry?.label ?? aiConfig.provider}</span>
+            {/if}
             {#if availableModels.length > 0}
                 <select class="model-select" bind:value={selectedModel} disabled={loading} title={modelListError ? 'Model list unavailable: ' + modelListError : 'Model for this chat; the config model is the default'}>
                     {#each availableModels as m}
@@ -784,12 +930,50 @@
             {:else}
                 <span class="model-name">{selectedModel || aiConfig.model}</span>
             {/if}
+            <button class="info-btn" onclick={openMemory} title="Memory: facts about this installation the assistant keeps">🧠</button>
             {#if aiConfig.provider === 'ollama'}
                 <button class="info-btn" onclick={openInfoPopup} title="Model info">ℹ</button>
             {/if}
         </div>
     {/if}
 </div>
+
+<!-- Memory panel (I29) -->
+{#if showMemory}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="info-overlay" onclick={() => showMemory = false}>
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="info-popup memory-popup" onclick={(e) => e.stopPropagation()}>
+            <div class="info-popup-header">
+                <span>Memory · {notes.length} of {memoryMax} notes</span>
+                <button onclick={() => showMemory = false} title="Close">✕</button>
+            </div>
+            <div class="info-popup-body">
+                <p class="info-status">Facts about this installation the assistant takes as confirmed. Stored in the data directory of this instance, never in a script or a repository. No secrets.</p>
+                {#if memoryError}<p class="info-status info-err">{memoryError}</p>{/if}
+                <ul class="memory-list">
+                    {#each notes as n (n.id)}
+                        <li>
+                            {#if editingId === n.id}
+                                <input type="text" bind:value={editingText} maxlength="200" onkeydown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') editingId = null; }} />
+                                <button onclick={saveEdit} title="Save">✓</button>
+                                <button onclick={() => editingId = null} title="Cancel">✕</button>
+                            {:else}
+                                <span class="memory-text" title={n.source === 'model' ? 'written by the assistant' : 'written by you'}>{n.text}{#if n.source === 'model'}<em> (assistant)</em>{/if}</span>
+                                <button onclick={() => { editingId = n.id; editingText = n.text; }} title="Edit">✎</button>
+                                <button onclick={() => removeNote(n.id)} title="Delete">🗑</button>
+                            {/if}
+                        </li>
+                    {/each}
+                </ul>
+                <div class="memory-add">
+                    <input type="text" bind:value={newNote} maxlength="200" placeholder="Add a fact, e.g. the PIR in the bathroom cannot see the shower" onkeydown={(e) => { if (e.key === 'Enter') saveNewNote(); }} />
+                    <button onclick={saveNewNote} disabled={!newNote.trim()}>Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{/if}
 
 <!-- Ollama model info popup (outside .chat-panel so overlay covers full viewport) -->
 {#if showInfoPopup}
@@ -1489,6 +1673,29 @@
         align-items: center;
         justify-content: center;
     }
+    .draft-card, .publish-card { display: block; }
+    .draft-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .draft-stats { font-family: monospace; opacity: 0.8; }
+    .draft-note { opacity: 0.85; margin: 0.2rem 0 0.3rem 1.6rem; }
+    .draft-diff { max-height: 320px; overflow: auto; font-size: 0.8em; line-height: 1.3; background: var(--bg-app); border: 1px solid var(--border-sub); border-radius: 4px; padding: 0.4rem 0.6rem; margin: 0.3rem 0 0 1.6rem; white-space: pre; }
+    .draft-diff .add { color: var(--fg-ok); }
+    .draft-diff .del { color: var(--fg-err); }
+    .draft-diff .hunk { opacity: 0.6; }
+    .draft-btn { border: 1px solid var(--border-sub); background: none; border-radius: 4px; padding: 0.1rem 0.5rem; cursor: pointer; }
+    .draft-btn.apply { border-color: var(--fg-ok); color: var(--fg-ok); }
+    .draft-state { font-size: 0.85em; opacity: 0.7; }
+    .draft-state.ok { color: var(--fg-ok); opacity: 1; }
+    .publish-card { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .publish-text code { font-size: 0.9em; }
+    .publish-switch { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.6rem; }
+    .memory-popup { width: min(560px, 92vw); }
+    .memory-list { list-style: none; padding: 0; margin: 0.4rem 0; max-height: 50vh; overflow: auto; }
+    .memory-list li { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-sub); }
+    .memory-list .memory-text { flex: 1; }
+    .memory-list input { flex: 1; }
+    .memory-list button, .memory-add button { background: none; border: 1px solid var(--border-sub); border-radius: 4px; cursor: pointer; padding: 0.1rem 0.4rem; }
+    .memory-add { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+    .memory-add input { flex: 1; }
     .info-popup {
         background: var(--bg-panel);
         border: 1px solid var(--border);

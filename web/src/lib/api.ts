@@ -563,13 +563,29 @@ export interface AiMessage {
 }
 
 export interface AiToolEvent {
-    type: 'tool_call' | 'tool_result';
+    type: 'tool_call' | 'tool_result' | 'draft' | 'publish_request';
     name: string;
     args?: Record<string, unknown>;
     content?: string;
+    /** draft (I16): the proposed script */
+    id?: string;
+    path?: string;
+    note?: string;
+    isNew?: boolean;
+    diff?: string;
+    added?: number;
+    removed?: number;
+    status?: 'open' | 'applied' | 'discarded';
+    /** publish_request (I20): what the model wants to publish */
+    topic?: string;
+    payload?: string;
+    retain?: boolean;
+    decided?: 'published' | 'skipped';
 }
 
 export interface AiContext {
+    /** publishing (I20): off, confirm each publish, or allow all for the session */
+    publish?: 'off' | 'confirm' | 'all';
     apiref: boolean;
     mqtt?: boolean;
     shedb?: boolean;
@@ -601,6 +617,8 @@ export interface AiChatRequest {
     currentView?: AiCurrentView | null;
     context: AiContext;
     modelOverride?: string;
+    /** the id of a configured provider entry (I14); the config's default without it */
+    providerOverride?: string;
     extraFiles?: AiExtraFile[];
 }
 
@@ -609,11 +627,22 @@ export interface AiChatResponse {
     usage?: { prompt_tokens: number; completion_tokens: number };
 }
 
+export interface AiProviderEntry {
+    id: string;
+    label: string;
+    provider: string;
+    model: string;
+    baseUrl: string;
+}
+
 export interface AiConfig {
     configured: boolean;
     provider: string;
     model: string;
     baseUrl: string;
+    /** the configured entries without their keys, and the default one (I14) */
+    default?: string;
+    providers?: AiProviderEntry[];
 }
 
 export interface OllamaModelDetails {
@@ -638,12 +667,43 @@ export interface OllamaModelInfo {
     contextLength: number | null;
 }
 
+export interface AiNote {
+    id: string;
+    text: string;
+    createdAt: number;
+    updatedAt?: number;
+    source: 'user' | 'model';
+}
+
+export function decideAiPublish(id: string, ok: boolean): Promise<{ ok: boolean }> {
+    return request('POST', `/she/ai/publish/${encodeURIComponent(id)}`, { ok });
+}
+export function getAiDraft(id: string): Promise<{ id: string; path: string; content: string; base: string | null; note: string; status: string }> {
+    return request('GET', `/she/ai/drafts/${encodeURIComponent(id)}`);
+}
+export function setAiDraftStatus(id: string, status: 'applied' | 'discarded' | 'open'): Promise<{ ok: boolean }> {
+    return request('POST', `/she/ai/drafts/${encodeURIComponent(id)}/status`, { status });
+}
+
+export function getAiMemory(): Promise<{ notes: AiNote[]; max: number; maxChars: number }> {
+    return request('GET', '/she/ai/memory');
+}
+export function addAiNote(text: string): Promise<{ note: AiNote; duplicate?: boolean }> {
+    return request('POST', '/she/ai/memory', { text });
+}
+export function updateAiNote(id: string, text: string): Promise<{ note: AiNote }> {
+    return request('PUT', `/she/ai/memory/${encodeURIComponent(id)}`, { text });
+}
+export function deleteAiNote(id: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/ai/memory/${encodeURIComponent(id)}`);
+}
+
 export function getAiConfig(): Promise<AiConfig> {
     return request('GET', '/she/ai/config');
 }
 
-export function getAiModels(): Promise<{ models: string[]; names?: Record<string, string>; error?: string }> {
-    return request('GET', '/she/ai/models');
+export function getAiModels(providerId?: string): Promise<{ models: string[]; names?: Record<string, string>; error?: string }> {
+    return request('GET', '/she/ai/models' + (providerId ? '?provider=' + encodeURIComponent(providerId) : ''));
 }
 
 export function getOllamaModelInfo(model: string): Promise<OllamaModelInfo> {
@@ -704,6 +764,10 @@ export async function streamChatWithAI(body: AiChatRequest, onToken: (token: str
                     if (json.error) throw new Error(json.error);
                     if (json.type === 'tool_call' || json.type === 'tool_result') {
                         onEvent?.({ type: json.type, name: json.name ?? '', args: json.args, content: json.content });
+                        continue;
+                    }
+                    if (json.type === 'draft' || json.type === 'publish_request') {
+                        onEvent?.({ ...(json as object), type: json.type, name: json.type } as AiToolEvent);
                         continue;
                     }
                     if (json.token) onToken(json.token);

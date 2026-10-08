@@ -11,6 +11,7 @@ describe('trackTimeout()', () => {
         const fn = jest.fn();
         const id = trackTimeout(timers, fn, 1000);
         expect(timers.has(id)).toBe(true);
+        expect(id.due).toBeGreaterThanOrEqual(Date.now() + 999); // for list_timers
 
         jest.advanceTimersByTime(1000);
         expect(fn).toHaveBeenCalledTimes(1);

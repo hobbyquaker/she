@@ -7,7 +7,18 @@ const path = require('path');
 const express = require('express');
 
 const { router, init, _internal } = require('../../src/web/ai-api');
-const { callAnthropic, answerText, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages } = _internal;
+const {
+    callAnthropic,
+    answerText,
+    listAnthropicModels,
+    ANTHROPIC_FALLBACK_MODELS,
+    providerMessages,
+    anthropicSystem,
+    plainMessages,
+    buildSystemPromptParts,
+    normalizeAiConfig,
+    resolveAi,
+} = _internal;
 
 /** a fetch stub answering every call with the given status and JSON (or SSE text) body */
 function fetchStub(status, body, headers = { 'content-type': 'application/json' }) {
@@ -129,6 +140,7 @@ describe('POST /she/ai/chat/stream', () => {
         });
         const body = JSON.parse(global.fetch.mock.calls[0][1].body);
         expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
+        expect(body.system[0].cache_control).toEqual({ type: 'ephemeral' });
     });
 
     it('streams the text deltas and ends with [DONE]', async () => {
@@ -342,12 +354,297 @@ describe('search_mqtt_topics limit', () => {
     it('shows 50 by default and says how many matched', async () => {
         const out = await executeTool('search_mqtt_topics', { query: 'bath' }, { store });
         expect(out.split('\n').filter((l) => l.startsWith('home/')).length).toBe(50);
-        expect(out).toMatch(/50 of 120 matching topics shown/);
+        expect(out).toMatch(/^50 of 120 matching topic\(s\)/);
     });
 
     it('takes a limit up to 500', async () => {
         const out = await executeTool('search_mqtt_topics', { query: 'bath', limit: 500 }, { store });
         expect(out.split('\n').filter((l) => l.startsWith('home/')).length).toBe(120);
-        expect(out).not.toMatch(/matching topics shown/);
+        expect(out).toMatch(/^120 of 120 matching topic\(s\):/);
+    });
+});
+
+describe('prompt caching (I22)', () => {
+    it('splits the prompt into a static and a dynamic part', () => {
+        const parts = buildSystemPromptParts({ apiref: true }, { path: 'x.js', content: 'let a = 1;' }, null, null, null, [{ name: 'notes.md', content: 'hello' }]);
+        expect(parts.staticText).toMatch(/You are the she assistant/);
+        expect(parts.staticText).toMatch(/she sandbox API/);
+        expect(parts.staticText).not.toContain('let a = 1;');
+        expect(parts.dynamicText).toContain('## Current script: x.js');
+        expect(parts.dynamicText).toContain('## Attached file: notes.md');
+    });
+
+    it('sends Anthropic the static part as a cached block and the dynamic part after it', () => {
+        expect(anthropicSystem({ role: 'system', content: 's\n\nd', staticText: 's', dynamicText: 'd' })).toEqual([
+            { type: 'text', text: 's', cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: 'd' },
+        ]);
+        expect(anthropicSystem({ role: 'system', content: 'plain' })).toBe('plain');
+    });
+
+    it('gives OpenAI-compatible endpoints role and content only', () => {
+        expect(
+            plainMessages([
+                { role: 'system', content: 'c', staticText: 's', dynamicText: 'd' },
+                { role: 'user', content: 'u' },
+            ]),
+        ).toEqual([
+            { role: 'system', content: 'c' },
+            { role: 'user', content: 'u' },
+        ]);
+    });
+});
+
+describe('several AI providers (I14)', () => {
+    const list = {
+        providers: [
+            { id: 'claude', label: 'Anthropic', provider: 'anthropic', model: 'claude-opus-5-5', apiKey: 'k1' },
+            { id: 'local', label: 'Ollama', provider: 'ollama', baseUrl: 'http://ollama:11434', model: 'qwen3:30b' },
+        ],
+        default: 'local',
+        toolResultChars: 4000,
+        fetchAllow: ['nas.lan'],
+    };
+
+    it('reads the old single-object shape as one entry', () => {
+        const n = normalizeAiConfig({ provider: 'anthropic', model: 'm', apiKey: 'k', elasticIndex: 'mqtt-*' });
+        expect(n.providers).toEqual([{ id: 'anthropic', label: 'anthropic', provider: 'anthropic', baseUrl: '', model: 'm', apiKey: 'k' }]);
+        expect(n.defaultId).toBe('anthropic');
+        expect(n.settings).toEqual({ elasticIndex: 'mqtt-*' });
+        expect(normalizeAiConfig(null)).toEqual({ providers: [], defaultId: null, settings: {} });
+    });
+
+    it('resolves the default, a named entry, and an unknown id', () => {
+        const d = resolveAi(list);
+        expect(d.id).toBe('local');
+        expect(d.provider).toBe('ollama');
+        expect(d.toolResultChars).toBe(4000);
+        expect(d.fetchAllow).toEqual(['nas.lan']);
+        expect(d.providers.map((p) => p.id)).toEqual(['claude', 'local']);
+        expect(d.providers.find((p) => p.id === 'claude').apiKey).toBeUndefined(); // never listed
+        expect(resolveAi(list, 'claude').apiKey).toBe('k1');
+        expect(resolveAi(list, 'nope')).toEqual({ unknown: 'nope' });
+        expect(resolveAi(list, '').id).toBe('local');
+    });
+
+    it('the config route lists the entries without keys; the chat route takes a providerOverride', async () => {
+        const http = require('http');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ai-providers-'));
+        fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: list }));
+        const log = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
+        init(null, log);
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = path.join(dir, 'config.json');
+        app.use('/she/ai', router);
+        const server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const port = server.address().port;
+        const call = (method, p, body) =>
+            new Promise((resolve, reject) => {
+                const data = body ? JSON.stringify(body) : null;
+                const req = http.request(
+                    { host: '127.0.0.1', port, path: p, method, headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {} },
+                    (res) => {
+                        let text = '';
+                        res.on('data', (c) => (text += c));
+                        res.on('end', () => resolve({ status: res.statusCode, text }));
+                    },
+                );
+                req.on('error', reject);
+                req.end(data);
+            });
+        const realFetch = global.fetch;
+        try {
+            const cfg = JSON.parse((await call('GET', '/she/ai/config')).text);
+            expect(cfg.default).toBe('local');
+            expect(cfg.provider).toBe('ollama');
+            expect(cfg.providers).toEqual([
+                { id: 'claude', label: 'Anthropic', provider: 'anthropic', baseUrl: '', model: 'claude-opus-5-5' },
+                { id: 'local', label: 'Ollama', provider: 'ollama', baseUrl: 'http://ollama:11434', model: 'qwen3:30b' },
+            ]);
+            expect(JSON.stringify(cfg)).not.toContain('k1');
+
+            global.fetch = jest.fn(
+                async () =>
+                    new Response('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n\n', {
+                        status: 200,
+                        headers: { 'content-type': 'text/event-stream' },
+                    }),
+            );
+            const r = await call('POST', '/she/ai/chat/stream', { messages: [{ role: 'user', content: 'x' }], context: { tools: false }, providerOverride: 'claude' });
+            expect(r.text).toContain('{"token":"hi"}');
+            expect(String(global.fetch.mock.calls[0][0])).toContain('api.anthropic.com');
+            expect(global.fetch.mock.calls[0][1].headers['x-api-key']).toBe('k1');
+            expect(JSON.parse(global.fetch.mock.calls[0][1].body).model).toBe('claude-opus-5-5');
+            expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('ai chat: claude/anthropic claude-opus-5-5 (chosen in the chat)'));
+
+            const bad = await call('POST', '/she/ai/chat/stream', { messages: [], context: {}, providerOverride: 'nope' });
+            expect(bad.status).toBe(400);
+            expect(JSON.parse(bad.text).error).toBe('unknown AI provider entry "nope"');
+        } finally {
+            global.fetch = realFetch;
+            await new Promise((resolve) => server.close(resolve));
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('prompt profiles and the house section (I25)', () => {
+    const { houseSection, profileFor, stripThinking, thinkFilter } = require('../../src/web/ai-context');
+
+    it('the reference no longer teaches the wrong age and variable forms', () => {
+        const { staticText } = buildSystemPromptParts({ apiref: true, tools: true }, null, null, null, null, []);
+        expect(staticText).not.toMatch(/last received a message/);
+        expect(staticText).not.toMatch(/var::/);
+        expect(staticText).not.toMatch(/she\.mqtt\.set\(/);
+        expect(staticText).not.toMatch(/No require/);
+        expect(staticText).toMatch(/age\(topic, \['message'\]\)/);
+        expect(staticText).toMatch(/var\/set\/<name>/);
+        expect(staticText).toContain('## Tools');
+        expect(staticText).toContain('@new-file');
+    });
+
+    it('the compact profile uses the short reference, the steps, no tools section without support, and a budget', () => {
+        const withTools = buildSystemPromptParts({ apiref: true, tools: true }, null, null, null, null, [], { profile: 'compact', toolsOffered: true });
+        expect(withTools.staticText).toContain('## she sandbox API (the common part)');
+        expect(withTools.staticText).toContain('## How to work (step by step)');
+        expect(withTools.staticText).toContain('## Tools');
+        const noTools = buildSystemPromptParts({ apiref: true, tools: true }, null, null, null, null, [], { profile: 'compact', toolsOffered: false });
+        expect(noTools.staticText).not.toContain('## Tools');
+
+        const big = 'x'.repeat(5000);
+        const r = buildSystemPromptParts(
+            { apiref: true },
+            { path: 's.js', content: 'let a;' },
+            null,
+            null,
+            null,
+            [
+                { name: 'a.md', content: big },
+                { name: 'b.md', content: big },
+            ],
+            { profile: 'compact', budgetChars: 9000 },
+        );
+        expect(r.dropped).toEqual(['file:b.md']); // the newest attachment goes first and that already fits; the script stays
+        expect(r.dynamicText).toContain('## Attached file: a.md');
+        expect(r.dynamicText).toContain('## Current script: s.js');
+        expect(r.dynamicText).toContain('Left out to fit');
+    });
+
+    it('derives the house section from the daemon, with stable numbers', () => {
+        const entries = [];
+        for (let i = 0; i < 8702; i++) entries.push([`${i % 3 === 0 ? 'hm' : i % 3 === 1 ? 'zigbee2mqtt' : 'var'}/status/t${i}`, { val: i }]);
+        const text = houseSection(
+            { name: 'she', variablePrefix: 'var', version: '1.52.0' },
+            entries,
+            [
+                { instance: 'hm', adapter: 'hm2mqtt', connected: 2 },
+                { instance: 'cul', adapter: 'cul2mqtt', connected: 0 },
+            ],
+            [{ id: 'n1', text: 'the bathroom PIR cannot see the shower' }],
+        );
+        expect(text).toContain("the daemon's MQTT name is `she` (she 1.52.0)");
+        expect(text).toMatch(/about 8700 topics/);
+        expect(text).toMatch(/`hm\/` \(2900\)/);
+        expect(text).toContain('`hm/` hm2mqtt, `cul/` cul2mqtt (offline)');
+        expect(text).toContain('- [n1] the bathroom PIR cannot see the shower');
+        expect(houseSection(null, null, [], [])).toBe('');
+    });
+
+    it('picks the profile by provider and strips thinking from local answers', () => {
+        expect(profileFor({ provider: 'anthropic' })).toBe('capable');
+        expect(profileFor({ provider: 'ollama' })).toBe('compact');
+        expect(profileFor({ provider: 'openai', baseUrl: 'http://localhost:1234' })).toBe('compact');
+        expect(profileFor({ provider: 'openai', baseUrl: 'https://api.groq.com/openai/v1' })).toBe('capable');
+        expect(profileFor({ provider: 'ollama', profile: 'capable' })).toBe('capable');
+        expect(stripThinking('<think>\nhmm\n</think>\n\nThe answer.')).toBe('The answer.');
+        const out = [];
+        const f = thinkFilter((t) => out.push(t));
+        for (const t of ['Hel', 'lo <th', 'ink>secret', ' stuff</th', 'ink> world', '!']) f(t);
+        expect(out.join('')).toBe('Hello world!');
+    });
+});
+
+describe('tool availability and the publish round trip (I16, I20)', () => {
+    const { toolsFor } = require('../../src/web/ai-api')._tools;
+
+    it('offers the write tools only with their backing', () => {
+        const names = (ctx) => toolsFor({ provider: 'anthropic' }, ctx).map((t) => t.name);
+        expect(names({})).not.toContain('publish_mqtt');
+        expect(names({})).not.toContain('propose_script');
+        expect(names({})).not.toContain('remember');
+        expect(names({ memory: {}, drafts: {}, scriptDir: '/s', publish: { mode: 'confirm', send: () => {} } })).toEqual(
+            expect.arrayContaining(['publish_mqtt', 'propose_script', 'remember', 'forget', 'search_mqtt_topics']),
+        );
+        expect(names({ publish: { mode: 'off', send: () => {} } })).not.toContain('publish_mqtt');
+    });
+
+    it('the stream route asks for confirmation and publishes through the daemon after the click', async () => {
+        const http = require('http');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ai-publish-'));
+        fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { provider: 'anthropic', model: 'm', apiKey: 'k' } }));
+        const published = [];
+        const log = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
+        init(null, log, { publish: async (t, p, o) => published.push([t, p, o]) });
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = path.join(dir, 'config.json');
+        app.use('/she/ai', router);
+        const server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const port = server.address().port;
+        const realFetch = global.fetch;
+        const answers = [
+            { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'publish_mqtt', input: { topic: 'hm/set/x/STATE', payload: 'true' } }] },
+            { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] },
+        ];
+        global.fetch = jest.fn(async () => new Response(JSON.stringify(answers.shift()), { status: 200, headers: { 'content-type': 'application/json' } }));
+        try {
+            const text = await new Promise((resolve, reject) => {
+                const data = JSON.stringify({ messages: [{ role: 'user', content: 'switch it on' }], context: { tools: true, publish: 'confirm' } });
+                const req = http.request(
+                    {
+                        host: '127.0.0.1',
+                        port,
+                        path: '/she/ai/chat/stream',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+                    },
+                    (res) => {
+                        let buf = '';
+                        let decided = false;
+                        res.on('data', (c) => {
+                            buf += c;
+                            const m = buf.match(/"type":"publish_request","id":"(p[0-9a-f]{8})"/);
+                            if (m && !decided) {
+                                decided = true;
+                                const body = JSON.stringify({ ok: true }); // the user's click
+                                const r2 = http.request({
+                                    host: '127.0.0.1',
+                                    port,
+                                    path: '/she/ai/publish/' + m[1],
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                                });
+                                r2.end(body);
+                            }
+                        });
+                        res.on('end', () => resolve(buf));
+                    },
+                );
+                req.on('error', reject);
+                req.end(data);
+            });
+            expect(text).toContain('"type":"publish_request"');
+            expect(text).toContain('"topic":"hm/set/x/STATE"');
+            expect(text).toContain('{"token":"Done."}');
+            expect(published).toEqual([['hm/set/x/STATE', 'true', { retain: false }]]);
+            expect(log.info).toHaveBeenCalledWith(expect.stringContaining('published "true" to hm/set/x/STATE'));
+        } finally {
+            global.fetch = realFetch;
+            await new Promise((resolve) => server.close(resolve));
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

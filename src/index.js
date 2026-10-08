@@ -44,24 +44,14 @@ require('./lib/storage').ensureRoot();
 }
 
 // ---------------------------------------------------------------------------
-// Persistent JSON-Lines log file — written alongside the pino-pretty stream.
-// On each daemon start: rotate she.jsonl → she.jsonl.1, then open fresh.
+// Persistent JSON-Lines log file — written alongside the pino-pretty stream,
+// rotated on every start and by size (roadmap B-12; src/lib/log-file.js).
 // ---------------------------------------------------------------------------
 const _fs = require('fs');
 const _path = require('path');
 const { LOGS_DIR } = require('./lib/storage');
 const secrets = require('./lib/secrets');
-const _logFileCurrent = _path.join(LOGS_DIR, 'she.jsonl');
-const _logFilePrev = _path.join(LOGS_DIR, 'she.jsonl.1');
-try {
-    _fs.renameSync(_logFileCurrent, _logFilePrev);
-} catch {
-    /* no previous file — ignore */
-}
-const _logFileStream = _fs.createWriteStream(_logFileCurrent, { flags: 'w' });
-function _writeLogLine(level, msg) {
-    _logFileStream.write(JSON.stringify({ level, msg, ts: Date.now() }) + '\n');
-}
+const _logFile = require('./lib/log-file').createLogFile({ dir: LOGS_DIR });
 // ---------------------------------------------------------------------------
 
 const config = require('./config');
@@ -83,35 +73,11 @@ const _pino = require('pino')(
 // Lazy import â€” log-ws exports a no-op broadcastLog when the HTTP server is not started.
 const { broadcastLog, broadcast, setWelcomeProvider } = require('./web/log-ws');
 const shedb = require('./web/shedb');
-const log = {
-    debug: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.debug(msg);
-        broadcastLog({ level: 'debug', msg, ts: Date.now() });
-        _writeLogLine('debug', msg);
-    },
-    info: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.info(msg);
-        broadcastLog({ level: 'info', msg, ts: Date.now() });
-        _writeLogLine('info', msg);
-    },
-    warn: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.warn(msg);
-        broadcastLog({ level: 'warn', msg, ts: Date.now() });
-        _writeLogLine('warn', msg);
-    },
-    error: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.error(msg);
-        broadcastLog({ level: 'error', msg, ts: Date.now() });
-        _writeLogLine('error', msg);
-    },
-    setLevel: (level) => {
-        _pino.level = level;
-    },
-};
+// One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
+const log = require('./lib/logger').createLogger({
+    redact: (s) => secrets.redact(s),
+    sinks: [(level, msg) => _pino[level](msg), (level, msg) => broadcastLog({ level, msg, ts: Date.now() }), (level, msg) => _logFile.write(level, msg)],
+});
 
 // Secrets store (roadmap A5): read once at startup; the UI/CLI keep it current afterwards.
 {
@@ -177,6 +143,16 @@ process.on('exit', _clearSentinel);
 // Wall-clock budget for a script's synchronous top-level code (0 = no limit).
 const SCRIPT_TIMEOUT_MS = typeof config.scriptTimeout === 'number' && config.scriptTimeout >= 0 ? config.scriptTimeout : 5000;
 
+/** remember which topics a script publishes to (roadmap I19), at most 200 per script */
+function recordPublish(scriptFile, topic) {
+    let set = scriptPublishes.get(scriptFile);
+    if (!set) {
+        set = new Set();
+        scriptPublishes.set(scriptFile, set);
+    }
+    if (set.size < 200 || set.has(topic)) set.add(topic);
+}
+
 /**
  * Build a short log label for a script file.
  * Uses the path relative to the configured script dir(s) when possible,
@@ -193,6 +169,7 @@ function makeLabel(filePath) {
 }
 
 log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1 ? 'info' : config.verbosity);
+_pino.level = log.level;
 
 // Safety net: unhandled Promise rejections from async script callbacks are not caught
 // by the per-script domain (Node.js domains don't intercept Promise rejections).
@@ -271,6 +248,7 @@ const varSubscriptions = []; // store-based var:: subscriptions { key, handler, 
 
 // Per-script resource tracking for hot-reload
 const scriptJobs = new Map(); // scriptFile â†’ node-schedule Job[]
+const scriptPublishes = new Map(); // scriptFile → Set<topic> a script published to (roadmap I19; capped)
 const scriptTimers = new Map(); // scriptFile â†’ Set<timer id>
 
 const _global = {};
@@ -448,7 +426,6 @@ require('./web/mqtt-api').init(store, () => mqtt);
 require('./web/services-api').init(store, () => mqtt, {
     getMqttConfig: () => ({ url: config.url, username: config.mqttUsername, password: config.mqttPassword }),
 });
-require('./web/ai-api').init(store, log);
 
 // MQTT message rate counter â€” reset on each stats poll
 let _mqttMsgCount = 0;
@@ -473,7 +450,7 @@ new PerformanceObserver((list) => {
 }).observe({ type: 'gc', buffered: false });
 
 // Register runtime stats provider for GET /she/status
-require('./web/server').setStatsProvider(() => {
+const statsSnapshot = () => {
     let topics = 0;
     // eslint-disable-next-line no-unused-vars
     for (const _ of store.mqttEntries()) topics++;
@@ -532,16 +509,55 @@ require('./web/server').setStatsProvider(() => {
         elMaxMs,
         safeMode: SAFE_MODE,
     };
-});
+};
+require('./web/server').setStatsProvider(statsSnapshot);
 
 // Health probe for GET /she/health (roadmap A1) — cheap, no counting, no allocation.
-require('./web/server').setHealthProvider(() => ({
+const healthSnapshot = () => ({
     started: _started,
     mqttConfigured: !!config.url,
     mqttConnected: connected,
     scripts: Object.keys(scripts).length,
     safeMode: SAFE_MODE,
-}));
+});
+require('./web/server').setHealthProvider(healthSnapshot);
+
+// What the AI chat may look at (roadmap I19, I27, I28): read-only views of the daemon's state.
+const nextOf = (job) => {
+    try {
+        const d = job && typeof job.nextInvocation === 'function' ? job.nextInvocation() : null;
+        const date = d && typeof d.toDate === 'function' ? d.toDate() : d;
+        return date instanceof Date ? date.getTime() : null;
+    } catch {
+        return null;
+    }
+};
+const introspect = {
+    // the AI's publish tool (roadmap I20), guarded and confirmed in ai-api; here only the broker call
+    publish: (topic, payload, opts) =>
+        new Promise((resolve, reject) => {
+            if (!mqtt || !connected) return reject(new Error('MQTT is not connected'));
+            mqtt.publish(String(topic), typeof payload === 'object' ? JSON.stringify(payload) : String(payload), opts || {}, (err) => (err ? reject(err) : resolve()));
+        }),
+    config: () => ({ name: config.name, variablePrefix: config.variablePrefix || 'var', version: pkg.version }),
+    scripts: () =>
+        Object.keys(scripts).map((file) => ({
+            file,
+            label: makeLabel(file).slice(0, -1),
+            origin: scriptOrigins.get(file) || 'user',
+            subscriptions: subscriptions.filter((x) => x._script === file).flatMap((x) => (Array.isArray(x.topic) ? x.topic : [x.topic])),
+            varSubscriptions: varSubscriptions.filter((x) => x._script === file).map((x) => x.key),
+            publishes: [...(scriptPublishes.get(file) || [])],
+            jobs: (scriptJobs.get(file) || []).filter(Boolean).map((job) => ({ next: nextOf(job) })),
+            sunEvents: sunEvents.filter((e) => e._script === file).map((e) => ({ pattern: e.pattern, next: nextOf(e._job) })),
+            timers: [...(scriptTimers.get(file) || [])].map((t) => ({ due: t.due || null, every: t.every || null })),
+        })),
+    stats: statsSnapshot,
+    health: healthSnapshot,
+    instances: () => require('./lib/services-inventory').analyzeServices(store.mqttEntries()).instances,
+    devices: () => require('./lib/ha-discovery').analyzeDiscovery(store.mqttEntries()).devices,
+};
+require('./web/ai-api').init(store, log, introspect);
 
 // Push current script:running state so the UI green dots survive a browser reload.
 setWelcomeProvider(() => Object.keys(scripts).map((f) => ({ type: 'script:running', path: makeLabel(f).slice(0, -1), running: true })));
@@ -1089,6 +1105,7 @@ function runScript(script, name, _origin) {
             }
 
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
+            recordPublish(name, topic);
 
             if (typeof payload === 'object') {
                 payload = JSON.stringify(payload);
@@ -1216,6 +1233,8 @@ function runScript(script, name, _origin) {
         setInterval: (fn, delay, ...args) => {
             const wrapped = args.length ? () => fn(...args) : fn;
             const id = setInterval(() => _dispatch(name, wrapped), delay);
+            id.every = delay;
+            id.due = Date.now() + delay;
             _myTimers.add(id);
             return id;
         },
@@ -1442,6 +1461,7 @@ function unloadScript(file) {
         removedTimers += timers.size;
         scriptTimers.delete(file);
     }
+    scriptPublishes.delete(file);
 
     // Remove store-based var:: subscriptions belonging to this script
     for (let i = varSubscriptions.length - 1; i >= 0; i--) {
