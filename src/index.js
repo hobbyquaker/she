@@ -448,7 +448,7 @@ require('./web/mqtt-api').init(store, () => mqtt);
 require('./web/services-api').init(store, () => mqtt, {
     getMqttConfig: () => ({ url: config.url, username: config.mqttUsername, password: config.mqttPassword }),
 });
-require('./web/ai-api').init(store);
+require('./web/ai-api').init(store, log);
 
 // MQTT message rate counter â€” reset on each stats poll
 let _mqttMsgCount = 0;

@@ -30,7 +30,14 @@ let _store = null;
 /**
  * @param {import('../lib/state-store')} store
  */
-function init(store) {
+let _log = console;
+
+/**
+ * @param {object} store
+ * @param {{ error: Function, warn: Function }} [log] — the daemon's logger; console until init
+ */
+function init(store, log) {
+    if (log) _log = log;
     _store = store;
 }
 
@@ -151,8 +158,25 @@ async function callAnthropic(config, messages, tools) {
         return { toolCalls, assistantMsg: json.content, usage };
     }
 
-    const message = json.content?.[0]?.text ?? '';
+    const message = answerText(json.content);
+    if (!message) {
+        // an answer without any text block (e.g. only a thinking block) — say so instead of showing nothing
+        const types = (json.content || []).map((b) => b.type).join(',') || 'none';
+        throw new Error(`Anthropic returned no text (stop_reason ${json.stop_reason}, content blocks: ${types})`);
+    }
     return { message, usage };
+}
+
+/**
+ * The text of an Anthropic answer: every text block joined, other block types (thinking, tool_use) ignored.
+ * @param {Array<{type:string,text?:string}>|undefined} content
+ */
+function answerText(content) {
+    if (!Array.isArray(content)) return '';
+    return content
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text)
+        .join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -472,6 +496,7 @@ router.post('/chat', async (req, res) => {
         }
         res.json(result);
     } catch (e) {
+        _log.error('ai chat: ' + e.message);
         res.status(500).json({ error: e.message });
     }
 });
@@ -514,19 +539,26 @@ router.post('/chat/stream', async (req, res) => {
             // send the final answer as a single token so the client sees it immediately.
             const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
             const { message } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
+            if (!message || !message.trim()) throw new Error('The model returned an empty answer');
             send({ token: message });
         } else {
-            const onToken = (t) => send({ token: t });
+            let tokens = 0;
+            const onToken = (t) => {
+                tokens++;
+                send({ token: t });
+            };
             if (ai.provider === 'anthropic') {
                 await streamAnthropic(aiWithModel, fullMessages, onToken);
             } else {
                 await streamOpenAICompat(aiWithModel, fullMessages, onToken);
             }
+            if (tokens === 0) throw new Error('The model returned an empty answer');
         }
 
         res.write('data: [DONE]\n\n');
         res.end();
     } catch (e) {
+        _log.error('ai chat: ' + e.message);
         send({ error: e.message });
         res.end();
     }
@@ -607,4 +639,4 @@ router.delete('/conversations/:id', (req, res) => {
     res.json({ ok: true });
 });
 
-module.exports = { router, init };
+module.exports = { router, init, _internal: { callAnthropic, answerText, readAiConfig } };

@@ -114,7 +114,7 @@
         { id: 'groq',      label: 'Groq — Qwen 2.5 Coder 32B (free)',     provider: 'openai',    baseUrl: 'https://api.groq.com/openai/v1',                           defaultModel: 'qwen-2.5-coder-32b',         freeNote: '14 400 req/day · no credit card needed',        apiKeyUrl: 'https://console.groq.com/keys' },
         { id: 'gemini',    label: 'Google Gemini 2.0 Flash (free)',        provider: 'openai',    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',  defaultModel: 'gemini-2.0-flash',           freeNote: '15 RPM · 1 000 000 tokens/day · no credit card', apiKeyUrl: 'https://aistudio.google.com/apikey' },
         { id: 'openai',    label: 'OpenAI (paid)',                         provider: 'openai',    baseUrl: '',                                                         defaultModel: 'gpt-4o-mini',                freeNote: '',                                              apiKeyUrl: 'https://platform.openai.com/api-keys' },
-        { id: 'anthropic', label: 'Anthropic (paid)',                      provider: 'anthropic', baseUrl: '',                                                         defaultModel: 'claude-3-5-haiku-20241022',  freeNote: '',                                              apiKeyUrl: 'https://console.anthropic.com/settings/keys' },
+        { id: 'anthropic', label: 'Anthropic (paid)',                      provider: 'anthropic', baseUrl: '',                                                         defaultModel: 'claude-haiku-4-5-20251001',    freeNote: '',                                              apiKeyUrl: 'https://console.anthropic.com/settings/keys' },
     ];
 
     let aiPreset   = $state('ollama');
