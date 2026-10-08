@@ -647,3 +647,53 @@ describe('describe_room and describe_device with several names (I34)', () => {
         expect(await executeTool('describe_device', {}, ctx)).toBe('name (or names) is required.');
     });
 });
+
+describe('read_script with its surroundings (I35)', () => {
+    it('puts the subscriptions, publishes and the wired scripts above the source', async () => {
+        const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-scripts-'));
+        fs.mkdirSync(path.join(scriptDir, 'presence'));
+        fs.writeFileSync(path.join(scriptDir, 'presence', 'workshop.js'), "she.info('x');\n");
+        const introspect = {
+            config: () => ({ variablePrefix: 'var' }),
+            scripts: () => [
+                {
+                    file: scriptDir + '/presence/workshop.js',
+                    label: 'presence/workshop.js',
+                    subscriptions: ['zigbee2mqtt/radar_workshop/occupancy'],
+                    varSubscriptions: ['mode'],
+                    publishes: ['var/set/presence/workshop'],
+                    jobs: [{ next: Date.now() + 3600000 }],
+                    sunEvents: [],
+                    timers: [{ due: 1 }],
+                },
+                {
+                    file: scriptDir + '/light/workshop.js',
+                    label: 'light/workshop.js',
+                    subscriptions: [],
+                    varSubscriptions: ['presence/workshop'],
+                    publishes: ['hm/set/Licht Workshop/STATE'],
+                    jobs: [],
+                    sunEvents: [],
+                    timers: [],
+                },
+                { file: scriptDir + '/modes.js', label: 'modes.js', subscriptions: [], varSubscriptions: [], publishes: ['var/set/mode'], jobs: [], sunEvents: [], timers: [] },
+                { file: scriptDir + '/other.js', label: 'other.js', subscriptions: ['hm/status/x'], varSubscriptions: [], publishes: [], jobs: [], sunEvents: [], timers: [] },
+            ],
+        };
+        const out = await executeTool('read_script', { path: 'presence/workshop.js' }, { scriptDir, introspect });
+        const header = out.split('```')[0];
+        expect(header).toContain('## presence/workshop.js\n');
+        expect(header).toContain('- subscribes: zigbee2mqtt/radar_workshop/occupancy, var/status/mode');
+        expect(header).toContain('- publishes (seen since start): var/set/presence/workshop');
+        expect(header).toMatch(/- schedules: job in 1h/);
+        expect(header).toContain('- pending timers: 1');
+        expect(header).toContain('- read by: light/workshop.js (they subscribe to what this script publishes)');
+        expect(header).toContain('- fed by: modes.js (they publish what this script subscribes to)');
+        expect(header).not.toContain('other.js');
+        expect(out).toContain("```javascript\nshe.info('x');");
+        // not loaded: the source alone
+        fs.writeFileSync(path.join(scriptDir, 'new.js'), '1;\n');
+        expect(await executeTool('read_script', { path: 'new.js' }, { scriptDir, introspect })).toBe('## new.js\n```javascript\n1;\n\n```');
+        fs.rmSync(scriptDir, { recursive: true, force: true });
+    });
+});

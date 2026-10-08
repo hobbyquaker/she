@@ -69,7 +69,8 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'read_script',
-            description: 'Read the content of a script file from the she scripts directory. ' + 'Use this to review existing scripts before suggesting changes.',
+            description:
+                'Read a script file from the she scripts directory, with a header of what the daemon knows about it: its subscriptions, what it publishes, its schedules and the scripts wired to it. Use this to review a script before suggesting changes.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -501,7 +502,7 @@ async function runTool(name, args, ctx) {
             case 'get_mqtt_topic':
                 return toolGetMqttTopic(args, ctx.store);
             case 'read_script':
-                return toolReadScript(args, ctx.scriptDir);
+                return toolReadScript(args, ctx.scriptDir, ctx.introspect);
             case 'get_script_logs':
                 return toolGetScriptLogs(args);
             case 'she_fetch':
@@ -656,7 +657,7 @@ function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, l
     return lines.join('\n');
 }
 
-function toolReadScript({ path: relPath }, scriptDir) {
+function toolReadScript({ path: relPath }, scriptDir, introspect) {
     if (!scriptDir) return 'Scripts directory not configured.';
     if (!relPath || typeof relPath !== 'string') return 'path argument is required.';
     const abs = path.resolve(scriptDir, relPath.replace(/^\/+/, ''));
@@ -666,7 +667,46 @@ function toolReadScript({ path: relPath }, scriptDir) {
     }
     if (!fs.existsSync(abs)) return `File not found: ${relPath}`;
     const content = fs.readFileSync(abs, 'utf8');
-    return `## ${relPath}\n\`\`\`javascript\n${content}\n\`\`\``;
+    return `## ${relPath}\n${scriptSurroundings(relPath, introspect)}\`\`\`javascript\n${content}\n\`\`\``;
+}
+
+/**
+ * What the daemon knows about a loaded script (roadmap I35), as a short header above its source: its
+ * subscriptions and seen publishes, its schedules and pending timers, and the scripts wired to it — those that
+ * subscribe to what it publishes or publish what it subscribes to. Empty when the daemon's state is not
+ * available or the file is not loaded.
+ */
+function scriptSurroundings(relPath, introspect) {
+    if (!introspect?.scripts) return '';
+    const all = introspect.scripts();
+    const norm = (x) => String(x).replace(/^\/+/, '');
+    const sc = all.find((x) => norm(x.label) === norm(relPath) || (x.file && norm(x.file).endsWith('/' + norm(relPath))));
+    if (!sc) return '';
+    const varPrefix = introspect.config ? introspect.config().variablePrefix || 'var' : 'var';
+    const some = (arr, n = 10) => (arr.length <= n ? arr.join(', ') : arr.slice(0, n).join(', ') + ` … (${arr.length} total)`);
+    const lines = [];
+    const subs = [...sc.subscriptions, ...sc.varSubscriptions.map((k) => `${varPrefix}/status/${k}`)];
+    if (subs.length) lines.push(`subscribes: ${some(subs)}`);
+    if (sc.publishes.length) lines.push(`publishes (seen since start): ${some(sc.publishes)}`);
+    const sched = [...sc.jobs.map((j) => `job ${inTime(j.next)}`), ...sc.sunEvents.map((e) => `${e.pattern} ${inTime(e.next)}`)];
+    if (sched.length) lines.push(`schedules: ${some(sched, 6)}`);
+    if (sc.timers.length) lines.push(`pending timers: ${sc.timers.length}`);
+    // a variable published as <prefix>/set/x is read by others as <prefix>/status/x
+    const asStatus = (t) => String(t).replace(new RegExp(`^${varPrefix}/set/`), `${varPrefix}/status/`);
+    const pubs = new Set(sc.publishes.map(asStatus));
+    const subSet = new Set(subs);
+    const readers = [];
+    const writers = [];
+    for (const o of all) {
+        if (o === sc) continue;
+        const oSubs = [...o.subscriptions, ...o.varSubscriptions.map((k) => `${varPrefix}/status/${k}`)];
+        if (oSubs.some((t) => pubs.has(t))) readers.push(o.label);
+        if (o.publishes.some((t) => subSet.has(asStatus(t)))) writers.push(o.label);
+    }
+    if (readers.length) lines.push(`read by: ${some(readers)} (they subscribe to what this script publishes)`);
+    if (writers.length) lines.push(`fed by: ${some(writers)} (they publish what this script subscribes to)`);
+    if (!lines.length) return '';
+    return lines.map((l) => `- ${l}`).join('\n') + '\n';
 }
 
 const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };

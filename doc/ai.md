@@ -62,7 +62,7 @@ The model reads the daemon through tools. Two tools change something, both behin
 | `get_timeline` | the changes of several topics merged in time order (Influx) |
 | `get_topic_messages` | the raw messages of a topic from Elasticsearch (`elastic` integration) |
 | `list_scripts`, `read_script` | the loaded scripts with subscriptions, publishes and schedules; a script's content |
-| `who_publishes`, `describe_device` | which script or adapter writes a topic; everything under one device, with its discovery entities |
+| `who_publishes`, `describe_device`, `describe_room` | which script or adapter writes a topic; everything under one device (or several names), with its discovery entities; the whole room: devices, variables, scripts, discovery |
 | `get_script_logs` | the log files on disk with a time window, a level and a script filter |
 | `list_timers`, `get_health`, `list_services` | pending timers and schedules, the daemon's health, the adapter instances |
 | `list_matter_devices`, `get_matter_attribute` | paired Matter devices with their state; one attribute |
