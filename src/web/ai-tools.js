@@ -334,8 +334,33 @@ const TOOL_DEFINITIONS = [
             parameters: {
                 type: 'object',
                 properties: {
+                    names: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Several device names in one call (each answered as with "name").',
+                    },
                     name: { type: 'string', description: 'Device name as it appears in topics or in the discovery.' },
                     limit: { type: 'integer', description: 'Maximum topics per group (default 40).' },
+                },
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'describe_room',
+            description:
+                'Everything about a room in one call: every device whose topics carry the room word (grouped per device with values and change ages), the variables with the word, the scripts that subscribe to or publish any of it, and the discovery devices. ' +
+                'Start here for a question about a room ("why does the light in the workshop …"); then narrow with describe_device, get_timeline or get_topic_history.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    name: {
+                        type: 'string',
+                        description:
+                            'The room word as it appears in topic segments: "hobbyraum", "bad", "kitchen". Matched case-insensitively inside a segment ("radar_hobbyraum", "Licht Hobbyraum").',
+                    },
+                    limit: { type: 'integer', description: 'Maximum topics per device (default 15; the note says how many more there are).' },
                 },
                 required: ['name'],
             },
@@ -500,7 +525,9 @@ async function runTool(name, args, ctx) {
             case 'who_publishes':
                 return toolWhoPublishes(args, ctx);
             case 'describe_device':
-                return toolDescribeDevice(args, ctx);
+                return toolDescribeDevices(args, ctx);
+            case 'describe_room':
+                return toolDescribeRoom(args, ctx);
             case 'list_services':
                 return toolListServices(args, ctx);
             case 'get_health':
@@ -1050,6 +1077,108 @@ function toolDescribeDevice({ name, limit = 40 } = {}, ctx = {}) {
         }
     }
     if (!lines.length) return `Nothing known under "${name}": no topic segment and no discovery device matches. Try search_mqtt_topics with a substring.`;
+    return lines.join('\n');
+}
+
+/** describe_device with "names" (roadmap I34): one sheet per name, in one result */
+function toolDescribeDevices({ name, names, limit } = {}, ctx = {}) {
+    const list = [...(Array.isArray(names) ? names : typeof names === 'string' && names.trim() ? [names] : []), ...(name ? [name] : [])]
+        .map((n) => String(n).trim())
+        .filter(Boolean);
+    const unique = [...new Set(list)];
+    if (unique.length === 0) return 'name (or names) is required.';
+    if (unique.length === 1) return toolDescribeDevice({ name: unique[0], limit }, ctx);
+    const cap = 10;
+    const out = unique.slice(0, cap).map((n) => `# ${n}\n${toolDescribeDevice({ name: n, limit }, ctx)}`);
+    if (unique.length > cap) out.push(`… ${unique.length - cap} more names not shown; call again with them.`);
+    return out.join('\n\n');
+}
+
+/**
+ * The room sheet (roadmap I34): the topics whose segments carry the room word, grouped per device — the device
+ * is the adapter instance plus the segment that carries the word (`zigbee2mqtt/radar_hobbyraum`,
+ * `hm/Licht Hobbyraum`, or the first segment itself when it carries the word, `radar-hobbyraum`) — the
+ * variables, the scripts touching any of it, the discovery devices.
+ */
+function toolDescribeRoom({ name, limit = 15 } = {}, ctx = {}) {
+    if (!name) return 'name is required.';
+    const store = ctx.store;
+    if (!store) return 'MQTT state store not available.';
+    const q = String(name).trim().toLowerCase();
+    if (!q) return 'name is required.';
+    const cap = Math.min(Math.max(1, Number(limit) || 15), 100);
+    const now = Date.now();
+    const varPrefix = ctx.introspect?.config ? ctx.introspect.config().variablePrefix || 'var' : 'var';
+    const devices = new Map(); // key → { topics: [{topic, kind, line}] }
+    const variables = [];
+    const roomTopics = new Set();
+    for (const [topic, obj] of store.mqttEntries()) {
+        const segs = topic.split('/');
+        const hitIdx = segs.findIndex((sg) => sg.toLowerCase().includes(q));
+        if (hitIdx === -1) continue;
+        roomTopics.add(topic);
+        const lc = obj.lc ?? obj.ts;
+        const line = `${topic}: ${JSON.stringify(obj.val)}${lc ? ` (changed ${ago(now - lc)} ago)` : ''}`;
+        if (segs[0] === varPrefix) {
+            variables.push(line);
+            continue;
+        }
+        const kind = segs[1] === 'status' ? 'status' : segs[1] === 'set' ? 'set' : segs[1] === 'maintenance' ? 'maintenance' : 'other';
+        const key = hitIdx === 0 ? segs[0] : `${segs[0]}/${segs[hitIdx]}`;
+        if (!devices.has(key)) devices.set(key, []);
+        devices.get(key).push({ kind, line });
+    }
+    if (devices.size === 0 && variables.length === 0) return `No topic segment contains "${name}". Try search_mqtt_topics with a substring, or another spelling of the room.`;
+    const lines = [`Room "${name}": ${devices.size} device(s), ${variables.length} variable(s), ${roomTopics.size} topic(s).`];
+    const order = { status: 0, set: 1, maintenance: 2, other: 3 };
+    for (const [key, list] of [...devices.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        list.sort((a, b) => order[a.kind] - order[b.kind] || a.line.localeCompare(b.line));
+        lines.push(`\n## ${key} (${list.length} topic${list.length === 1 ? '' : 's'})`);
+        lines.push(...list.slice(0, cap).map((x) => x.line));
+        if (list.length > cap) lines.push(`… ${list.length - cap} more; describe_device "${key.split('/').pop()}" for all of them`);
+    }
+    if (variables.length) {
+        lines.push(`\n## variables (${variables.length})`);
+        lines.push(...variables.sort().slice(0, cap));
+        if (variables.length > cap) lines.push(`… ${variables.length - cap} more; search_mqtt_topics "${varPrefix}/status/#" with the room word`);
+    }
+    if (ctx.introspect?.scripts) {
+        const touches = (t) => roomTopics.has(t) || String(t).toLowerCase().includes(q);
+        const scripts = ctx.introspect
+            .scripts()
+            .map((sc) => {
+                const subs = [...sc.subscriptions, ...sc.varSubscriptions.map((k) => `${varPrefix}/status/${k}`)].filter(touches);
+                const pubs = sc.publishes.filter(touches);
+                return { label: sc.label, subs, pubs };
+            })
+            .filter((x) => x.subs.length || x.pubs.length || x.label.toLowerCase().includes(q))
+            .sort((a, b) => a.label.localeCompare(b.label));
+        if (scripts.length) {
+            lines.push(`\n## scripts (${scripts.length})`);
+            const some = (arr, n = 8) => (arr.length <= n ? arr.join(', ') : arr.slice(0, n).join(', ') + ` … (${arr.length})`);
+            for (const sc of scripts) {
+                const parts = [];
+                if (sc.subs.length) parts.push(`subscribes ${some(sc.subs)}`);
+                if (sc.pubs.length) parts.push(`publishes ${some(sc.pubs)}`);
+                lines.push(`- ${sc.label}${parts.length ? ': ' + parts.join('; ') : ''}`);
+            }
+        }
+    }
+    if (ctx.introspect?.devices) {
+        const devs = ctx.introspect.devices().filter(
+            (d) =>
+                String(d.name || d.id || '')
+                    .toLowerCase()
+                    .includes(q) || (d.refTopics || []).some((t) => roomTopics.has(t)),
+        );
+        if (devs.length) {
+            lines.push(`\n## Home Assistant discovery (${devs.length})`);
+            for (const d of devs)
+                lines.push(
+                    `- ${d.name || d.id}${d.orphaned ? ' (orphaned)' : ''}: ${(d.entities || []).map((e) => `${e.component || 'entity'} ${e.name || ''}`.trim()).join(', ') || 'no entities'}`,
+                );
+        }
+    }
     return lines.join('\n');
 }
 

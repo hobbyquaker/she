@@ -576,3 +576,74 @@ describe('get_timeline (I33)', () => {
         expect(await executeTool('get_timeline', {}, { store })).toMatch(/topics is required/);
     });
 });
+
+describe('describe_room and describe_device with several names (I34)', () => {
+    const NOW = Date.now();
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'zigbee2mqtt/radar_workshop/occupancy': { val: true, lc: NOW - 5000 },
+                'zigbee2mqtt/radar_workshop/illuminance': { val: 12, lc: NOW - 5000 },
+                'zigbee2mqtt/tfk_workshop/contact': { val: false, lc: NOW - 60000 },
+                'hm/status/Licht Workshop/STATE': { val: true, lc: NOW - 1000 },
+                'hm/set/Licht Workshop/STATE': { val: true, lc: NOW - 1000 },
+                'hm/maintenance/Licht Workshop/online': { val: true },
+                'radar-workshop/status/pir': { val: false, lc: NOW - 2000 },
+                'var/status/presence/workshop': { val: { val: true }, lc: NOW - 3000 },
+                'hm/status/Licht Kitchen/STATE': { val: false },
+            }),
+    };
+    const introspect = {
+        config: () => ({ variablePrefix: 'var' }),
+        scripts: () => [
+            {
+                label: 'presence/workshop.js',
+                subscriptions: ['zigbee2mqtt/radar_workshop/occupancy', 'radar-workshop/status/pir'],
+                varSubscriptions: [],
+                publishes: ['var/set/presence/workshop'],
+                jobs: [],
+                sunEvents: [],
+                timers: [],
+            },
+            {
+                label: 'light/workshop.js',
+                subscriptions: [],
+                varSubscriptions: ['presence/workshop'],
+                publishes: ['hm/set/Licht Workshop/STATE'],
+                jobs: [],
+                sunEvents: [],
+                timers: [],
+            },
+            { label: 'light/kitchen.js', subscriptions: ['hm/status/Licht Kitchen/STATE'], varSubscriptions: [], publishes: [], jobs: [], sunEvents: [], timers: [] },
+        ],
+        devices: () => [{ id: 'd1', name: 'Workshop Light', entities: [{ component: 'light', name: 'Workshop Light' }], refTopics: ['hm/status/Licht Workshop/STATE'] }],
+    };
+    const ctx = { store, introspect };
+
+    it('groups the room by device, lists the variables, the scripts and the discovery', async () => {
+        const out = await executeTool('describe_room', { name: 'workshop' }, ctx);
+        const lines = out.split('\n');
+        expect(lines[0]).toBe('Room "workshop": 4 device(s), 1 variable(s), 8 topic(s).');
+        expect(out).toContain('## hm/Licht Workshop (3 topics)');
+        expect(out).toMatch(/## hm\/Licht Workshop \(3 topics\)\nhm\/status\/Licht Workshop\/STATE: true \(changed 1s ago\)\nhm\/set\/Licht Workshop\/STATE/); // status before set
+        expect(out).toContain('## radar-workshop (1 topic)');
+        expect(out).toContain('## zigbee2mqtt/radar_workshop (2 topics)');
+        expect(out).toContain('## zigbee2mqtt/tfk_workshop (1 topic)');
+        expect(out).toContain('## variables (1)\nvar/status/presence/workshop: {"val":true} (changed 3s ago)');
+        expect(out).toContain('## scripts (2)');
+        expect(out).toContain('- light/workshop.js: subscribes var/status/presence/workshop; publishes hm/set/Licht Workshop/STATE');
+        expect(out).toContain('- presence/workshop.js: subscribes zigbee2mqtt/radar_workshop/occupancy, radar-workshop/status/pir; publishes var/set/presence/workshop');
+        expect(out).not.toContain('kitchen');
+        expect(out).toContain('## Home Assistant discovery (1)\n- Workshop Light: light Workshop Light');
+        expect(await executeTool('describe_room', { name: 'workshop', limit: 1 }, ctx)).toContain('… 2 more; describe_device "Licht Workshop" for all of them');
+        expect(await executeTool('describe_room', { name: 'attic' }, ctx)).toMatch(/^No topic segment contains "attic"/);
+        expect(await executeTool('describe_room', {}, ctx)).toBe('name is required.');
+    });
+
+    it('describe_device answers several names in one call', async () => {
+        const out = await executeTool('describe_device', { names: ['radar_workshop', 'Licht Kitchen'] }, ctx);
+        expect(out).toMatch(/^# radar_workshop\n2 topic\(s\) for "radar_workshop":/);
+        expect(out).toContain('\n\n# Licht Kitchen\n1 topic(s) for "Licht Kitchen":');
+        expect(await executeTool('describe_device', {}, ctx)).toBe('name (or names) is required.');
+    });
+});
