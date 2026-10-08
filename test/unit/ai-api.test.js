@@ -7,7 +7,7 @@ const path = require('path');
 const express = require('express');
 
 const { router, init, _internal } = require('../../src/web/ai-api');
-const { callAnthropic, answerText, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS } = _internal;
+const { callAnthropic, answerText, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages } = _internal;
 
 /** a fetch stub answering every call with the given status and JSON (or SSE text) body */
 function fetchStub(status, body, headers = { 'content-type': 'application/json' }) {
@@ -116,6 +116,19 @@ describe('POST /she/ai/chat/stream', () => {
         });
     }
 
+    it("sends the provider role and content only, without the chat page's extra fields", async () => {
+        global.fetch = fetchStub(200, 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}\n\n', { 'content-type': 'text/event-stream' });
+        await post({
+            messages: [
+                { role: 'user', content: 'hi', toolEvents: [{ type: 'tool_call' }] },
+                { role: 'assistant', content: '' },
+            ],
+            context: { tools: false },
+        });
+        const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+        expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
+    });
+
     it('streams the text deltas and ends with [DONE]', async () => {
         const sse = [
             'data: {"type":"message_start"}',
@@ -184,5 +197,28 @@ describe('listAnthropicModels()', () => {
         const r = await listAnthropicModels({ apiKey: 'k' });
         expect(r.models).toEqual(ANTHROPIC_FALLBACK_MODELS);
         expect(r.error).toMatch(/401/);
+    });
+});
+
+describe('providerMessages()', () => {
+    it('keeps role and content only and drops empty messages', () => {
+        expect(
+            providerMessages([
+                { role: 'user', content: 'hi', ts: 1 },
+                { role: 'assistant', content: '', toolEvents: [{ type: 'tool_call', name: 'x' }] },
+                { role: 'assistant', content: 'Hello', toolEvents: [{ type: 'tool_call', name: 'x' }] },
+                { role: 'user', content: [{ type: 'text', text: 'blocks' }] },
+                { role: 'user', content: [] },
+            ]),
+        ).toEqual([
+            { role: 'user', content: 'hi' },
+            { role: 'assistant', content: 'Hello' },
+            { role: 'user', content: [{ type: 'text', text: 'blocks' }] },
+        ]);
+    });
+
+    it('is what the stream route sends to the provider', async () => {
+        // the stream test above already covers the route; here: the body Anthropic receives has no extra fields
+        expect(providerMessages([{ role: 'user', content: 'x', toolEvents: [] }])[0]).not.toHaveProperty('toolEvents');
     });
 });

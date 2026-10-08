@@ -168,6 +168,19 @@ async function callAnthropic(config, messages, tools) {
 }
 
 /**
+ * What a provider may see of a conversation: role and content only. The chat page stores more on its messages
+ * (tool events, timestamps) and Anthropic rejects unknown fields; empty messages are left out too (Anthropic
+ * rejects empty text, and the chat saved empty answers before B-13).
+ * @param {Array<{role:string,content:any}>} messages
+ */
+function providerMessages(messages) {
+    return messages
+        .filter((m) => m && typeof m.role === 'string')
+        .map((m) => ({ role: m.role, content: m.content }))
+        .filter((m) => (typeof m.content === 'string' ? m.content.trim() !== '' : Array.isArray(m.content) ? m.content.length > 0 : m.content != null));
+}
+
+/**
  * The text of an Anthropic answer: every text block joined, other block types (thinking, tool_use) ignored.
  * @param {Array<{type:string,text?:string}>|undefined} content
  */
@@ -519,7 +532,7 @@ router.post('/chat', async (req, res) => {
     const aiWithModel = { ...ai, model: effectiveModel };
     _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
     const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
-    const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
+    const fullMessages = [{ role: 'system', content: systemPrompt }, ...providerMessages(messages)];
 
     try {
         let result;
@@ -569,7 +582,7 @@ router.post('/chat/stream', async (req, res) => {
 
     const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
+    const fullMessages = [{ role: 'system', content: systemPrompt }, ...providerMessages(messages)];
 
     try {
         if (context.tools) {
@@ -677,4 +690,4 @@ router.delete('/conversations/:id', (req, res) => {
     res.json({ ok: true });
 });
 
-module.exports = { router, init, _internal: { callAnthropic, answerText, readAiConfig, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS } };
+module.exports = { router, init, _internal: { callAnthropic, answerText, readAiConfig, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS, providerMessages } };
