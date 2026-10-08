@@ -44,24 +44,14 @@ require('./lib/storage').ensureRoot();
 }
 
 // ---------------------------------------------------------------------------
-// Persistent JSON-Lines log file — written alongside the pino-pretty stream.
-// On each daemon start: rotate she.jsonl → she.jsonl.1, then open fresh.
+// Persistent JSON-Lines log file — written alongside the pino-pretty stream,
+// rotated on every start and by size (roadmap B-12; src/lib/log-file.js).
 // ---------------------------------------------------------------------------
 const _fs = require('fs');
 const _path = require('path');
 const { LOGS_DIR } = require('./lib/storage');
 const secrets = require('./lib/secrets');
-const _logFileCurrent = _path.join(LOGS_DIR, 'she.jsonl');
-const _logFilePrev = _path.join(LOGS_DIR, 'she.jsonl.1');
-try {
-    _fs.renameSync(_logFileCurrent, _logFilePrev);
-} catch {
-    /* no previous file — ignore */
-}
-const _logFileStream = _fs.createWriteStream(_logFileCurrent, { flags: 'w' });
-function _writeLogLine(level, msg) {
-    _logFileStream.write(JSON.stringify({ level, msg, ts: Date.now() }) + '\n');
-}
+const _logFile = require('./lib/log-file').createLogFile({ dir: LOGS_DIR });
 // ---------------------------------------------------------------------------
 
 const config = require('./config');
@@ -83,35 +73,11 @@ const _pino = require('pino')(
 // Lazy import â€” log-ws exports a no-op broadcastLog when the HTTP server is not started.
 const { broadcastLog, broadcast, setWelcomeProvider } = require('./web/log-ws');
 const shedb = require('./web/shedb');
-const log = {
-    debug: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.debug(msg);
-        broadcastLog({ level: 'debug', msg, ts: Date.now() });
-        _writeLogLine('debug', msg);
-    },
-    info: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.info(msg);
-        broadcastLog({ level: 'info', msg, ts: Date.now() });
-        _writeLogLine('info', msg);
-    },
-    warn: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.warn(msg);
-        broadcastLog({ level: 'warn', msg, ts: Date.now() });
-        _writeLogLine('warn', msg);
-    },
-    error: (...args) => {
-        const msg = secrets.redact(args.join(' '));
-        _pino.error(msg);
-        broadcastLog({ level: 'error', msg, ts: Date.now() });
-        _writeLogLine('error', msg);
-    },
-    setLevel: (level) => {
-        _pino.level = level;
-    },
-};
+// One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
+const log = require('./lib/logger').createLogger({
+    redact: (s) => secrets.redact(s),
+    sinks: [(level, msg) => _pino[level](msg), (level, msg) => broadcastLog({ level, msg, ts: Date.now() }), (level, msg) => _logFile.write(level, msg)],
+});
 
 // Secrets store (roadmap A5): read once at startup; the UI/CLI keep it current afterwards.
 {
@@ -193,6 +159,7 @@ function makeLabel(filePath) {
 }
 
 log.setLevel(['debug', 'info', 'warn', 'error'].indexOf(config.verbosity) === -1 ? 'info' : config.verbosity);
+_pino.level = log.level;
 
 // Safety net: unhandled Promise rejections from async script callbacks are not caught
 // by the per-script domain (Node.js domains don't intercept Promise rejections).

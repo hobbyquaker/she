@@ -4,6 +4,20 @@ const { WebSocketServer } = require('ws');
 
 let _wss = null;
 const _clients = new Set();
+// A client that stops reading (a tablet asleep with the IDE open) would collect every log line in
+// the daemon's memory (roadmap B-12): above this backlog the connection is closed; the browser
+// reconnects and gets the ring buffer as welcome.
+const MAX_BACKLOG = 1024 * 1024;
+
+function sendOrDrop(ws, str) {
+    if (ws.readyState !== ws.OPEN) return;
+    if (ws.bufferedAmount > MAX_BACKLOG) {
+        _clients.delete(ws);
+        ws.terminate();
+        return;
+    }
+    ws.send(str);
+}
 const _welcomeProviders = [];
 
 /**
@@ -55,9 +69,7 @@ function attachWss(httpServer, authCheck = () => true) {
     // Keepalive ping every 30 s
     const pingInterval = setInterval(() => {
         const msg = JSON.stringify({ type: 'ping' });
-        for (const ws of _clients) {
-            if (ws.readyState === ws.OPEN) ws.send(msg);
-        }
+        for (const ws of _clients) sendOrDrop(ws, msg);
     }, 30_000);
 
     _wss.on('close', () => clearInterval(pingInterval));
@@ -70,9 +82,7 @@ function attachWss(httpServer, authCheck = () => true) {
 function broadcast(msg) {
     if (_clients.size === 0) return;
     const str = JSON.stringify(msg);
-    for (const ws of _clients) {
-        if (ws.readyState === ws.OPEN) ws.send(str);
-    }
+    for (const ws of _clients) sendOrDrop(ws, str);
 }
 
 /**
@@ -134,4 +144,14 @@ function closeWss() {
     });
 }
 
-module.exports = { attachWss, broadcast, broadcastBrokerLog, broadcastLog, closeWss, getBrokerLogBuffer, getLogBuffer, setWelcomeProvider };
+module.exports = {
+    attachWss,
+    broadcast,
+    broadcastBrokerLog,
+    broadcastLog,
+    closeWss,
+    getBrokerLogBuffer,
+    getLogBuffer,
+    setWelcomeProvider,
+    _internal: { clients: _clients, MAX_BACKLOG },
+};
