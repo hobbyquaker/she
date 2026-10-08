@@ -256,7 +256,9 @@
     let unsubLog: (() => void) | null = null;
     let unsubRunning: (() => void) | null = null;
     let _treeLoaded = false;
-    let _mounted = false;
+    // reactive on purpose: the persistence effects below return early until mount, and an effect that read no
+    // signal before returning would never run again - with a plain boolean the chat and tab state were never saved
+    let _mounted = $state(false);
 
     // Chat panel & diff view
     let chatOpen = $state(false);
