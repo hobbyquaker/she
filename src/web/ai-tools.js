@@ -38,6 +38,7 @@ const TOOL_DEFINITIONS = [
                 'Search for MQTT topics currently tracked by the she daemon. ' +
                 'Returns matching topic names and their current values. ' +
                 'Use this to discover real topic names before writing scripts. ' +
+                'For everything about a room (its devices, variables and scripts) call describe_room once instead of several searches. ' +
                 'Homematic related topics (under the topic tree hm/) end with STATE for switching actuators and with LEVEL for dimmers.',
             parameters: {
                 type: 'object',
