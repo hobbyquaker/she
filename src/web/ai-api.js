@@ -858,13 +858,17 @@ function publishContext(ai, context, send) {
         confirm: (req) =>
             new Promise((resolve) => {
                 const id = 'p' + crypto.randomBytes(4).toString('hex');
+                // the chat learns how the request ended (a click, or the two minutes passing), so the card never
+                // offers a button for a request the daemon has already forgotten
                 const timer = setTimeout(() => {
                     _pendingPublish.delete(id);
+                    send?.({ type: 'publish_decided', id, decided: 'timeout' });
                     resolve('timeout');
                 }, PUBLISH_CONFIRM_MS);
                 _pendingPublish.set(id, (ok) => {
                     clearTimeout(timer);
                     _pendingPublish.delete(id);
+                    send?.({ type: 'publish_decided', id, decided: ok ? 'published' : 'skipped' });
                     resolve(!!ok);
                 });
                 send?.({ type: 'publish_request', id, ...req });
@@ -874,7 +878,7 @@ function publishContext(ai, context, send) {
 
 router.post('/publish/:id', (req, res) => {
     const resolve = _pendingPublish.get(req.params.id);
-    if (!resolve) return res.status(404).json({ error: 'no pending publish with that id (answered or expired)' });
+    if (!resolve) return res.status(410).json({ error: 'this publish request was already answered or expired (two minutes); ask the assistant again' });
     resolve(req.body?.ok === true);
     res.json({ ok: true });
 });

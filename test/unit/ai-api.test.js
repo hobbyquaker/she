@@ -639,6 +639,8 @@ describe('tool availability and the publish round trip (I16, I20)', () => {
             expect(text).toContain('"type":"publish_request"');
             expect(text).toContain('"topic":"hm/set/x/STATE"');
             expect(text).toContain('{"token":"Done."}');
+            expect(text).toContain('"type":"publish_decided"');
+            expect(text).toContain('"decided":"published"');
             expect(published).toEqual([['hm/set/x/STATE', 'true', { retain: false }]]);
             expect(log.info).toHaveBeenCalledWith(expect.stringContaining('published "true" to hm/set/x/STATE'));
         } finally {

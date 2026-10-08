@@ -183,8 +183,13 @@
     }
     async function decidePublish(ev: AiToolEvent, ok: boolean) {
         if (!ev.id) return;
-        try { await decideAiPublish(ev.id, ok); } catch (e: any) { error = e.message; }
-        patchEvent(ev.id, { decided: ok ? 'published' : 'skipped' });
+        try {
+            await decideAiPublish(ev.id, ok);
+            patchEvent(ev.id, { decided: ok ? 'published' : 'skipped' });
+        } catch (e: any) {
+            error = e.message;
+            patchEvent(ev.id, { decided: 'timeout' }); // the daemon no longer knows the request
+        }
     }
 
     const configured = $derived(aiConfig?.configured ?? false);
@@ -575,7 +580,11 @@
                 { messages, currentScript: activeScript, context, modelOverride: selectedModel || undefined, providerOverride: selectedProvider || undefined, extraFiles: extraFiles.length > 0 ? extraFiles : undefined },
                 (token) => { streamingContent = (streamingContent ?? '') + token; },
                 abortController.signal,
-                (event) => { toolEvents = [...toolEvents, event]; },
+                (event) => {
+                    // a decision on a publish request (the click, or the timeout) updates its card instead of adding one
+                    if (event.type === 'publish_decided' && event.id) patchEvent(event.id, { decided: event.decided });
+                    else toolEvents = [...toolEvents, event];
+                },
             );
             messages = [...messages, { role: 'assistant', content: streamingContent ?? '', toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined }];
             toolEvents = [];
@@ -624,6 +633,54 @@
         inputEl?.focus();
     }
 </script>
+
+<!-- one tool event: a call, a result, a script draft or a publish request (the latter two with their buttons) -->
+{#snippet toolEventView(ev: AiToolEvent)}
+            {#if ev.type === 'tool_call'}
+                <div class="tool-event tool-call">
+                    <span class="tool-icon">🔧</span>
+                    <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
+                    {#if ev.args && Object.keys(ev.args).length > 0}
+                        <span class="tool-args">{Object.entries(ev.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')}</span>
+                    {/if}
+                </div>
+            {:else if ev.type === 'draft'}
+                <div class="tool-event draft-card">
+                    <div class="draft-head">
+                        <span class="tool-icon">📝</span>
+                        <strong>{ev.isNew ? 'New script' : 'Change'}: {ev.path}</strong>
+                        <span class="draft-stats">+{ev.added ?? 0} −{ev.removed ?? 0}</span>
+                        {#if ev.status === 'applied'}<span class="draft-state ok">applied</span>
+                        {:else if ev.status === 'discarded'}<span class="draft-state">discarded</span>
+                        {:else}
+                            <button class="draft-btn apply" onclick={() => applyDraft(ev)}>Apply</button>
+                            <button class="draft-btn" onclick={() => discardDraft(ev)}>Discard</button>
+                        {/if}
+                    </div>
+                    {#if ev.note}<div class="draft-note">{ev.note}</div>{/if}
+                    {#if ev.diff}
+                        <pre class="draft-diff">{#each ev.diff.split('\n') as line}<span class:add={line.startsWith('+') && !line.startsWith('+++')} class:del={line.startsWith('-') && !line.startsWith('---')} class:hunk={line.startsWith('@@')}>{line + '\n'}</span>{/each}</pre>
+                    {/if}
+                </div>
+            {:else if ev.type === 'publish_request'}
+                <div class="tool-event publish-card">
+                    <span class="tool-icon">📡</span>
+                    <span class="publish-text">publish <code>{ev.payload}</code> to <code>{ev.topic}</code>{#if ev.retain} (retained){/if}</span>
+                    {#if ev.decided === 'published'}<span class="draft-state ok">published</span>
+                    {:else if ev.decided === 'skipped'}<span class="draft-state">skipped</span>
+                    {:else if ev.decided === 'timeout'}<span class="draft-state">not answered in time (two minutes)</span>
+                    {:else}
+                        <button class="draft-btn apply" onclick={() => decidePublish(ev, true)}>Publish</button>
+                        <button class="draft-btn" onclick={() => decidePublish(ev, false)}>Skip</button>
+                    {/if}
+                </div>
+            {:else}
+                <div class="tool-event tool-result">
+                    <span class="tool-icon">✓</span>
+                    <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
+                </div>
+            {/if}
+{/snippet}
 
 <div class="chat-panel">
     <!-- Header -->
@@ -695,51 +752,7 @@
                     {@const blocks = parseBlocks(msg.content)}
                     {#if msg.toolEvents?.length}
                         <div class="tool-events">
-                            {#each msg.toolEvents as ev}
-                                {#if ev.type === 'tool_call'}
-                                    <div class="tool-event tool-call">
-                                        <span class="tool-icon">🔧</span>
-                                        <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
-                                        {#if ev.args && Object.keys(ev.args).length > 0}
-                                            <span class="tool-args">{Object.entries(ev.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')}</span>
-                                        {/if}
-                                    </div>
-                                {:else if ev.type === 'draft'}
-                                    <div class="tool-event draft-card">
-                                        <div class="draft-head">
-                                            <span class="tool-icon">📝</span>
-                                            <strong>{ev.isNew ? 'New script' : 'Change'}: {ev.path}</strong>
-                                            <span class="draft-stats">+{ev.added ?? 0} −{ev.removed ?? 0}</span>
-                                            {#if ev.status === 'applied'}<span class="draft-state ok">applied</span>
-                                            {:else if ev.status === 'discarded'}<span class="draft-state">discarded</span>
-                                            {:else}
-                                                <button class="draft-btn apply" onclick={() => applyDraft(ev)}>Apply</button>
-                                                <button class="draft-btn" onclick={() => discardDraft(ev)}>Discard</button>
-                                            {/if}
-                                        </div>
-                                        {#if ev.note}<div class="draft-note">{ev.note}</div>{/if}
-                                        {#if ev.diff}
-                                            <pre class="draft-diff">{#each ev.diff.split('\n') as line}<span class:add={line.startsWith('+') && !line.startsWith('+++')} class:del={line.startsWith('-') && !line.startsWith('---')} class:hunk={line.startsWith('@@')}>{line}\n</span>{/each}</pre>
-                                        {/if}
-                                    </div>
-                                {:else if ev.type === 'publish_request'}
-                                    <div class="tool-event publish-card">
-                                        <span class="tool-icon">📡</span>
-                                        <span class="publish-text">publish <code>{ev.payload}</code> to <code>{ev.topic}</code>{#if ev.retain} (retained){/if}</span>
-                                        {#if ev.decided === 'published'}<span class="draft-state ok">published</span>
-                                        {:else if ev.decided === 'skipped'}<span class="draft-state">skipped</span>
-                                        {:else}
-                                            <button class="draft-btn apply" onclick={() => decidePublish(ev, true)}>Publish</button>
-                                            <button class="draft-btn" onclick={() => decidePublish(ev, false)}>Skip</button>
-                                        {/if}
-                                    </div>
-                                {:else}
-                                    <div class="tool-event tool-result">
-                                        <span class="tool-icon">✓</span>
-                                        <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
-                                    </div>
-                                {/if}
-                            {/each}
+                            {#each msg.toolEvents as ev}{@render toolEventView(ev)}{/each}
                         </div>
                     {/if}
                     <div class="msg-content">
@@ -788,22 +801,7 @@
         <!-- Tool call events (shown live during request, then attached to the message) -->
         {#if toolEvents.length > 0}
             <div class="tool-events">
-                {#each toolEvents as ev}
-                    {#if ev.type === 'tool_call'}
-                        <div class="tool-event tool-call">
-                            <span class="tool-icon">🔧</span>
-                            <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
-                            {#if ev.args && Object.keys(ev.args).length > 0}
-                                <span class="tool-args">{Object.entries(ev.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')}</span>
-                            {/if}
-                        </div>
-                    {:else}
-                        <div class="tool-event tool-result">
-                            <span class="tool-icon">✓</span>
-                            <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
-                        </div>
-                    {/if}
-                {/each}
+                {#each toolEvents as ev}{@render toolEventView(ev)}{/each}
             </div>
         {/if}
 
@@ -1673,29 +1671,111 @@
         align-items: center;
         justify-content: center;
     }
-    .draft-card, .publish-card { display: block; }
-    .draft-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-    .draft-stats { font-family: monospace; opacity: 0.8; }
-    .draft-note { opacity: 0.85; margin: 0.2rem 0 0.3rem 1.6rem; }
-    .draft-diff { max-height: 320px; overflow: auto; font-size: 0.8em; line-height: 1.3; background: var(--bg-app); border: 1px solid var(--border-sub); border-radius: 4px; padding: 0.4rem 0.6rem; margin: 0.3rem 0 0 1.6rem; white-space: pre; }
+    /* script drafts (I16) and publish requests (I20) */
+    .tool-event.draft-card, .tool-event.publish-card {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        margin: 3px 0;
+        padding: 6px 8px;
+        border: 1px solid var(--border-sub);
+        border-radius: 4px;
+        background: var(--bg-panel);
+        color: var(--fg);
+        opacity: 1;
+        font-family: inherit;
+        font-size: 11px;
+    }
+    .tool-event.publish-card { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .draft-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .draft-head strong { font-weight: 600; font-family: monospace; }
+    .draft-stats { font-family: monospace; color: var(--fg-muted); }
+    .draft-note { color: var(--fg-muted); }
+    .draft-diff {
+        max-height: 320px;
+        overflow: auto;
+        margin: 0;
+        padding: 6px 8px;
+        font-family: monospace;
+        font-size: 10.5px;
+        line-height: 1.35;
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg);
+        white-space: pre;
+    }
     .draft-diff .add { color: var(--fg-ok); }
     .draft-diff .del { color: var(--fg-err); }
-    .draft-diff .hunk { opacity: 0.6; }
-    .draft-btn { border: 1px solid var(--border-sub); background: none; border-radius: 4px; padding: 0.1rem 0.5rem; cursor: pointer; }
+    .draft-diff .hunk { color: var(--fg-dim); }
+    .draft-btn {
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg-muted);
+        font-size: 10px;
+        font-family: inherit;
+        padding: 1px 7px;
+        cursor: pointer;
+    }
+    .draft-btn:hover { background: var(--bg-hover); color: var(--fg); border-color: var(--border); }
     .draft-btn.apply { border-color: var(--fg-ok); color: var(--fg-ok); }
-    .draft-state { font-size: 0.85em; opacity: 0.7; }
-    .draft-state.ok { color: var(--fg-ok); opacity: 1; }
-    .publish-card { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-    .publish-text code { font-size: 0.9em; }
-    .publish-switch { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.6rem; }
-    .memory-popup { width: min(560px, 92vw); }
-    .memory-list { list-style: none; padding: 0; margin: 0.4rem 0; max-height: 50vh; overflow: auto; }
-    .memory-list li { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-sub); }
-    .memory-list .memory-text { flex: 1; }
-    .memory-list input { flex: 1; }
-    .memory-list button, .memory-add button { background: none; border: 1px solid var(--border-sub); border-radius: 4px; cursor: pointer; padding: 0.1rem 0.4rem; }
-    .memory-add { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
-    .memory-add input { flex: 1; }
+    .draft-state { font-size: 10px; color: var(--fg-muted); }
+    .draft-state.ok { color: var(--fg-ok); }
+    .publish-text { flex: 1; min-width: 0; word-break: break-all; }
+    .publish-text code { font-family: monospace; color: var(--fg-brand); }
+
+    /* the Publish switch in the context row (I20) */
+    .context-row .publish-switch { gap: 4px; }
+    .context-row .publish-switch select {
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg);
+        font-size: 10px;
+        font-family: inherit;
+        padding: 0 2px;
+        height: 16px;
+        cursor: pointer;
+    }
+    .context-row .publish-switch select:disabled { opacity: 0.5; cursor: not-allowed; }
+    .context-row .publish-switch select:focus { outline: none; border-color: var(--fg-brand); }
+
+    /* the memory panel (I29) */
+    .memory-popup { max-width: 560px; }
+    .memory-popup .info-status { margin-bottom: 6px; }
+    .memory-list { list-style: none; padding: 0; margin: 4px 0; max-height: 50vh; overflow: auto; font-size: 11px; color: var(--fg); }
+    .memory-list li { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border-sub); }
+    .memory-list .memory-text { flex: 1; min-width: 0; word-break: break-word; line-height: 1.4; }
+    .memory-list .memory-text em { color: var(--fg-dim); }
+    .memory-list input, .memory-add input {
+        flex: 1;
+        min-width: 0;
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg);
+        font-size: 11px;
+        font-family: inherit;
+        padding: 3px 6px;
+    }
+    .memory-list input:focus, .memory-add input:focus { outline: none; border-color: var(--fg-brand); }
+    .memory-list button, .memory-add button {
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg-muted);
+        font-size: 11px;
+        font-family: inherit;
+        cursor: pointer;
+        padding: 2px 7px;
+        line-height: 1.4;
+        flex-shrink: 0;
+    }
+    .memory-list button:hover, .memory-add button:hover { background: var(--bg-hover); color: var(--fg); border-color: var(--border); }
+    .memory-add button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .memory-add { display: flex; gap: 6px; margin-top: 8px; }
     .info-popup {
         background: var(--bg-panel);
         border: 1px solid var(--border);
