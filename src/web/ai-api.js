@@ -23,6 +23,7 @@ const path = require('path');
 const { buildSystemPrompt, buildSystemPromptParts, houseSection, profileFor, stripThinking, thinkFilter } = require('./ai-context');
 const { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool } = require('./ai-tools');
 const { STORAGE_ROOT } = require('../lib/storage');
+const memory = require('./ai-memory');
 
 const router = express.Router();
 let _store = null;
@@ -41,6 +42,14 @@ let _introspect = null;
  */
 function init(store, log, introspect) {
     _introspect = introspect || null;
+    memory.init(path.join(STORAGE_ROOT, 'ai'), (t) => {
+        try {
+            return require('../lib/secrets').redact(t);
+        } catch {
+            return t;
+        }
+    });
+    setNotesProvider(() => memory.list());
     if (log) _log = log;
     _store = store;
 }
@@ -703,6 +712,7 @@ router.post('/chat', async (req, res) => {
                 fetchAllow: ai.fetchAllow,
                 elasticIndex: ai.elasticIndex,
                 introspect: _introspect,
+                memory,
             };
             result = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, undefined);
         } else if (ai.provider === 'anthropic') {
@@ -764,6 +774,7 @@ router.post('/chat/stream', async (req, res) => {
                 fetchAllow: ai.fetchAllow,
                 elasticIndex: ai.elasticIndex,
                 introspect: _introspect,
+                memory,
             };
             const { message, detail, usage } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
             if (!message || !message.trim()) throw new Error('The model returned an empty answer' + (detail ? ` (${detail})` : ''));
@@ -792,6 +803,32 @@ router.post('/chat/stream', async (req, res) => {
         send({ error: e.message });
         res.end();
     }
+});
+
+// ---------------------------------------------------------------------------
+// Memory — GET/POST /she/ai/memory, PUT/DELETE /she/ai/memory/:id (roadmap I29)
+// ---------------------------------------------------------------------------
+
+router.get('/memory', (req, res) => {
+    res.json({ notes: memory.list(), max: memory.MAX_NOTES, maxChars: memory.MAX_CHARS });
+});
+
+router.post('/memory', (req, res) => {
+    const r = memory.add(req.body?.text, 'user');
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.json(r);
+});
+
+router.put('/memory/:id', (req, res) => {
+    const r = memory.update(req.params.id, req.body?.text);
+    if (r.error) return res.status(r.error.startsWith('no note') ? 404 : 400).json({ error: r.error });
+    res.json(r);
+});
+
+router.delete('/memory/:id', (req, res) => {
+    const r = memory.remove(req.params.id);
+    if (r.error) return res.status(404).json({ error: r.error });
+    res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------

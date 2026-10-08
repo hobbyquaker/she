@@ -651,6 +651,27 @@ export interface OllamaModelInfo {
     contextLength: number | null;
 }
 
+export interface AiNote {
+    id: string;
+    text: string;
+    createdAt: number;
+    updatedAt?: number;
+    source: 'user' | 'model';
+}
+
+export function getAiMemory(): Promise<{ notes: AiNote[]; max: number; maxChars: number }> {
+    return request('GET', '/she/ai/memory');
+}
+export function addAiNote(text: string): Promise<{ note: AiNote; duplicate?: boolean }> {
+    return request('POST', '/she/ai/memory', { text });
+}
+export function updateAiNote(id: string, text: string): Promise<{ note: AiNote }> {
+    return request('PUT', `/she/ai/memory/${encodeURIComponent(id)}`, { text });
+}
+export function deleteAiNote(id: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/ai/memory/${encodeURIComponent(id)}`);
+}
+
 export function getAiConfig(): Promise<AiConfig> {
     return request('GET', '/she/ai/config');
 }

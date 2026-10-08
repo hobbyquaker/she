@@ -542,13 +542,13 @@ describe('prompt profiles and the house section (I25)', () => {
                 { instance: 'hm', adapter: 'hm2mqtt', connected: 2 },
                 { instance: 'cul', adapter: 'cul2mqtt', connected: 0 },
             ],
-            [{ text: 'the bathroom PIR cannot see the shower' }],
+            [{ id: 'n1', text: 'the bathroom PIR cannot see the shower' }],
         );
         expect(text).toContain("the daemon's MQTT name is `she` (she 1.52.0)");
         expect(text).toMatch(/about 8700 topics/);
         expect(text).toMatch(/`hm\/` \(2900\)/);
         expect(text).toContain('`hm/` hm2mqtt, `cul/` cul2mqtt (offline)');
-        expect(text).toContain('- the bathroom PIR cannot see the shower');
+        expect(text).toContain('- [n1] the bathroom PIR cannot see the shower');
         expect(houseSection(null, null, [], [])).toBe('');
     });
 

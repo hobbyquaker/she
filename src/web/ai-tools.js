@@ -344,6 +344,32 @@ const TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'remember',
+            description:
+                'Store a fact about this installation that the user confirmed, for every later chat (shown and editable on the AI page). One short sentence, no secrets. ' +
+                'Use it when the user corrects you or explains something about their house that is not in any topic ("the PIR in the bathroom cannot see the shower").',
+            parameters: {
+                type: 'object',
+                properties: { text: { type: 'string', description: 'The fact, at most 200 characters.' } },
+                required: ['text'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'forget',
+            description: 'Remove a remembered fact by its id (the [n…] in the "This installation" section) when the user says it is wrong or outdated.',
+            parameters: {
+                type: 'object',
+                properties: { id: { type: 'string', description: 'The note id, e.g. "n1a2b3c4".' } },
+                required: ['id'],
+            },
+        },
+    },
 ];
 
 /** Same definitions in Anthropic tool format. */
@@ -410,6 +436,10 @@ async function runTool(name, args, ctx) {
                 return toolGetHealth(ctx);
             case 'list_timers':
                 return toolListTimers(args, ctx);
+            case 'remember':
+                return toolRemember(args, ctx);
+            case 'forget':
+                return toolForget(args, ctx);
             default:
                 return `Unknown tool: ${name}`;
         }
@@ -858,6 +888,20 @@ function toolListTimers({ script = '' } = {}, ctx = {}) {
     }
     if (!lines.length) return q ? `Nothing pending for scripts matching "${script}".` : 'Nothing pending in any script.';
     return `Pending per script:` + lines.join('\n');
+}
+
+function toolRemember({ text } = {}, ctx = {}) {
+    if (!ctx.memory) return 'The memory is not available.';
+    const r = ctx.memory.add(text, 'model');
+    if (r.error) return `Not stored: ${r.error}.`;
+    return r.duplicate ? `Already known as [${r.note.id}]: ${r.note.text}` : `Stored as [${r.note.id}]: ${r.note.text}`;
+}
+
+function toolForget({ id } = {}, ctx = {}) {
+    if (!ctx.memory) return 'The memory is not available.';
+    const r = ctx.memory.remove(String(id || '').replace(/^\[|\]$/g, ''));
+    if (r.error) return `Not removed: ${r.error}.`;
+    return `Forgotten: ${r.note.text}`;
 }
 
 const MAX_FETCH_CHARS = 8000;

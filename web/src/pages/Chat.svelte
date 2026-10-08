@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, type AiConversation, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, listConversations, getConversation, saveConversation, deleteConversation, type AiConfig } from '../lib/api.js';
+    import { type AiNote, getAiMemory, addAiNote, updateAiNote, deleteAiNote, type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, type AiConversation, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, listConversations, getConversation, saveConversation, deleteConversation, type AiConfig } from '../lib/api.js';
     import { onMount } from 'svelte';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
@@ -53,6 +53,49 @@
 
     // Collapsed/expanded code block tracking
     let expandedBlocks = $state(new Set<string>());
+
+    // Memory panel (I29): the facts the user confirmed, kept per instance in the data directory
+    let showMemory = $state(false);
+    let notes = $state<AiNote[]>([]);
+    let memoryMax = $state(300);
+    let memoryError = $state('');
+    let newNote = $state('');
+    let editingId = $state<string | null>(null);
+    let editingText = $state('');
+    async function openMemory() {
+        showMemory = true;
+        memoryError = '';
+        try {
+            const r = await getAiMemory();
+            notes = r.notes;
+            memoryMax = r.max;
+        } catch (e: any) { memoryError = e.message; }
+    }
+    async function saveNewNote() {
+        if (!newNote.trim()) return;
+        memoryError = '';
+        try {
+            const r = await addAiNote(newNote);
+            if (!r.duplicate) notes = [...notes, r.note];
+            newNote = '';
+        } catch (e: any) { memoryError = e.message; }
+    }
+    async function saveEdit() {
+        if (!editingId) return;
+        memoryError = '';
+        try {
+            const r = await updateAiNote(editingId, editingText);
+            notes = notes.map(n => n.id === r.note.id ? r.note : n);
+            editingId = null;
+        } catch (e: any) { memoryError = e.message; }
+    }
+    async function removeNote(id: string) {
+        memoryError = '';
+        try {
+            await deleteAiNote(id);
+            notes = notes.filter(n => n.id !== id);
+        } catch (e: any) { memoryError = e.message; }
+    }
 
     // Ollama info popup
     let showInfoPopup = $state(false);
@@ -816,12 +859,50 @@
             {:else}
                 <span class="model-name">{selectedModel || aiConfig.model}</span>
             {/if}
+            <button class="info-btn" onclick={openMemory} title="Memory: facts about this installation the assistant keeps">🧠</button>
             {#if aiConfig.provider === 'ollama'}
                 <button class="info-btn" onclick={openInfoPopup} title="Model info">ℹ</button>
             {/if}
         </div>
     {/if}
 </div>
+
+<!-- Memory panel (I29) -->
+{#if showMemory}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="info-overlay" onclick={() => showMemory = false}>
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+        <div class="info-popup memory-popup" onclick={(e) => e.stopPropagation()}>
+            <div class="info-popup-header">
+                <span>Memory · {notes.length} of {memoryMax} notes</span>
+                <button onclick={() => showMemory = false} title="Close">✕</button>
+            </div>
+            <div class="info-popup-body">
+                <p class="info-status">Facts about this installation the assistant takes as confirmed. Stored in the data directory of this instance, never in a script or a repository. No secrets.</p>
+                {#if memoryError}<p class="info-status info-err">{memoryError}</p>{/if}
+                <ul class="memory-list">
+                    {#each notes as n (n.id)}
+                        <li>
+                            {#if editingId === n.id}
+                                <input type="text" bind:value={editingText} maxlength="200" onkeydown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') editingId = null; }} />
+                                <button onclick={saveEdit} title="Save">✓</button>
+                                <button onclick={() => editingId = null} title="Cancel">✕</button>
+                            {:else}
+                                <span class="memory-text" title={n.source === 'model' ? 'written by the assistant' : 'written by you'}>{n.text}{#if n.source === 'model'}<em> (assistant)</em>{/if}</span>
+                                <button onclick={() => { editingId = n.id; editingText = n.text; }} title="Edit">✎</button>
+                                <button onclick={() => removeNote(n.id)} title="Delete">🗑</button>
+                            {/if}
+                        </li>
+                    {/each}
+                </ul>
+                <div class="memory-add">
+                    <input type="text" bind:value={newNote} maxlength="200" placeholder="Add a fact, e.g. the PIR in the bathroom cannot see the shower" onkeydown={(e) => { if (e.key === 'Enter') saveNewNote(); }} />
+                    <button onclick={saveNewNote} disabled={!newNote.trim()}>Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{/if}
 
 <!-- Ollama model info popup (outside .chat-panel so overlay covers full viewport) -->
 {#if showInfoPopup}
@@ -1521,6 +1602,14 @@
         align-items: center;
         justify-content: center;
     }
+    .memory-popup { width: min(560px, 92vw); }
+    .memory-list { list-style: none; padding: 0; margin: 0.4rem 0; max-height: 50vh; overflow: auto; }
+    .memory-list li { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-sub); }
+    .memory-list .memory-text { flex: 1; }
+    .memory-list input { flex: 1; }
+    .memory-list button, .memory-add button { background: none; border: 1px solid var(--border-sub); border-radius: 4px; cursor: pointer; padding: 0.1rem 0.4rem; }
+    .memory-add { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+    .memory-add input { flex: 1; }
     .info-popup {
         background: var(--bg-panel);
         border: 1px solid var(--border);

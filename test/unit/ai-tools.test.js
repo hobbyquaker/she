@@ -387,3 +387,19 @@ describe("the daemon's state (I19, I27, I28)", () => {
         expect(await executeTool('list_timers', { script: 'other' }, ctx)).toMatch(/Nothing pending for scripts matching/);
     });
 });
+
+describe('remember and forget (I29)', () => {
+    it('store and remove through the memory the context carries', async () => {
+        const notes = [];
+        const mem = {
+            add: (text, source) => (text.includes('sk-') ? { error: 'this looks like a key' } : (notes.push({ id: 'n1', text, source }), { note: notes[notes.length - 1] })),
+            remove: (id) => (id === 'n1' ? { note: notes.pop() } : { error: `no note ${id}` }),
+        };
+        expect(await executeTool('remember', { text: 'the hall light is on a timer' }, { memory: mem })).toBe('Stored as [n1]: the hall light is on a timer');
+        expect(notes[0].source).toBe('model');
+        expect(await executeTool('remember', { text: 'key sk-abc' }, { memory: mem })).toMatch(/^Not stored: this looks like a key/);
+        expect(await executeTool('forget', { id: '[n1]' }, { memory: mem })).toBe('Forgotten: the hall light is on a timer');
+        expect(await executeTool('forget', { id: 'n9' }, { memory: mem })).toMatch(/^Not removed: no note n9/);
+        expect(await executeTool('remember', { text: 'x' }, {})).toMatch(/not available/);
+    });
+});
