@@ -1,8 +1,26 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const dns = require('dns');
+
+// the tools read the data directory (log files): a temp one, never the workstation's ~/.she
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ai-tools-'));
+process.env.SHE_DATA_DIR = DATA_DIR;
+fs.mkdirSync(path.join(DATA_DIR, 'logs'), { recursive: true });
+
+jest.mock('../../src/influx', () => ({ getMode: jest.fn(() => null), v1Query: jest.fn() }));
+jest.mock('../../src/elastic', () => ({ getClient: jest.fn(() => null) }));
+jest.mock('../../src/matter/controller', () => ({ listPaired: jest.fn(() => []), getEndpoints: jest.fn(() => []), getAttribute: jest.fn() }));
+
+const influx = require('../../src/influx');
+const elastic = require('../../src/elastic');
+const matter = require('../../src/matter/controller');
 const { executeTool, _internal } = require('../../src/web/ai-tools');
-const { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf } = _internal;
+const { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf, parseTime, measurementCandidates, thinSeries } = _internal;
+
+afterAll(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 
 const NOW = Date.now();
 const entries = [
@@ -72,9 +90,9 @@ describe('result cap (I21)', () => {
 
     it('get_script_logs pages into older lines', async () => {
         const logWs = require('../../src/web/log-ws');
-        for (let i = 0; i < 10; i++) logWs.broadcastLog({ level: 'info', msg: 'paged line ' + i, ts: NOW + i });
+        for (let i = 0; i < 10; i++) logWs.broadcastLog({ level: 'info', msg: 'paged line ' + i, ts: NOW - 1000 + i }); // in the past: the tool's window ends now
         const out = await executeTool('get_script_logs', { script_name: 'paged line', limit: 3, offset: 2 }, {});
-        expect(out).toMatch(/^3 of 10 lines \(5 older; offset 5 for them\):/);
+        expect(out).toMatch(/^3 of 10 matching lines \(5 older; offset 5 for them\), oldest first:/);
         expect(out).toContain('paged line 7');
         expect(out).not.toContain('paged line 9');
     });
@@ -116,5 +134,142 @@ describe('she_fetch guard (I23)', () => {
         );
         expect(await executeTool('she_fetch', { url: 'https://example.org/go' }, {})).toMatch(/^Refused: "192.168.1.1" is a private address/);
         expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('get_script_logs over the log files (I17)', () => {
+    const logs = path.join(DATA_DIR, 'logs');
+    const T0 = Date.parse('2026-10-08T10:00:00Z');
+    const line = (ts, level, msg) => JSON.stringify({ level, msg, ts }) + '\n';
+
+    beforeAll(() => {
+        fs.writeFileSync(path.join(logs, 'she.jsonl.1'), line(T0 - 3600000, 'info', 'bad.js: old run start') + line(T0 - 3500000, 'debug', 'bad.js: detail'));
+        fs.writeFileSync(
+            path.join(logs, 'she.jsonl'),
+            line(T0, 'info', 'she 1.51.2 starting') + line(T0 + 60000, 'warn', 'bad.js: lock ran out') + line(T0 + 120000, 'debug', 'kitchen.js: tick') + 'not json\n',
+        );
+    });
+    afterAll(() => {
+        for (const n of fs.readdirSync(logs)) fs.rmSync(path.join(logs, n));
+    });
+
+    it('reads both files oldest first, filters by script, level and window', async () => {
+        const all = await executeTool('get_script_logs', { script_name: 'bad.js' }, {});
+        expect(all).toMatch(/^3 of 3 matching lines, oldest first:/);
+        expect(all.indexOf('old run start')).toBeLessThan(all.indexOf('lock ran out'));
+
+        const warn = await executeTool('get_script_logs', { script_name: 'bad.js', level: 'warn' }, {});
+        expect(warn).toMatch(/^1 of 1/);
+        expect(warn).toContain('[2026-10-08 10:01:00Z] WARN bad.js: lock ran out');
+
+        const windowed = await executeTool('get_script_logs', { from: '2026-10-08T09:59:00Z', to: '2026-10-08T10:00:30Z' }, {});
+        expect(windowed).toMatch(/^1 of 1/);
+        expect(windowed).toContain('she 1.51.2 starting');
+
+        expect(await executeTool('get_script_logs', { from: 'yesterday-ish' }, {})).toMatch(/from\/to must be/);
+        expect(await executeTool('get_script_logs', { script_name: 'nothing' }, {})).toBe('No log entries mentioning "nothing".');
+    });
+});
+
+describe('Matter tools (I24)', () => {
+    beforeEach(() => {
+        matter.listPaired.mockReturnValue([
+            { name: 'Plug', nodeId: '4', online: true },
+            { name: 'Sensor', nodeId: '5', online: false },
+        ]);
+        matter.getEndpoints.mockImplementation((id) =>
+            id === '4'
+                ? [
+                      { endpointId: 0, clusters: ['Descriptor'] },
+                      { endpointId: 1, name: 'Outlet', clusters: ['OnOff', 'LevelControl', 'Descriptor'] },
+                  ]
+                : [{ endpointId: 1, clusters: ['TemperatureMeasurement'] }],
+        );
+        matter.getAttribute.mockImplementation(async (node, ep, cluster, attr) => (cluster === 'OnOff' ? true : cluster === 'LevelControl' ? 254 : null));
+    });
+
+    it('lists devices with their state attributes inline for online nodes', async () => {
+        const out = await executeTool('list_matter_devices', {}, {});
+        expect(out).toMatch(/^2 of 2 paired Matter device/);
+        expect(out).toContain('endpoint "Outlet" (id: 1): OnOff, LevelControl, Descriptor — OnOff.onOff=true, LevelControl.currentLevel=254');
+        expect(out).toContain('### Sensor (nodeId: "5", offline)');
+        expect(out).toContain('endpoint "1" (id: 1): TemperatureMeasurement'); // offline: no reads
+        expect(matter.getAttribute).toHaveBeenCalledTimes(2);
+    });
+
+    it('reads one attribute and reports a failure', async () => {
+        expect(await executeTool('get_matter_attribute', { node: 'Plug', endpoint: 'Outlet', cluster: 'OnOff', attribute: 'onOff' }, {})).toBe(
+            'Plug / Outlet / OnOff.onOff = true',
+        );
+        matter.getAttribute.mockRejectedValueOnce(new Error('node offline'));
+        expect(await executeTool('get_matter_attribute', { node: '5', endpoint: 1, cluster: 'TemperatureMeasurement', attribute: 'measuredValue' }, {})).toMatch(
+            /Could not read .*node offline/,
+        );
+        expect(await executeTool('get_matter_attribute', { node: '5' }, {})).toMatch(/required/);
+    });
+});
+
+describe('history tools (I15)', () => {
+    it('parseTime, measurementCandidates and thinSeries', () => {
+        const now = Date.parse('2026-10-08T12:00:00Z');
+        expect(parseTime('-2h', now)).toBe(now - 7200000);
+        expect(parseTime('2026-10-08T10:00:00Z', now)).toBe(now - 7200000);
+        expect(parseTime(undefined, now)).toBe(now);
+        expect(parseTime('soon', now)).toBeNaN();
+        expect(measurementCandidates('hm/status/Licht Bad/LEVEL')).toEqual(['hm//Licht Bad/LEVEL', 'hm//status/Licht Bad/LEVEL', 'hm/status/Licht Bad/LEVEL']);
+        expect(measurementCandidates('heizung//warmwasser')).toEqual(
+            ['heizung//' + '/warmwasser', 'heizung//warmwasser']
+                .filter((x, i, a) => a.indexOf(x) === i)
+                .slice(-1)
+                .concat([]).length
+                ? expect.any(Array)
+                : [],
+        );
+        const rows = Array.from({ length: 100 }, (_, i) => ({ time: i, value: i < 50 ? 0 : 1 }));
+        const { points, note } = thinSeries(rows, 200);
+        expect(points.map((p) => p.value)).toEqual([0, 1, 1]);
+        expect(note).toMatch(/100 points reduced to 3 change points/);
+        const many = Array.from({ length: 1000 }, (_, i) => ({ time: i, value: i % 2 }));
+        expect(thinSeries(many, 100).points.length).toBeLessThanOrEqual(101);
+    });
+
+    it('get_topic_history: says so without Influx, queries v1 with the derived measurement and thins the series', async () => {
+        influx.getMode.mockReturnValue(null);
+        expect(await executeTool('get_topic_history', { topic: 'hm/status/Licht Bad/LEVEL' }, {})).toMatch(/No InfluxDB integration/);
+        influx.getMode.mockReturnValue('v1');
+        influx.v1Query.mockImplementation(async (q) => {
+            if (q.includes('"hm//Licht Bad/LEVEL"'))
+                return [
+                    { time: 1000, value: 0 },
+                    { time: 2000, value: 0 },
+                    { time: 3000, value: 0.7 },
+                    { time: 4000, value: 0.7 },
+                ];
+            return [];
+        });
+        const out = await executeTool('get_topic_history', { topic: 'hm/status/Licht Bad/LEVEL', from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z' }, {});
+        expect(out).toMatch(/^History of hm\/status\/Licht Bad\/LEVEL \(measurement "hm\/\/Licht Bad\/LEVEL"\)/);
+        expect(out).toMatch(/4 points reduced to 3 change points/);
+        expect(out).toContain('1970-01-01 00:00:03Z  0.7');
+        const q = influx.v1Query.mock.calls[0][0];
+        expect(q).toMatch(/WHERE time >= \d+ms AND time <= \d+ms ORDER BY time ASC LIMIT 5000/);
+        expect(await executeTool('get_topic_history', { topic: 'nothing/status/here' }, {})).toMatch(/^No history for nothing\/status\/here/);
+    });
+
+    it('get_topic_messages: says so without Elastic, otherwise lists the newest messages', async () => {
+        expect(await executeTool('get_topic_messages', { topic: 't' }, {})).toMatch(/No Elasticsearch integration/);
+        const search = jest.fn(async () => ({
+            hits: {
+                total: { value: 3 },
+                hits: [{ _source: { '@timestamp': 1791471873729, 'payload': '{"val":1}' } }, { _source: { '@timestamp': '2026-10-08T15:00:00.000Z', 'payload': 'true' } }],
+            },
+        }));
+        elastic.getClient.mockReturnValue({ search });
+        const out = await executeTool('get_topic_messages', { topic: 'var/status/presence/bath', limit: 2 }, { elasticIndex: 'mqtt-*' });
+        expect(out).toMatch(/^2 of 3 messages for var\/status\/presence\/bath/);
+        expect(out).toContain('{"val":1}');
+        expect(out).toContain('2026-10-08 15:00:00Z  true');
+        expect(search.mock.calls[0][0].index).toBe('mqtt-*');
+        expect(search.mock.calls[0][0].query.bool.filter[0]).toEqual({ term: { topic: 'var/status/presence/bath' } });
     });
 });

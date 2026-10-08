@@ -14,8 +14,10 @@ const fs = require('fs');
 const path = require('path');
 const dns = require('dns');
 const net = require('net');
+const readline = require('readline');
 const { getLogBuffer } = require('./log-ws');
 const mqttWildcard = require('../lib/mqtt-wildcards');
+const { LOGS_DIR } = require('../lib/storage');
 
 // A tool result goes into the conversation and stays there for every later turn (roadmap I21):
 // above this many characters it is cut with a note; lists page with offset/limit instead.
@@ -83,17 +85,22 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'get_script_logs',
-            description: 'Retrieve recent log messages from the she daemon. ' + 'Filter by script name to diagnose errors or trace what a specific script has been doing.',
+            description:
+                'Read the daemon log: the log files on disk (every line since the last restarts, rotated at 10 MB) within a time window, or the last lines without one. ' +
+                'Filter by script name to diagnose errors or trace what a script has been doing; "from"/"to" take an ISO time or a relative one ("-2h", "-1d").',
             parameters: {
                 type: 'object',
                 properties: {
                     script_name: {
                         type: 'string',
-                        description: 'Filter log lines to those mentioning this script name (file name without extension). Pass empty string to get all recent logs.',
+                        description: 'Filter lines to those mentioning this script name (file name without extension). Empty string: all lines.',
                     },
+                    from: { type: 'string', description: 'Start of the time window: ISO 8601 or relative ("-30m", "-2h", "-1d"). Default: the newest lines only.' },
+                    to: { type: 'string', description: 'End of the time window: ISO 8601 or relative. Default: now.' },
+                    level: { type: 'string', description: 'Minimum level: debug, info, warn or error (default debug).' },
                     limit: {
                         type: 'integer',
-                        description: 'Maximum number of log lines to return (1-200, default 50).',
+                        description: 'Maximum number of log lines to return (1-200, default 50), the newest within the window.',
                     },
                     offset: { type: 'integer', description: 'Skip this many lines from the newest end (paging into older lines; default 0).' },
                 },
@@ -184,13 +191,74 @@ const TOOL_DEFINITIONS = [
         function: {
             name: 'list_matter_devices',
             description:
-                'List all paired Matter devices with their online status, endpoints and available clusters. ' +
-                'Use this whenever the user asks about a Matter device or smart home hardware. ' +
-                'Use node and endpoint friendly names in matter commands.',
+                'List the paired Matter devices with their endpoints and clusters, and (with_state, default true) the common state attributes per endpoint: OnOff, LevelControl, the measurement clusters. ' +
+                'Use get_matter_attribute for any other attribute.',
             parameters: {
                 type: 'object',
-                properties: {},
+                properties: {
+                    with_state: { type: 'boolean', description: 'Read the state attributes of online devices (default true).' },
+                    offset: { type: 'integer', description: 'Skip this many devices (paging; default 0).' },
+                    limit: { type: 'integer', description: 'Maximum devices to list (default 50).' },
+                },
                 required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_matter_attribute',
+            description: 'Read one attribute of a Matter device: node (id or name), endpoint (id or name), cluster name and attribute name, as she.matter.get does.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    node: { type: 'string', description: 'Node id or device name.' },
+                    endpoint: { type: 'string', description: 'Endpoint id or name.' },
+                    cluster: { type: 'string', description: 'Cluster name, e.g. "OnOff", "LevelControl", "TemperatureMeasurement".' },
+                    attribute: { type: 'string', description: 'Attribute name, e.g. "onOff", "currentLevel", "measuredValue".' },
+                },
+                required: ['node', 'endpoint', 'cluster', 'attribute'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_topic_history',
+            description:
+                'The values of an MQTT topic over time from InfluxDB (when she has an Influx integration configured), as a compact time series: change points, downsampled when long. ' +
+                'Use it for every "why", "when", "how often", "since when" question about a topic; search_mqtt_topics only knows the current value.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    topic: {
+                        type: 'string',
+                        description: 'The MQTT topic, e.g. "hm/status/Licht Bad/LEVEL" (the measurement is derived from it; a measurement name is accepted too).',
+                    },
+                    from: { type: 'string', description: 'Start: ISO 8601 or relative ("-2h", "-1d", "-7d"). Default "-24h".' },
+                    to: { type: 'string', description: 'End: ISO 8601 or relative. Default now.' },
+                    limit: { type: 'integer', description: 'Maximum points to return (1-500, default 200); longer series are reduced to change points, then thinned.' },
+                },
+                required: ['topic'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_topic_messages',
+            description:
+                'The raw MQTT messages of a topic (every publish with its payload, newest first) from Elasticsearch, when she has an Elastic integration configured. ' +
+                'For values over time prefer get_topic_history; use this for the exact messages, repeated publishes and non-numeric payloads.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    topic: { type: 'string', description: 'The exact MQTT topic.' },
+                    from: { type: 'string', description: 'Start: ISO 8601 or relative ("-2h"). Default "-24h".' },
+                    to: { type: 'string', description: 'End: ISO 8601 or relative. Default now.' },
+                    limit: { type: 'integer', description: 'Maximum messages (1-500, default 100), the newest within the window.' },
+                },
+                required: ['topic'],
             },
         },
     },
@@ -241,7 +309,13 @@ async function runTool(name, args, ctx) {
             case 'get_shedb_doc':
                 return toolGetShedbDoc(args);
             case 'list_matter_devices':
-                return toolListMatterDevices();
+                return await toolListMatterDevices(args);
+            case 'get_matter_attribute':
+                return await toolGetMatterAttribute(args);
+            case 'get_topic_history':
+                return await toolGetTopicHistory(args, ctx);
+            case 'get_topic_messages':
+                return await toolGetTopicMessages(args, ctx);
             default:
                 return `Unknown tool: ${name}`;
         }
@@ -299,6 +373,23 @@ function valueMatcher(spec) {
     };
 }
 
+/** ISO 8601, epoch ms, "now", or relative "-2h"/"-30m"/"-1d" → epoch ms; NaN when unreadable */
+function parseTime(v, now = Date.now()) {
+    if (v === undefined || v === null || v === '' || v === 'now') return now;
+    if (typeof v === 'number') return v;
+    const str = String(v).trim();
+    if (/^-\s*\d/.test(str)) {
+        const d = parseDuration(str.slice(1).trim());
+        return Number.isNaN(d) ? NaN : now - d;
+    }
+    const t = Date.parse(str);
+    return Number.isNaN(t) ? NaN : t;
+}
+
+function isoShort(ms) {
+    return new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + 'Z';
+}
+
 function ago(ms) {
     const s = Math.round(ms / 1000);
     if (s < 60) return s + 's';
@@ -352,28 +443,169 @@ function toolReadScript({ path: relPath }, scriptDir) {
     return `## ${relPath}\n\`\`\`javascript\n${content}\n\`\`\``;
 }
 
-function toolGetScriptLogs({ script_name = '', limit = 50, offset = 0 }) {
+const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
+
+/** the log files on disk, oldest first: she.jsonl.N … she.jsonl.1, she.jsonl */
+function logFilesOldestFirst() {
+    let names;
+    try {
+        names = fs.readdirSync(LOGS_DIR).filter((n) => /^she\.jsonl(\.\d+)?$/.test(n));
+    } catch {
+        return [];
+    }
+    const rank = (n) => (n === 'she.jsonl' ? 0 : Number(n.slice('she.jsonl.'.length)));
+    return names.sort((a, b) => rank(b) - rank(a)).map((n) => path.join(LOGS_DIR, n));
+}
+
+async function toolGetScriptLogs({ script_name = '', from, to, level = 'debug', limit = 50, offset = 0 } = {}) {
     const cap = Math.min(Math.max(1, Number(limit) || 50), 200);
     const skip = Math.max(0, Number(offset) || 0);
-    const buf = getLogBuffer();
     const needle = String(script_name).toLowerCase();
-    const filtered = needle ? buf.filter((e) => e.msg.toLowerCase().includes(needle)) : buf;
-    const end = Math.max(0, filtered.length - skip);
-    const recent = filtered.slice(Math.max(0, end - cap), end);
+    const minRank = LEVEL_RANK[String(level).toLowerCase()] ?? 0;
+    const now = Date.now();
+    const fromMs = from ? parseTime(from, now) : null;
+    const toMs = parseTime(to, now);
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
+    const keep = (e) => (fromMs === null || e.ts >= fromMs) && e.ts <= toMs && (LEVEL_RANK[e.level] ?? 0) >= minRank && (!needle || e.msg.toLowerCase().includes(needle));
+
+    // the files on disk; the in-memory ring only when there are none (tests, a read-only data directory)
+    const matches = [];
+    const files = logFilesOldestFirst();
+    for (const file of files) {
+        if (fromMs !== null) {
+            try {
+                if (fs.statSync(file).mtimeMs < fromMs) continue; // nothing in this file is new enough
+            } catch {
+                continue;
+            }
+        }
+        const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+        for await (const line of rl) {
+            if (!line) continue;
+            let e;
+            try {
+                e = JSON.parse(line);
+            } catch {
+                continue;
+            }
+            if (e && typeof e.msg === 'string' && keep(e)) matches.push(e);
+        }
+    }
+    if (files.length === 0) {
+        for (const e of getLogBuffer()) if (keep(e)) matches.push(e);
+    }
+    const end = Math.max(0, matches.length - skip);
+    const recent = matches.slice(Math.max(0, end - cap), end);
     if (recent.length === 0) {
-        return needle ? `No log entries found mentioning "${script_name}".` : 'No log entries in buffer yet.';
+        const window = fromMs !== null ? ` between ${isoShort(fromMs)} and ${isoShort(toMs)}` : '';
+        return needle ? `No log entries mentioning "${script_name}"${window}.` : `No log entries${window}.`;
     }
     const older = end - recent.length;
-    const head = older > 0 ? `${recent.length} of ${filtered.length} lines (${older} older; offset ${skip + recent.length} for them):\n` : '';
-    return (
-        head +
-        recent
-            .map((e) => {
-                const t = new Date(e.ts).toISOString().slice(11, 19);
-                return `[${t}] ${e.level.toUpperCase()} ${e.msg}`;
-            })
-            .join('\n')
-    );
+    const head = `${recent.length} of ${matches.length} matching lines${older > 0 ? ` (${older} older; offset ${skip + recent.length} for them)` : ''}, oldest first:\n`;
+    return head + recent.map((e) => `[${isoShort(e.ts)}] ${String(e.level).toUpperCase()} ${e.msg}`).join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// History (roadmap I15, decision D-3): InfluxDB first, Elasticsearch for the raw messages
+// ---------------------------------------------------------------------------
+
+/**
+ * The measurements influx4mqtt may have written for a topic: `<name>//<path without the status segment>`
+ * (what the maintainer's instance writes), `<name>//<rest>`, and the literal topic.
+ */
+function measurementCandidates(topic) {
+    const t = String(topic).trim();
+    const parts = t.split('/');
+    const out = [];
+    if (parts.length >= 3 && parts[1] === 'status') out.push(parts[0] + '//' + parts.slice(2).join('/'));
+    if (parts.length >= 2) out.push(parts[0] + '//' + parts.slice(1).join('/'));
+    out.push(t);
+    return [...new Set(out)];
+}
+
+/** change points first; when still too many, every k-th point */
+function thinSeries(rows, limit) {
+    const changes = rows.filter((r, i) => i === 0 || i === rows.length - 1 || r.value !== rows[i - 1].value);
+    if (changes.length <= limit) return { points: changes, note: changes.length < rows.length ? `${rows.length} points reduced to ${changes.length} change points` : '' };
+    const k = Math.ceil(changes.length / limit);
+    const thinned = changes.filter((_, i) => i % k === 0 || i === changes.length - 1);
+    return { points: thinned, note: `${rows.length} points, ${changes.length} change points, every ${k}th shown` };
+}
+
+async function toolGetTopicHistory({ topic, from = '-24h', to, limit = 200 } = {}) {
+    if (!topic) return 'topic is required.';
+    let influx;
+    try {
+        influx = require('../influx');
+    } catch {
+        return 'InfluxDB is not available.';
+    }
+    const mode = influx.getMode?.();
+    if (!mode) return 'No InfluxDB integration is configured in she (config "influx"), so there is no history. The current value: get_mqtt_topic.';
+    if (mode !== 'v1') return 'Topic history is implemented for InfluxDB 1.x only so far.';
+    const now = Date.now();
+    const fromMs = parseTime(from, now);
+    const toMs = parseTime(to, now);
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
+    const cap = Math.min(Math.max(1, Number(limit) || 200), 500);
+    const tried = [];
+    for (const m of measurementCandidates(topic)) {
+        tried.push(m);
+        let rows;
+        try {
+            rows = await influx.v1Query(`SELECT "value" FROM "${m.replace(/"/g, '\\"')}" WHERE time >= ${fromMs}ms AND time <= ${toMs}ms ORDER BY time ASC LIMIT 5000`);
+        } catch (e) {
+            return `InfluxDB query failed: ${e.message}`;
+        }
+        if (!rows || rows.length === 0) continue;
+        const series = rows.map((r) => ({ time: r.time, value: r.value }));
+        const { points, note } = thinSeries(series, cap);
+        const lines = [
+            `History of ${topic} (measurement "${m}") from ${isoShort(fromMs)} to ${isoShort(toMs)}${rows.length >= 5000 ? ', the first 5000 points of the window' : ''}${note ? `; ${note}` : ''}:`,
+        ];
+        for (const pt of points) lines.push(`${isoShort(pt.time)}  ${JSON.stringify(pt.value)}`);
+        return lines.join('\n');
+    }
+    return `No history for ${topic} between ${isoShort(fromMs)} and ${isoShort(toMs)} (tried measurements ${tried.map((m) => `"${m}"`).join(', ')}).`;
+}
+
+async function toolGetTopicMessages({ topic, from = '-24h', to, limit = 100 } = {}, ctx = {}) {
+    if (!topic) return 'topic is required.';
+    let client = null;
+    try {
+        client = require('../elastic').getClient();
+    } catch {
+        /* module missing */
+    }
+    if (!client) return 'No Elasticsearch integration is configured in she (config "elastic"), so there is no message list. Try get_topic_history.';
+    const now = Date.now();
+    const fromMs = parseTime(from, now);
+    const toMs = parseTime(to, now);
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
+    const cap = Math.min(Math.max(1, Number(limit) || 100), 500);
+    const index = ctx.elasticIndex || 'mqtt-*';
+    let res;
+    try {
+        res = await client.search({
+            index,
+            size: cap,
+            query: { bool: { filter: [{ term: { topic: String(topic) } }, { range: { '@timestamp': { gte: fromMs, lte: toMs } } }] } },
+            sort: [{ '@timestamp': { order: 'desc' } }],
+            _source: ['@timestamp', 'payload'],
+        });
+    } catch (e) {
+        return `Elasticsearch query failed: ${e.message}`;
+    }
+    const hits = res?.hits?.hits ?? res?.body?.hits?.hits ?? [];
+    const total = res?.hits?.total?.value ?? res?.body?.hits?.total?.value ?? hits.length;
+    if (hits.length === 0) return `No messages for ${topic} between ${isoShort(fromMs)} and ${isoShort(toMs)} in ${index}.`;
+    const lines = [`${hits.length} of ${total} messages for ${topic} from ${isoShort(fromMs)} to ${isoShort(toMs)}, newest first:`];
+    for (const h of hits) {
+        const src = h._source || {};
+        const ts = typeof src['@timestamp'] === 'number' ? src['@timestamp'] : Date.parse(src['@timestamp']);
+        lines.push(`${isoShort(ts)}  ${String(src.payload ?? '')}`);
+    }
+    return lines.join('\n');
 }
 
 const MAX_FETCH_CHARS = 8000;
@@ -497,30 +729,102 @@ function toolGetShedbDoc({ id, path: dotted = '' }) {
     }
 }
 
-function toolListMatterDevices() {
+const STATE_ATTRIBUTES = {
+    OnOff: ['onOff'],
+    LevelControl: ['currentLevel'],
+    ColorControl: ['currentHue', 'currentSaturation', 'colorTemperatureMireds'],
+    TemperatureMeasurement: ['measuredValue'],
+    RelativeHumidityMeasurement: ['measuredValue'],
+    IlluminanceMeasurement: ['measuredValue'],
+    OccupancySensing: ['occupancy'],
+    BooleanState: ['stateValue'],
+    DoorLock: ['lockState'],
+    WindowCovering: ['currentPositionLiftPercent100ths'],
+    Thermostat: ['localTemperature', 'occupiedHeatingSetpoint', 'systemMode'],
+    Switch: ['currentPosition'],
+    PowerSource: ['batPercentRemaining'],
+};
+
+function withTimeout(promise, ms) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), ms);
+        if (timer.unref) timer.unref();
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function matterController() {
     try {
         const controller = require('../matter/controller');
-        if (typeof controller.listPaired !== 'function') return 'Matter controller not available.';
-        const nodes = controller.listPaired();
-        if (nodes.length === 0) return 'No Matter devices paired.';
-        const lines = [`${nodes.length} paired Matter device(s):`];
-        for (const n of nodes) {
-            lines.push(`\n### ${n.name || 'Unnamed'} (nodeId: "${n.nodeId}", ${n.online ? 'online' : 'offline'})`);
-            try {
-                const endpoints = controller.getEndpoints(n.nodeId);
-                for (const ep of endpoints) {
-                    if (ep.endpointId === 0) continue; // skip root endpoint
-                    const name = ep.name || String(ep.endpointId);
-                    lines.push(`- endpoint "${name}" (id: ${ep.endpointId}): ${ep.clusters.join(', ')}`);
-                }
-            } catch {
-                /* node may be offline */
-            }
-        }
-        return lines.join('\n');
-    } catch (e) {
-        return `Matter controller not available: ${e.message}`;
+        return typeof controller.listPaired === 'function' ? controller : null;
+    } catch {
+        return null;
     }
 }
 
-module.exports = { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool, _internal: { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf } };
+async function toolListMatterDevices({ with_state = true, offset = 0, limit = 50 } = {}) {
+    const controller = matterController();
+    if (!controller) return 'Matter controller not available.';
+    const nodes = controller.listPaired();
+    if (nodes.length === 0) return 'No Matter devices paired.';
+    const { page, note } = pageOf(nodes, offset, limit, 200, 50);
+    const lines = [`${page.length} of ${nodes.length} paired Matter device(s)${note}:`];
+    for (const n of page) {
+        lines.push(`\n### ${n.name || 'Unnamed'} (nodeId: "${n.nodeId}", ${n.online ? 'online' : 'offline'})`);
+        let endpoints = [];
+        try {
+            endpoints = controller.getEndpoints(n.nodeId);
+        } catch {
+            /* node may be offline */
+        }
+        for (const ep of endpoints) {
+            if (ep.endpointId === 0) continue; // skip root endpoint
+            const name = ep.name || String(ep.endpointId);
+            let state = '';
+            if (with_state && n.online && typeof controller.getAttribute === 'function') {
+                const reads = [];
+                for (const cluster of ep.clusters || []) {
+                    for (const attr of STATE_ATTRIBUTES[cluster] || []) {
+                        reads.push(
+                            withTimeout(
+                                Promise.resolve().then(() => controller.getAttribute(n.nodeId, ep.endpointId, cluster, attr)),
+                                3000,
+                            ).then(
+                                (v) => `${cluster}.${attr}=${JSON.stringify(v)}`,
+                                () => null,
+                            ),
+                        );
+                    }
+                }
+                const got = (await Promise.all(reads)).filter(Boolean);
+                if (got.length) state = ` — ${got.join(', ')}`;
+            }
+            lines.push(`- endpoint "${name}" (id: ${ep.endpointId}): ${(ep.clusters || []).join(', ')}${state}`);
+        }
+    }
+    return lines.join('\n');
+}
+
+async function toolGetMatterAttribute({ node, endpoint, cluster, attribute } = {}) {
+    if (!node || endpoint === undefined || endpoint === null || endpoint === '' || !cluster || !attribute) return 'node, endpoint, cluster and attribute are required.';
+    const controller = matterController();
+    if (!controller || typeof controller.getAttribute !== 'function') return 'Matter controller not available.';
+    try {
+        const ep = Number.isNaN(Number(endpoint)) ? String(endpoint) : Number(endpoint);
+        const value = await withTimeout(
+            Promise.resolve().then(() => controller.getAttribute(String(node), ep, String(cluster), String(attribute))),
+            5000,
+        );
+        return `${node} / ${endpoint} / ${cluster}.${attribute} = ${JSON.stringify(value)}`;
+    } catch (e) {
+        return `Could not read ${cluster}.${attribute} of ${node}/${endpoint}: ${e.message}`;
+    }
+}
+
+module.exports = {
+    TOOL_DEFINITIONS,
+    TOOL_DEFINITIONS_ANTHROPIC,
+    executeTool,
+    _internal: { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf, parseTime, measurementCandidates, thinSeries },
+};
