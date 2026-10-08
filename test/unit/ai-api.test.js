@@ -54,9 +54,11 @@ describe('callAnthropic()', () => {
         expect(usage).toEqual({ prompt_tokens: 10, completion_tokens: 5 });
     });
 
-    it('throws when the answer has no text block instead of returning an empty message', async () => {
+    it('reports an answer without a text block as empty with the detail', async () => {
         global.fetch = fetchStub(200, { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '…' }] });
-        await expect(callAnthropic({ model: 'm', apiKey: 'k' }, [{ role: 'user', content: 'hi' }])).rejects.toThrow(/no text .*stop_reason end_turn.*thinking/);
+        const r = await callAnthropic({ model: 'm', apiKey: 'k' }, [{ role: 'user', content: 'hi' }]);
+        expect(r.message).toBe('');
+        expect(r.detail).toMatch(/stop_reason end_turn.*thinking/);
     });
 
     it('throws with the status and body of an API error', async () => {
@@ -220,5 +222,132 @@ describe('providerMessages()', () => {
     it('is what the stream route sends to the provider', async () => {
         // the stream test above already covers the route; here: the body Anthropic receives has no extra fields
         expect(providerMessages([{ role: 'user', content: 'x', toolEvents: [] }])[0]).not.toHaveProperty('toolEvents');
+    });
+});
+
+describe('POST /she/ai/chat/stream with tools (the resolver)', () => {
+    const realFetch = global.fetch;
+    let server, port, dir, log;
+
+    beforeAll(async () => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ai-tools-test-'));
+        fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { provider: 'anthropic', model: 'm', apiKey: 'k' } }));
+        log = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
+        const entries = [
+            ['hm/status/Licht Bad/LEVEL', { val: 0.7 }],
+            ['var/status/Bewegung/Bad', { val: 1 }],
+            ['hm/status/Kueche/STATE', { val: true }],
+        ];
+        init({ mqttEntries: () => entries[Symbol.iterator]() }, log);
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = path.join(dir, 'config.json');
+        app.use('/she/ai', router);
+        server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        port = server.address().port;
+    });
+
+    afterAll(async () => {
+        await new Promise((resolve) => server.close(resolve));
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    afterEach(() => {
+        global.fetch = realFetch;
+    });
+
+    function post(body) {
+        return new Promise((resolve, reject) => {
+            const data = JSON.stringify(body);
+            const req = http.request(
+                {
+                    host: '127.0.0.1',
+                    port,
+                    path: '/she/ai/chat/stream',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+                },
+                (res) => {
+                    let text = '';
+                    res.on('data', (c) => (text += c));
+                    res.on('end', () => resolve({ status: res.statusCode, text }));
+                },
+            );
+            req.on('error', reject);
+            req.end(data);
+        });
+    }
+
+    /** a fetch stub answering the Anthropic calls in sequence; returns the request bodies */
+    function sequence(answers) {
+        const bodies = [];
+        global.fetch = jest.fn(async (url, opts) => {
+            bodies.push(JSON.parse(opts.body));
+            const a = answers.shift();
+            return new Response(JSON.stringify(a), { status: 200, headers: { 'content-type': 'application/json' } });
+        });
+        return bodies;
+    }
+
+    it('keeps the tools on offer after a tool round, replays the assistant turn unchanged, and streams the answer', async () => {
+        const bodies = sequence([
+            {
+                stop_reason: 'tool_use',
+                content: [
+                    { type: 'thinking', thinking: 't' },
+                    { type: 'text', text: 'Searching.' },
+                    { type: 'tool_use', id: 'tu1', name: 'search_mqtt_topics', input: { query: 'bad' } },
+                ],
+            },
+            { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Two topics mention the bathroom.' }] },
+        ]);
+        const { text } = await post({ messages: [{ role: 'user', content: 'bad topics?' }], context: { tools: true } });
+        expect(text).toContain('"type":"tool_call"');
+        expect(text).toContain('data: {"token":"Two topics mention the bathroom."}');
+        expect(text).toContain('[DONE]');
+        expect(bodies).toHaveLength(2);
+        expect(bodies[1].tools.length).toBeGreaterThan(0); // tools still defined in round 2
+        const assistantTurn = bodies[1].messages.find((m) => m.role === 'assistant');
+        expect(assistantTurn.content.map((b) => b.type)).toEqual(['thinking', 'text', 'tool_use']); // unchanged
+        const toolResult = bodies[1].messages.at(-1).content[0];
+        expect(toolResult.type).toBe('tool_result');
+        expect(toolResult.content).toContain('hm/status/Licht Bad/LEVEL');
+        expect(toolResult.content).not.toContain('Kueche');
+    });
+
+    it('nudges once when the final answer has no text, and reports the detail when that fails too', async () => {
+        const bodies = sequence([
+            { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: 'only' }] },
+            { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here it is.' }] },
+        ]);
+        let r = await post({ messages: [{ role: 'user', content: 'hi' }], context: { tools: true } });
+        expect(r.text).toContain('data: {"token":"Here it is."}');
+        expect(bodies[1].messages.at(-1).content).toMatch(/complete response/);
+
+        sequence([
+            { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: 'only' }] },
+            { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: 'still' }] },
+        ]);
+        r = await post({ messages: [{ role: 'user', content: 'hi' }], context: { tools: true } });
+        expect(r.text).toContain('"error":"The model returned an empty answer (stop_reason end_turn, content blocks: thinking)"');
+    });
+});
+
+describe('search_mqtt_topics limit', () => {
+    const { executeTool } = require('../../src/web/ai-tools');
+    const entries = Array.from({ length: 120 }, (_, i) => [`hm/status/Bad ${i}/LEVEL`, { val: i }]);
+    const store = { mqttEntries: () => entries[Symbol.iterator]() };
+
+    it('shows 50 by default and says how many matched', async () => {
+        const out = await executeTool('search_mqtt_topics', { query: 'bad' }, { store });
+        expect(out.split('\n').filter((l) => l.startsWith('hm/')).length).toBe(50);
+        expect(out).toMatch(/50 of 120 matching topics shown/);
+    });
+
+    it('takes a limit up to 500', async () => {
+        const out = await executeTool('search_mqtt_topics', { query: 'bad', limit: 500 }, { store });
+        expect(out.split('\n').filter((l) => l.startsWith('hm/')).length).toBe(120);
+        expect(out).not.toMatch(/matching topics shown/);
     });
 });

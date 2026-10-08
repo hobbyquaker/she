@@ -129,7 +129,8 @@ async function callAnthropic(config, messages, tools) {
         model: config.model,
         system: systemMsg?.content || '',
         messages: userMessages,
-        max_tokens: 4096,
+        // thinking tokens count against this on the current models; 4096 cut answers short
+        max_tokens: 16384,
     };
     if (tools?.length) body.tools = tools;
 
@@ -158,13 +159,11 @@ async function callAnthropic(config, messages, tools) {
         return { toolCalls, assistantMsg: json.content, usage };
     }
 
+    // an answer without any text block (e.g. only a thinking block) is reported, not shown as nothing:
+    // the caller nudges once and otherwise turns `detail` into the error
     const message = answerText(json.content);
-    if (!message) {
-        // an answer without any text block (e.g. only a thinking block) — say so instead of showing nothing
-        const types = (json.content || []).map((b) => b.type).join(',') || 'none';
-        throw new Error(`Anthropic returned no text (stop_reason ${json.stop_reason}, content blocks: ${types})`);
-    }
-    return { message, usage };
+    const detail = message ? undefined : `stop_reason ${json.stop_reason}, content blocks: ${(json.content || []).map((b) => b.type).join(',') || 'none'}`;
+    return { message, usage, detail, assistantMsg: json.content };
 }
 
 /**
@@ -213,20 +212,18 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
     const isAnthropic = ai.provider === 'anthropic';
     const tools = isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS;
     let msgs = messages;
-    let toolsUsed = false; // once the model has used tools, stop offering them
+    let toolsUsed = false;
+    // The tools stay on offer in every round (up to MAX_TOOL_ROUNDS): a search that was cut short can be refined,
+    // and a history with tool_use blocks is only valid when the tools are defined. The round cap ends a model that
+    // keeps calling tools; an empty final answer is nudged once below.
+    const MAX_TOOL_ROUNDS = 8;
 
-    for (let round = 0; round < 6; round++) {
-        // After the first round of tool calls, don't offer tools again.
-        // This forces a plain-text response rather than letting the model
-        // keep calling tools indefinitely (and some models return empty
-        // content when given tools but no reason to call them).
-        const roundTools = toolsUsed ? undefined : tools;
-
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         let result;
         try {
-            result = isAnthropic ? await callAnthropic(ai, msgs, roundTools) : await callOpenAICompat(ai, msgs, roundTools);
+            result = isAnthropic ? await callAnthropic(ai, msgs, tools) : await callOpenAICompat(ai, msgs, tools);
         } catch (e) {
-            if (round === 0 && roundTools) {
+            if (round === 0) {
                 // Model may not support tool calling — retry without tools
                 result = isAnthropic ? await callAnthropic(ai, msgs) : await callOpenAICompat(ai, msgs);
             } else {
@@ -236,11 +233,21 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
 
         // No tool calls → we have the final answer
         if (!result.toolCalls?.length) {
-            // If the model returned empty content after using tools, nudge it once
-            if (!result.message && toolsUsed) {
-                const nudgeMsgs = [...msgs, { role: 'user', content: 'Based on the information retrieved above, please now provide your complete response.' }];
-                const nudged = isAnthropic ? await callAnthropic(ai, nudgeMsgs) : await callOpenAICompat(ai, nudgeMsgs);
-                return { message: nudged.message ?? '', usage: nudged.usage };
+            if (!result.message) {
+                // An answer without text (a thinking block only, or nothing): ask once for the answer itself.
+                const nudgeMsgs = [
+                    ...msgs,
+                    {
+                        role: 'user',
+                        content: toolsUsed
+                            ? 'Based on the information retrieved above, please now provide your complete response.'
+                            : 'Please provide your complete response as text.',
+                    },
+                ];
+                const nudged = isAnthropic
+                    ? await callAnthropic(ai, nudgeMsgs, toolsUsed ? tools : undefined)
+                    : await callOpenAICompat(ai, nudgeMsgs, toolsUsed ? tools : undefined);
+                return { message: nudged.message ?? '', usage: nudged.usage, detail: nudged.message ? undefined : nudged.detail || result.detail };
             }
             return { message: result.message ?? '', usage: result.usage };
         }
@@ -248,9 +255,8 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
         // Execute tool calls and append results to message history
         toolsUsed = true;
         if (isAnthropic) {
-            // Strip text blocks when tool_use blocks are present (same draft-reproduction issue)
-            const anthropicAssistantContent = result.assistantMsg.some((b) => b.type === 'tool_use') ? result.assistantMsg.filter((b) => b.type !== 'text') : result.assistantMsg;
-            msgs = [...msgs, { role: 'assistant', content: anthropicAssistantContent }];
+            // the assistant turn goes back unchanged: the current models bind their thinking blocks to the turn
+            msgs = [...msgs, { role: 'assistant', content: result.assistantMsg }];
             const toolResultBlocks = [];
             for (const tc of result.toolCalls) {
                 const args = tc.input || {};
@@ -282,9 +288,11 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
         }
     }
 
-    // Fallback (should not normally be reached)
-    const fallback = isAnthropic ? await callAnthropic(ai, msgs) : await callOpenAICompat(ai, msgs);
-    return { message: fallback.message ?? '', usage: fallback.usage };
+    // The round cap was reached: ask for the answer with what was gathered (the tools stay defined - the history
+    // holds tool_use blocks - but the request asks for text).
+    const finalMsgs = [...msgs, { role: 'user', content: 'Please answer now with the information gathered so far; do not call any more tools.' }];
+    const fallback = isAnthropic ? await callAnthropic(ai, finalMsgs, tools) : await callOpenAICompat(ai, finalMsgs, tools);
+    return { message: fallback.message ?? '', usage: fallback.usage, detail: fallback.message ? undefined : fallback.detail };
 }
 
 // ---------------------------------------------------------------------------
@@ -544,7 +552,8 @@ router.post('/chat', async (req, res) => {
         } else {
             result = await callOpenAICompat(aiWithModel, fullMessages);
         }
-        res.json(result);
+        if (!result.message || !String(result.message).trim()) throw new Error('The model returned an empty answer' + (result.detail ? ` (${result.detail})` : ''));
+        res.json({ message: result.message, usage: result.usage });
     } catch (e) {
         _log.error('ai chat: ' + e.message);
         res.status(500).json({ error: e.message });
@@ -589,8 +598,8 @@ router.post('/chat/stream', async (req, res) => {
             // Tool-calling mode: resolve tools non-streaming (emitting events), then
             // send the final answer as a single token so the client sees it immediately.
             const toolContext = { store: _store, scriptDir: req.app.locals.scriptDir || null };
-            const { message } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
-            if (!message || !message.trim()) throw new Error('The model returned an empty answer');
+            const { message, detail } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
+            if (!message || !message.trim()) throw new Error('The model returned an empty answer' + (detail ? ` (${detail})` : ''));
             send({ token: message });
         } else {
             let tokens = 0;

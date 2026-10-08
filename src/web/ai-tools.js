@@ -34,7 +34,12 @@ const TOOL_DEFINITIONS = [
                 properties: {
                     query: {
                         type: 'string',
-                        description: 'Case-insensitive substring to match against topic names. Pass empty string to list all topics (capped at 50).',
+                        description: 'Case-insensitive substring to match against topic names. Pass empty string to list all topics.',
+                    },
+                    limit: {
+                        type: 'integer',
+                        description:
+                            'Maximum number of topics to return (1-500, default 50). The result says how many matched in total; raise the limit or narrow the query to see the rest.',
                     },
                 },
                 required: ['query'],
@@ -217,18 +222,20 @@ async function executeTool(name, args, ctx) {
 // Individual tools
 // ---------------------------------------------------------------------------
 
-function toolSearchMqttTopics({ query = '' }, store) {
+function toolSearchMqttTopics({ query = '', limit = 50 }, store) {
     if (!store) return 'MQTT state store not available.';
-    const q = query.toLowerCase();
+    const q = String(query).toLowerCase();
+    const cap = Math.min(Math.max(1, Number(limit) || 50), 500);
     const results = [];
+    let total = 0;
     for (const [topic, obj] of store.mqttEntries()) {
         if (!q || topic.toLowerCase().includes(q)) {
-            results.push(`${topic}: ${JSON.stringify(obj.val)}`);
-            if (results.length >= 50) {
-                results.push('… (truncated to 50 results, use a more specific query)');
-                break;
-            }
+            total++;
+            if (results.length < cap) results.push(`${topic}: ${JSON.stringify(obj.val)}`);
         }
+    }
+    if (total > results.length) {
+        results.push(`… ${results.length} of ${total} matching topics shown; raise the limit (up to 500) or narrow the query for the rest.`);
     }
     if (results.length === 0) {
         return q ? `No MQTT topics found matching "${query}".` : 'No MQTT topics tracked yet.';
