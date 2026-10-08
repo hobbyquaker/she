@@ -227,7 +227,7 @@ const TOOL_DEFINITIONS = [
         function: {
             name: 'get_topic_history',
             description:
-                'The values of an MQTT topic over time from InfluxDB (when she has an Influx integration configured), as a compact time series: change points, downsampled when long. ' +
+                'The values of one or several MQTT topics over time from InfluxDB (when she has an Influx integration configured), as compact time series: change points, downsampled when long. Several topics or an MQTT filter ("radar-x/status/#") in one call share the window and the point cap. ' +
                 'Use it for every "why", "when", "how often", "since when" question about a topic; search_mqtt_topics only knows the current value.',
             parameters: {
                 type: 'object',
@@ -235,6 +235,12 @@ const TOOL_DEFINITIONS = [
                     topic: {
                         type: 'string',
                         description: 'The MQTT topic, e.g. "hm/status/Licht Bad/LEVEL" (the measurement is derived from it; a measurement name is accepted too).',
+                    },
+                    topics: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description:
+                            'Several topics in one call, or one MQTT filter with + or # ("radar-x/status/#", "zigbee2mqtt/tfk_x/+"); up to 20 topics are resolved from the known topics. Use instead of "topic" for a device or a room.',
                     },
                     from: { type: 'string', description: 'Start: ISO 8601 or relative ("-2h", "-1d", "-7d"). Default "-24h".' },
                     to: { type: 'string', description: 'End: ISO 8601 or relative. Default now.' },
@@ -698,24 +704,36 @@ function thinSeries(rows, limit) {
     return { points: thinned, note: `${rows.length} points, ${changes.length} change points, every ${k}th shown` };
 }
 
-async function toolGetTopicHistory({ topic, from = '-24h', to, limit = 200 } = {}) {
-    if (!topic) return 'topic is required.';
-    let influx;
-    try {
-        influx = require('../influx');
-    } catch {
-        return 'InfluxDB is not available.';
+/**
+ * The topics a tool call names (roadmap I32): `topics` (a list, or one MQTT filter resolved against the known
+ * topics), else `topic`; a filter needs the store. Capped; the note says when the cap cut the list.
+ */
+function resolveTopics({ topic, topics }, store, cap = 20) {
+    const raw = [];
+    if (Array.isArray(topics)) raw.push(...topics);
+    else if (typeof topics === 'string' && topics.trim()) raw.push(topics);
+    if (typeof topic === 'string' && topic.trim()) raw.push(topic);
+    const out = [];
+    let note = '';
+    for (const t of raw.map((x) => String(x).trim()).filter(Boolean)) {
+        if (/[+#]/.test(t)) {
+            if (!store) return { topics: [], error: `"${t}" is a filter, but the MQTT state store is not available to resolve it; name the topics.` };
+            const matches = [];
+            for (const [name] of store.mqttEntries()) if (mqttWildcard(name, t)) matches.push(name);
+            if (matches.length === 0) return { topics: [], error: `No known topic matches "${t}".` };
+            matches.sort();
+            if (matches.length > cap) note = `${matches.length} topics match "${t}", the first ${cap} are shown; narrow the filter for the rest.`;
+            out.push(...matches.slice(0, cap));
+        } else out.push(t);
     }
-    const mode = influx.getMode?.();
-    if (!mode) return 'No InfluxDB integration is configured in she (config "influx"), so there is no history. The current value: get_mqtt_topic.';
-    if (mode !== 'v1') return 'Topic history is implemented for InfluxDB 1.x only so far.';
-    const now = Date.now();
-    const fromMs = parseTime(from, now);
-    const toMs = parseTime(to, now);
-    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
-    const cap = Math.min(Math.max(1, Number(limit) || 200), 500);
+    const unique = [...new Set(out)];
+    if (unique.length > cap) note = note || `${unique.length} topics named, the first ${cap} are shown.`;
+    return { topics: unique.slice(0, cap), note };
+}
+
+/** one topic's rows from Influx 1.x: influx4mqtt's measurements first, then she's own schema */
+async function fetchTopicSeries(influx, topic, fromMs, toMs) {
     const tried = [];
-    // influx4mqtt's measurements first, then she's own schema (measurement "mqtt", tag "topic", field "value")
     const queries = measurementCandidates(topic).map((m) => [
         m,
         `SELECT "value" FROM "${m.replace(/"/g, '\\"')}" WHERE time >= ${fromMs}ms AND time <= ${toMs}ms ORDER BY time ASC LIMIT 5000`,
@@ -726,22 +744,64 @@ async function toolGetTopicHistory({ topic, from = '-24h', to, limit = 200 } = {
     ]);
     for (const [m, q] of queries) {
         tried.push(m);
-        let rows;
-        try {
-            rows = await influx.v1Query(q);
-        } catch (e) {
-            return `InfluxDB query failed: ${e.message}`;
+        const rows = await influx.v1Query(q);
+        if (rows && rows.length > 0) return { measurement: m, rows: rows.map((r) => ({ time: r.time, value: r.value })), tried };
+    }
+    return { measurement: null, rows: [], tried };
+}
+
+function influxForHistory() {
+    let influx;
+    try {
+        influx = require('../influx');
+    } catch {
+        return { error: 'InfluxDB is not available.' };
+    }
+    const mode = influx.getMode?.();
+    if (!mode) return { error: 'No InfluxDB integration is configured in she (config "influx"), so there is no history. The current value: get_mqtt_topic.' };
+    if (mode !== 'v1') return { error: 'Topic history is implemented for InfluxDB 1.x only so far.' };
+    return { influx };
+}
+
+async function toolGetTopicHistory({ topic, topics, from = '-24h', to, limit = 200 } = {}, ctx = {}) {
+    const resolved = resolveTopics({ topic, topics }, ctx.store);
+    if (resolved.error) return resolved.error;
+    if (resolved.topics.length === 0) return 'topic (or topics) is required.';
+    const { influx, error } = influxForHistory();
+    if (error) return error;
+    const now = Date.now();
+    const fromMs = parseTime(from, now);
+    const toMs = parseTime(to, now);
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
+    const cap = Math.min(Math.max(1, Number(limit) || 200), 500);
+    const perTopic = Math.max(10, Math.floor(cap / resolved.topics.length));
+    let results;
+    try {
+        results = await Promise.all(resolved.topics.map((t) => fetchTopicSeries(influx, t, fromMs, toMs)));
+    } catch (e) {
+        return `InfluxDB query failed: ${e.message}`;
+    }
+    const blocks = [];
+    results.forEach((r, i) => {
+        const t = resolved.topics[i];
+        if (r.rows.length === 0) {
+            blocks.push(`No history for ${t} between ${isoShort(fromMs)} and ${isoShort(toMs)} (tried measurements ${r.tried.map((m) => `"${m}"`).join(', ')}).`);
+            return;
         }
-        if (!rows || rows.length === 0) continue;
-        const series = rows.map((r) => ({ time: r.time, value: r.value }));
-        const { points, note } = thinSeries(series, cap);
+        const { points, note } = thinSeries(r.rows, perTopic);
         const lines = [
-            `History of ${topic} (measurement "${m}") from ${isoShort(fromMs)} to ${isoShort(toMs)}${rows.length >= 5000 ? ', the first 5000 points of the window' : ''}${note ? `; ${note}` : ''}:`,
+            `History of ${t} (measurement "${r.measurement}") from ${isoShort(fromMs)} to ${isoShort(toMs)}${r.rows.length >= 5000 ? ', the first 5000 points of the window' : ''}${note ? `; ${note}` : ''}:`,
         ];
         for (const pt of points) lines.push(`${isoShort(pt.time)}  ${JSON.stringify(pt.value)}`);
-        return lines.join('\n');
-    }
-    return `No history for ${topic} between ${isoShort(fromMs)} and ${isoShort(toMs)} (tried measurements ${tried.map((m) => `"${m}"`).join(', ')}).`;
+        blocks.push(lines.join('\n'));
+    });
+    const head =
+        resolved.topics.length > 1
+            ? [`${resolved.topics.length} topics, up to ${perTopic} points each${resolved.note ? `; ${resolved.note}` : ''}.`]
+            : resolved.note
+              ? [resolved.note]
+              : [];
+    return [...head, ...blocks].join('\n\n');
 }
 
 async function toolGetTopicMessages({ topic, from = '-24h', to, limit = 100 } = {}, ctx = {}) {
@@ -1228,5 +1288,19 @@ module.exports = {
     TOOL_DEFINITIONS,
     TOOL_DEFINITIONS_ANTHROPIC,
     executeTool,
-    _internal: { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf, parseTime, measurementCandidates, thinSeries, publishRefusal, scriptPathOf },
+    _internal: {
+        isPrivateAddress,
+        isLocalName,
+        parseDuration,
+        valueMatcher,
+        pageOf,
+        parseTime,
+        measurementCandidates,
+        thinSeries,
+        publishRefusal,
+        scriptPathOf,
+        resolveTopics,
+        fetchTopicSeries,
+        influxForHistory,
+    },
 };

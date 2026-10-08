@@ -460,3 +460,53 @@ describe('propose_script and publish_mqtt (I16, I20)', () => {
         expect(await executeTool('publish_mqtt', { topic: 'hm/status/x/STATE', payload: '1' }, { publish: { ...base, mode: 'all' } })).toMatch(/^Refused: a status topic/);
     });
 });
+
+describe('get_topic_history with several topics or a filter (I32)', () => {
+    const { resolveTopics } = _internal;
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'radar-x/status/pir': { val: true },
+                'radar-x/status/has_target': { val: false },
+                'radar-x/status/still_energy': { val: 12 },
+                'home/status/door/contact': { val: false },
+            }),
+    };
+
+    it('resolves a list, a filter and the cap', () => {
+        expect(resolveTopics({ topic: 'a/status/b' }, null).topics).toEqual(['a/status/b']);
+        expect(resolveTopics({ topics: ['a/status/b', 'c/status/d', 'a/status/b'] }, null).topics).toEqual(['a/status/b', 'c/status/d']);
+        expect(resolveTopics({ topics: 'radar-x/status/#' }, store).topics).toEqual(['radar-x/status/has_target', 'radar-x/status/pir', 'radar-x/status/still_energy']);
+        expect(resolveTopics({ topics: ['radar-x/status/+', 'home/status/door/contact'] }, store).topics).toHaveLength(4);
+        expect(resolveTopics({ topics: 'radar-x/status/#' }, store, 2)).toMatchObject({
+            topics: ['radar-x/status/has_target', 'radar-x/status/pir'],
+            note: expect.stringMatching(/3 topics match/),
+        });
+        expect(resolveTopics({ topics: 'radar-x/#' }, null).error).toMatch(/not available/);
+        expect(resolveTopics({ topics: 'nothing/#' }, store).error).toMatch(/No known topic/);
+        expect(resolveTopics({}, store).topics).toEqual([]);
+    });
+
+    it('queries every topic concurrently and shares the point cap', async () => {
+        influx.getMode.mockReturnValue('v1');
+        influx.v1Query.mockImplementation(async (q) => {
+            if (q.includes('"radar-x//pir"'))
+                return [
+                    { time: 1000, value: false },
+                    { time: 2000, value: true },
+                    { time: 3000, value: false },
+                ];
+            if (q.includes('"radar-x//has_target"')) return [{ time: 1500, value: true }];
+            return [];
+        });
+        influx.v1Query.mockClear();
+        const out = await executeTool('get_topic_history', { topics: 'radar-x/status/#', from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z', limit: 60 }, { store });
+        expect(out).toMatch(/^3 topics, up to 20 points each\./);
+        expect(out).toContain('History of radar-x/status/pir (measurement "radar-x//pir")');
+        expect(out).toContain('History of radar-x/status/has_target (measurement "radar-x//has_target")');
+        expect(out).toMatch(/No history for radar-x\/status\/still_energy/);
+        expect(out).toContain('1970-01-01 00:00:02Z  true');
+        expect(await executeTool('get_topic_history', { topics: ['nothing/#'] }, { store })).toMatch(/No known topic matches/);
+        expect(await executeTool('get_topic_history', {}, { store })).toMatch(/topic \(or topics\) is required/);
+    });
+});
