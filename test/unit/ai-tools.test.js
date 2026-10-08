@@ -403,3 +403,60 @@ describe('remember and forget (I29)', () => {
         expect(await executeTool('remember', { text: 'x' }, {})).toMatch(/not available/);
     });
 });
+
+describe('propose_script and publish_mqtt (I16, I20)', () => {
+    const { publishRefusal, scriptPathOf } = _internal;
+    const drafts = require('../../src/web/ai-drafts');
+
+    it('writes a draft with a diff and an event, never the file', async () => {
+        const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-scripts-'));
+        drafts.init(path.join(DATA_DIR, 'ai', 'drafts'));
+        fs.mkdirSync(path.join(scriptDir, 'licht'));
+        fs.writeFileSync(path.join(scriptDir, 'licht', 'bath.js'), "/* global she */\n'use strict';\nshe.mqtt.pub('home/set/bath/light', 1);\n");
+        const out = await executeTool(
+            'propose_script',
+            { path: 'licht/bath.js', content: "/* global she */\n'use strict';\nshe.mqtt.pub('home/set/bath/light', 0);\nshe.info('off');", note: 'switches it off' },
+            { drafts, scriptDir },
+        );
+        expect(out.text).toMatch(/^Draft d[0-9a-f]{8} for licht\/bath\.js \(2 added, 1 removed\)/);
+        expect(out.event.type).toBe('draft');
+        expect(out.event.diff).toContain("-she.mqtt.pub('home/set/bath/light', 1);");
+        expect(out.event.diff).toContain("+she.info('off');");
+        expect(fs.readFileSync(path.join(scriptDir, 'licht', 'bath.js'), 'utf8')).toContain("light', 1)"); // untouched
+        const saved = drafts.get(out.event.id);
+        expect(saved.content.endsWith("she.info('off');\n")).toBe(true);
+        expect(drafts.setStatus(out.event.id, 'applied').status).toBe('applied');
+
+        expect(await executeTool('propose_script', { path: '../evil.js', content: 'x' }, { drafts, scriptDir })).toMatch(/not a script path/);
+        expect(await executeTool('propose_script', { path: 'new/thing.js', content: 'x' }, { drafts, scriptDir })).toMatchObject({ event: { isNew: true, added: 1 } });
+        expect(scriptPathOf(scriptDir, 'a/b.txt')).toBeNull();
+        fs.rmSync(scriptDir, { recursive: true, force: true });
+    });
+
+    it('guards the publish topic and respects the switch and the confirmation', async () => {
+        expect(publishRefusal('hm/status/Licht/LEVEL', [])).toMatch(/status topic/);
+        expect(publishRefusal('hm/set/Licht/LEVEL', [])).toBeNull();
+        expect(publishRefusal('var/set/mode', [])).toBeNull();
+        expect(publishRefusal('zigbee2mqtt/lamp/set', [])).toBeNull();
+        expect(publishRefusal('zigbee2mqtt/lamp/set/state', [])).toBeNull();
+        expect(publishRefusal('homeassistant/light/x/config', [])).toMatch(/only command topics/);
+        expect(publishRefusal('homeassistant/light/x/config', ['homeassistant/#'])).toBeNull();
+        expect(publishRefusal('hm/set/#', [])).toMatch(/wildcards/);
+
+        const sent = [];
+        const base = { allow: [], send: async (t, p, o) => sent.push([t, p, o]) };
+        expect(await executeTool('publish_mqtt', { topic: 'hm/set/x/STATE', payload: 'true' }, { publish: { ...base, mode: 'off' } })).toMatch(/switched off/);
+        expect(await executeTool('publish_mqtt', { topic: 'hm/set/x/STATE', payload: 'true' }, { publish: { ...base, mode: 'all' } })).toBe('Published "true" to hm/set/x/STATE.');
+        expect(sent).toEqual([['hm/set/x/STATE', 'true', { retain: false }]]);
+        expect(await executeTool('publish_mqtt', { topic: 'hm/set/x/STATE', payload: 'true' }, { publish: { ...base, mode: 'confirm', confirm: async () => false } })).toMatch(
+            /declined/,
+        );
+        expect(await executeTool('publish_mqtt', { topic: 'hm/set/x/STATE', payload: 'true' }, { publish: { ...base, mode: 'confirm', confirm: async () => 'timeout' } })).toMatch(
+            /did not answer/,
+        );
+        expect(
+            await executeTool('publish_mqtt', { topic: 'var/set/mode', payload: 'night', retain: true }, { publish: { ...base, mode: 'confirm', confirm: async () => true } }),
+        ).toBe('Published "night" to var/set/mode (retained).');
+        expect(await executeTool('publish_mqtt', { topic: 'hm/status/x/STATE', payload: '1' }, { publish: { ...base, mode: 'all' } })).toMatch(/^Refused: a status topic/);
+    });
+});

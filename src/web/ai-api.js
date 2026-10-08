@@ -18,12 +18,14 @@
 
 const express = require('express');
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 
 const { buildSystemPrompt, buildSystemPromptParts, houseSection, profileFor, stripThinking, thinkFilter } = require('./ai-context');
 const { TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, executeTool } = require('./ai-tools');
 const { STORAGE_ROOT } = require('../lib/storage');
 const memory = require('./ai-memory');
+const drafts = require('./ai-drafts');
 
 const router = express.Router();
 let _store = null;
@@ -50,6 +52,7 @@ function init(store, log, introspect) {
         }
     });
     setNotesProvider(() => memory.list());
+    drafts.init(path.join(STORAGE_ROOT, 'ai', 'drafts'));
     if (log) _log = log;
     _store = store;
 }
@@ -345,9 +348,32 @@ function answerText(content) {
  * @param {((event: object) => void)|undefined} onEvent
  * @returns {Promise<{ message: string, usage?: object }>}
  */
+/** run a tool; a result of { text, event } sends the event to the chat and hands the text to the model */
+async function runToolForChat(name, args, ctx, onEvent) {
+    const out = await executeTool(name, args, ctx);
+    if (out && typeof out === 'object') {
+        if (out.event) onEvent?.(out.event);
+        return String(out.text ?? '');
+    }
+    return String(out ?? '');
+}
+
+/** which tools a request may offer: the ones whose backing the context carries */
+function toolAllowed(name, ctx) {
+    if (name === 'remember' || name === 'forget') return !!ctx.memory;
+    if (name === 'propose_script') return !!(ctx.drafts && ctx.scriptDir);
+    if (name === 'publish_mqtt') return !!(ctx.publish && ctx.publish.mode !== 'off' && ctx.publish.send);
+    return true;
+}
+
+function toolsFor(ai, ctx) {
+    const isAnthropic = ai.provider === 'anthropic';
+    return (isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS).filter((t) => toolAllowed(isAnthropic ? t.name : t.function.name, ctx || {}));
+}
+
 async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
     const isAnthropic = ai.provider === 'anthropic';
-    const tools = isAnthropic ? TOOL_DEFINITIONS_ANTHROPIC : TOOL_DEFINITIONS;
+    const tools = toolsFor(ai, toolContext);
     let msgs = messages;
     let toolsUsed = false;
     // The tools stay on offer in every round (up to MAX_TOOL_ROUNDS): a search that was cut short can be refined,
@@ -398,7 +424,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
             for (const tc of result.toolCalls) {
                 const args = tc.input || {};
                 onEvent?.({ type: 'tool_call', name: tc.name, args });
-                const content = await executeTool(tc.name, args, toolContext);
+                const content = await runToolForChat(tc.name, args, toolContext, onEvent);
                 onEvent?.({ type: 'tool_result', name: tc.name, content });
                 toolResultBlocks.push({ type: 'tool_result', tool_use_id: tc.id, content });
             }
@@ -418,7 +444,7 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
                     args = {};
                 }
                 onEvent?.({ type: 'tool_call', name, args });
-                const content = await executeTool(name, args, toolContext);
+                const content = await runToolForChat(name, args, toolContext, onEvent);
                 onEvent?.({ type: 'tool_result', name, content });
                 msgs = [...msgs, { role: 'tool', tool_call_id: tc.id, content }];
             }
@@ -713,6 +739,8 @@ router.post('/chat', async (req, res) => {
                 elasticIndex: ai.elasticIndex,
                 introspect: _introspect,
                 memory,
+                drafts,
+                publish: publishContext(ai, context, null),
             };
             result = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, undefined);
         } else if (ai.provider === 'anthropic') {
@@ -775,6 +803,8 @@ router.post('/chat/stream', async (req, res) => {
                 elasticIndex: ai.elasticIndex,
                 introspect: _introspect,
                 memory,
+                drafts,
+                publish: publishContext(ai, context, send),
             };
             const { message, detail, usage } = await resolveAndGetAnswer(aiWithModel, fullMessages, toolContext, send);
             if (!message || !message.trim()) throw new Error('The model returned an empty answer' + (detail ? ` (${detail})` : ''));
@@ -803,6 +833,69 @@ router.post('/chat/stream', async (req, res) => {
         send({ error: e.message });
         res.end();
     }
+});
+
+// ---------------------------------------------------------------------------
+// Publish confirmations (roadmap I20, decision D-2): the tool waits for the user's click
+// ---------------------------------------------------------------------------
+
+const _pendingPublish = new Map(); // id → resolve(boolean)
+const PUBLISH_CONFIRM_MS = 120000;
+
+/** the publish context of a request: mode from the chat, the allow-list from the config, the daemon's send */
+function publishContext(ai, context, send) {
+    const mode = ['confirm', 'all'].includes(context?.publish) ? context.publish : 'off';
+    const sendFn = _introspect?.publish;
+    return {
+        mode,
+        allow: Array.isArray(ai?.publishAllow) ? ai.publishAllow : [],
+        send: sendFn
+            ? async (topic, payload, opts) => {
+                  await sendFn(topic, payload, opts);
+                  _log.info(`ai chat: published ${JSON.stringify(payload)} to ${topic}${opts?.retain ? ' (retained)' : ''}`);
+              }
+            : null,
+        confirm: (req) =>
+            new Promise((resolve) => {
+                const id = 'p' + crypto.randomBytes(4).toString('hex');
+                const timer = setTimeout(() => {
+                    _pendingPublish.delete(id);
+                    resolve('timeout');
+                }, PUBLISH_CONFIRM_MS);
+                _pendingPublish.set(id, (ok) => {
+                    clearTimeout(timer);
+                    _pendingPublish.delete(id);
+                    resolve(!!ok);
+                });
+                send?.({ type: 'publish_request', id, ...req });
+            }),
+    };
+}
+
+router.post('/publish/:id', (req, res) => {
+    const resolve = _pendingPublish.get(req.params.id);
+    if (!resolve) return res.status(404).json({ error: 'no pending publish with that id (answered or expired)' });
+    resolve(req.body?.ok === true);
+    res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Drafts — GET /she/ai/drafts/:id, POST /she/ai/drafts/:id/status (roadmap I16, decision D-1)
+// ---------------------------------------------------------------------------
+
+router.get('/drafts/:id', (req, res) => {
+    const d = drafts.get(req.params.id);
+    if (!d) return res.status(404).json({ error: 'no such draft' });
+    res.json(d);
+});
+
+router.post('/drafts/:id/status', (req, res) => {
+    const status = req.body?.status;
+    if (!['applied', 'discarded', 'open'].includes(status)) return res.status(400).json({ error: 'status must be applied, discarded or open' });
+    const d = drafts.setStatus(req.params.id, status);
+    if (!d) return res.status(404).json({ error: 'no such draft' });
+    _log.info(`ai chat: draft ${d.id} for ${d.path} ${status}`);
+    res.json({ ok: true, status: d.status });
 });
 
 // ---------------------------------------------------------------------------
@@ -910,6 +1003,7 @@ module.exports = {
     router,
     init,
     setNotesProvider,
+    _tools: { toolsFor, toolAllowed },
     _internal: {
         callAnthropic,
         answerText,

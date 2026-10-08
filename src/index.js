@@ -533,6 +533,12 @@ const nextOf = (job) => {
     }
 };
 const introspect = {
+    // the AI's publish tool (roadmap I20), guarded and confirmed in ai-api; here only the broker call
+    publish: (topic, payload, opts) =>
+        new Promise((resolve, reject) => {
+            if (!mqtt || !connected) return reject(new Error('MQTT is not connected'));
+            mqtt.publish(String(topic), typeof payload === 'object' ? JSON.stringify(payload) : String(payload), opts || {}, (err) => (err ? reject(err) : resolve()));
+        }),
     config: () => ({ name: config.name, variablePrefix: config.variablePrefix || 'var', version: pkg.version }),
     scripts: () =>
         Object.keys(scripts).map((file) => ({

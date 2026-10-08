@@ -30,6 +30,7 @@ The `ai` section of `config.json`, edited on the Config page:
 | `toolResultChars` | a tool result longer than this is cut with a note (default 6000); lists page with `offset`/`limit` |
 | `fetchAllow` | hosts the `she_fetch` tool may reach although they are private or local; everything on 10/8, 172.16/12, 192.168/16, localhost and `.lan`/`.local`/`.home` names is refused otherwise |
 | `elasticIndex` | the index pattern of the raw MQTT messages for `get_topic_messages` (default `mqtt-*`) when `elastic` is configured |
+| `publishAllow` | MQTT filters (`+`/`#`) of further topics the chat may publish to, beyond the command topics |
 | `promptBudgetChars` | (optional, on an entry) the prompt size the compact profile keeps to; default 24000 characters |
 
 The old single-entry shape `{ "provider": …, "model": …, "apiKey": … }` keeps working and is read as one entry named
@@ -42,8 +43,16 @@ and the token usage per request.
 
 ## Tools
 
-The model reads the daemon through tools; it cannot change anything (publishing and script drafts are planned, both
-behind explicit confirmation).
+The model reads the daemon through tools. Two tools change something, both behind a click:
+
+- **Script drafts** — `propose_script` writes a draft to `<data-dir>/ai/drafts/`; the chat shows the diff with
+  **Apply** (writes the file; the hot reload and the git auto-commit apply as for any save) and **Discard**. Nothing
+  reaches the scripts directory without the click.
+- **Publishing** — `publish_mqtt` is offered only when the **Publish** switch in the chat bar is not *off*: with
+  *confirm each* every publish shows topic and payload and waits for **Publish** or **Skip** (two minutes, then it
+  counts as skipped); with *allow all* it goes through at once for the session. Only command topics are accepted
+  (`<name>/set/…`, `var/set/…`, `zigbee2mqtt/<device>/set`, plus the patterns in `ai.publishAllow`); a status topic
+  is refused; the journal logs every publish.
 
 | Tool | Reads |
 | --- | --- |
@@ -58,6 +67,9 @@ behind explicit confirmation).
 | `list_matter_devices`, `get_matter_attribute` | paired Matter devices with their state; one attribute |
 | `list_shedb_docs`, `get_shedb_doc` | sheDB ids and documents, paged, a dotted path into a document |
 | `she_fetch` | a public web page as text |
+| `remember`, `forget` | the facts about the installation the user confirmed (the 🧠 panel in the chat; stored in the data directory) |
+| `propose_script` | a script draft with a diff and an Apply button |
+| `publish_mqtt` | a command topic, behind the Publish switch |
 
 ## Prompt profiles
 

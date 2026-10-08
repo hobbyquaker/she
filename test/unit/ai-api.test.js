@@ -565,3 +565,86 @@ describe('prompt profiles and the house section (I25)', () => {
         expect(out.join('')).toBe('Hello world!');
     });
 });
+
+describe('tool availability and the publish round trip (I16, I20)', () => {
+    const { toolsFor } = require('../../src/web/ai-api')._tools;
+
+    it('offers the write tools only with their backing', () => {
+        const names = (ctx) => toolsFor({ provider: 'anthropic' }, ctx).map((t) => t.name);
+        expect(names({})).not.toContain('publish_mqtt');
+        expect(names({})).not.toContain('propose_script');
+        expect(names({})).not.toContain('remember');
+        expect(names({ memory: {}, drafts: {}, scriptDir: '/s', publish: { mode: 'confirm', send: () => {} } })).toEqual(
+            expect.arrayContaining(['publish_mqtt', 'propose_script', 'remember', 'forget', 'search_mqtt_topics']),
+        );
+        expect(names({ publish: { mode: 'off', send: () => {} } })).not.toContain('publish_mqtt');
+    });
+
+    it('the stream route asks for confirmation and publishes through the daemon after the click', async () => {
+        const http = require('http');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ai-publish-'));
+        fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { provider: 'anthropic', model: 'm', apiKey: 'k' } }));
+        const published = [];
+        const log = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
+        init(null, log, { publish: async (t, p, o) => published.push([t, p, o]) });
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = path.join(dir, 'config.json');
+        app.use('/she/ai', router);
+        const server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const port = server.address().port;
+        const realFetch = global.fetch;
+        const answers = [
+            { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'publish_mqtt', input: { topic: 'hm/set/x/STATE', payload: 'true' } }] },
+            { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] },
+        ];
+        global.fetch = jest.fn(async () => new Response(JSON.stringify(answers.shift()), { status: 200, headers: { 'content-type': 'application/json' } }));
+        try {
+            const text = await new Promise((resolve, reject) => {
+                const data = JSON.stringify({ messages: [{ role: 'user', content: 'switch it on' }], context: { tools: true, publish: 'confirm' } });
+                const req = http.request(
+                    {
+                        host: '127.0.0.1',
+                        port,
+                        path: '/she/ai/chat/stream',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+                    },
+                    (res) => {
+                        let buf = '';
+                        let decided = false;
+                        res.on('data', (c) => {
+                            buf += c;
+                            const m = buf.match(/"type":"publish_request","id":"(p[0-9a-f]{8})"/);
+                            if (m && !decided) {
+                                decided = true;
+                                const body = JSON.stringify({ ok: true }); // the user's click
+                                const r2 = http.request({
+                                    host: '127.0.0.1',
+                                    port,
+                                    path: '/she/ai/publish/' + m[1],
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+                                });
+                                r2.end(body);
+                            }
+                        });
+                        res.on('end', () => resolve(buf));
+                    },
+                );
+                req.on('error', reject);
+                req.end(data);
+            });
+            expect(text).toContain('"type":"publish_request"');
+            expect(text).toContain('"topic":"hm/set/x/STATE"');
+            expect(text).toContain('{"token":"Done."}');
+            expect(published).toEqual([['hm/set/x/STATE', 'true', { retain: false }]]);
+            expect(log.info).toHaveBeenCalledWith(expect.stringContaining('published "true" to hm/set/x/STATE'));
+        } finally {
+            global.fetch = realFetch;
+            await new Promise((resolve) => server.close(resolve));
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});

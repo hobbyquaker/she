@@ -18,6 +18,7 @@ const readline = require('readline');
 const { getLogBuffer } = require('./log-ws');
 const mqttWildcard = require('../lib/mqtt-wildcards');
 const { LOGS_DIR } = require('../lib/storage');
+const { unifiedDiff } = require('../lib/text-diff');
 
 // A tool result goes into the conversation and stays there for every later turn (roadmap I21):
 // above this many characters it is cut with a note; lists page with offset/limit instead.
@@ -370,6 +371,42 @@ const TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'propose_script',
+            description:
+                'Propose a new or changed script as a draft: the user sees the diff in the chat and applies it with a click; nothing is written without that. ' +
+                'Read the current file first (read_script) and pass the complete new content. Use this instead of pasting the whole file into the answer.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Script path relative to the scripts directory, e.g. "licht/bad.js".' },
+                    content: { type: 'string', description: 'The complete new file content.' },
+                    note: { type: 'string', description: 'One sentence on what the change does.' },
+                },
+                required: ['path', 'content'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'publish_mqtt',
+            description:
+                'Publish an MQTT message to a command topic (<name>/set/…, var/set/…, zigbee2mqtt/<device>/set), e.g. to test a device. ' +
+                'Depending on the switch in the chat the user confirms each publish first. Never publish to a status topic.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    topic: { type: 'string', description: 'The command topic.' },
+                    payload: { type: 'string', description: 'The payload as a string (JSON for objects).' },
+                    retain: { type: 'boolean', description: 'Retain the message (only for state, never for commands; default false).' },
+                },
+                required: ['topic', 'payload'],
+            },
+        },
+    },
 ];
 
 /** Same definitions in Anthropic tool format. */
@@ -393,6 +430,7 @@ const TOOL_DEFINITIONS_ANTHROPIC = TOOL_DEFINITIONS.map((t) => ({
 async function executeTool(name, args, ctx) {
     const cap = Math.max(500, Number(ctx?.resultChars) || DEFAULT_RESULT_CHARS);
     const result = await runTool(name, args || {}, ctx || {});
+    // a tool may return { text, event }: the text goes to the model, the event to the chat
     if (typeof result === 'string' && result.length > cap) {
         return result.slice(0, cap) + `\n… cut after ${cap} characters (${result.length} total); narrow the query or page with offset/limit.`;
     }
@@ -436,6 +474,10 @@ async function runTool(name, args, ctx) {
                 return toolGetHealth(ctx);
             case 'list_timers':
                 return toolListTimers(args, ctx);
+            case 'propose_script':
+                return toolProposeScript(args, ctx);
+            case 'publish_mqtt':
+                return await toolPublishMqtt(args, ctx);
             case 'remember':
                 return toolRemember(args, ctx);
             case 'forget':
@@ -890,6 +932,70 @@ function toolListTimers({ script = '' } = {}, ctx = {}) {
     return `Pending per script:` + lines.join('\n');
 }
 
+/** the same rule the scripts API applies: inside the scripts directory, a .js file, no escape */
+function scriptPathOf(scriptDir, relPath) {
+    if (!scriptDir || !relPath || typeof relPath !== 'string') return null;
+    const rel = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!rel.endsWith('.js') || rel.includes('..')) return null;
+    const abs = path.resolve(scriptDir, rel);
+    if (!abs.startsWith(path.resolve(scriptDir) + path.sep)) return null;
+    return { rel, abs };
+}
+
+function toolProposeScript({ path: relPath, content, note = '' } = {}, ctx = {}) {
+    if (!ctx.drafts || !ctx.scriptDir) return 'Drafts are not available here.';
+    const p = scriptPathOf(ctx.scriptDir, relPath);
+    if (!p) return `"${relPath}" is not a script path inside the scripts directory (a .js file, no "..").`;
+    if (typeof content !== 'string' || !content.trim()) return 'content must be the complete new file.';
+    let base = null;
+    try {
+        base = fs.readFileSync(p.abs, 'utf8');
+    } catch {
+        /* a new file */
+    }
+    const text = content.endsWith('\n') ? content : content + '\n';
+    if (base !== null && base === text) return `The draft equals the current ${p.rel}; nothing to change.`;
+    const diff = unifiedDiff(base ?? '', text, { fromName: base === null ? '/dev/null' : p.rel, toName: p.rel });
+    const draft = ctx.drafts.create({ path: p.rel, content: text, base, note: String(note || '') });
+    const summary = base === null ? `new file, ${diff.added} lines` : `${diff.added} added, ${diff.removed} removed`;
+    return {
+        text: `Draft ${draft.id} for ${p.rel} (${summary}) is shown to the user with an Apply button; it is not written yet. Say in one sentence what it changes and wait.`,
+        event: { type: 'draft', id: draft.id, path: p.rel, note: draft.note, isNew: base === null, diff: diff.text, added: diff.added, removed: diff.removed },
+    };
+}
+
+const PUBLISH_ALLOW = ['+/set/#', 'zigbee2mqtt/+/set', 'zigbee2mqtt/+/set/#'];
+
+/** null when the topic may be published to, otherwise the reason */
+function publishRefusal(topic, allow) {
+    const t = String(topic || '').trim();
+    if (!t || t.includes('#') || t.includes('+')) return 'the topic must be a concrete topic without wildcards';
+    if (/^[^/]+\/status\//.test(t)) return 'a status topic is written by its adapter, not by the chat';
+    const patterns = [...PUBLISH_ALLOW, ...(Array.isArray(allow) ? allow : [])];
+    if (!patterns.some((p) => mqttWildcard(t, p))) return `only command topics may be published (${patterns.join(', ')}); ai.publishAllow lists more`;
+    return null;
+}
+
+async function toolPublishMqtt({ topic, payload, retain = false } = {}, ctx = {}) {
+    const pub = ctx.publish;
+    if (!pub || pub.mode === 'off' || !pub.send) return 'Publishing is switched off in the chat.';
+    const why = publishRefusal(topic, pub.allow);
+    if (why) return `Refused: ${why}.`;
+    const value = payload === undefined || payload === null ? '' : String(payload);
+    const doRetain = retain === true;
+    if (pub.mode === 'confirm') {
+        const decision = await pub.confirm({ topic: String(topic), payload: value, retain: doRetain });
+        if (decision === 'timeout') return 'The user did not answer the confirmation; nothing was published.';
+        if (!decision) return 'The user declined; nothing was published.';
+    }
+    try {
+        await pub.send(String(topic), value, { retain: doRetain });
+    } catch (e) {
+        return `Publish failed: ${e.message}`;
+    }
+    return `Published ${JSON.stringify(value)} to ${topic}${doRetain ? ' (retained)' : ''}.`;
+}
+
 function toolRemember({ text } = {}, ctx = {}) {
     if (!ctx.memory) return 'The memory is not available.';
     const r = ctx.memory.add(text, 'model');
@@ -1122,5 +1228,5 @@ module.exports = {
     TOOL_DEFINITIONS,
     TOOL_DEFINITIONS_ANTHROPIC,
     executeTool,
-    _internal: { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf, parseTime, measurementCandidates, thinSeries },
+    _internal: { isPrivateAddress, isLocalName, parseDuration, valueMatcher, pageOf, parseTime, measurementCandidates, thinSeries, publishRefusal, scriptPathOf },
 };
