@@ -234,9 +234,9 @@ describe('POST /she/ai/chat/stream with tools (the resolver)', () => {
         fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { provider: 'anthropic', model: 'm', apiKey: 'k' } }));
         log = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
         const entries = [
-            ['hm/status/Licht Bad/LEVEL', { val: 0.7 }],
-            ['var/status/Bewegung/Bad', { val: 1 }],
-            ['hm/status/Kueche/STATE', { val: true }],
+            ['home/status/bath/light', { val: 0.7 }],
+            ['var/status/presence/bath', { val: 1 }],
+            ['home/status/kitchen/light', { val: true }],
         ];
         init({ mqttEntries: () => entries[Symbol.iterator]() }, log);
         const app = express();
@@ -297,12 +297,12 @@ describe('POST /she/ai/chat/stream with tools (the resolver)', () => {
                 content: [
                     { type: 'thinking', thinking: 't' },
                     { type: 'text', text: 'Searching.' },
-                    { type: 'tool_use', id: 'tu1', name: 'search_mqtt_topics', input: { query: 'bad' } },
+                    { type: 'tool_use', id: 'tu1', name: 'search_mqtt_topics', input: { query: 'bath' } },
                 ],
             },
             { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Two topics mention the bathroom.' }] },
         ]);
-        const { text } = await post({ messages: [{ role: 'user', content: 'bad topics?' }], context: { tools: true } });
+        const { text } = await post({ messages: [{ role: 'user', content: 'bath topics?' }], context: { tools: true } });
         expect(text).toContain('"type":"tool_call"');
         expect(text).toContain('data: {"token":"Two topics mention the bathroom."}');
         expect(text).toContain('[DONE]');
@@ -312,8 +312,8 @@ describe('POST /she/ai/chat/stream with tools (the resolver)', () => {
         expect(assistantTurn.content.map((b) => b.type)).toEqual(['thinking', 'text', 'tool_use']); // unchanged
         const toolResult = bodies[1].messages.at(-1).content[0];
         expect(toolResult.type).toBe('tool_result');
-        expect(toolResult.content).toContain('hm/status/Licht Bad/LEVEL');
-        expect(toolResult.content).not.toContain('Kueche');
+        expect(toolResult.content).toContain('home/status/bath/light');
+        expect(toolResult.content).not.toContain('kitchen');
     });
 
     it('nudges once when the final answer has no text, and reports the detail when that fails too', async () => {
@@ -336,18 +336,18 @@ describe('POST /she/ai/chat/stream with tools (the resolver)', () => {
 
 describe('search_mqtt_topics limit', () => {
     const { executeTool } = require('../../src/web/ai-tools');
-    const entries = Array.from({ length: 120 }, (_, i) => [`hm/status/Bad ${i}/LEVEL`, { val: i }]);
+    const entries = Array.from({ length: 120 }, (_, i) => [`home/status/bath-${i}/light`, { val: i }]);
     const store = { mqttEntries: () => entries[Symbol.iterator]() };
 
     it('shows 50 by default and says how many matched', async () => {
-        const out = await executeTool('search_mqtt_topics', { query: 'bad' }, { store });
-        expect(out.split('\n').filter((l) => l.startsWith('hm/')).length).toBe(50);
+        const out = await executeTool('search_mqtt_topics', { query: 'bath' }, { store });
+        expect(out.split('\n').filter((l) => l.startsWith('home/')).length).toBe(50);
         expect(out).toMatch(/50 of 120 matching topics shown/);
     });
 
     it('takes a limit up to 500', async () => {
-        const out = await executeTool('search_mqtt_topics', { query: 'bad', limit: 500 }, { store });
-        expect(out.split('\n').filter((l) => l.startsWith('hm/')).length).toBe(120);
+        const out = await executeTool('search_mqtt_topics', { query: 'bath', limit: 500 }, { store });
+        expect(out.split('\n').filter((l) => l.startsWith('home/')).length).toBe(120);
         expect(out).not.toMatch(/matching topics shown/);
     });
 });
