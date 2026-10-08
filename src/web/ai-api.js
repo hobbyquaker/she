@@ -349,6 +349,23 @@ function answerText(content) {
  * @returns {Promise<{ message: string, usage?: object }>}
  */
 /** run a tool; a result of { text, event } sends the event to the chat and hands the text to the model */
+/**
+ * The tool calls of one round, executed concurrently (roadmap I31): the model is invited to ask for every
+ * independent tool in the same turn, and a slow history query must not delay a topic lookup. The call events go
+ * out first, in the model's order; each result event goes out as its tool finishes; the contents come back in
+ * the model's order, so the tool_result blocks keep their ids.
+ */
+async function runToolCalls(calls, ctx, onEvent) {
+    for (const c of calls) onEvent?.({ type: 'tool_call', name: c.name, args: c.args });
+    return Promise.all(
+        calls.map(async (c) => {
+            const content = await runToolForChat(c.name, c.args, ctx, onEvent);
+            onEvent?.({ type: 'tool_result', name: c.name, content });
+            return content;
+        }),
+    );
+}
+
 async function runToolForChat(name, args, ctx, onEvent) {
     const out = await executeTool(name, args, ctx);
     if (out && typeof out === 'object') {
@@ -420,14 +437,12 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
         if (isAnthropic) {
             // the assistant turn goes back unchanged: the current models bind their thinking blocks to the turn
             msgs = [...msgs, { role: 'assistant', content: result.assistantMsg }];
-            const toolResultBlocks = [];
-            for (const tc of result.toolCalls) {
-                const args = tc.input || {};
-                onEvent?.({ type: 'tool_call', name: tc.name, args });
-                const content = await runToolForChat(tc.name, args, toolContext, onEvent);
-                onEvent?.({ type: 'tool_result', name: tc.name, content });
-                toolResultBlocks.push({ type: 'tool_result', tool_use_id: tc.id, content });
-            }
+            const contents = await runToolCalls(
+                result.toolCalls.map((tc) => ({ name: tc.name, args: tc.input || {} })),
+                toolContext,
+                onEvent,
+            );
+            const toolResultBlocks = result.toolCalls.map((tc, i) => ({ type: 'tool_result', tool_use_id: tc.id, content: contents[i] }));
             msgs = [...msgs, { role: 'user', content: toolResultBlocks }];
         } else {
             // Strip any draft content alongside tool_calls — if kept, the model reproduces
@@ -435,19 +450,17 @@ async function resolveAndGetAnswer(ai, messages, toolContext, onEvent) {
             const assistantEntry = { ...result.assistantMsg, role: 'assistant' };
             if (assistantEntry.content && assistantEntry.tool_calls?.length) assistantEntry.content = null;
             msgs = [...msgs, assistantEntry];
-            for (const tc of result.toolCalls) {
-                const name = tc.function.name;
+            const calls = result.toolCalls.map((tc) => {
                 let args;
                 try {
                     args = JSON.parse(tc.function.arguments || '{}');
                 } catch {
                     args = {};
                 }
-                onEvent?.({ type: 'tool_call', name, args });
-                const content = await runToolForChat(name, args, toolContext, onEvent);
-                onEvent?.({ type: 'tool_result', name, content });
-                msgs = [...msgs, { role: 'tool', tool_call_id: tc.id, content }];
-            }
+                return { name: tc.function.name, args };
+            });
+            const contents = await runToolCalls(calls, toolContext, onEvent);
+            msgs = [...msgs, ...result.toolCalls.map((tc, i) => ({ role: 'tool', tool_call_id: tc.id, content: contents[i] }))];
         }
     }
 

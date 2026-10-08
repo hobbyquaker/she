@@ -7,3 +7,4 @@ Use the tools; they read the running daemon. In short:
 - "nothing happens": get_health first, then list_services for the adapters
 - Matter: list_matter_devices (with state), get_matter_attribute; sheDB: list_shedb_docs, get_shedb_doc
 Results are paged; the note at the end says how to get the rest. Prefer one narrower call over three broad ones.
+Ask for every independent tool in the same turn — the calls of a turn run concurrently, and each turn costs a round trip.

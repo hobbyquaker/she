@@ -650,3 +650,78 @@ describe('tool availability and the publish round trip (I16, I20)', () => {
         }
     });
 });
+
+describe('parallel tool calls (I31)', () => {
+    it('runs the calls of one round concurrently and keeps their order in the results', async () => {
+        const http = require('http');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ai-parallel-'));
+        fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ ai: { provider: 'anthropic', model: 'm', apiKey: 'k' } }));
+        const log = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() };
+        // the publish takes 300 ms; get_health is immediate
+        init(null, log, { publish: () => new Promise((resolve) => setTimeout(resolve, 300)), health: () => ({ started: true }) });
+        const app = express();
+        app.use(express.json());
+        app.locals.configPath = path.join(dir, 'config.json');
+        app.use('/she/ai', router);
+        const server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const port = server.address().port;
+        const realFetch = global.fetch;
+        const bodies = [];
+        const answers = [
+            {
+                stop_reason: 'tool_use',
+                content: [
+                    { type: 'tool_use', id: 't1', name: 'publish_mqtt', input: { topic: 'hm/set/x/STATE', payload: 'true' } },
+                    { type: 'tool_use', id: 't2', name: 'get_health', input: {} },
+                ],
+            },
+            { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Done.' }] },
+        ];
+        global.fetch = jest.fn(async (url, opts) => {
+            bodies.push(JSON.parse(opts.body));
+            return new Response(JSON.stringify(answers.shift()), { status: 200, headers: { 'content-type': 'application/json' } });
+        });
+        try {
+            const started = Date.now();
+            const text = await new Promise((resolve, reject) => {
+                const data = JSON.stringify({ messages: [{ role: 'user', content: 'go' }], context: { tools: true, publish: 'all' } });
+                const req = http.request(
+                    {
+                        host: '127.0.0.1',
+                        port,
+                        path: '/she/ai/chat/stream',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+                    },
+                    (res) => {
+                        let buf = '';
+                        res.on('data', (c) => (buf += c));
+                        res.on('end', () => resolve(buf));
+                    },
+                );
+                req.on('error', reject);
+                req.end(data);
+            });
+            expect(Date.now() - started).toBeLessThan(1000);
+            const events = text
+                .split('\n')
+                .filter((l) => l.startsWith('data: {'))
+                .map((l) => JSON.parse(l.slice(6)));
+            const kinds = events.filter((e) => e.type).map((e) => e.type + ':' + e.name);
+            // both calls announced first; the quick tool's result comes before the slow one's
+            expect(kinds.slice(0, 2)).toEqual(['tool_call:publish_mqtt', 'tool_call:get_health']);
+            expect(kinds.indexOf('tool_result:get_health')).toBeLessThan(kinds.indexOf('tool_result:publish_mqtt'));
+            // the results go back in the model's order, with their ids
+            const results = bodies[1].messages.at(-1).content;
+            expect(results.map((b) => b.tool_use_id)).toEqual(['t1', 't2']);
+            expect(results[0].content).toMatch(/^Published/);
+            expect(results[1].content).toMatch(/started: true/);
+            expect(text).toContain('{"token":"Done."}');
+        } finally {
+            global.fetch = realFetch;
+            await new Promise((resolve) => server.close(resolve));
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
