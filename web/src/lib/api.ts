@@ -642,7 +642,7 @@ export function getAiConfig(): Promise<AiConfig> {
     return request('GET', '/she/ai/config');
 }
 
-export function getAiModels(): Promise<{ models: string[] }> {
+export function getAiModels(): Promise<{ models: string[]; names?: Record<string, string>; error?: string }> {
     return request('GET', '/she/ai/models');
 }
 

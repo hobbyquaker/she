@@ -34,8 +34,11 @@
 
     $effect(() => { localStorage.setItem(CONV_ID_KEY, conversationId); });
 
-    // Model selection — persisted in localStorage
+    // Model selection — the config model is the default, a choice made in the chat overrides it and is
+    // persisted together with the config model it was made against: when the config changes, the choice is dropped
     let availableModels = $state<string[]>([]);
+    let modelNames = $state<Record<string, string>>({});
+    let modelListError = $state<string>('');
     let selectedModel = $state<string>(localStorage.getItem('she:selectedModel') ?? '');
 
     // Always-apply session flag (per script, resets on script change)
@@ -135,7 +138,14 @@
         try {
             const c = await getAiConfig();
             aiConfig = c;
-            if (c.configured && !selectedModel) selectedModel = c.model;
+            if (c.configured) {
+                const chosenFor = localStorage.getItem('she:selectedModelFor');
+                if (!selectedModel || chosenFor !== c.model) {
+                    // no choice yet, or the choice was made against another config model: follow the config
+                    selectedModel = c.model;
+                    localStorage.setItem('she:selectedModelFor', c.model);
+                }
+            }
         } catch {}
     }
 
@@ -152,11 +162,21 @@
     $effect(() => {
         if (aiConfig?.provider) {
             getAiModels().then(r => {
-                availableModels = r.models;
-                if (!selectedModel && r.models.length > 0) selectedModel = r.models[0];
+                const list = r.models.slice();
+                // the config model is always offered, even when the provider's list does not know it
+                if (aiConfig?.model && !list.includes(aiConfig.model)) list.unshift(aiConfig.model);
+                availableModels = list;
+                modelNames = r.names ?? {};
+                modelListError = r.error ?? '';
+                if (!selectedModel && list.length > 0) selectedModel = list[0];
             }).catch(() => {});
         }
     });
+
+    function modelLabel(m: string): string {
+        const name = modelNames[m] ?? m;
+        return m === aiConfig?.model ? `${name} (config)` : name;
+    }
 
     // Reset cached info when model changes
     $effect(() => {
@@ -756,9 +776,9 @@
         <div class="model-bar">
             <span class="model-provider">{aiConfig.provider}</span>
             {#if availableModels.length > 0}
-                <select class="model-select" bind:value={selectedModel} disabled={loading}>
+                <select class="model-select" bind:value={selectedModel} disabled={loading} title={modelListError ? 'Model list unavailable: ' + modelListError : 'Model for this chat; the config model is the default'}>
                     {#each availableModels as m}
-                        <option value={m}>{m}</option>
+                        <option value={m}>{modelLabel(m)}</option>
                     {/each}
                 </select>
             {:else}

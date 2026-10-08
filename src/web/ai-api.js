@@ -387,6 +387,42 @@ router.get('/config', (req, res) => {
     });
 });
 
+// Shown when the Anthropic models endpoint cannot be reached (no key, offline, 401): the current families.
+const ANTHROPIC_FALLBACK_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-haiku-4-5'];
+
+/**
+ * The models the configured Anthropic key may use: GET /v1/models, every page, newest first.
+ * On failure the static fallback list with the error, so the chat still offers a choice.
+ * @param {{ apiKey?: string }} ai
+ * @returns {Promise<{ models: string[], names: Record<string,string>, error?: string }>}
+ */
+async function listAnthropicModels(ai) {
+    const headers = { 'x-api-key': ai.apiKey || '', 'anthropic-version': '2023-06-01' };
+    const all = [];
+    try {
+        let after = null;
+        for (let page = 0; page < 20; page++) {
+            const url = 'https://api.anthropic.com/v1/models?limit=100' + (after ? '&after_id=' + encodeURIComponent(after) : '');
+            const r = await fetch(url, { headers });
+            if (!r.ok) {
+                const text = await r.text().catch(() => '');
+                throw new Error(`Anthropic API error ${r.status}: ${text.slice(0, 200)}`);
+            }
+            const json = await r.json();
+            for (const m of json.data || []) if (m && m.id) all.push(m);
+            if (!json.has_more || !json.last_id) break;
+            after = json.last_id;
+        }
+    } catch (e) {
+        _log.warn('ai models: ' + e.message);
+        return { models: ANTHROPIC_FALLBACK_MODELS.slice(), names: {}, error: e.message };
+    }
+    all.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    const names = {};
+    for (const m of all) if (m.display_name) names[m.id] = m.display_name;
+    return { models: all.map((m) => m.id), names };
+}
+
 // GET /she/ai/models — list available models for the configured provider
 router.get('/models', async (req, res) => {
     const ai = readAiConfig(req.app.locals.configPath);
@@ -405,7 +441,7 @@ router.get('/models', async (req, res) => {
                 .sort();
             return res.json({ models });
         } else if (ai.provider === 'anthropic') {
-            return res.json({ models: [] }); // no public list endpoint
+            return res.json(await listAnthropicModels(ai));
         } else {
             // OpenAI / LM Studio / etc. — try /v1/models
             const h = { 'Content-Type': 'application/json' };
@@ -481,6 +517,7 @@ router.post('/chat', async (req, res) => {
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = { ...ai, model: effectiveModel };
+    _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
     const systemPrompt = buildSystemPrompt(context, currentScript ?? null, currentView ?? null, currentDoc ?? null, _store, extraFiles || []);
     const fullMessages = [{ role: 'system', content: systemPrompt }, ...messages];
 
@@ -513,6 +550,7 @@ router.post('/chat/stream', async (req, res) => {
     if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages must be an array' });
 
     const aiWithModel = { ...ai, model: effectiveModel };
+    _log.debug(`ai chat: ${ai.provider} ${effectiveModel}${modelOverride ? ' (chosen in the chat)' : ' (config)'}`);
 
     // Build system prompt BEFORE flushing headers so errors can still return a proper HTTP status
     let systemPrompt;
@@ -639,4 +677,4 @@ router.delete('/conversations/:id', (req, res) => {
     res.json({ ok: true });
 });
 
-module.exports = { router, init, _internal: { callAnthropic, answerText, readAiConfig } };
+module.exports = { router, init, _internal: { callAnthropic, answerText, readAiConfig, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS } };

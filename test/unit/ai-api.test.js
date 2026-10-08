@@ -7,7 +7,7 @@ const path = require('path');
 const express = require('express');
 
 const { router, init, _internal } = require('../../src/web/ai-api');
-const { callAnthropic, answerText } = _internal;
+const { callAnthropic, answerText, listAnthropicModels, ANTHROPIC_FALLBACK_MODELS } = _internal;
 
 /** a fetch stub answering every call with the given status and JSON (or SSE text) body */
 function fetchStub(status, body, headers = { 'content-type': 'application/json' }) {
@@ -152,5 +152,37 @@ describe('POST /she/ai/chat/stream', () => {
         const { text } = await post({ messages: [{ role: 'user', content: 'hi' }], context: { tools: false } });
         expect(text).toMatch(/"error":"Anthropic API error 401/);
         expect(log.error).toHaveBeenCalledWith(expect.stringContaining('401'));
+    });
+});
+
+describe('listAnthropicModels()', () => {
+    const realFetch = global.fetch;
+    afterEach(() => {
+        global.fetch = realFetch;
+    });
+
+    it('fetches every page and returns the ids newest first with their display names', async () => {
+        const pages = [
+            { data: [{ id: 'claude-haiku-4-5', display_name: 'Claude Haiku 4.5', created_at: '2025-10-01T00:00:00Z' }], has_more: true, last_id: 'claude-haiku-4-5' },
+            { data: [{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-04-01T00:00:00Z' }], has_more: false, last_id: 'claude-opus-5-5' },
+        ];
+        const calls = [];
+        global.fetch = jest.fn(async (url) => {
+            calls.push(String(url));
+            return new Response(JSON.stringify(pages.shift()), { status: 200, headers: { 'content-type': 'application/json' } });
+        });
+        const r = await listAnthropicModels({ apiKey: 'k' });
+        expect(r.models).toEqual(['claude-opus-5-5', 'claude-haiku-4-5']);
+        expect(r.names['claude-opus-5-5']).toBe('Claude Opus 5.5');
+        expect(r.error).toBeUndefined();
+        expect(calls[1]).toContain('after_id=claude-haiku-4-5');
+    });
+
+    it('falls back to the static list with the error when the API refuses', async () => {
+        global.fetch = fetchStub(401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } });
+        init(null, { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() });
+        const r = await listAnthropicModels({ apiKey: 'k' });
+        expect(r.models).toEqual(ANTHROPIC_FALLBACK_MODELS);
+        expect(r.error).toMatch(/401/);
     });
 });
