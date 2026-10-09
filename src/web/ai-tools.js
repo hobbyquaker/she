@@ -48,6 +48,11 @@ const TOOL_DEFINITIONS = [
                         description:
                             'An MQTT filter with wildcards (+ one level, # the rest: "hm/status/+/LEVEL", "zigbee2mqtt/#") or a case-insensitive substring of the topic name ("bad"). Empty string lists all topics.',
                     },
+                    queries: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Several queries in one call (filters or substrings), each answered as with "query"; use this instead of one call per query.',
+                    },
                     value: {
                         type: 'string',
                         description: 'Optional filter on the current value: a plain value for equality ("true", "on", "0"), or a comparison ("> 0", ">= 20", "!= off").',
@@ -62,7 +67,7 @@ const TOOL_DEFINITIONS = [
                         description: 'Maximum number of topics to return (1-500, default 50). The result says how many matched in total.',
                     },
                 },
-                required: ['query'],
+                required: [],
             },
         },
     },
@@ -79,8 +84,13 @@ const TOOL_DEFINITIONS = [
                         type: 'string',
                         description: 'Script file path relative to the scripts directory, e.g. "lights.js" or "lib/utils.js".',
                     },
+                    paths: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Several scripts in one call (up to 10), each with its header; use this instead of one call per file.',
+                    },
                 },
-                required: ['path'],
+                required: [],
             },
         },
     },
@@ -144,8 +154,13 @@ const TOOL_DEFINITIONS = [
                         type: 'string',
                         description: 'The exact MQTT topic path, e.g. "home/livingroom/light/state".',
                     },
+                    topics: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Several topics in one call, or one MQTT filter ("var/status/presence/#", up to 20 resolved); use this instead of one call per topic.',
+                    },
                 },
-                required: ['topic'],
+                required: [],
             },
         },
     },
@@ -288,11 +303,15 @@ const TOOL_DEFINITIONS = [
                 type: 'object',
                 properties: {
                     topic: { type: 'string', description: 'The exact MQTT topic.' },
+                    topics: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Several topics in one call, or one MQTT filter (up to 10 topics resolved); the messages of all of them in one list, newest first.',
+                    },
                     from: { type: 'string', description: 'Start: ISO 8601 or relative ("-2h"). Default "-24h".' },
                     to: { type: 'string', description: 'End: ISO 8601 or relative. Default now.' },
                     limit: { type: 'integer', description: 'Maximum messages (1-500, default 100), the newest within the window.' },
                 },
-                required: ['topic'],
             },
         },
     },
@@ -435,7 +454,7 @@ const TOOL_DEFINITIONS = [
             name: 'propose_script',
             description:
                 'Propose a new or changed script as a draft: the user sees the diff in the chat and applies it with a click; nothing is written without that. ' +
-                'Read the current file first (read_script) and pass the complete new content. Use this instead of pasting the whole file into the answer.',
+                'Read the current file first (read_script) and pass the complete new content. This is how code is handed over: never paste the file into the answer as well; describe the change in a few lines instead.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -499,11 +518,11 @@ async function runTool(name, args, ctx) {
     try {
         switch (name) {
             case 'search_mqtt_topics':
-                return toolSearchMqttTopics(args, ctx.store);
+                return toolSearchMqttTopicsMulti(args, ctx.store);
             case 'get_mqtt_topic':
-                return toolGetMqttTopic(args, ctx.store);
+                return toolGetMqttTopics(args, ctx.store);
             case 'read_script':
-                return toolReadScript(args, ctx.scriptDir, ctx.introspect);
+                return toolReadScripts(args, ctx.scriptDir, ctx.introspect);
             case 'get_script_logs':
                 return toolGetScriptLogs(args);
             case 'she_fetch':
@@ -630,6 +649,17 @@ function ago(ms) {
 // Individual tools
 // ---------------------------------------------------------------------------
 
+/** search_mqtt_topics with "queries" (roadmap I39): one search per query, the results one after another */
+function toolSearchMqttTopicsMulti(args, store) {
+    const { queries, ...rest } = args || {};
+    const list = Array.isArray(queries) ? queries.map((q) => String(q)) : typeof queries === 'string' ? [queries] : null;
+    if (!list || list.length === 0) return toolSearchMqttTopics(rest, store);
+    const cap = 10;
+    const out = list.slice(0, cap).map((q) => `# "${q}"\n${toolSearchMqttTopics({ ...rest, query: q }, store)}`);
+    if (list.length > cap) out.push(`… ${list.length - cap} more queries not run; call again with them.`);
+    return out.join('\n\n');
+}
+
 function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, limit = 50 }, store) {
     if (!store) return 'MQTT state store not available.';
     const pattern = String(query).trim();
@@ -656,6 +686,17 @@ function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, l
     const lines = [`${page.length} of ${hits.length} matching topic(s)${note}:`, ...page];
     if (hits.length > page.length) lines.push('… raise the limit (up to 500), page with offset, or narrow the query for the rest.');
     return lines.join('\n');
+}
+
+/** read_script with "paths" (roadmap I39): every file with its header, in one result */
+function toolReadScripts(args, scriptDir, introspect) {
+    const { paths, ...rest } = args || {};
+    const list = Array.isArray(paths) ? paths.map((x) => String(x)) : typeof paths === 'string' ? [paths] : null;
+    if (!list || list.length === 0) return toolReadScript(rest, scriptDir, introspect);
+    const cap = 10;
+    const out = [...new Set(list)].slice(0, cap).map((p) => toolReadScript({ path: p }, scriptDir, introspect));
+    if (list.length > cap) out.push(`… ${list.length - cap} more paths not read; call again with them.`);
+    return out.join('\n\n');
 }
 
 function toolReadScript({ path: relPath }, scriptDir, introspect) {
@@ -984,8 +1025,11 @@ async function toolGetTimeline({ topics, topic, from = '-24h', to, limit = 200 }
     return [...head, ...lines].join('\n');
 }
 
-async function toolGetTopicMessages({ topic, from = '-24h', to, limit = 100 } = {}, ctx = {}) {
-    if (!topic) return 'topic is required.';
+async function toolGetTopicMessages({ topic, topics, from = '-24h', to, limit = 100 } = {}, ctx = {}) {
+    const resolved = resolveTopics({ topic, topics }, ctx.store, 10);
+    if (resolved.error) return resolved.error;
+    if (resolved.topics.length === 0) return 'topic (or topics) is required.';
+    const many = resolved.topics.length > 1;
     let client = null;
     try {
         client = require('../elastic').getClient();
@@ -1004,21 +1048,24 @@ async function toolGetTopicMessages({ topic, from = '-24h', to, limit = 100 } = 
         res = await client.search({
             index,
             size: cap,
-            query: { bool: { filter: [{ term: { topic: String(topic) } }, { range: { '@timestamp': { gte: fromMs, lte: toMs } } }] } },
+            query: {
+                bool: { filter: [many ? { terms: { topic: resolved.topics } } : { term: { topic: resolved.topics[0] } }, { range: { '@timestamp': { gte: fromMs, lte: toMs } } }] },
+            },
             sort: [{ '@timestamp': { order: 'desc' } }],
-            _source: ['@timestamp', 'payload'],
+            _source: many ? ['@timestamp', 'topic', 'payload'] : ['@timestamp', 'payload'],
         });
     } catch (e) {
         return `Elasticsearch query failed: ${e.message}`;
     }
     const hits = res?.hits?.hits ?? res?.body?.hits?.hits ?? [];
     const total = res?.hits?.total?.value ?? res?.body?.hits?.total?.value ?? hits.length;
-    if (hits.length === 0) return `No messages for ${topic} between ${isoShort(fromMs)} and ${isoShort(toMs)} in ${index}.`;
-    const lines = [`${hits.length} of ${total} messages for ${topic} from ${isoShort(fromMs)} to ${isoShort(toMs)}, newest first:`];
+    const label = many ? `${resolved.topics.length} topics (${resolved.topics.join(', ')})` : resolved.topics[0];
+    if (hits.length === 0) return `No messages for ${label} between ${isoShort(fromMs)} and ${isoShort(toMs)} in ${index}.`;
+    const lines = [`${hits.length} of ${total} messages for ${label} from ${isoShort(fromMs)} to ${isoShort(toMs)}, newest first${resolved.note ? `; ${resolved.note}` : ''}:`];
     for (const h of hits) {
         const src = h._source || {};
         const ts = typeof src['@timestamp'] === 'number' ? src['@timestamp'] : Date.parse(src['@timestamp']);
-        lines.push(`${isoShort(ts)}  ${String(src.payload ?? '')}`);
+        lines.push(`${isoShort(ts)}  ${many ? String(src.topic ?? '') + '  ' : ''}${String(src.payload ?? '')}`);
     }
     return lines.join('\n');
 }
@@ -1427,6 +1474,19 @@ async function toolSheFetch({ url }, ctx = {}) {
         : text;
     const truncated = plain.length > MAX_FETCH_CHARS ? plain.slice(0, MAX_FETCH_CHARS) + `\n… (truncated, ${plain.length} chars total)` : plain;
     return `Content of ${url}:\n\n${truncated}`;
+}
+
+/** get_mqtt_topic with "topics" (roadmap I39): a list or one filter, one line per topic */
+function toolGetMqttTopics(args, store) {
+    const { topics, topic } = args || {};
+    const hasList = Array.isArray(topics) ? topics.length > 0 : typeof topics === 'string' && topics.trim() !== '';
+    if (!hasList) return toolGetMqttTopic({ topic }, store);
+    if (!store) return 'MQTT state store not available.';
+    const resolved = resolveTopics({ topics }, store);
+    if (resolved.error) return resolved.error;
+    const out = resolved.topics.map((t) => toolGetMqttTopic({ topic: t }, store));
+    if (resolved.note) out.push(resolved.note);
+    return out.join('\n');
 }
 
 function toolGetMqttTopic({ topic }, store) {

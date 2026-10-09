@@ -697,3 +697,66 @@ describe('read_script with its surroundings (I35)', () => {
         fs.rmSync(scriptDir, { recursive: true, force: true });
     });
 });
+
+describe('bulk parameters (I39)', () => {
+    const NOW = Date.now();
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'var/status/presence/a': { val: true, ts: NOW, lc: NOW },
+                'var/status/presence/b': { val: false, ts: NOW, lc: NOW },
+                'hm/status/x/STATE': { val: 1, ts: NOW, lc: NOW },
+            }),
+        getObject: (k) => ({ 'mqtt::var/status/presence/a': { val: true, ts: NOW, lc: NOW }, 'mqtt::var/status/presence/b': { val: false, ts: NOW, lc: NOW } })[k],
+    };
+
+    it('read_script reads several files', async () => {
+        const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-scripts-'));
+        fs.writeFileSync(path.join(scriptDir, 'a.js'), '1;\n');
+        fs.writeFileSync(path.join(scriptDir, 'b.js'), '2;\n');
+        const out = await executeTool('read_script', { paths: ['a.js', 'b.js', 'c.js'] }, { scriptDir });
+        expect(out).toContain('## a.js\n```javascript\n1;');
+        expect(out).toContain('\n\n## b.js\n```javascript\n2;');
+        expect(out).toContain('File not found: c.js');
+        fs.rmSync(scriptDir, { recursive: true, force: true });
+    });
+
+    it('get_mqtt_topic answers a list or a filter', async () => {
+        const out = await executeTool('get_mqtt_topic', { topics: 'var/status/presence/#' }, { store });
+        expect(out).toMatch(/^var\/status\/presence\/a: true\n/);
+        expect(out).toContain('var/status/presence/b: false');
+        expect(await executeTool('get_mqtt_topic', { topics: ['var/status/presence/a', 'nothing/here'] }, { store })).toMatch(/Topic "nothing\/here" not found/);
+        expect(await executeTool('get_mqtt_topic', { topic: 'var/status/presence/b' }, { store })).toMatch(/^var\/status\/presence\/b: false/);
+    });
+
+    it('search_mqtt_topics runs several queries', async () => {
+        const out = await executeTool('search_mqtt_topics', { queries: ['presence', 'hm/status/#'] }, { store });
+        expect(out).toMatch(/^# "presence"\n2 of 2 matching topic/);
+        expect(out).toContain('\n\n# "hm/status/#"\n1 of 1 matching topic');
+    });
+
+    it('get_topic_messages queries several topics in one Elastic request', async () => {
+        const elastic = require('../../src/elastic');
+        const calls = [];
+        elastic.getClient.mockReturnValue({
+            search: async (q) => {
+                calls.push(q);
+                return {
+                    hits: {
+                        total: { value: 2 },
+                        hits: [
+                            { _source: { '@timestamp': 2000, 'topic': 'var/status/presence/b', 'payload': 'false' } },
+                            { _source: { '@timestamp': 1000, 'topic': 'var/status/presence/a', 'payload': 'true' } },
+                        ],
+                    },
+                };
+            },
+        });
+        const out = await executeTool('get_topic_messages', { topics: 'var/status/presence/#', from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z' }, { store });
+        expect(calls).toHaveLength(1);
+        expect(calls[0].query.bool.filter[0]).toEqual({ terms: { topic: ['var/status/presence/a', 'var/status/presence/b'] } });
+        expect(out).toMatch(/^2 of 2 messages for 2 topics \(var\/status\/presence\/a, var\/status\/presence\/b\)/);
+        expect(out).toContain('1970-01-01 00:00:02Z  var/status/presence/b  false');
+        elastic.getClient.mockReturnValue(null);
+    });
+});
