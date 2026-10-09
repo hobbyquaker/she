@@ -23,7 +23,8 @@ const ROLE = read('role.md');
 const CONVENTIONS = read('conventions.md');
 const API_REF = read('api-ref.md');
 const API_REF_COMPACT = read('api-ref-compact.md');
-const FORMATS = read('formats.md');
+const FORMATS = read('formats.md'); // the hand-over through propose_script (I16, I41)
+const FORMATS_NOTOOLS = read('formats-notools.md'); // the fenced block with the @new-file hint, for chats without tools
 const TOOLS = read('tools.md');
 const COMPACT_STEPS = read('compact.md');
 const DB_VIEW_PROMPT = read('db-view.md');
@@ -98,7 +99,7 @@ function buildSystemPromptParts(requestCtx, currentScript, currentView, currentD
         staticParts.push(ROLE, CONVENTIONS);
         if (requestCtx.apiref !== false) staticParts.push(profile === 'compact' ? API_REF_COMPACT : API_REF);
         if (toolsOffered) staticParts.push(TOOLS);
-        staticParts.push(FORMATS);
+        staticParts.push(toolsOffered ? FORMATS : FORMATS_NOTOOLS);
         if (profile === 'compact') staticParts.push(COMPACT_STEPS);
     }
 
