@@ -408,8 +408,8 @@ const TOOL_DEFINITIONS = [
         function: {
             name: 'remember',
             description:
-                'Store a fact about this installation that the user confirmed, for every later chat (shown and editable on the AI page). One short sentence, no secrets. ' +
-                'Use it when the user corrects you or explains something about their house that is not in any topic ("the PIR in the bathroom cannot see the shower").',
+                "Store a durable fact about this installation for every later chat (shown and editable in the chat's memory panel). One short sentence, no secrets. " +
+                'Use it on your own when you learn something no topic tells — a sensor\'s blind spot ("the PIR in the bathroom cannot see the shower"), what a room or variable is for, a habit of the household, a cause found after a long search — and when the user corrects you or states a preference. Not for what a tool can look up.',
             parameters: {
                 type: 'object',
                 properties: { text: { type: 'string', description: 'The fact, at most 200 characters.' } },

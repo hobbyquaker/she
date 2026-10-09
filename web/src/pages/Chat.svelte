@@ -26,7 +26,11 @@
 
     // ── Conversation persistence ──────────────────────────────────────────────
     const CONV_ID_KEY = 'she:conversationId';
-    function genId() { return crypto.randomUUID().replace(/-/g, '').slice(0, 16); }
+    // crypto.randomUUID exists in secure contexts only; over plain http on a hostname the chat must not crash
+    function genId() {
+        if (typeof crypto.randomUUID === 'function') return crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+        return Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+    }
 
     let conversationId = $state<string>(localStorage.getItem(CONV_ID_KEY) ?? genId());
     let conversations = $state<AiConversation[]>([]);
@@ -1744,10 +1748,11 @@
     .context-row .publish-switch select:focus { outline: none; border-color: var(--fg-brand); }
 
     /* the memory panel (I29) */
-    .memory-popup { max-width: 560px; }
+    .info-popup.memory-popup { max-width: 560px; } /* wider than the info popup: the notes are sentences */
     .memory-popup .info-status { margin-bottom: 6px; }
     .memory-list { list-style: none; padding: 0; margin: 4px 0; max-height: 50vh; overflow: auto; font-size: 11px; color: var(--fg); }
     .memory-list li { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border-sub); }
+    .memory-list li:hover { background: var(--bg-hover); }
     .memory-list .memory-text { flex: 1; min-width: 0; word-break: break-word; line-height: 1.4; }
     .memory-list .memory-text em { color: var(--fg-dim); }
     .memory-list input, .memory-add input {

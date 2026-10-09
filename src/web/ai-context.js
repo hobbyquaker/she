@@ -58,7 +58,7 @@ function houseSection(cfg, entries, instances, notes) {
     const known = (instances || []).filter((i) => i.adapter).map((i) => `\`${i.instance}/\` ${i.adapter}${i.connected === 0 ? ' (offline)' : ''}`);
     if (known.length) lines.push(`- adapter instances: ${known.slice(0, 20).join(', ')}${known.length > 20 ? ` … (${known.length})` : ''}`);
     if (notes && notes.length) {
-        lines.push('- facts the user confirmed earlier (trust them over guesses):');
+        lines.push('- your memory, facts from earlier chats (trust them over guesses; add with remember, drop with forget):');
         for (const n of notes.slice(0, 300)) lines.push(`  - [${n.id}] ${String(n.text).replace(/\s+/g, ' ').slice(0, 200)}`);
     }
     return lines.length > 1 ? lines.join('\n') : '';

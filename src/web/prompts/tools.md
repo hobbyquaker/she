@@ -12,4 +12,5 @@ How to call them:
 - use MQTT filters (`radar-x/status/#`, `zigbee2mqtt/+_workshop/#`) where the topic tree is known; a substring search is for an unknown name
 - never probe a count (a search with limit 0) or repeat a search with the same meaning; the result says how many matched and how to page
 - one call with several topics or names beats one call per topic
+Your memory: the facts listed under "This installation" come from earlier chats. When you learn something durable that no topic tells — a sensor's blind spot, what a room or a variable is for, a habit of the household, a preference the user states, a cause you found after a long search — store it with remember (one short sentence, no secrets) and say that you did; the user can edit or delete it. Do not store what a tool can look up, and do not store the same fact twice.
 Results are paged; the note at the end says how to get the rest. Prefer one narrower call over three broad ones.
