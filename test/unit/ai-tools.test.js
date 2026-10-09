@@ -460,3 +460,366 @@ describe('propose_script and publish_mqtt (I16, I20)', () => {
         expect(await executeTool('publish_mqtt', { topic: 'hm/status/x/STATE', payload: '1' }, { publish: { ...base, mode: 'all' } })).toMatch(/^Refused: a status topic/);
     });
 });
+
+describe('get_topic_history with several topics or a filter (I32)', () => {
+    const { resolveTopics } = _internal;
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'radar-x/status/pir': { val: true },
+                'radar-x/status/has_target': { val: false },
+                'radar-x/status/still_energy': { val: 12 },
+                'home/status/door/contact': { val: false },
+            }),
+    };
+
+    it('resolves a list, a filter and the cap', () => {
+        expect(resolveTopics({ topic: 'a/status/b' }, null).topics).toEqual(['a/status/b']);
+        expect(resolveTopics({ topics: ['a/status/b', 'c/status/d', 'a/status/b'] }, null).topics).toEqual(['a/status/b', 'c/status/d']);
+        expect(resolveTopics({ topics: 'radar-x/status/#' }, store).topics).toEqual(['radar-x/status/has_target', 'radar-x/status/pir', 'radar-x/status/still_energy']);
+        expect(resolveTopics({ topics: ['radar-x/status/+', 'home/status/door/contact'] }, store).topics).toHaveLength(4);
+        expect(resolveTopics({ topics: 'radar-x/status/#' }, store, 2)).toMatchObject({
+            topics: ['radar-x/status/has_target', 'radar-x/status/pir'],
+            note: expect.stringMatching(/3 topics match/),
+        });
+        expect(resolveTopics({ topics: 'radar-x/#' }, null).error).toMatch(/not available/);
+        expect(resolveTopics({ topics: 'nothing/#' }, store).error).toMatch(/No known topic/);
+        expect(resolveTopics({}, store).topics).toEqual([]);
+    });
+
+    it('queries every topic concurrently and shares the point cap', async () => {
+        influx.getMode.mockReturnValue('v1');
+        influx.v1Query.mockImplementation(async (q) => {
+            if (q.includes('"radar-x//pir"'))
+                return [
+                    { time: 1000, value: false },
+                    { time: 2000, value: true },
+                    { time: 3000, value: false },
+                ];
+            if (q.includes('"radar-x//has_target"')) return [{ time: 1500, value: true }];
+            return [];
+        });
+        influx.v1Query.mockClear();
+        const out = await executeTool('get_topic_history', { topics: 'radar-x/status/#', from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z', limit: 60 }, { store });
+        expect(out).toMatch(/^3 topics, up to 20 points each\./);
+        expect(out).toContain('History of radar-x/status/pir (measurement "radar-x//pir")');
+        expect(out).toContain('History of radar-x/status/has_target (measurement "radar-x//has_target")');
+        expect(out).toMatch(/No history for radar-x\/status\/still_energy/);
+        expect(out).toContain('1970-01-01 00:00:02Z  true');
+        expect(await executeTool('get_topic_history', { topics: ['nothing/#'] }, { store })).toMatch(/No known topic matches/);
+        expect(await executeTool('get_topic_history', {}, { store })).toMatch(/topic \(or topics\) is required/);
+    });
+});
+
+describe('get_timeline (I33)', () => {
+    const { gapStr, commonTopicPrefix } = _internal;
+    const store = {
+        mqttEntries: () => Object.entries({ 'radar-x/status/pir': { val: true }, 'radar-x/status/has_target': { val: false }, 'home/status/door/contact': { val: false } }),
+    };
+
+    it('formats gaps and finds the common prefix', () => {
+        expect(gapStr(12000)).toBe('+12s');
+        expect(gapStr(312000)).toBe('+5m12s');
+        expect(gapStr(2 * 3600000 + 5 * 60000)).toBe('+2h05m');
+        expect(gapStr(76 * 3600000)).toBe('+3d 4h');
+        expect(commonTopicPrefix(['radar-x/status/pir', 'radar-x/status/has_target'])).toBe('radar-x/status/');
+        expect(commonTopicPrefix(['radar-x/status/pir', 'home/status/door/contact'])).toBe('');
+        expect(commonTopicPrefix(['one'])).toBe('');
+    });
+
+    it('merges the change points of several topics in time order and thins the flapping topic first', async () => {
+        influx.getMode.mockReturnValue('v1');
+        influx.v1Query.mockImplementation(async (q) => {
+            if (q.includes('"radar-x//pir"'))
+                return [
+                    { time: 1000, value: false },
+                    { time: 5000, value: true },
+                    { time: 5500, value: true },
+                    { time: 9000, value: false },
+                ];
+            if (q.includes('"radar-x//has_target"'))
+                return [
+                    { time: 2000, value: false },
+                    { time: 6000, value: true },
+                    { time: 6200, value: false },
+                    { time: 6400, value: true },
+                    { time: 6600, value: false },
+                ];
+            if (q.includes('"home//door/contact"'))
+                return [
+                    { time: 3000, value: false },
+                    { time: 7000, value: true },
+                ];
+            return [];
+        });
+        const out = await executeTool(
+            'get_timeline',
+            { topics: ['radar-x/status/#', 'home/status/door/contact', 'home/status/nothing'], from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z' },
+            { store },
+        );
+        const lines = out.split('\n');
+        expect(lines[0]).toMatch(/^Timeline of 4 topic\(s\) from .* 10 changes\./);
+        expect(lines[1]).toBe('No history for: home/status/nothing.');
+        expect(lines[2]).toMatch(/00:00:01Z\s+radar-x\/status\/pir: false \(first value in the window\)$/);
+        expect(lines[3]).toMatch(/00:00:02Z\s+\+1s\s+radar-x\/status\/has_target: false \(first value in the window\)$/);
+        expect(lines[5]).toMatch(/00:00:05Z\s+\+2s\s+radar-x\/status\/pir: false → true$/);
+        expect(lines.at(-1)).toMatch(/00:00:09Z\s+\+2s\s+radar-x\/status\/pir: true → false$/);
+
+        const thin = await executeTool('get_timeline', { topics: 'radar-x/status/#', from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z', limit: 4 }, { store });
+        const tl = thin.split('\n');
+        expect(tl[0]).toMatch(/under radar-x\/status\/ .* 4 of 8 changes \(the ones closest/);
+        // the first value of each topic and the two widest-spaced changes stay; the 200 ms flaps go
+        expect(tl.slice(1).map((l) => l.match(/ {2}(\S+): /)[1])).toEqual(['pir', 'has_target', 'pir', 'has_target']);
+        expect(thin).not.toMatch(/00:00:06\.?2/);
+
+        expect(await executeTool('get_timeline', { topics: 'nothing/#' }, { store })).toMatch(/No known topic matches/);
+        expect(await executeTool('get_timeline', {}, { store })).toMatch(/topics is required/);
+    });
+});
+
+describe('describe_room and describe_device with several names (I34)', () => {
+    const NOW = Date.now();
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'zigbee2mqtt/radar_workshop/occupancy': { val: true, lc: NOW - 5000 },
+                'zigbee2mqtt/radar_workshop/illuminance': { val: 12, lc: NOW - 5000 },
+                'zigbee2mqtt/tfk_workshop/contact': { val: false, lc: NOW - 60000 },
+                'hm/status/Licht Workshop/STATE': { val: true, lc: NOW - 1000 },
+                'hm/set/Licht Workshop/STATE': { val: true, lc: NOW - 1000 },
+                'hm/maintenance/Licht Workshop/online': { val: true },
+                'radar-workshop/status/pir': { val: false, lc: NOW - 2000 },
+                'var/status/presence/workshop': { val: { val: true }, lc: NOW - 3000 },
+                'hm/status/Licht Kitchen/STATE': { val: false },
+            }),
+    };
+    const introspect = {
+        config: () => ({ variablePrefix: 'var' }),
+        scripts: () => [
+            {
+                label: 'presence/workshop.js',
+                subscriptions: ['zigbee2mqtt/radar_workshop/occupancy', 'radar-workshop/status/pir'],
+                varSubscriptions: [],
+                publishes: ['var/set/presence/workshop'],
+                jobs: [],
+                sunEvents: [],
+                timers: [],
+            },
+            {
+                label: 'light/workshop.js',
+                subscriptions: [],
+                varSubscriptions: ['presence/workshop'],
+                publishes: ['hm/set/Licht Workshop/STATE'],
+                jobs: [],
+                sunEvents: [],
+                timers: [],
+            },
+            { label: 'light/kitchen.js', subscriptions: ['hm/status/Licht Kitchen/STATE'], varSubscriptions: [], publishes: [], jobs: [], sunEvents: [], timers: [] },
+        ],
+        devices: () => [{ id: 'd1', name: 'Workshop Light', entities: [{ component: 'light', name: 'Workshop Light' }], refTopics: ['hm/status/Licht Workshop/STATE'] }],
+    };
+    const ctx = { store, introspect };
+
+    it('groups the room by device, lists the variables, the scripts and the discovery', async () => {
+        const out = await executeTool('describe_room', { name: 'workshop' }, ctx);
+        const lines = out.split('\n');
+        expect(lines[0]).toBe('Room "workshop": 4 device(s), 1 variable(s), 8 topic(s).');
+        expect(out).toContain('## hm/Licht Workshop (3 topics)');
+        expect(out).toMatch(/## hm\/Licht Workshop \(3 topics\)\nhm\/status\/Licht Workshop\/STATE: true \(changed 1s ago\)\nhm\/set\/Licht Workshop\/STATE/); // status before set
+        expect(out).toContain('## radar-workshop (1 topic)');
+        expect(out).toContain('## zigbee2mqtt/radar_workshop (2 topics)');
+        expect(out).toContain('## zigbee2mqtt/tfk_workshop (1 topic)');
+        expect(out).toContain('## variables (1)\nvar/status/presence/workshop: {"val":true} (changed 3s ago)');
+        expect(out).toContain('## scripts (2)');
+        expect(out).toContain('- light/workshop.js: subscribes var/status/presence/workshop; publishes hm/set/Licht Workshop/STATE');
+        expect(out).toContain('- presence/workshop.js: subscribes zigbee2mqtt/radar_workshop/occupancy, radar-workshop/status/pir; publishes var/set/presence/workshop');
+        expect(out).not.toContain('kitchen');
+        expect(out).toContain('## Home Assistant discovery (1)\n- Workshop Light: light Workshop Light');
+        expect(await executeTool('describe_room', { name: 'workshop', limit: 1 }, ctx)).toContain('… 2 more; describe_device "Licht Workshop" for all of them');
+        expect(await executeTool('describe_room', { name: 'attic' }, ctx)).toMatch(/^No topic segment contains "attic"/);
+        expect(await executeTool('describe_room', {}, ctx)).toBe('name is required.');
+    });
+
+    it('describe_device answers several names in one call', async () => {
+        const out = await executeTool('describe_device', { names: ['radar_workshop', 'Licht Kitchen'] }, ctx);
+        expect(out).toMatch(/^# radar_workshop\n2 topic\(s\) for "radar_workshop":/);
+        expect(out).toContain('\n\n# Licht Kitchen\n1 topic(s) for "Licht Kitchen":');
+        expect(await executeTool('describe_device', {}, ctx)).toBe('name (or names) is required.');
+    });
+});
+
+describe('read_script with its surroundings (I35)', () => {
+    it('puts the subscriptions, publishes and the wired scripts above the source', async () => {
+        const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-scripts-'));
+        fs.mkdirSync(path.join(scriptDir, 'presence'));
+        fs.writeFileSync(path.join(scriptDir, 'presence', 'workshop.js'), "she.info('x');\n");
+        const introspect = {
+            config: () => ({ variablePrefix: 'var' }),
+            scripts: () => [
+                {
+                    file: scriptDir + '/presence/workshop.js',
+                    label: 'presence/workshop.js',
+                    subscriptions: ['zigbee2mqtt/radar_workshop/occupancy'],
+                    varSubscriptions: ['mode'],
+                    publishes: ['var/set/presence/workshop'],
+                    jobs: [{ next: Date.now() + 3600000 }],
+                    sunEvents: [],
+                    timers: [{ due: 1 }],
+                },
+                {
+                    file: scriptDir + '/light/workshop.js',
+                    label: 'light/workshop.js',
+                    subscriptions: [],
+                    varSubscriptions: ['presence/workshop'],
+                    publishes: ['hm/set/Licht Workshop/STATE'],
+                    jobs: [],
+                    sunEvents: [],
+                    timers: [],
+                },
+                { file: scriptDir + '/modes.js', label: 'modes.js', subscriptions: [], varSubscriptions: [], publishes: ['var/set/mode'], jobs: [], sunEvents: [], timers: [] },
+                { file: scriptDir + '/other.js', label: 'other.js', subscriptions: ['hm/status/x'], varSubscriptions: [], publishes: [], jobs: [], sunEvents: [], timers: [] },
+            ],
+        };
+        const out = await executeTool('read_script', { path: 'presence/workshop.js' }, { scriptDir, introspect });
+        const header = out.split('```')[0];
+        expect(header).toContain('## presence/workshop.js\n');
+        expect(header).toContain('- subscribes: zigbee2mqtt/radar_workshop/occupancy, var/status/mode');
+        expect(header).toContain('- publishes (seen since start): var/set/presence/workshop');
+        expect(header).toMatch(/- schedules: job in 1h/);
+        expect(header).toContain('- pending timers: 1');
+        expect(header).toContain('- read by: light/workshop.js (they subscribe to what this script publishes)');
+        expect(header).toContain('- fed by: modes.js (they publish what this script subscribes to)');
+        expect(header).not.toContain('other.js');
+        expect(out).toContain("```javascript\nshe.info('x');");
+        // not loaded: the source alone
+        fs.writeFileSync(path.join(scriptDir, 'new.js'), '1;\n');
+        expect(await executeTool('read_script', { path: 'new.js' }, { scriptDir, introspect })).toBe('## new.js\n```javascript\n1;\n\n```');
+        fs.rmSync(scriptDir, { recursive: true, force: true });
+    });
+});
+
+describe('bulk parameters (I39)', () => {
+    const NOW = Date.now();
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'var/status/presence/a': { val: true, ts: NOW, lc: NOW },
+                'var/status/presence/b': { val: false, ts: NOW, lc: NOW },
+                'hm/status/x/STATE': { val: 1, ts: NOW, lc: NOW },
+            }),
+        getObject: (k) => ({ 'mqtt::var/status/presence/a': { val: true, ts: NOW, lc: NOW }, 'mqtt::var/status/presence/b': { val: false, ts: NOW, lc: NOW } })[k],
+    };
+
+    it('read_script reads several files', async () => {
+        const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-scripts-'));
+        fs.writeFileSync(path.join(scriptDir, 'a.js'), '1;\n');
+        fs.writeFileSync(path.join(scriptDir, 'b.js'), '2;\n');
+        const out = await executeTool('read_script', { paths: ['a.js', 'b.js', 'c.js'] }, { scriptDir });
+        expect(out).toContain('## a.js\n```javascript\n1;');
+        expect(out).toContain('\n\n## b.js\n```javascript\n2;');
+        expect(out).toContain('File not found: c.js');
+        fs.rmSync(scriptDir, { recursive: true, force: true });
+    });
+
+    it('get_mqtt_topic answers a list or a filter', async () => {
+        const out = await executeTool('get_mqtt_topic', { topics: 'var/status/presence/#' }, { store });
+        expect(out).toMatch(/^var\/status\/presence\/a: true\n/);
+        expect(out).toContain('var/status/presence/b: false');
+        expect(await executeTool('get_mqtt_topic', { topics: ['var/status/presence/a', 'nothing/here'] }, { store })).toMatch(/Topic "nothing\/here" not found/);
+        expect(await executeTool('get_mqtt_topic', { topic: 'var/status/presence/b' }, { store })).toMatch(/^var\/status\/presence\/b: false/);
+    });
+
+    it('search_mqtt_topics runs several queries', async () => {
+        const out = await executeTool('search_mqtt_topics', { queries: ['presence', 'hm/status/#'] }, { store });
+        expect(out).toMatch(/^# "presence"\n2 of 2 matching topic/);
+        expect(out).toContain('\n\n# "hm/status/#"\n1 of 1 matching topic');
+    });
+
+    it('get_topic_messages queries several topics in one Elastic request', async () => {
+        const elastic = require('../../src/elastic');
+        const calls = [];
+        elastic.getClient.mockReturnValue({
+            search: async (q) => {
+                calls.push(q);
+                return {
+                    hits: {
+                        total: { value: 2 },
+                        hits: [
+                            { _source: { '@timestamp': 2000, 'topic': 'var/status/presence/b', 'payload': 'false' } },
+                            { _source: { '@timestamp': 1000, 'topic': 'var/status/presence/a', 'payload': 'true' } },
+                        ],
+                    },
+                };
+            },
+        });
+        const out = await executeTool('get_topic_messages', { topics: 'var/status/presence/#', from: '2026-10-08T00:00:00Z', to: '2026-10-08T01:00:00Z' }, { store });
+        expect(calls).toHaveLength(1);
+        expect(calls[0].query.bool.filter[0]).toEqual({ terms: { topic: ['var/status/presence/a', 'var/status/presence/b'] } });
+        expect(out).toMatch(/^2 of 2 messages for 2 topics \(var\/status\/presence\/a, var\/status\/presence\/b\)/);
+        expect(out).toContain('1970-01-01 00:00:02Z  var/status/presence/b  false');
+        elastic.getClient.mockReturnValue(null);
+    });
+});
+
+describe('run_analysis (I42)', () => {
+    const NOW = Date.now();
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'radar-x/status/pir': { val: true, ts: NOW, lc: NOW - 5000 },
+                'radar-x/status/has_target': { val: false, ts: NOW, lc: NOW },
+                'home/status/door/contact': { val: false, ts: NOW, lc: NOW },
+            }),
+    };
+
+    it('runs the code over the state store and returns the result with console lines', async () => {
+        const out = await executeTool(
+            'run_analysis',
+            {
+                code: "const t = await data.topics('radar-x/status/#'); console.log('n', t.length); return { count: t.length, on: t.filter((x) => x.value === true).map((x) => x.topic), from: data.from };",
+                from: '-6h',
+            },
+            { store },
+        );
+        expect(out.text).toMatch(/^Result after \d+ ms and 1 data call:\n\{"count":2,"on":\["radar-x\/status\/pir"\],"from":"-6h"\}\nconsole \(1 line\):\nn 2$/);
+        expect(out.event).toMatchObject({ type: 'analysis', result: '{"count":2,"on":["radar-x/status/pir"],"from":"-6h"}', error: null, logs: ['n 2'] });
+    }, 20000);
+
+    it('reads history through the same loader as get_topic_history', async () => {
+        influx.getMode.mockReturnValue('v1');
+        influx.v1Query.mockImplementation(async (q) =>
+            q.includes('"radar-x//pir"')
+                ? [
+                      { time: 1000, value: false },
+                      { time: 5000, value: true },
+                      { time: 9000, value: false },
+                  ]
+                : [],
+        );
+        const out = await executeTool(
+            'run_analysis',
+            {
+                code: "const h = await data.history(['radar-x/status/pir'], '2026-10-08T00:00:00Z', '2026-10-08T01:00:00Z'); const s = h['radar-x/status/pir']; return { points: s.length, onFor: s[2].time - s[1].time };",
+            },
+            { store },
+        );
+        expect(out.event.result).toBe('{"points":3,"onFor":4000}');
+    }, 20000);
+
+    it('reports errors, refuses what the sandbox does not have, and stops a runaway loop', async () => {
+        const err = await executeTool('run_analysis', { code: 'return await data.history([]);' }, { store });
+        expect(err.text).toMatch(/^The analysis failed: history needs topics/);
+        expect(err.event.error).toMatch(/history needs topics/);
+        const noReq = await executeTool('run_analysis', { code: "return typeof require + ' ' + typeof process + ' ' + typeof she;" }, { store });
+        expect(noReq.event.result).toBe('"undefined undefined undefined"');
+        const loop = await executeTool('run_analysis', { code: 'await data.topics(); while (true) {}' }, { store, analysisTimeoutMs: 1500 });
+        expect(loop.text).toMatch(/did not finish within 1.5 s and was stopped/);
+        expect(await executeTool('run_analysis', {}, { store })).toMatch(/code is required/);
+    }, 30000);
+
+    it('caps a large result', async () => {
+        const out = await executeTool('run_analysis', { code: "return 'x'.repeat(10000);" }, { store, resultChars: 600 });
+        expect(out.event.result.length).toBeLessThan(700);
+        expect(out.text).toMatch(/cut after 600 characters \(10002 total\)/);
+    }, 20000);
+});

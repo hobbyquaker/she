@@ -563,7 +563,7 @@ export interface AiMessage {
 }
 
 export interface AiToolEvent {
-    type: 'tool_call' | 'tool_result' | 'draft' | 'publish_request' | 'publish_decided';
+    type: 'tool_call' | 'tool_result' | 'draft' | 'publish_request' | 'publish_decided' | 'analysis';
     name: string;
     args?: Record<string, unknown>;
     content?: string;
@@ -581,6 +581,12 @@ export interface AiToolEvent {
     payload?: string;
     retain?: boolean;
     decided?: 'published' | 'skipped' | 'timeout';
+    /** analysis (I42): the code the model ran, its JSON result or error, the console lines */
+    code?: string;
+    result?: string | null;
+    error?: string | null;
+    logs?: string[];
+    ms?: number;
 }
 
 export interface AiContext {
@@ -766,7 +772,7 @@ export async function streamChatWithAI(body: AiChatRequest, onToken: (token: str
                         onEvent?.({ type: json.type, name: json.name ?? '', args: json.args, content: json.content });
                         continue;
                     }
-                    if (json.type === 'draft' || json.type === 'publish_request' || json.type === 'publish_decided') {
+                    if (json.type === 'draft' || json.type === 'publish_request' || json.type === 'publish_decided' || json.type === 'analysis') {
                         onEvent?.({ ...(json as object), type: json.type, name: json.type } as AiToolEvent);
                         continue;
                     }
