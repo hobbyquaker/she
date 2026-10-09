@@ -137,11 +137,17 @@
         '[model] manifesting an answer…',
     ];
 
-    let ctxApiref = $state(true);
-    let ctxTools  = $state(true);
-    // publishing (I20, D-2): off by default; 'confirm' asks per publish, 'all' lets them through for the session
-    let ctxPublish = $state<'off' | 'confirm' | 'all'>((localStorage.getItem('she:aiPublish') as 'off' | 'confirm' | 'all') ?? 'off');
-    $effect(() => { localStorage.setItem('she:aiPublish', ctxPublish); });
+    // the three context switches persist across reloads (I40); "always allow" for publishes lasts the session only
+    const ctxStored = (key: string, fallback: boolean) => { const v = localStorage.getItem(key); return v === null ? fallback : v === 'true'; };
+    let ctxApiref = $state(ctxStored('she:aiApiref', true));
+    let ctxTools  = $state(ctxStored('she:aiTools', true));
+    $effect(() => { localStorage.setItem('she:aiApiref', String(ctxApiref)); });
+    $effect(() => { localStorage.setItem('she:aiTools', String(ctxTools)); });
+    // publishing (I20, D-2, I40): the checkbox is off by default and persisted; with it on, every publish asks in the
+    // chat (Allow / Always allow / Deny); "Always allow" lets the rest of the session through without asking
+    let ctxPublish = $state(localStorage.getItem('she:aiPublish') === 'true');
+    $effect(() => { localStorage.setItem('she:aiPublish', String(ctxPublish)); });
+    let publishAlways = $state(false);
 
     // File context chips
     let includeCurrentScript = $state(true);
@@ -158,7 +164,7 @@
     const context = $derived<AiContext>({
         apiref: ctxApiref,
         tools:  ctxTools,
-        publish: ctxPublish,
+        publish: ctxPublish ? (publishAlways ? 'all' : 'confirm') : 'off',
     });
 
     // draft and publish cards (I16, I20)
@@ -185,8 +191,9 @@
         patchEvent(ev.id, { status: 'discarded' });
         void persistConversation();
     }
-    async function decidePublish(ev: AiToolEvent, ok: boolean) {
+    async function decidePublish(ev: AiToolEvent, ok: boolean, always = false) {
         if (!ev.id) return;
+        if (always) publishAlways = true; // the rest of this session goes through without asking
         try {
             await decideAiPublish(ev.id, ok);
             patchEvent(ev.id, { decided: ok ? 'published' : 'skipped' });
@@ -668,16 +675,20 @@
                     {/if}
                 </div>
             {:else if ev.type === 'publish_request'}
-                <div class="tool-event publish-card">
-                    <span class="tool-icon">📡</span>
-                    <span class="publish-text">publish <code>{ev.payload}</code> to <code>{ev.topic}</code>{#if ev.retain} (retained){/if}</span>
-                    {#if ev.decided === 'published'}<span class="draft-state ok">published</span>
-                    {:else if ev.decided === 'skipped'}<span class="draft-state">skipped</span>
-                    {:else if ev.decided === 'timeout'}<span class="draft-state">not answered in time (two minutes)</span>
-                    {:else}
-                        <button class="draft-btn apply" onclick={() => decidePublish(ev, true)}>Publish</button>
-                        <button class="draft-btn" onclick={() => decidePublish(ev, false)}>Skip</button>
-                    {/if}
+                <div class="tool-event publish-card" class:pending={!ev.decided}>
+                    <div class="publish-head"><span class="tool-icon">📡</span> The assistant wants to publish{#if ev.retain} (retained){/if}</div>
+                    <div class="publish-kv"><span class="k">topic</span><code>{ev.topic}</code></div>
+                    <div class="publish-kv"><span class="k">payload</span><code>{ev.payload}</code></div>
+                    <div class="publish-actions">
+                        {#if ev.decided === 'published'}<span class="draft-state ok">published</span>
+                        {:else if ev.decided === 'skipped'}<span class="draft-state">denied</span>
+                        {:else if ev.decided === 'timeout'}<span class="draft-state">not answered in time (two minutes)</span>
+                        {:else}
+                            <button class="draft-btn apply" onclick={() => decidePublish(ev, true)}>Allow</button>
+                            <button class="draft-btn apply" onclick={() => decidePublish(ev, true, true)} title="Allow this and every further publish in this session without asking">Always allow</button>
+                            <button class="draft-btn" onclick={() => decidePublish(ev, false)}>Deny</button>
+                        {/if}
+                    </div>
                 </div>
             {:else}
                 <div class="tool-event tool-result">
@@ -853,13 +864,8 @@
         <label title="Let the AI query MQTT state, sheDB documents and Matter devices on demand. Disables real-time streaming.">
             <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 😎 Agent
         </label>
-        <label class="publish-switch" title="May the assistant publish MQTT messages? off: never; confirm: each one waits for your click; all: at once, for this session">
-            📡 Publish
-            <select bind:value={ctxPublish} disabled={!ctxTools}>
-                <option value="off">off</option>
-                <option value="confirm">confirm each</option>
-                <option value="all">allow all</option>
-            </select>
+        <label title={publishAlways ? 'Publishing allowed for this session without asking (reload to ask again)' : 'Let the assistant publish MQTT messages; every publish asks in the chat first (Allow / Always allow / Deny)'}>
+            <input type="checkbox" bind:checked={ctxPublish} disabled={!ctxTools} /><span class="checkmark"></span> 📡 Publish{#if ctxPublish && publishAlways} <span class="publish-always">always</span>{/if}
         </label>
         <span class="req-size">{formatBytes(requestBytes)}{#if ollamaInfo?.contextLength}{@const pct = Math.min(100, Math.round(requestBytes / 4 / ollamaInfo.contextLength * 100))}<span class="ctx-indicator" title="~{pct}% of {ollamaInfo.contextLength.toLocaleString()} token context window used"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="var(--border-sub)" stroke-width="2"/><circle cx="6" cy="6" r="5" fill="none" stroke="{pct > 80 ? 'var(--fg-err)' : pct > 50 ? 'var(--fg-warn)' : 'var(--fg-ok)'}" stroke-width="2" stroke-dasharray="{(pct / 100 * 31.4).toFixed(1)} 31.4" stroke-dashoffset="7.85" stroke-linecap="round"/></svg></span>{/if}</span>
     </div>
@@ -1692,7 +1698,13 @@
         font-family: inherit;
         font-size: 11px;
     }
-    .tool-event.publish-card { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .tool-event.publish-card { border-left: 3px solid var(--fg-brand); background: var(--bg-widget); gap: 3px; }
+    .tool-event.publish-card.pending { border-color: var(--fg-warn, #d7ba7d); box-shadow: 0 0 0 1px var(--fg-warn, #d7ba7d) inset; }
+    .publish-head { font-weight: 600; color: var(--fg); }
+    .publish-kv { display: flex; gap: 8px; align-items: baseline; font-family: monospace; }
+    .publish-kv .k { width: 52px; flex-shrink: 0; color: var(--fg-muted); font-family: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .publish-kv code { color: var(--fg-brand); word-break: break-all; }
+    .publish-actions { display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap; align-items: center; }
     .draft-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .draft-head strong { font-weight: 600; font-family: monospace; }
     .draft-stats { font-family: monospace; color: var(--fg-muted); }
@@ -1728,25 +1740,8 @@
     .draft-btn.apply { border-color: var(--fg-ok); color: var(--fg-ok); }
     .draft-state { font-size: 10px; color: var(--fg-muted); }
     .draft-state.ok { color: var(--fg-ok); }
-    .publish-text { flex: 1; min-width: 0; word-break: break-all; }
-    .publish-text code { font-family: monospace; color: var(--fg-brand); }
 
-    /* the Publish switch in the context row (I20) */
-    .context-row .publish-switch { gap: 4px; }
-    .context-row .publish-switch select {
-        background: var(--bg-app);
-        border: 1px solid var(--border-sub);
-        border-radius: 3px;
-        color: var(--fg);
-        font-size: 10px;
-        font-family: inherit;
-        padding: 0 2px;
-        height: 16px;
-        cursor: pointer;
-    }
-    .context-row .publish-switch select:disabled { opacity: 0.5; cursor: not-allowed; }
-    .context-row .publish-switch select:focus { outline: none; border-color: var(--fg-brand); }
-
+    .context-row .publish-always { font-size: 9px; color: var(--fg-ok); text-transform: uppercase; letter-spacing: 0.05em; }
     /* the memory panel (I29) */
     .info-popup.memory-popup { max-width: 560px; } /* wider than the info popup: the notes are sentences */
     .memory-popup .info-status { margin-bottom: 6px; }
