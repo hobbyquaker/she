@@ -48,11 +48,15 @@ The model reads the daemon through tools. Two tools change something, both behin
 - **Script drafts** — `propose_script` writes a draft to `<data-dir>/ai/drafts/`; the chat shows the diff with
   **Apply** (writes the file; the hot reload and the git auto-commit apply as for any save) and **Discard**. Nothing
   reaches the scripts directory without the click.
-- **Publishing** — `publish_mqtt` is offered only when the **Publish** switch in the chat bar is not *off*: with
-  *confirm each* every publish shows topic and payload and waits for **Publish** or **Skip** (two minutes, then it
-  counts as skipped); with *allow all* it goes through at once for the session. Only command topics are accepted
-  (`<name>/set/…`, `var/set/…`, `zigbee2mqtt/<device>/set`, plus the patterns in `ai.publishAllow`); a status topic
-  is refused; the journal logs every publish.
+- **Publishing** — `publish_mqtt` is offered only with the **Publish** checkbox in the chat bar on (off by default,
+  remembered like the other two). Every publish shows a card with the topic and the payload and waits for
+  **Allow**, **Always allow** (the rest of the session without asking) or **Deny** (two minutes, then it counts as
+  denied). Only command topics are accepted (`<name>/set/…`, `var/set/…`, `zigbee2mqtt/<device>/set`, plus the
+  patterns in `ai.publishAllow`); a status topic is refused; the journal logs every publish.
+- **Analyses** — `run_analysis` runs a short JavaScript the model writes in a worker sandbox with a read-only
+  `data` object (the state store, Influx history, Elastic messages, the log files, script sources) and no
+  `require`, network, `she` object or publishing; ten seconds and the usual result cap. The chat shows the code and
+  the result, so you see what was computed.
 
 | Tool | Reads |
 | --- | --- |
@@ -70,6 +74,7 @@ The model reads the daemon through tools. Two tools change something, both behin
 | `she_fetch` | a public web page as text |
 | `remember`, `forget` | the facts about the installation the user confirmed (the 🧠 panel in the chat; stored in the data directory) |
 | `propose_script` | a script draft with a diff and an Apply button |
+| `run_analysis` | a short JavaScript the model writes, run in a sandbox over read-only data (state store, Influx, Elastic, log files, scripts); the chat shows the code and the result |
 | `publish_mqtt` | a command topic, behind the Publish switch |
 
 ## Prompt profiles

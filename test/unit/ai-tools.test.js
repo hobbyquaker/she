@@ -760,3 +760,66 @@ describe('bulk parameters (I39)', () => {
         elastic.getClient.mockReturnValue(null);
     });
 });
+
+describe('run_analysis (I42)', () => {
+    const NOW = Date.now();
+    const store = {
+        mqttEntries: () =>
+            Object.entries({
+                'radar-x/status/pir': { val: true, ts: NOW, lc: NOW - 5000 },
+                'radar-x/status/has_target': { val: false, ts: NOW, lc: NOW },
+                'home/status/door/contact': { val: false, ts: NOW, lc: NOW },
+            }),
+    };
+
+    it('runs the code over the state store and returns the result with console lines', async () => {
+        const out = await executeTool(
+            'run_analysis',
+            {
+                code: "const t = await data.topics('radar-x/status/#'); console.log('n', t.length); return { count: t.length, on: t.filter((x) => x.value === true).map((x) => x.topic), from: data.from };",
+                from: '-6h',
+            },
+            { store },
+        );
+        expect(out.text).toMatch(/^Result after \d+ ms and 1 data call:\n\{"count":2,"on":\["radar-x\/status\/pir"\],"from":"-6h"\}\nconsole \(1 line\):\nn 2$/);
+        expect(out.event).toMatchObject({ type: 'analysis', result: '{"count":2,"on":["radar-x/status/pir"],"from":"-6h"}', error: null, logs: ['n 2'] });
+    }, 20000);
+
+    it('reads history through the same loader as get_topic_history', async () => {
+        influx.getMode.mockReturnValue('v1');
+        influx.v1Query.mockImplementation(async (q) =>
+            q.includes('"radar-x//pir"')
+                ? [
+                      { time: 1000, value: false },
+                      { time: 5000, value: true },
+                      { time: 9000, value: false },
+                  ]
+                : [],
+        );
+        const out = await executeTool(
+            'run_analysis',
+            {
+                code: "const h = await data.history(['radar-x/status/pir'], '2026-10-08T00:00:00Z', '2026-10-08T01:00:00Z'); const s = h['radar-x/status/pir']; return { points: s.length, onFor: s[2].time - s[1].time };",
+            },
+            { store },
+        );
+        expect(out.event.result).toBe('{"points":3,"onFor":4000}');
+    }, 20000);
+
+    it('reports errors, refuses what the sandbox does not have, and stops a runaway loop', async () => {
+        const err = await executeTool('run_analysis', { code: 'return await data.history([]);' }, { store });
+        expect(err.text).toMatch(/^The analysis failed: history needs topics/);
+        expect(err.event.error).toMatch(/history needs topics/);
+        const noReq = await executeTool('run_analysis', { code: "return typeof require + ' ' + typeof process + ' ' + typeof she;" }, { store });
+        expect(noReq.event.result).toBe('"undefined undefined undefined"');
+        const loop = await executeTool('run_analysis', { code: 'await data.topics(); while (true) {}' }, { store, analysisTimeoutMs: 1500 });
+        expect(loop.text).toMatch(/did not finish within 1.5 s and was stopped/);
+        expect(await executeTool('run_analysis', {}, { store })).toMatch(/code is required/);
+    }, 30000);
+
+    it('caps a large result', async () => {
+        const out = await executeTool('run_analysis', { code: "return 'x'.repeat(10000);" }, { store, resultChars: 600 });
+        expect(out.event.result.length).toBeLessThan(700);
+        expect(out.text).toMatch(/cut after 600 characters \(10002 total\)/);
+    }, 20000);
+});

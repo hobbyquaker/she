@@ -674,6 +674,16 @@
                         <pre class="draft-diff">{#each ev.diff.split('\n') as line}<span class:add={line.startsWith('+') && !line.startsWith('+++')} class:del={line.startsWith('-') && !line.startsWith('---')} class:hunk={line.startsWith('@@')}>{line + '\n'}</span>{/each}</pre>
                     {/if}
                 </div>
+            {:else if ev.type === 'analysis'}
+                <div class="tool-event analysis-card">
+                    <details>
+                        <summary><span class="tool-icon">🧮</span> Analysis {ev.error ? 'failed' : 'ran'}{#if ev.ms !== undefined} in {ev.ms} ms{/if} <span class="draft-state">— show code</span></summary>
+                        <pre class="analysis-code">{ev.code}</pre>
+                    </details>
+                    {#if ev.error}<div class="analysis-err">{ev.error}</div>
+                    {:else}<pre class="analysis-result">{ev.result}</pre>{/if}
+                    {#if ev.logs?.length}<pre class="analysis-logs">{ev.logs.join('\n')}</pre>{/if}
+                </div>
             {:else if ev.type === 'publish_request'}
                 <div class="tool-event publish-card" class:pending={!ev.decided}>
                     <div class="publish-head"><span class="tool-icon">📡</span> The assistant wants to publish{#if ev.retain} (retained){/if}</div>
@@ -1701,6 +1711,17 @@
     .tool-event.publish-card { border-left: 3px solid var(--fg-brand); background: var(--bg-widget); gap: 3px; }
     .tool-event.publish-card.pending { border-color: var(--fg-warn, #d7ba7d); box-shadow: 0 0 0 1px var(--fg-warn, #d7ba7d) inset; }
     .publish-head { font-weight: 600; color: var(--fg); }
+    .tool-event.analysis-card { border-left: 3px solid var(--fg-muted); }
+    .analysis-card summary { cursor: pointer; color: var(--fg); list-style: none; }
+    .analysis-card summary::-webkit-details-marker { display: none; }
+    .analysis-card details[open] summary .draft-state { visibility: hidden; }
+    .analysis-code, .analysis-result, .analysis-logs {
+        margin: 4px 0 0; padding: 6px 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+        font-family: monospace; font-size: 10.5px; line-height: 1.35; background: var(--bg-app); border: 1px solid var(--border-sub); border-radius: 3px; color: var(--fg);
+    }
+    .analysis-result { color: var(--fg-ok); }
+    .analysis-logs { color: var(--fg-muted); }
+    .analysis-err { color: var(--fg-err); margin-top: 4px; }
     .publish-kv { display: flex; gap: 8px; align-items: baseline; font-family: monospace; }
     .publish-kv .k { width: 52px; flex-shrink: 0; color: var(--fg-muted); font-family: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
     .publish-kv code { color: var(--fg-brand); word-break: break-all; }

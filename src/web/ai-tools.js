@@ -469,6 +469,28 @@ const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: 'run_analysis',
+            description:
+                'Run a short piece of JavaScript you write, in a sandbox with read-only access to the data, and get its return value back as JSON. ' +
+                'Use it for research that would take many tool calls or arithmetic over long lists: counts per hour, correlations between topics, gaps, durations. ' +
+                'The code is the body of an async function; `return` the result (an object or array, kept small). Every data call must be awaited. Available: `await data.topics(filter)` → [{topic, value, ts, lc}] (filter: an MQTT filter or a substring; ts/lc epoch ms); ' +
+                '`await data.history(topics, from, to)` → {topic: [{time, value}]} from InfluxDB (topics: a list or an MQTT filter); `await data.messages(topics, from, to, limit)` → [{time, topic, payload}] from Elasticsearch, newest first (limit up to 5000); ' +
+                '`await data.log(filter, from, to, level, limit)` → [{ts, level, msg}] from the log files; `await data.script(path)` → the source; `data.from`/`data.to` → the window you passed; `await data.time("-2h")` → epoch ms. ' +
+                'from/to are ISO 8601 or relative ("-6h", "-7d"). No require, no network, no publishing, no she object; console.log lines come back with the result; 10 seconds at most.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    code: { type: 'string', description: 'The JavaScript to run, as the body of an async function; must `return` the result.' },
+                    from: { type: 'string', description: 'Optional window start handed to the code as data.from ("-24h").' },
+                    to: { type: 'string', description: 'Optional window end handed to the code as data.to.' },
+                },
+                required: ['code'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: 'publish_mqtt',
             description:
                 'Publish an MQTT message to a command topic (<name>/set/…, var/set/…, zigbee2mqtt/<device>/set), e.g. to test a device. ' +
@@ -557,6 +579,8 @@ async function runTool(name, args, ctx) {
                 return toolListTimers(args, ctx);
             case 'propose_script':
                 return toolProposeScript(args, ctx);
+            case 'run_analysis':
+                return await toolRunAnalysis(args, ctx);
             case 'publish_mqtt':
                 return await toolPublishMqtt(args, ctx);
             case 'remember':
@@ -765,15 +789,8 @@ function logFilesOldestFirst() {
     return names.sort((a, b) => rank(b) - rank(a)).map((n) => path.join(LOGS_DIR, n));
 }
 
-async function toolGetScriptLogs({ script_name = '', from, to, level = 'debug', limit = 50, offset = 0 } = {}) {
-    const cap = Math.min(Math.max(1, Number(limit) || 50), 200);
-    const skip = Math.max(0, Number(offset) || 0);
-    const needle = String(script_name).toLowerCase();
-    const minRank = LEVEL_RANK[String(level).toLowerCase()] ?? 0;
-    const now = Date.now();
-    const fromMs = from ? parseTime(from, now) : null;
-    const toMs = parseTime(to, now);
-    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
+/** every log entry matching the filter, oldest first: the files on disk, the in-memory ring only without them */
+async function collectLogEntries({ needle = '', fromMs = null, toMs = Date.now(), minRank = 0 } = {}) {
     const keep = (e) => (fromMs === null || e.ts >= fromMs) && e.ts <= toMs && (LEVEL_RANK[e.level] ?? 0) >= minRank && (!needle || e.msg.toLowerCase().includes(needle));
 
     // the files on disk; the in-memory ring only when there are none (tests, a read-only data directory)
@@ -802,6 +819,19 @@ async function toolGetScriptLogs({ script_name = '', from, to, level = 'debug', 
     if (files.length === 0) {
         for (const e of getLogBuffer()) if (keep(e)) matches.push(e);
     }
+    return matches;
+}
+
+async function toolGetScriptLogs({ script_name = '', from, to, level = 'debug', limit = 50, offset = 0 } = {}) {
+    const cap = Math.min(Math.max(1, Number(limit) || 50), 200);
+    const skip = Math.max(0, Number(offset) || 0);
+    const needle = String(script_name).toLowerCase();
+    const minRank = LEVEL_RANK[String(level).toLowerCase()] ?? 0;
+    const now = Date.now();
+    const fromMs = from ? parseTime(from, now) : null;
+    const toMs = parseTime(to, now);
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return `from/to must be ISO 8601 or relative ("-2h"); got from=${from}, to=${to}.`;
+    const matches = await collectLogEntries({ needle, fromMs, toMs, minRank });
     const end = Math.max(0, matches.length - skip);
     const recent = matches.slice(Math.max(0, end - cap), end);
     if (recent.length === 0) {
@@ -1268,6 +1298,108 @@ function toolDescribeRoom({ name, limit = 15 } = {}, ctx = {}) {
         }
     }
     return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// run_analysis (roadmap I42, decision D-9): the model's code in a worker sandbox over read-only loaders
+// ---------------------------------------------------------------------------
+
+/** the loaders the sandbox may call, built from the tool context; each throws a readable error */
+function analysisLoaders(ctx) {
+    const store = ctx.store;
+    const needTime = (v, what) => {
+        const ms = parseTime(v);
+        if (Number.isNaN(ms)) throw new Error(`${what} must be ISO 8601 or relative ("-2h"); got ${v}`);
+        return ms;
+    };
+    return {
+        time: (str) => needTime(str, 'time'),
+        topics: (filter = '') => {
+            if (!store) throw new Error('the MQTT state store is not available');
+            const pattern = String(filter ?? '').trim();
+            const isFilter = /[+#]/.test(pattern);
+            const q = pattern.toLowerCase();
+            const out = [];
+            for (const [topic, obj] of store.mqttEntries()) {
+                if (isFilter ? !mqttWildcard(topic, pattern) : q && !topic.toLowerCase().includes(q)) continue;
+                out.push({ topic, value: obj.val, ts: obj.ts ?? null, lc: obj.lc ?? obj.ts ?? null });
+                if (out.length >= 5000) break;
+            }
+            return out;
+        },
+        history: async (topics, from = '-24h', to) => {
+            const resolved = resolveTopics({ topics }, store);
+            if (resolved.error) throw new Error(resolved.error);
+            if (!resolved.topics.length) throw new Error('history needs topics: a list or an MQTT filter');
+            const { influx, error } = influxForHistory();
+            if (error) throw new Error(error);
+            const fromMs = needTime(from, 'from');
+            const toMs = needTime(to, 'to');
+            const results = await Promise.all(resolved.topics.map((t) => fetchTopicSeries(influx, t, fromMs, toMs)));
+            const out = {};
+            results.forEach((r, i) => (out[resolved.topics[i]] = r.rows));
+            return out;
+        },
+        messages: async (topics, from = '-24h', to, limit = 1000) => {
+            const resolved = resolveTopics({ topics }, store, 20);
+            if (resolved.error) throw new Error(resolved.error);
+            if (!resolved.topics.length) throw new Error('messages needs topics: a list or an MQTT filter');
+            let client = null;
+            try {
+                client = require('../elastic').getClient();
+            } catch {
+                /* module missing */
+            }
+            if (!client) throw new Error('no Elasticsearch integration is configured in she (config "elastic")');
+            const fromMs = needTime(from, 'from');
+            const toMs = needTime(to, 'to');
+            const cap = Math.min(Math.max(1, Number(limit) || 1000), 5000);
+            const res = await client.search({
+                index: ctx.elasticIndex || 'mqtt-*',
+                size: cap,
+                query: { bool: { filter: [{ terms: { topic: resolved.topics } }, { range: { '@timestamp': { gte: fromMs, lte: toMs } } }] } },
+                sort: [{ '@timestamp': { order: 'desc' } }],
+                _source: ['@timestamp', 'topic', 'payload'],
+            });
+            const hits = res?.hits?.hits ?? res?.body?.hits?.hits ?? [];
+            return hits.map((h) => {
+                const src = h._source || {};
+                const ts = typeof src['@timestamp'] === 'number' ? src['@timestamp'] : Date.parse(src['@timestamp']);
+                return { time: ts, topic: src.topic ?? '', payload: src.payload ?? '' };
+            });
+        },
+        log: async (filter = '', from, to, level = 'debug', limit = 500) => {
+            const fromMs = from ? needTime(from, 'from') : null;
+            const toMs = needTime(to, 'to');
+            const minRank = LEVEL_RANK[String(level).toLowerCase()] ?? 0;
+            const cap = Math.min(Math.max(1, Number(limit) || 500), 5000);
+            const matches = await collectLogEntries({ needle: String(filter ?? '').toLowerCase(), fromMs, toMs, minRank });
+            return matches.slice(-cap).map((e) => ({ ts: e.ts, level: e.level, msg: e.msg }));
+        },
+        script: (relPath) => {
+            const p = scriptPathOf(ctx.scriptDir, relPath);
+            if (!p) throw new Error(`"${relPath}" is not a script path`);
+            if (!fs.existsSync(p.abs)) throw new Error(`no script ${p.rel}`);
+            return fs.readFileSync(p.abs, 'utf8');
+        },
+    };
+}
+
+async function toolRunAnalysis({ code, from, to } = {}, ctx = {}) {
+    if (!code || typeof code !== 'string' || !code.trim()) return 'code is required: the body of an async function that returns the result.';
+    const { runAnalysis } = require('./ai-sandbox');
+    const cap = Math.max(500, Number(ctx.resultChars) || DEFAULT_RESULT_CHARS);
+    const r = await runAnalysis({ code, from, to }, analysisLoaders(ctx), { timeoutMs: ctx.analysisTimeoutMs });
+    const logText = r.logs.length ? `\nconsole (${r.logs.length} line${r.logs.length === 1 ? '' : 's'}):\n${r.logs.join('\n')}` : '';
+    let text;
+    let result = null;
+    if (r.error) text = `The analysis failed: ${r.error}${logText}`;
+    else {
+        const json = r.json ?? 'null';
+        result = json.length > cap ? json.slice(0, cap) + `\n… cut after ${cap} characters (${json.length} total); return less from the code.` : json;
+        text = `Result after ${r.ms} ms and ${r.calls} data call${r.calls === 1 ? '' : 's'}:\n${result}${logText}`;
+    }
+    return { text, event: { type: 'analysis', code, result, error: r.error || null, logs: r.logs, ms: r.ms } };
 }
 
 function toolListServices({ filter = '' } = {}, ctx = {}) {

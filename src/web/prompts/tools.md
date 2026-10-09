@@ -7,6 +7,7 @@ Use the tools; they read the running daemon. Where to start:
 - what a script did or logged: get_script_logs with a time window; what is still pending: list_timers
 - "nothing happens": get_health first, then list_services for the adapters
 - Matter: list_matter_devices (with state), get_matter_attribute; sheDB: list_shedb_docs, get_shedb_doc
+- research that would take many calls or arithmetic over long lists (counts per hour, correlations, durations): run_analysis — write the computation in JavaScript over `data.topics`, `data.history`, `data.messages`, `data.log` and return a small result; the user sees the code and the result
 How to call them:
 - ask for every independent tool in the same turn — the calls of a turn run concurrently, and each turn costs a round trip
 - use MQTT filters (`radar-x/status/#`, `zigbee2mqtt/+_workshop/#`) where the topic tree is known; a substring search is for an unknown name
