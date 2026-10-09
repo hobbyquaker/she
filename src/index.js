@@ -691,6 +691,9 @@ if (config.url) {
             state.lc = state.val === oldState.val ? oldState.lc : ts;
             store.setObject('mqtt::' + topic, state);
             store.setObject('var::' + varName, state);
+            // dispatch now, as setVariable() does: the broker's echo of the status publish below finds the store
+            // already updated, so a { change: true } subscription would never see the change (B-22)
+            stateChange(topic, state, oldState, msg);
             mqtt.publish(topic, JSON.stringify(state), { retain: true });
         } else {
             if (!state) {
@@ -701,6 +704,18 @@ if (config.url) {
                 state.ts = new Date().getTime();
             }
             oldState = store.getObject('mqtt::' + topic) || {};
+            // our own echo: she publishes <prefix>/status/<name> retained after a var/set or she.var.set(), and the
+            // broker delivers it back (we subscribe to #). The subscriptions were dispatched at set time; the
+            // echo carries the stored state verbatim (same ts and lc), so it is stored again but not dispatched.
+            if (
+                topicArr[0] === config.variablePrefix &&
+                topicArr[1] === 'status' &&
+                oldState.ts === state.ts &&
+                oldState.lc === state.lc &&
+                JSON.stringify(oldState.val) === JSON.stringify(state.val)
+            ) {
+                return;
+            }
             // lc (last change): prefer a payload-provided value; otherwise set it
             // on value change and carry the previous lc over when the value is
             // unchanged. Previously the old lc was simply lost on repeated
