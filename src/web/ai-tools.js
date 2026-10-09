@@ -1350,7 +1350,7 @@ function analysisLoaders(ctx) {
             } catch {
                 /* module missing */
             }
-            if (!client) throw new Error('no Elasticsearch integration is configured in she (config "elastic")');
+            if (!client) throw new Error('no Elasticsearch integration is configured in she (config "elastic"); use data.history (InfluxDB) for values over time instead');
             const fromMs = needTime(from, 'from');
             const toMs = needTime(to, 'to');
             const cap = Math.min(Math.max(1, Number(limit) || 1000), 5000);

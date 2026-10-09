@@ -767,7 +767,8 @@ export async function streamChatWithAI(body: AiChatRequest, onToken: (token: str
                 if (data === '[DONE]') return;
                 try {
                     const json = JSON.parse(data) as { token?: string; error?: string; type?: string; name?: string; args?: Record<string, unknown>; content?: string };
-                    if (json.error) throw new Error(json.error);
+                    // a typed event may carry an "error" of its own (an analysis that failed); only an untyped error ends the stream
+                    if (json.error && !json.type) throw new Error(json.error);
                     if (json.type === 'tool_call' || json.type === 'tool_result') {
                         onEvent?.({ type: json.type, name: json.name ?? '', args: json.args, content: json.content });
                         continue;
