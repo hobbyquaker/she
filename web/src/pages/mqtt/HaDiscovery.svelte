@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { fetchHaDiscovery, clearHaDiscoveryTopics, type HaDevice } from '../../lib/api.js';
+    import CopyTopic from '../../lib/CopyTopic.svelte';
 
     /* ── Data ─────────────────────────────────────────────────────────────── */
     let prefix    = $state('homeassistant');
@@ -31,10 +32,34 @@
     onMount(load);
 
     /* ── Derived ──────────────────────────────────────────────────────────── */
+    /* ── Sorting ──────────────────────────────────────────────────────────── */
+    type SortKey = 'name' | 'model' | 'entities' | 'prefix' | 'seen' | 'status';
+    let sortKey = $state<SortKey>('name');
+    let sortAsc = $state(true);
+    function sortBy(k: SortKey) {
+        if (sortKey === k) sortAsc = !sortAsc;
+        else { sortKey = k; sortAsc = true; }
+    }
+    const statusRank = (d: HaDevice) => (d.orphaned ? 0 : d.duplicate ? 1 : 2); // orphaned first
+    function compare(a: HaDevice, b: HaDevice): number {
+        const text = (x: string | null | undefined) => (x ?? '').toLowerCase();
+        let r = 0;
+        switch (sortKey) {
+            case 'name': r = text(a.name ?? a.id).localeCompare(text(b.name ?? b.id)); break;
+            case 'model': r = text((a.manufacturer ?? '') + ' ' + (a.model ?? '')).localeCompare(text((b.manufacturer ?? '') + ' ' + (b.model ?? ''))); break;
+            case 'entities': r = a.entities.length - b.entities.length; break;
+            case 'prefix': r = text(a.statePrefixes[0]).localeCompare(text(b.statePrefixes[0])); break;
+            case 'seen': r = (b.lastSeen ?? 0) - (a.lastSeen ?? 0); break; // ascending = most recent first; never seen is moved last below
+            case 'status': r = statusRank(a) - statusRank(b); break;
+        }
+        if (r === 0 && sortKey !== 'name') r = text(a.name ?? a.id).localeCompare(text(b.name ?? b.id));
+        return sortAsc ? r : -r;
+    }
+    const arrow = (k: SortKey) => (sortKey === k ? (sortAsc ? ' ▲' : ' ▼') : '');
+
     let visible = $derived.by(() => {
         const q = filter.trim().toLowerCase();
-        if (!q) return devices;
-        return devices.filter(d =>
+        const list = !q ? devices : devices.filter(d =>
             (d.name ?? '').toLowerCase().includes(q) ||
             d.id.toLowerCase().includes(q) ||
             d.identifiers.some(i => i.toLowerCase().includes(q)) ||
@@ -43,6 +68,9 @@
             d.statePrefixes.some(p => p.toLowerCase().includes(q)) ||
             d.configTopics.some(t => t.toLowerCase().includes(q)),
         );
+        const sorted = [...list].sort(compare);
+        if (sortKey === 'seen') return [...sorted.filter(d => d.lastSeen), ...sorted.filter(d => !d.lastSeen)]; // never seen last, either way
+        return sorted;
     });
     let orphanCount = $derived(devices.filter(d => d.orphaned).length);
     let dupCount    = $derived(devices.filter(d => d.duplicate).length);
@@ -160,12 +188,12 @@
                             </label>
                         </th>
                         <th class="c-exp"></th>
-                        <th>Device</th>
-                        <th>Model</th>
-                        <th class="c-num">Entities</th>
-                        <th>Topic prefix</th>
-                        <th>Last seen</th>
-                        <th>Status</th>
+                        <th class="sortable" class:active={sortKey === 'name'} onclick={() => sortBy('name')} title="Sort by device">Device{arrow('name')}</th>
+                        <th class="sortable" class:active={sortKey === 'model'} onclick={() => sortBy('model')} title="Sort by model">Model{arrow('model')}</th>
+                        <th class="c-num sortable" class:active={sortKey === 'entities'} onclick={() => sortBy('entities')} title="Sort by entity count">Entities{arrow('entities')}</th>
+                        <th class="sortable" class:active={sortKey === 'prefix'} onclick={() => sortBy('prefix')} title="Sort by topic prefix">Topic prefix{arrow('prefix')}</th>
+                        <th class="sortable" class:active={sortKey === 'seen'} onclick={() => sortBy('seen')} title="Sort by last seen (never seen last)">Last seen{arrow('seen')}</th>
+                        <th class="sortable" class:active={sortKey === 'status'} onclick={() => sortBy('status')} title="Sort by status (orphaned first)">Status{arrow('status')}</th>
                         <th class="c-act"></th>
                     </tr>
                 </thead>
@@ -191,7 +219,7 @@
                             <td class="c-num">{d.entities.length}</td>
                             <td class="mono" title={d.statePrefixes.join('\n')}>
                                 {#if d.statePrefixes.length === 0}<span class="muted">—</span>
-                                {:else}{d.statePrefixes[0]}{#if d.statePrefixes.length > 1} <span class="muted">+{d.statePrefixes.length - 1}</span>{/if}{/if}
+                                {:else}<CopyTopic topic={d.statePrefixes[0]} />{#if d.statePrefixes.length > 1} <span class="muted">+{d.statePrefixes.length - 1}</span>{/if}{/if}
                             </td>
                             <td title={fmtDate(d.lastSeen)}>{fmtAge(d.lastSeen)}</td>
                             <td>
@@ -215,8 +243,8 @@
                                                 <tr>
                                                     <td>{e.component}</td>
                                                     <td>{e.name}<div class="dsub mono">{e.uniqueId ?? e.objectId}</div></td>
-                                                    <td class="mono">{e.configTopic}</td>
-                                                    <td class="mono">{#each e.topics as t (t)}<div>{t}</div>{/each}</td>
+                                                    <td class="mono"><CopyTopic topic={e.configTopic} /></td>
+                                                    <td class="mono">{#each e.topics as t (t)}<div><CopyTopic topic={t} /></div>{/each}</td>
                                                     <td class="c-act"><button class="ghost sm" onclick={() => openDelete([d], [e.configTopic])} title="Clear only this announcement">Clear</button></td>
                                                 </tr>
                                             {/each}
@@ -225,7 +253,7 @@
                                     {#if d.stateTopics.length > 0}
                                         <div class="st-list">
                                             <span class="muted">State topics that would be wiped with the device ({d.stateTopics.length}):</span>
-                                            <div class="mono">{#each d.stateTopics as t (t)}<div>{t}</div>{/each}</div>
+                                            <div class="mono">{#each d.stateTopics as t (t)}<div><CopyTopic topic={t} /></div>{/each}</div>
                                         </div>
                                     {/if}
                                 </td>
@@ -253,7 +281,7 @@
                 </p>
                 <button class="link" onclick={() => (plan!.showConfig = !plan!.showConfig)}>{plan.showConfig ? '▾' : '▸'} show config topics</button>
                 {#if plan.showConfig}
-                    <div class="topic-list mono">{#each plan.configTopics as t (t)}<div>{t}</div>{/each}</div>
+                    <div class="topic-list mono">{#each plan.configTopics as t (t)}<div><CopyTopic topic={t} /></div>{/each}</div>
                 {/if}
 
                 {#if plan.stateTopics.length > 0}
@@ -264,7 +292,7 @@
                     </label>
                     <button class="link" onclick={() => (plan!.showState = !plan!.showState)}>{plan.showState ? '▾' : '▸'} show state topics</button>
                     {#if plan.showState}
-                        <div class="topic-list mono">{#each plan.stateTopics as t (t)}<div>{t}</div>{/each}</div>
+                        <div class="topic-list mono">{#each plan.stateTopics as t (t)}<div><CopyTopic topic={t} /></div>{/each}</div>
                     {/if}
                 {:else if plan.devices.length > 0 && plan.devices.every(d => d.stateTopics.length === 0)}
                     <label class="modal-check disabled" title="No device-specific topic prefix could be derived from the announcements, or no retained state topics exist">
@@ -328,6 +356,9 @@
         padding: 5px 8px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
         background: var(--bg-app); white-space: nowrap;
     }
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: var(--fg); }
+    th.sortable.active { color: var(--fg); }
     td { padding: 5px 8px; border-bottom: 1px solid var(--border-sub, var(--border)); vertical-align: top; }
     tr.sel td { background: rgba(86,156,214,0.08); }
     tr.orph .dname { color: #e67e22; }
