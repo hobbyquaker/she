@@ -1703,6 +1703,9 @@ function loadDir(dir) {
             }
 
             const fileLabel = makeLabel(filePath);
+            // the Scripts page reloads an open tab of this file (U12): every file, also libraries, disabled
+            // scripts and non-.js files, since any of them may be open in a tab
+            if (event === 'change') broadcast({ type: 'script:changed', path: fileLabel.slice(0, -1) });
             if (event === 'change' && filePath.endsWith('.js')) {
                 if (isLibFile(filePath, dir)) {
                     log.warn(fileLabel, 'is a library file - scripts that require() it will see the old version until they or the daemon are restarted');

@@ -42,6 +42,8 @@
         logEntries: LogEntry[];
         /** the tab is on screen but its content is still on the wire (slow link, VPN) */
         loading?: boolean;
+        /** the file changed on disk while this tab had unsaved edits (U12): the user chooses */
+        changedOnDisk?: boolean;
     }
 
     let tree = $state<TreeEntry[]>([]);
@@ -255,6 +257,7 @@
     let suppressChange = false;
     let unsubLog: (() => void) | null = null;
     let unsubRunning: (() => void) | null = null;
+    let unsubChanged: (() => void) | null = null;
     let _treeLoaded = false;
     // reactive on purpose: the persistence effects below return early until mount, and an effect that read no
     // signal before returning would never run again - with a plain boolean the chat and tab state were never saved
@@ -556,6 +559,10 @@ declare const she: {
             }
         });
 
+        // a file written from outside this tab — an applied AI draft, another browser tab, an editor on disk —
+        // is re-read into its open tab (U12); a tab with unsaved edits keeps them and gets a marker instead
+        unsubChanged = subscribeWs('script:changed', (msg) => { void reloadTabFromDisk(msg.path as string, false); });
+
         await loadTree();
         loadGitStatus();
         try {
@@ -613,6 +620,7 @@ declare const she: {
         if (syntaxCheckTimer) clearTimeout(syntaxCheckTimer);
         unsubLog?.();
         unsubRunning?.();
+        unsubChanged?.();
         for (const tab of tabs) tab.model?.dispose();
         emptyModel?.dispose();
         editor?.dispose();
@@ -749,6 +757,34 @@ declare const she: {
     async function openTab(path: string) { await openTabInternal(path, true); }
 
     const activeTabLoading = $derived(!!tabs.find((t) => t.path === activeTab)?.loading);
+
+    /**
+     * Re-read a tab's file from disk (U12). A tab without edits takes the new content, keeping the cursor when it
+     * is the active one; a tab whose editor already shows the file's content (the AI's Apply on the foreground
+     * file) is just marked clean; a tab with other edits keeps them and shows the "changed on disk" bar until the
+     * user reloads (force) or keeps its text.
+     */
+    async function reloadTabFromDisk(path: string, force: boolean) {
+        const tab = tabs.find((t) => t.path === path);
+        if (!tab || tab.loading || !tab.model) return;
+        let content: string;
+        try { content = (await readScript(path)).content; } catch { return; }
+        const shown = tab.model.getValue();
+        if (content === tab.savedContent && !force) return; // our own save coming back through the watcher
+        if (content === shown) {
+            tabs = tabs.map((t) => (t.path === path ? { ...t, savedContent: content, dirty: false, changedOnDisk: false } : t));
+            return;
+        }
+        if (tab.dirty && !force) {
+            tabs = tabs.map((t) => (t.path === path ? { ...t, changedOnDisk: true } : t));
+            return;
+        }
+        const isActive = activeTab === path;
+        const pos = isActive ? editor.getPosition() : null;
+        tabs = tabs.map((t) => (t.path === path ? { ...t, savedContent: content, dirty: false, changedOnDisk: false } : t));
+        tab.model.setValue(content);
+        if (isActive && pos) editor.setPosition(pos);
+    }
 
     async function switchTab(path: string) {
         const tab = tabs.find(t => t.path === path);
@@ -1676,6 +1712,7 @@ declare const she: {
                         >
                             <span class="tab-label">{tab.path.split('/').pop()}</span>
                             {#if tab.loading}<span class="tab-spinner" title="Loading…"></span>
+                            {:else if tab.changedOnDisk}<span class="tab-changed" title="Changed on disk while this tab has unsaved edits">⟳</span>
                             {:else if tab.dirty}<span class="tab-dirty">●</span>{/if}
                             <button class="tab-close" title="Close" onclick={(e) => { e.stopPropagation(); closeTab(tab.path); }}>×</button>
                         </div>
@@ -1802,6 +1839,13 @@ declare const she: {
         <div class="editor-body">
             <div class="editor-left">
                 <div class="editor-stack">
+                    {#if currentTab?.changedOnDisk}
+                        <div class="disk-bar">
+                            <span>This file changed on disk while this tab has unsaved edits.</span>
+                            <button onclick={() => reloadTabFromDisk(currentTab!.path, true)} title="Replace the tab's text with the file on disk">Reload from disk</button>
+                            <button class="ghost" onclick={() => { tabs = tabs.map((t) => (t.path === activeTab ? { ...t, changedOnDisk: false } : t)); }} title="Keep the tab's text; saving overwrites the file">Keep mine</button>
+                        </div>
+                    {/if}
                     <div class="editor-container" bind:this={editorContainer}></div>
                     {#if activeTabLoading}
                         <div class="editor-loading">
@@ -2300,6 +2344,13 @@ declare const she: {
     .tab.active { background: var(--bg-panel); color: var(--fg); border-top: 2px solid var(--fg-brand); }
     .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .tab-dirty { color: #e5c07b; font-size: 8px; flex-shrink: 0; }
+    .tab-changed { color: #e5c07b; font-size: 11px; flex-shrink: 0; }
+    .disk-bar {
+        display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 11px;
+        background: var(--bg-widget); border-bottom: 1px solid var(--border); color: var(--fg);
+    }
+    .disk-bar button { background: var(--accent); border: none; color: #fff; padding: 2px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; }
+    .disk-bar button.ghost { background: none; border: 1px solid var(--border); color: var(--fg-muted); }
     .tab-close {
         background: none; border: none; color: var(--fg-muted); cursor: pointer;
         font-size: 14px; padding: 0; width: 16px; height: 16px;
