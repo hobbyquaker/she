@@ -1708,6 +1708,7 @@
     .ai-entry { border: 1px solid var(--border, #444); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 0.8rem; }
     .ai-entry-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
     .ai-entry-head .ai-label { flex: 1; }
+    .ai-entry .field + .field { margin-top: 8px; } /* the fields of an entry stuck together */
     .ai-default { white-space: nowrap; font-size: 0.9em; }
     .ai-remove { background: none; border: none; color: var(--fg); cursor: pointer; opacity: 0.6; }
     .ai-remove:hover { opacity: 1; }
