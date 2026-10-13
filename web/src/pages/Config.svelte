@@ -1709,7 +1709,18 @@
     .ai-entry-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
     .ai-entry-head .ai-label { flex: 1; }
     .ai-default { white-space: nowrap; font-size: 0.9em; }
-    .ai-remove { background: none; border: none; cursor: pointer; opacity: 0.6; }
+    .ai-remove { background: none; border: none; color: var(--fg); cursor: pointer; opacity: 0.6; }
     .ai-remove:hover { opacity: 1; }
-    .ai-add { margin-top: 0.2rem; }
+    /* the same look as the geo buttons: a native button ignores the dark palette */
+    .ai-add {
+        margin-top: 0.2rem;
+        background: var(--bg-input);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    .ai-add:hover { background: var(--bg-hover); }
 </style>
