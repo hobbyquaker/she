@@ -78,6 +78,7 @@ describe('matter controller', () => {
         }));
         jest.doMock('@matter/main/clusters', () => ({
             BasicInformation: { Complete: { id: 40, attributes: { nodeLabel: { id: 5 } } } },
+            GeneralCommissioning: { RegulatoryLocationType: { Indoor: 0, Outdoor: 1, IndoorOutdoor: 2 } },
         }));
 
         // Re-require with fresh modules so _server is reset to null
@@ -213,6 +214,31 @@ describe('matter controller', () => {
 
         const nodeId = await controller.commission({ passcode: 20202021 });
         expect(nodeId).toBe('99999');
+    });
+
+    test('commission sends a regulatory location and country when the caller gives none (B-24)', async () => {
+        const fakeServer = makeFakeServer();
+        fakeServer.peers.commission.mockResolvedValue(makeFakeClientNode(BigInt('7')));
+        ServerNode.create.mockResolvedValue(fakeServer);
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.commission({ passcode: 20202021 });
+        const opts = fakeServer.peers.commission.mock.calls[0][0];
+        expect(opts.regulatoryCountryCode).toBe('XX');
+        expect(opts.regulatoryLocation).toBe(2); // GeneralCommissioning.RegulatoryLocationType.IndoorOutdoor
+        expect(opts.passcode).toBe(20202021);
+    });
+
+    test("commission keeps the caller's regulatory settings", async () => {
+        const fakeServer = makeFakeServer();
+        fakeServer.peers.commission.mockResolvedValue(makeFakeClientNode(BigInt('8')));
+        ServerNode.create.mockResolvedValue(fakeServer);
+        await controller.init('/tmp/matter', fakeLog);
+
+        await controller.commission({ passcode: 1, regulatoryCountryCode: 'DE', regulatoryLocation: 0 });
+        const opts = fakeServer.peers.commission.mock.calls[0][0];
+        expect(opts.regulatoryCountryCode).toBe('DE');
+        expect(opts.regulatoryLocation).toBe(0);
     });
 
     test('commission throws when controller not started', async () => {

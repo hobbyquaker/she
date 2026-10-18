@@ -361,7 +361,18 @@ async function commission(options) {
 }
 
 async function _commissionInner(options) {
-    const { discoveryAddress, ...commissionOpts } = options;
+    const { discoveryAddress, ...rest } = options;
+    // matter.js (0.17.0 … 0.17.9) passes an absent regulatory location and country through
+    // CommissioningClient as `undefined`, which overrides the commissioner's own default "XX":
+    // every Thread or Wi-Fi device then fails at SetRegulatoryConfig ("Missing mandatory field
+    // countryCode"). "XX" (unknown country) is always valid; IndoorOutdoor is used only when the
+    // device reports that capability, otherwise the device keeps its own location.
+    const { GeneralCommissioning } = require('@matter/main/clusters');
+    const commissionOpts = {
+        regulatoryLocation: GeneralCommissioning.RegulatoryLocationType.IndoorOutdoor,
+        regulatoryCountryCode: 'XX',
+        ...rest,
+    };
     let clientNode;
     if (discoveryAddress) {
         const colonIdx = discoveryAddress.lastIndexOf(':');
