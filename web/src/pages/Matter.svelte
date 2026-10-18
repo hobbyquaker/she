@@ -5,6 +5,7 @@
     import { listMatterDevices, getMatterDevice, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, type MatterDevice, type MatterNodeDetail } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
+    import MatterValue from '../lib/MatterValue.svelte';
 
     let { active = true, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
@@ -254,8 +255,21 @@
         return v !== null && typeof v === 'object' && !Array.isArray(v);
     }
 
+    /** bytes (`{ $bytes }`) and certificates (`{ $cert }`) from the server — rendered by MatterValue */
+    function isSpecial(v: unknown): boolean {
+        return isPlainObj(v) && ('$bytes' in v || '$cert' in v);
+    }
+
+    /** a value that needs MatterValue: a special one, or one that contains one */
+    function hasSpecial(v: unknown): boolean {
+        if (isSpecial(v)) return true;
+        if (Array.isArray(v)) return v.some(hasSpecial);
+        if (isPlainObj(v)) return Object.values(v).some(hasSpecial);
+        return false;
+    }
+
     function isArrOfObj(v: unknown): v is Record<string, unknown>[] {
-        return Array.isArray(v) && v.length > 0 && v.every(isPlainObj);
+        return Array.isArray(v) && v.length > 0 && v.every((x) => isPlainObj(x) && !isSpecial(x));
     }
 
     function isHidden(v: unknown, k?: string): boolean {
@@ -774,13 +788,15 @@
                                                                 {/each}
                                                             </tbody>
                                                         </table>
+                                                    {:else if isSpecial(v) || (Array.isArray(v) && v.length > 0 && v.every(isSpecial))}
+                                                        <MatterValue value={v} name={k} />
                                                     {:else if isArrOfObj(v)}
                                                         {@const cols = [...new Set((v as Record<string, unknown>[]).flatMap((item) => Object.keys(item)))]}
                                                         <table class="attr-arr-table">
                                                             <thead><tr>{#each cols as col}<th>{col}</th>{/each}</tr></thead>
                                                             <tbody>
                                                                 {#each v as item}
-                                                                    <tr>{#each cols as col}<td>{fmtScalar((item as Record<string, unknown>)[col])}</td>{/each}</tr>
+                                                                    <tr>{#each cols as col}{@const cell = (item as Record<string, unknown>)[col]}<td>{#if hasSpecial(cell)}<MatterValue value={cell} name={col} />{:else}{fmtScalar(cell)}{/if}</td>{/each}</tr>
                                                                 {/each}
                                                             </tbody>
                                                         </table>
@@ -790,7 +806,7 @@
                                                             {#each Object.entries(v) as [ok, ov]}
                                                                 <tr>
                                                                     <td class="attr-obj-key">{ok}</td>
-                                                                    <td class="attr-obj-val">{fmtScalar(ov)}</td>
+                                                                    <td class="attr-obj-val">{#if hasSpecial(ov)}<MatterValue value={ov} name={ok} />{:else}{fmtScalar(ov)}{/if}</td>
                                                                 </tr>
                                                             {/each}
                                                             </tbody>
@@ -1200,6 +1216,9 @@
     .attr-val-cell {
         padding: 3px 10px 3px 6px;
         vertical-align: middle;
+        max-width: 0; /* take the remaining width, never more */
+        width: 100%;
+        overflow-x: auto;
     }
     .attr-key {
         color: var(--fg-muted);
@@ -1269,6 +1288,8 @@
         padding: 1px 10px 1px 0;
         vertical-align: baseline;
         white-space: nowrap;
+        max-width: 40em;
+        overflow-wrap: anywhere;
     }
     .attr-obj-key {
         color: var(--fg-muted);

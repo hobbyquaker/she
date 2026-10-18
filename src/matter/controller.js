@@ -81,9 +81,15 @@ function _resolveEndpoint(node, endpointIdOrName) {
     throw new Error(`Endpoint not found: ${endpointIdOrName}`);
 }
 
-/** Recursively convert BigInt values to numbers/strings so the result is JSON-serialisable. */
+/**
+ * Recursively convert values so the result is JSON-serialisable: BigInt to a number (or a string
+ * beyond 2^53), byte arrays to `{ $bytes: "<hex>" }` — JSON.stringify would turn a Uint8Array into
+ * an object of numbered keys, which the UI cannot tell from a struct.
+ */
 function _jsonSafe(v) {
     if (typeof v === 'bigint') return v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : v.toString();
+    if (ArrayBuffer.isView(v)) return { $bytes: Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString('hex') };
+    if (v instanceof ArrayBuffer) return { $bytes: Buffer.from(v).toString('hex') };
     if (Array.isArray(v)) return v.map(_jsonSafe);
     if (v !== null && typeof v === 'object') {
         const out = {};
@@ -448,7 +454,7 @@ function getEndpoints(nodeId) {
                 const attrs = {};
                 if (clusterState && typeof clusterState === 'object') {
                     for (const [k, v] of Object.entries(clusterState)) {
-                        attrs[k] = _jsonSafe(v);
+                        attrs[k] = _attrValue(clusterName, k, v);
                     }
                 }
                 clusters.push({ name: clusterName, attrs });
@@ -638,6 +644,88 @@ async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
  * @param {object} node   ClientNode
  * @param {string} nodeId decimal string
  */
+/** Matter's attribute OIDs (1.3.6.1.4.1.37244.1.x, Matter core spec 6.5.6.1) by name. */
+const MATTER_DN_OIDS = {
+    '1.3.6.1.4.1.37244.1.1': 'matter-node-id',
+    '1.3.6.1.4.1.37244.1.2': 'matter-firmware-signing-id',
+    '1.3.6.1.4.1.37244.1.3': 'matter-icac-id',
+    '1.3.6.1.4.1.37244.1.4': 'matter-rcac-id',
+    '1.3.6.1.4.1.37244.1.5': 'matter-fabric-id',
+    '1.3.6.1.4.1.37244.1.6': 'matter-noc-cat',
+};
+
+/** node's X509Certificate distinguished name ("oid=value\n…") with Matter's OIDs named */
+function _matterDn(dn) {
+    return String(dn || '')
+        .split('\n')
+        .filter(Boolean)
+        .map((part) => {
+            const eq = part.indexOf('=');
+            const key = part.slice(0, eq);
+            return `${MATTER_DN_OIDS[key] || key}=${part.slice(eq + 1)}`;
+        })
+        .join(', ');
+}
+
+/**
+ * A Matter operational certificate (TLV, as the OperationalCredentials cluster holds it) as
+ * `{ $cert: { kind, subject, validFrom, validTo, fingerprint, pem } }`: converted to X.509 DER by
+ * matter.js, read back by node's X509Certificate. Anything that does not convert stays `$bytes`.
+ */
+function _certValue(kind, bytes) {
+    if (!ArrayBuffer.isView(bytes)) return _jsonSafe(bytes);
+    try {
+        const { Noc, Icac, Rcac } = require('@matter/protocol');
+        const cert = { NOC: Noc, ICAC: Icac, RCAC: Rcac }[kind].fromTlv(bytes);
+        const der = Buffer.from(cert.asSignedDer());
+        const x509 = new (require('crypto').X509Certificate)(der);
+        const lines = der
+            .toString('base64')
+            .match(/.{1,64}/g)
+            .join('\n');
+        return {
+            $cert: {
+                kind,
+                // Matter's own fields (nodeId, fabricId, rcacId, icacId, caseAuthenticatedTags …)
+                subject: _jsonSafe(cert.cert.subject),
+                issuer: _jsonSafe(cert.cert.issuer),
+                // the same as X.509 distinguished names, with Matter's OIDs named
+                subjectDn: _matterDn(x509.subject),
+                issuerDn: _matterDn(x509.issuer),
+                serialNumber: x509.serialNumber,
+                validFrom: new Date(x509.validFrom).toISOString(),
+                validTo: new Date(x509.validTo).toISOString(),
+                ca: x509.ca,
+                // key usage, extended key usage, basic constraints, key identifiers — all the
+                // certificate carries; Matter operational certificates have no CRL distribution point
+                extensions: _jsonSafe(cert.cert.extensions),
+                fingerprint: x509.fingerprint256,
+                pem: `-----BEGIN CERTIFICATE-----\n${lines}\n-----END CERTIFICATE-----`,
+            },
+        };
+    } catch {
+        return _jsonSafe(bytes);
+    }
+}
+
+/** An attribute value for the UI and the REST API: certificates as PEM, the rest via _jsonSafe. */
+function _attrValue(clusterName, attrName, value) {
+    if (clusterName === 'operationalCredentials') {
+        if (attrName === 'nocs' && Array.isArray(value)) {
+            return value.map((entry) => {
+                const out = _jsonSafe(entry);
+                if (entry?.noc) out.noc = _certValue('NOC', entry.noc);
+                if (entry?.icac) out.icac = _certValue('ICAC', entry.icac);
+                return out;
+            });
+        }
+        if (attrName === 'trustedRootCertificates' && Array.isArray(value)) {
+            return value.map((root) => _certValue('RCAC', root));
+        }
+    }
+    return _jsonSafe(value);
+}
+
 function _broadcastNodeAttributes(node, nodeId) {
     if (!_broadcast) return;
     if (_attrBroadcastNodes.has(nodeId)) return;
@@ -664,7 +752,7 @@ function _broadcastNodeAttributes(node, nodeId) {
                             endpointId,
                             clusterName,
                             attrName,
-                            value: _jsonSafe(value),
+                            value: _attrValue(clusterName, attrName, value),
                             ts: Date.now(),
                         });
                         // Device/endpoint labels feed the device list — rebroadcast it
@@ -806,6 +894,8 @@ function isStarted() {
 }
 
 module.exports = {
+    // for the unit tests: the value conversion, without a running controller
+    _attrValue,
     init,
     close,
     isStarted,
