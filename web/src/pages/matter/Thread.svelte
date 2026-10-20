@@ -10,7 +10,7 @@
     import jsQR from 'jsqr';
     import { getThreadHealth, checkThreadHealth, clearThreadHealthHistory, type ThreadHealth } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
-    import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation, type SimulationNodeDatum, type SimulationLinkDatum } from 'd3-force';
+    import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, type Simulation, type SimulationNodeDatum, type SimulationLinkDatum } from 'd3-force';
 
     let { active = false }: { active?: boolean } = $props();
 
@@ -208,11 +208,16 @@
         const byId = new Map(nodes.map((n) => [n.id, n]));
         const links: GLink[] = mesh.links.filter((l) => byId.has(l.source) && byId.has(l.target)).map((l) => ({ ...l }));
         sim?.stop();
+        // each network gets a centre of its own, side by side, so its nodes cluster there
+        const keys = [...new Set(nodes.map((n) => n.network ?? ''))];
+        const centreX = (n: GNode) => (W * (keys.indexOf(n.network ?? '') + 1)) / (keys.length + 1);
         sim = forceSimulation<GNode, GLink>(nodes)
             .force('link', forceLink<GNode, GLink>(links).id((d) => d.id).distance((l) => (l.kind === 'binding' ? 120 : l.quality === 'good' ? 70 : l.quality === 'fair' ? 110 : 150)).strength((l) => (l.kind === 'binding' ? 0.05 : 0.6)))
             .force('charge', forceManyBody().strength(-260))
             .force('center', forceCenter(W / 2, H / 2))
-            .force('collide', forceCollide(28))
+            .force('collide', forceCollide(34))
+            .force('x', forceX<GNode>(centreX).strength(keys.length > 1 ? 0.12 : 0.02))
+            .force('y', forceY<GNode>(H / 2).strength(0.04))
             .alpha(1)
             .on('tick', () => { gNodes = nodes; gLinks = links; });
         gNodes = nodes;
@@ -241,12 +246,87 @@
         (e.currentTarget as Element).setPointerCapture(e.pointerId);
     }
     function dragMove(e: PointerEvent) {
+        if (panning && svgEl) {
+            view = { ...view, x: panning.vx + e.clientX - panning.cx, y: panning.vy + e.clientY - panning.cy };
+            return;
+        }
         if (!dragging || !svgEl) return;
+        const p = toGraph(e);
+        dragging.fx = p.x;
+        dragging.fy = p.y;
+    }
+
+    // zoom (mouse wheel, around the pointer) and pan (drag the background)
+    let view = $state({ k: 1, x: 0, y: 0 });
+    let panning = $state<{ cx: number; cy: number; vx: number; vy: number } | null>(null);
+    function toGraph(e: { clientX: number; clientY: number }): { x: number; y: number } {
+        const r = svgEl!.getBoundingClientRect();
+        return { x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k };
+    }
+    function wheel(e: WheelEvent) {
+        if (!svgEl) return;
+        e.preventDefault();
         const r = svgEl.getBoundingClientRect();
-        dragging.fx = e.clientX - r.left;
-        dragging.fy = e.clientY - r.top;
+        const k = Math.min(4, Math.max(0.25, view.k * Math.exp(-e.deltaY * 0.0015)));
+        const px = e.clientX - r.left;
+        const py = e.clientY - r.top;
+        view = { k, x: px - ((px - view.x) * k) / view.k, y: py - ((py - view.y) * k) / view.k };
+    }
+    function panStart(e: PointerEvent) {
+        if (e.target !== svgEl && !(e.target as Element).classList?.contains('net-hull')) return;
+        panning = { cx: e.clientX, cy: e.clientY, vx: view.x, vy: view.y };
+        svgEl?.setPointerCapture(e.pointerId);
+    }
+    function resetView() {
+        view = { k: 1, x: 0, y: 0 };
+    }
+    /** the box around a network's nodes, for its coloured area and label */
+    function hull(key: string): { x: number; y: number; w: number; h: number } | null {
+        const ns = gNodes.filter((n) => (n.network ?? '') === key);
+        if (ns.length === 0) return null;
+        const xs = ns.map((n) => n.x ?? 0);
+        const ys = ns.map((n) => n.y ?? 0);
+        const pad = 40;
+        const x = Math.min(...xs) - pad;
+        const y = Math.min(...ys) - pad;
+        return { x, y, w: Math.max(...xs) + pad - x, h: Math.max(...ys) + pad + 14 - y };
+    }
+    const NET_COLOURS = ['#61afef', '#c678dd', '#98c379', '#e5c07b', '#56b6c2', '#e06c75'];
+    function netColour(key: string): string {
+        const i = (mesh?.networks ?? []).findIndex((n) => n.key === key);
+        return i < 0 ? '#7f848e' : NET_COLOURS[i % NET_COLOURS.length];
+    }
+    function netLabel(key: string): string {
+        const n = mesh?.networks.find((x) => x.key === key);
+        if (!n) return '';
+        const parts = [n.networkName ?? n.extPanId ?? 'network'];
+        if (n.channel !== null && n.channel !== undefined) parts.push(`ch ${n.channel}`);
+        if (n.partitions.length) parts.push(`partition ${n.partitions.join(', ')}`);
+        if (n.partitions.length > 1) parts.push('split!');
+        return parts.join(' · ');
+    }
+    function rloc(n: GNode): string {
+        return n.rloc16 !== null && n.rloc16 !== undefined ? '0x' + Number(n.rloc16).toString(16).padStart(4, '0') : '';
+    }
+    /** the small second line under a node: role and RLOC16 */
+    function subLabel(n: GNode): string {
+        return [n.role, rloc(n)].filter(Boolean).join(' · ');
+    }
+    /** the hover text: everything the graph knows about a node */
+    function tooltip(n: GNode): string {
+        const lines = [n.name];
+        const net = mesh?.networks.find((x) => x.key === n.network);
+        if (net) lines.push(`network ${net.networkName ?? ''}${net.extPanId ? ` (ext PAN ID ${net.extPanId})` : ''}`);
+        if (n.role) lines.push(`role ${n.role}`);
+        if (rloc(n)) lines.push(`RLOC16 ${rloc(n)}`);
+        if (n.extAddress) lines.push(`ext address ${hexAddr(n.extAddress)}`);
+        if (n.partitionId !== null && n.partitionId !== undefined) lines.push(`partition ${n.partitionId}`);
+        for (const a of n.ipv6 ?? []) lines.push(`Thread ${a}`);
+        for (const a of n.addresses ?? []) lines.push(`LAN ${a}`);
+        return lines.join('\n');
     }
     function dragEnd() {
+        panning = null;
         if (!dragging) return;
         dragging.fx = null; dragging.fy = null;
         dragging = null;
@@ -259,7 +339,6 @@
     function nodeColor(n: GNode): string {
         if (n.kind === 'border-router' || n.borderRouter) return '#c678dd';
         if (n.kind === 'external') return '#7f848e';
-        if (n.kind === 'wifi') return n.quality === 'good' ? '#61afef' : n.quality === 'fair' ? '#e5a86b' : '#e06c75';
         if (!n.online) return '#5c6370';
         if (n.roleCode === 6) return '#e5c07b';
         if (n.roleCode === 5 || n.roleCode === 4) return '#98c379';
@@ -273,7 +352,6 @@
     function roleGlyph(n: GNode): string {
         if (n.kind === 'border-router' || n.borderRouter) return 'BR';
         if (n.kind === 'external') return '?';
-        if (n.kind === 'wifi') return 'Wi‑Fi';
         if (n.roleCode === 6) return 'L';
         if (n.roleCode === 5) return 'R';
         if (n.roleCode === 4) return 'RE';
@@ -415,21 +493,29 @@
             <section class="net mesh">
                 <div class="net-hdr">
                     <span class="net-name">Mesh</span>
-                    {#if mesh}<span class="dim">· {mesh.nodes.filter((n) => n.kind === 'thread').length} Thread device{mesh.nodes.filter((n) => n.kind === 'thread').length === 1 ? '' : 's'} in she's fabric · {mesh.links.filter((l) => l.kind === 'neighbour').length} link{mesh.links.filter((l) => l.kind === 'neighbour').length === 1 ? '' : 's'}{mesh.lastRefresh ? ` · tables read ${ago(mesh.lastRefresh)}` : ' · tables from the subscriptions'}</span>{/if}
+                    {#if mesh}<span class="dim">· {mesh.nodes.filter((n) => n.kind === 'thread').length} Thread device{mesh.nodes.filter((n) => n.kind === 'thread').length === 1 ? '' : 's'} in she's fabric · {mesh.links.filter((l) => l.kind === 'neighbour').length} link{mesh.links.filter((l) => l.kind === 'neighbour').length === 1 ? '' : 's'}{mesh.lastRefresh ? ` · tables read ${ago(mesh.lastRefresh)}` : ' · tables from the subscriptions'}{mesh.hidden && mesh.hidden.wifi + mesh.hidden.other > 0 ? ` · ${mesh.hidden.wifi + mesh.hidden.other} device${mesh.hidden.wifi + mesh.hidden.other === 1 ? '' : 's'} not on Thread not shown` : ''}</span>{/if}
                     <span class="spacer"></span>
                     <button class="ghost sm" onclick={() => refreshMesh()} disabled={meshRefreshing} title="Re-read every Thread device's neighbour and route tables (sleepy devices answer slowly)">{meshRefreshing ? 'reading…' : 'refresh with neighbours'}</button>
                 </div>
-                <p class="hint">From every Thread device's Network Diagnostics cluster: links coloured by link quality (<span class="lq good">LQI 3</span> · <span class="lq fair">2</span> · <span class="lq poor">1</span>), a dashed link is seen from one side only, a child link is drawn thicker; a <span class="lq br">BR</span> is a border router, <span class="lq ext">?</span> a neighbour not paired with she; dotted arrows are bindings. Drag nodes; click one for details.</p>
+                <p class="hint">From every Thread device's Network Diagnostics cluster: links coloured by link quality (<span class="lq good">LQI 3</span> · <span class="lq fair">2</span> · <span class="lq poor">1</span>), a dashed link is seen from one side only, a child link is drawn thicker; a <span class="lq br">BR</span> is a border router, <span class="lq ext">?</span> a neighbour not paired with she; dotted arrows are bindings. Each Thread network is a coloured area with its name, channel and partition. Drag nodes, drag the background to move, mouse wheel to zoom; hover a node for its addresses, click it for details.</p>
                 {#if meshError}<p class="err">{meshError}</p>{/if}
                 {#if mesh && mesh.nodes.length === 0}
                     <div class="info">No Thread device in she's fabric yet.</div>
                 {:else}
                     <div class="graph-wrap">
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <svg bind:this={svgEl} class="graph" viewBox="0 0 {W} {H}" onpointermove={dragMove} onpointerup={dragEnd} onpointerleave={dragEnd}>
+                        <svg bind:this={svgEl} class="graph" class:panning={!!panning} viewBox="0 0 {W} {H}" onwheel={wheel} onpointerdown={panStart} onpointermove={dragMove} onpointerup={dragEnd} onpointerleave={dragEnd}>
                             <defs>
                                 <marker id="arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent, #569cd6)" /></marker>
                             </defs>
+                            <g transform="translate({view.x},{view.y}) scale({view.k})">
+                            {#each mesh?.networks ?? [] as net (net.key)}
+                                {@const b = hull(net.key)}
+                                {#if b}
+                                    <rect class="net-hull" x={b.x} y={b.y} width={b.w} height={b.h} rx="14" fill={netColour(net.key)} fill-opacity="0.07" stroke={netColour(net.key)} stroke-opacity="0.45" stroke-dasharray="4 3" />
+                                    <text class="net-label" x={b.x + 10} y={b.y + 15} fill={netColour(net.key)}>{netLabel(net.key)}</text>
+                                {/if}
+                            {/each}
                             {#each gLinks as l (l.kind + '|' + (l.source as GNode).id + '|' + (l.target as GNode).id)}
                                 {@const a = pos(l, 'source')}
                                 {@const b = pos(l, 'target')}
@@ -442,10 +528,17 @@
                                     <circle r={n.kind === 'external' ? 11 : 15} fill={nodeColor(n)} stroke={selectedNode?.id === n.id ? 'var(--fg-text)' : 'var(--bg-app)'} stroke-width="2" opacity={n.online ? 1 : 0.5} />
                                     <text class="glyph" text-anchor="middle" dy="4">{roleGlyph(n)}</text>
                                     <text class="label" text-anchor="middle" dy="30">{n.name}</text>
-                                    <title>{n.name}{n.role ? ` · ${n.role}` : ''}{n.rloc16 !== null && n.rloc16 !== undefined ? ` · RLOC16 0x${n.rloc16.toString(16).padStart(4, '0')}` : ''}{n.rssi !== null && n.rssi !== undefined ? ` · ${n.rssi} dBm` : ''}</title>
+                                    {#if subLabel(n)}<text class="sublabel" text-anchor="middle" dy="42">{subLabel(n)}</text>{/if}
+                                    <title>{tooltip(n)}</title>
                                 </g>
                             {/each}
+                            </g>
                         </svg>
+                        <div class="graph-tools">
+                            <button class="ghost sm" onclick={() => (view = { ...view, k: Math.min(4, view.k * 1.25) })} title="zoom in (or the mouse wheel)">+</button>
+                            <button class="ghost sm" onclick={() => (view = { ...view, k: Math.max(0.25, view.k / 1.25) })} title="zoom out">−</button>
+                            <button class="ghost sm" onclick={resetView} title="reset zoom and position">1:1</button>
+                        </div>
                         {#if selectedNode}
                             {@const n = selectedNode}
                             <div class="node-detail">
@@ -454,17 +547,17 @@
                                     <div>role <b>{n.role}</b>{n.borderRouter ? ` · border router (${n.borderRouter.vendorName ?? ''} ${n.borderRouter.modelName ?? ''})` : ''}</div>
                                     <div class="mono dim">RLOC16 {n.rloc16 !== null && n.rloc16 !== undefined ? '0x' + n.rloc16.toString(16).padStart(4, '0') : '—'} · ext {n.extAddress ? hexAddr(n.extAddress) : '—'}</div>
                                     <div class="dim">{n.networkName ?? ''}{n.channel ? ` · channel ${n.channel}` : ''}{n.partitionId !== null && n.partitionId !== undefined ? ` · partition ${n.partitionId}` : ''} · {n.neighbours} neighbour{n.neighbours === 1 ? '' : 's'}, {n.routes} route{n.routes === 1 ? '' : 's'}{n.readAt ? ` · read ${ago(n.readAt)}` : ''}</div>
+                                    {#if n.ipv6?.length}<div class="mono dim">{#each n.ipv6 as a}<div>{a}</div>{/each}</div>{/if}
                                     <div class="nd-links">{#each gLinks.filter((l) => l.kind === 'neighbour' && ((l.source as GNode).id === n.id || (l.target as GNode).id === n.id)) as l}{@const other = (l.source as GNode).id === n.id ? (l.target as GNode) : (l.source as GNode)}<div><span class="lq {l.quality}">●</span> {other.name} <span class="dim">LQI {l.lqi}{l.rssi !== null && l.rssi !== undefined ? ` · ${l.rssi} dBm` : ''}{l.isChild ? ' · child' : ''}{l.bidirectional ? '' : ' · one-way'}</span></div>{/each}</div>
                                     {#if n.nodeId}<button class="ghost sm" disabled={meshRefreshing} onclick={() => refreshMesh(n.nodeId)}>refresh this device</button>{/if}
-                                {:else if n.kind === 'wifi'}
-                                    <div>Wi‑Fi · RSSI <b>{n.rssi ?? '—'} dBm</b> ({n.quality}){n.bssid ? ` · AP ${n.bssid}` : ''}</div>
                                 {:else if n.kind === 'border-router'}
-                                    <div class="dim">{n.networkName ?? ''}{n.role ? ` · ${n.role}` : ''} · ext {n.extAddress ? hexAddr(n.extAddress) : '—'}</div>
+                                    <div class="dim">{n.networkName ?? ''}{n.role ? ` · ${n.role}` : ''}{n.partitionId ? ` · partition ${n.partitionId}` : ''} · ext {n.extAddress ? hexAddr(n.extAddress) : '—'}</div>
+                                    {#if n.hostname}<div class="mono dim">{n.hostname}</div>{/if}
+                                    {#if n.addresses?.length}<div class="mono dim">{#each n.addresses as a}<div>{a}</div>{/each}</div>{/if}
+                                    <div class="dim">Not in she's fabric: the addresses are the ones it announces on the LAN, its Thread addresses are not visible from here.</div>
                                 {:else if n.kind === 'external'}
                                     <div class="dim">{n.explanation}</div>
                                     <div class="mono dim">ext {n.extAddress ? hexAddr(n.extAddress) : '—'}{n.rloc16 !== null && n.rloc16 !== undefined ? ` · RLOC16 0x${Number(n.rloc16).toString(16)}` : ''}</div>
-                                {:else}
-                                    <div class="dim">no Thread or Wi‑Fi diagnostics{n.online ? '' : ' · offline'}</div>
                                 {/if}
                             </div>
                         {/if}
@@ -539,6 +632,11 @@
     .gnode { cursor: grab; }
     .gnode text.glyph { font-size: 9px; font-weight: 700; fill: #1e1e1e; pointer-events: none; }
     .gnode text.label { font-size: 10px; fill: var(--fg); pointer-events: none; }
+    .gnode text.sublabel { font-size: 8.5px; fill: var(--fg-dim); pointer-events: none; font-family: monospace; }
+    .graph { cursor: grab; }
+    .graph.panning { cursor: grabbing; }
+    .net-label { font-size: 10.5px; font-weight: 600; pointer-events: none; }
+    .graph-tools { position: absolute; left: 8px; top: 8px; display: flex; gap: 4px; }
     .lq { font-weight: 600; }
     .lq.good { color: #98c379; }
     .lq.fair { color: #e5a86b; }

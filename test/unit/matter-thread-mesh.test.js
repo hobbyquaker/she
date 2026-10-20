@@ -49,22 +49,23 @@ describe('thread mesh: buildGraph', () => {
 
     test('nodes, roles, border routers joined by extended address, links merged with the better LQI', () => {
         const g = mesh.buildGraph([bulb, sw, govee, bridge], [appleTv], []);
+        // Wi-Fi devices and devices without diagnostics are no part of a Thread mesh: counted, not drawn
         expect(g.nodes.map((n) => [n.id, n.kind])).toEqual([
             ['node:4', 'thread'],
             ['node:2', 'thread'],
-            ['node:9', 'wifi'],
-            ['node:1', 'other'],
             ['br:AABBCCDDEEFF0011', 'border-router'],
         ]);
+        expect(g.hidden).toEqual({ wifi: 1, other: 1 });
         expect(g.nodes[0]).toMatchObject({ role: 'router', rloc16: 0x5400, neighbours: 2, routes: 1, readAt: 5, networkName: 'Home' });
         expect(g.nodes[1].role).toBe('sleepy end device');
-        expect(g.nodes[2]).toMatchObject({ rssi: -72, quality: 'fair' });
         const links = g.links.filter((l) => l.kind === 'neighbour');
         expect(links).toEqual([
             expect.objectContaining({ source: 'node:4', target: 'br:AABBCCDDEEFF0011', lqi: 3, quality: 'good', rssi: -60, bidirectional: false }),
             expect.objectContaining({ source: 'node:4', target: 'node:2', lqi: 2, lqiBack: 2, quality: 'fair', bidirectional: true, isChild: true }),
         ]);
-        expect(g.networks).toEqual([{ networkName: 'Home', partitions: ['7'], channel: 25, nodes: 2 }]);
+        // one network, the border router in it; the devices took its extended PAN ID by the network name
+        expect(g.networks).toEqual([{ key: '01', extPanId: '01', networkName: 'Home', partitions: ['7'], channel: 25, nodes: 3, borderRouters: 1 }]);
+        expect(g.nodes.map((n) => n.network)).toEqual(['01', '01', '01']);
     });
 
     test('a neighbour nobody knows becomes an external node; a border router that is a fabric node is merged', () => {
@@ -239,5 +240,68 @@ describe('thread mesh: MeshCoP through a border router (M17)', () => {
         });
         await expect(mesh.meshcopQuery('0000000000000000')).rejects.toThrow('MeshCoP is off');
         mesh.stop();
+    });
+});
+
+describe('thread mesh: networks and addresses', () => {
+    const mesh = require('../../src/matter/thread-mesh');
+
+    test("border routers of two networks stay apart; an external neighbour joins its finder's network", () => {
+        const node = {
+            nodeId: '2',
+            name: 'Switch',
+            online: true,
+            thread: {
+                role: 5,
+                rloc16: 0x400,
+                extAddress: 'CAD3848A722FD46D',
+                networkName: 'MyHome',
+                extPanId: '0DAB60AA62634026',
+                partitionId: 1,
+                neighborTable: [{ extAddress: 0x1111111111111111n, rloc16: 0x800, lqi: 3 }],
+                routeTable: [],
+            },
+        };
+        const apple = {
+            extAddress: 'DE424E634C3B559B',
+            vendorName: 'Apple',
+            modelName: 'BorderRouter',
+            networkName: 'MyHome',
+            extPanId: '0DAB60AA62634026',
+            partitionId: '4AD1BF4F',
+            state: { role: 'leader' },
+        };
+        const otbr = {
+            extAddress: '82A562321CA4E52B',
+            vendorName: 'OpenThread',
+            modelName: 'BorderRouter',
+            networkName: 'MyHome',
+            extPanId: '0DAB60AA62634026',
+            partitionId: '4AD1BF4F',
+            state: { role: 'router' },
+        };
+        const echo = {
+            extAddress: '3E3743EE2E64CF8C',
+            vendorName: 'amazon',
+            modelName: 'echo',
+            networkName: 'AMZN-Thread-124d',
+            extPanId: 'EFA4890BFFE9E2D6',
+            state: { role: 'leader' },
+        };
+        const g = mesh.buildGraph([node], [apple, otbr, echo], []);
+        const byKey = Object.fromEntries(g.networks.map((n) => [n.key, n]));
+        expect(byKey['0DAB60AA62634026']).toMatchObject({ networkName: 'MyHome', nodes: 4, borderRouters: 2 });
+        expect(byKey.EFA4890BFFE9E2D6).toMatchObject({ networkName: 'AMZN-Thread-124d', nodes: 1, borderRouters: 1 });
+        const ext = g.nodes.find((n) => n.kind === 'external');
+        expect(ext.network).toBe('0DAB60AA62634026');
+        expect(g.nodes.find((n) => n.name === 'Apple BorderRouter').partitionId).toBe('4AD1BF4F');
+    });
+
+    test('IPv6 addresses in the short form', () => {
+        const hex = (s) => ({ $bytes: s });
+        expect(mesh._ipv6(hex('fe80000000000000c8d3848a722fd46d'))).toBe('fe80::c8d3:848a:722f:d46d');
+        expect(mesh._ipv6(hex('fdd84f888a2f0000526ac5311b8cbbc5'))).toBe('fdd8:4f88:8a2f:0:526a:c531:1b8c:bbc5');
+        expect(mesh._ipv6(Uint8Array.from(Buffer.from('00000000000000000000000000000001', 'hex')))).toBe('::1');
+        expect(mesh._ipv6(hex('0102'))).toBeNull();
     });
 });

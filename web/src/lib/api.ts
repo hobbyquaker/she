@@ -592,7 +592,7 @@ export function clearThreadHealthHistory(): Promise<ThreadHealth> {
 
 export interface MeshNode {
     id: string;
-    kind: 'thread' | 'wifi' | 'other' | 'border-router' | 'external';
+    kind: 'thread' | 'border-router' | 'external' | 'meshcop';
     nodeId?: string;
     name: string;
     online: boolean;
@@ -601,8 +601,16 @@ export interface MeshNode {
     rloc16?: number | null;
     extAddress?: string | null;
     channel?: number | null;
-    partitionId?: number | null;
+    partitionId?: number | string | null;
     networkName?: string | null;
+    extPanId?: string | null;
+    /** the network key the graph groups by: the extended PAN ID, else `name:<network name>` */
+    network?: string;
+    /** the device's Thread IPv6 addresses (devices in she's fabric) */
+    ipv6?: string[];
+    /** a border router's LAN addresses and host name, from its mDNS announcement */
+    addresses?: string[];
+    hostname?: string | null;
     neighbours?: number;
     routes?: number;
     readAt?: number | null;
@@ -626,7 +634,16 @@ export interface MeshLink {
     label?: string;
     key?: string;
 }
-export interface ThreadMesh { nodes: MeshNode[]; links: MeshLink[]; networks: { networkName: string; partitions: string[]; channel: number | null; nodes: number }[]; lastRefresh: number | null; nodeCount: number }
+export interface MeshNetwork { key: string; extPanId: string | null; networkName: string | null; partitions: string[]; channel: number | null; nodes: number; borderRouters: number }
+export interface ThreadMesh {
+    nodes: MeshNode[];
+    links: MeshLink[];
+    networks: MeshNetwork[];
+    /** devices in she's fabric that are not on Thread (Wi-Fi, Ethernet, no diagnostics): not drawn */
+    hidden?: { wifi: number; other: number };
+    lastRefresh: number | null;
+    nodeCount: number;
+}
 
 export function getThreadMesh(): Promise<ThreadMesh> {
     return request('GET', '/she/matter/thread/mesh');

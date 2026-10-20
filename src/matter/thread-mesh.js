@@ -46,6 +46,28 @@ function hex64(v) {
 }
 
 /** LQI 3 → good, 2 → fair, 1 → poor, 0 → unknown (the OHF dashboard's colours). */
+/** an IPv6 address from 16 bytes (a Uint8Array or `{ $bytes }`) in the usual short form */
+function _ipv6(v) {
+    const buf = v?.$bytes ? Buffer.from(v.$bytes, 'hex') : ArrayBuffer.isView(v) ? Buffer.from(v.buffer, v.byteOffset, v.byteLength) : null;
+    if (!buf || buf.length !== 16) return null;
+    const groups = [];
+    for (let i = 0; i < 16; i += 2) groups.push(buf.readUInt16BE(i).toString(16));
+    // the longest run of two or more zero groups becomes "::"
+    let best = { at: -1, len: 0 };
+    for (let i = 0; i < 8; ) {
+        if (groups[i] !== '0') {
+            i++;
+            continue;
+        }
+        let j = i;
+        while (j < 8 && groups[j] === '0') j++;
+        if (j - i > best.len && j - i > 1) best = { at: i, len: j - i };
+        i = j;
+    }
+    if (best.at < 0) return groups.join(':');
+    return `${groups.slice(0, best.at).join(':')}::${groups.slice(best.at + best.len).join(':')}`;
+}
+
 function lqiQuality(lqi) {
     if (lqi >= 3) return 'good';
     if (lqi === 2) return 'fair';
@@ -68,7 +90,7 @@ function rssiQuality(rssi) {
  * @param {object[]} bindings  M13's binding list
  */
 function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
-    const out = { nodes: [], links: [], networks: [], meshcop: { nodes: 0, networks: [] } };
+    const out = { nodes: [], links: [], networks: [], hidden: { wifi: 0, other: 0 }, meshcop: { nodes: 0, networks: [] } };
     const byExt = new Map();
     const byRloc = new Map();
     const byNodeId = new Map();
@@ -87,6 +109,8 @@ function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
                 channel: n.thread.channel ?? null,
                 partitionId: n.thread.partitionId ?? null,
                 networkName: n.thread.networkName ?? null,
+                extPanId: n.thread.extPanId ?? null,
+                ipv6: n.thread.ipv6 ?? [],
                 neighbours: (n.thread.neighborTable ?? []).length,
                 routes: (n.thread.routeTable ?? []).length,
                 readAt: n.thread.readAt ?? null,
@@ -95,23 +119,10 @@ function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
             byNodeId.set(n.nodeId, g);
             if (g.extAddress) byExt.set(g.extAddress, g);
             if (g.rloc16 !== null) byRloc.set(g.rloc16, g);
-        } else if (n.wifi) {
-            const g = {
-                id: `node:${n.nodeId}`,
-                kind: 'wifi',
-                nodeId: n.nodeId,
-                name: n.name ?? `Node ${n.nodeId}`,
-                online: !!n.online,
-                rssi: n.wifi.rssi ?? null,
-                bssid: n.wifi.bssid ?? null,
-                quality: rssiQuality(n.wifi.rssi),
-            };
-            out.nodes.push(g);
-            byNodeId.set(n.nodeId, g);
         } else {
-            const g = { id: `node:${n.nodeId}`, kind: 'other', nodeId: n.nodeId, name: n.name ?? `Node ${n.nodeId}`, online: !!n.online };
-            out.nodes.push(g);
-            byNodeId.set(n.nodeId, g);
+            // Wi-Fi, Ethernet and devices without diagnostics (offline, bridges) are not part of a Thread
+            // mesh: counted for the caption, not drawn
+            out.hidden[n.wifi ? 'wifi' : 'other']++;
         }
     }
     // border routers: a graph node each, joined to a fabric node when the ext address matches
@@ -133,6 +144,9 @@ function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
             role: br.state?.role ?? null,
             online: true,
             rloc16: br.rest?.node?.rloc16 ?? null,
+            partitionId: br.partitionId ?? null,
+            addresses: br.addresses ?? [],
+            hostname: br.hostname ?? null,
         };
         out.nodes.push(g);
         if (ext) byExt.set(ext, g);
@@ -158,6 +172,8 @@ function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
                         extAddress: ext,
                         rloc16: nb.rloc16 ?? null,
                         online: true,
+                        networkName: from.networkName ?? null,
+                        extPanId: from.extPanId ?? null,
                         explanation:
                             "A neighbour of a device in she's fabric that is not paired with she: a device of another controller, or a border router that announces a different address.",
                     };
@@ -263,14 +279,24 @@ function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
             label: `${b.sourceEndpointName ?? 'ep ' + b.sourceEndpointId} → ${b.targetEndpointName ?? 'ep ' + b.endpoint}`,
         });
     }
-    // networks seen in the fabric
+    // the Thread networks: every drawn node belongs to one (by extended PAN ID, else by name), so the graph
+    // can group them — border routers of the same network included, whether in she's fabric or not
     const nets = new Map();
     for (const g of out.nodes) {
-        if (g.kind !== 'thread' || !g.networkName) continue;
-        const n = nets.get(g.networkName) ?? { networkName: g.networkName, partitions: new Set(), channel: g.channel ?? null, nodes: 0 };
+        if (!g.extPanId && g.networkName) {
+            const byName = out.nodes.find((x) => x.extPanId && x.networkName === g.networkName);
+            if (byName) g.extPanId = byName.extPanId;
+        }
+        const key = g.extPanId || (g.networkName ? `name:${g.networkName}` : null);
+        if (!key) continue;
+        g.network = key;
+        const n = nets.get(key) ?? { key, extPanId: g.extPanId ?? null, networkName: g.networkName ?? null, partitions: new Set(), channel: null, nodes: 0, borderRouters: 0 };
+        if (!n.networkName && g.networkName) n.networkName = g.networkName;
         if (g.partitionId !== null && g.partitionId !== undefined) n.partitions.add(String(g.partitionId));
+        if (n.channel === null && g.channel !== null && g.channel !== undefined) n.channel = g.channel;
         n.nodes++;
-        nets.set(g.networkName, n);
+        if (g.kind === 'border-router' || g.borderRouter) n.borderRouters++;
+        nets.set(key, n);
     }
     out.networks = [...nets.values()].map((n) => ({ ...n, partitions: [...n.partitions] }));
     return out;
@@ -297,6 +323,8 @@ function _nodeData(node, nodeId) {
             partitionId: tnd.partitionId === undefined || tnd.partitionId === null ? null : Number(tnd.partitionId),
             leaderRouterId: tnd.leaderRouterId ?? null,
             networkName: tnd.networkName ?? null,
+            extPanId: hex64(tnd.extendedPanId),
+            ipv6: (threadIf?.iPv6Addresses ?? []).map(_ipv6).filter(Boolean),
             neighborTable: fresh?.neighborTable ?? (Array.isArray(tnd.neighborTable) ? tnd.neighborTable : []),
             routeTable: fresh?.routeTable ?? (Array.isArray(tnd.routeTable) ? tnd.routeTable : []),
             readAt: fresh?.readAt ?? null,
@@ -493,4 +521,4 @@ function stop() {
     _lastRefresh = null;
 }
 
-module.exports = { buildGraph, getMesh, refresh, meshcopQuery, start, stop, hex64, lqiQuality, rssiQuality, ROLES, _tables, _meshcop, _meshcopNode };
+module.exports = { _ipv6, buildGraph, getMesh, refresh, meshcopQuery, start, stop, hex64, lqiQuality, rssiQuality, ROLES, _tables, _meshcop, _meshcopNode };
