@@ -221,6 +221,14 @@ async function init(storagePath, log, broadcastFn, options = {}) {
     await _server.start();
     _log.info('matter controller started, storage:', storagePath);
 
+    // she's Matter groups (M23): the key sets and the group → key set map into she's own fabric
+    try {
+        _loadGroups(storagePath);
+        await _registerGroupsInFabric();
+    } catch (err) {
+        _log?.warn(`matter: groups not registered: ${err.message}`);
+    }
+
     // Device information from the CSA ledger (M25) — never holds the start, never throws
     dcl.start({ env: _server.env, storageDir: storagePath, log, offline: options.dclOffline === true }).catch((err) => _log?.warn(`matter: DCL start failed: ${err.message}`));
 
@@ -647,6 +655,10 @@ function _mandatoryCommandFields(behavior, commandName) {
  * @returns {Promise<unknown>}
  */
 async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
+    // she.matter.send('group:Wohnzimmer', null, 'onOff', 'on') — a group command (M23)
+    if (typeof nodeId === 'string' && nodeId.startsWith('group:')) {
+        return sendGroupCommand(nodeId.slice(6), clusterName, commandName, args);
+    }
     const node = _findClientNode(nodeId);
     // Use the target endpoint's own act() instead of navigating via agent.parts,
     // because Parts in @matter/node is a set-like iterable, not a Map (.get doesn't exist).
@@ -772,6 +784,10 @@ async function listBindings() {
                     targetName: null,
                     targetEndpointName: null,
                 };
+                if (own && entry.group !== null) {
+                    const g = _groupStore?.groups.find((x) => Number(x.id) === entry.group);
+                    entry.targetName = g ? `group ${g.name}` : null;
+                }
                 if (own && entry.node !== null) {
                     try {
                         const target = _findClientNode(entry.node);
@@ -811,6 +827,7 @@ function bindingCandidates() {
 async function addBinding({ source, target, clusters }) {
     if (!_server) throw new Error('Matter controller not started');
     if (!Array.isArray(clusters) || clusters.length === 0) throw new Error('clusters must name at least one cluster');
+    if (target && target.group !== undefined && target.group !== null) return _addGroupBinding({ source, group: target.group, clusters });
     const clusterIds = clusters.map(bindings.clusterIdOf);
     const sourceNode = _findClientNode(source.nodeId);
     const targetNode = _findClientNode(target.nodeId);
@@ -881,6 +898,7 @@ async function addBinding({ source, target, clusters }) {
 async function removeBinding({ source, target, clusters }) {
     if (!_server) throw new Error('Matter controller not started');
     if (!Array.isArray(clusters) || clusters.length === 0) throw new Error('clusters must name at least one cluster');
+    if (target && target.group !== undefined && target.group !== null) return _removeGroupBinding({ source, group: target.group, clusters });
     const clusterIds = clusters.map(bindings.clusterIdOf);
     const sourceNode = _findClientNode(source.nodeId);
     _requireOnline(sourceNode, 'the source');
@@ -929,6 +947,460 @@ async function removeBinding({ source, target, clusters }) {
     }
     _broadcast?.({ type: 'matter:bindings' });
     return { ok: true, clusters: clusterIds, bindingsRemoved: removed, aclRevoked, warning };
+}
+
+// ── Groups (M23) ──────────────────────────────────────────────────────────────
+
+const groups = require('./groups');
+
+/** @type {{ keySets: object, groups: object[] } | null} null = the store cannot be read (no key) */
+let _groupStore = null;
+let _groupStorageDir = null;
+let _groupStoreError = null;
+
+function _loadGroups(storagePath) {
+    _groupStorageDir = storagePath;
+    try {
+        _groupStore = groups.readStore(storagePath);
+        _groupStoreError = null;
+        if (_groupStore.groups.length) _log?.info(`matter: ${_groupStore.groups.length} group(s), ${Object.keys(_groupStore.keySets).length} key set(s) loaded`);
+    } catch (err) {
+        _groupStore = null;
+        _groupStoreError = err.message;
+        _log?.error(`matter: the group store cannot be read: ${err.message}`);
+    }
+}
+
+function _saveGroups() {
+    groups.writeStore(_groupStorageDir, _groupStore);
+}
+
+function _requireGroups() {
+    if (!_server) throw new Error('Matter controller not started');
+    if (!_groupStore) throw new Error(`the group store is not available: ${_groupStoreError ?? 'not loaded'}`);
+    return _groupStore;
+}
+
+/** she's own fabrics (one, normally). */
+function _ownFabrics() {
+    const { FabricManager } = require('@matter/protocol');
+    return _server.env.get(FabricManager).fabrics;
+}
+
+/** Register every key set and the group → key set map in she's fabric(s), so she can send group messages. */
+async function _registerGroupsInFabric() {
+    if (!_groupStore) return;
+    const { GroupId } = require('@matter/types');
+    for (const fabric of _ownFabrics()) {
+        for (const ks of Object.values(_groupStore.keySets)) await fabric.groups.setFromGroupKeySet(groups.groupKeySetStruct(ks));
+        fabric.groups.groupKeyIdMap = new Map(_groupStore.groups.map((g) => [GroupId(Number(g.id)), Number(g.keySetId)]));
+    }
+}
+
+function _findGroup(ref) {
+    const store = _requireGroups();
+    const str = String(ref);
+    const g = store.groups.find((x) => String(x.id) === str) ?? store.groups.find((x) => x.name === str);
+    if (!g) throw new Error(`Matter group not found: ${ref}`);
+    return g;
+}
+
+function _memberClusters(node, endpointId) {
+    const ep = _endpointSummary(node).find((e) => e.endpointId === Number(endpointId));
+    if (!ep) throw new Error(`Endpoint not found: ${endpointId}`);
+    const ids = Object.values(bindings.BINDABLE_CLUSTERS)
+        .map((d) => d.id)
+        .filter((id) => ep.serverList.includes(id));
+    if (!ids.length) throw new Error('the endpoint has no cluster a group could control (On/Off, Level Control, …)');
+    return ids;
+}
+
+/** The key set and the group's map entry on a device — written only when missing; limits checked first. */
+async function _ensureKeySetOnDevice(node, ks, groupId, { groupIsNew = true } = {}) {
+    const nodeId = _nodeIdStr(node.peerAddress.nodeId);
+    const idsResp = await sendCommand(nodeId, 0, 'groupKeyManagement', 'keySetReadAllIndices');
+    const ids = (idsResp?.groupKeySetIDs ?? idsResp?.groupKeySetIds ?? []).map(Number);
+    const map = (await _readAttribute(node, 0, 'groupKeyManagement', 'groupKeyMap')) ?? [];
+    let groupsOnDevice = 0;
+    try {
+        const table = (await _readAttribute(node, 0, 'groupKeyManagement', 'groupTable')) ?? [];
+        groupsOnDevice = new Set(table.map((t) => Number(t.groupId))).size;
+    } catch {
+        groupsOnDevice = new Set(map.map((e) => Number(e.groupId))).size;
+    }
+    const keySetIsNew = !ids.includes(Number(ks.id));
+    groups.assertWithinLimits({
+        keySetsOnDevice: ids.length,
+        keySetIsNew,
+        groupsOnDevice,
+        groupIsNew: groupIsNew && !map.some((e) => Number(e.groupId) === Number(groupId)),
+        limits: _rootState(node, 'groupKeyManagement'),
+    });
+    if (keySetIsNew) {
+        _log?.info(`matter: writing key set ${ks.id} to node ${nodeId}`);
+        await sendCommand(nodeId, 0, 'groupKeyManagement', 'keySetWrite', { groupKeySet: groups.groupKeySetStruct(ks) });
+    }
+    const after = groups.groupKeyMapAdd(map, { groupId, keySetId: ks.id, fabricIndex: _deviceFabricIndex(node) });
+    if (JSON.stringify(_jsonSafe(after)) !== JSON.stringify(_jsonSafe(map))) {
+        await _writeAttribute(node, 0, 'groupKeyManagement', 'groupKeyMap', after);
+        const back = (await _readAttribute(node, 0, 'groupKeyManagement', 'groupKeyMap')) ?? [];
+        if (!back.some((e) => Number(e.groupId) === Number(groupId) && Number(e.groupKeySetId) === Number(ks.id)))
+            throw new Error('the device did not keep the group key map entry');
+    }
+}
+
+/** Drop the group's map entry and, when nothing else maps it, the key set — best effort. */
+async function _dropKeySetOnDevice(node, ks, groupId) {
+    const nodeId = _nodeIdStr(node.peerAddress.nodeId);
+    const map = (await _readAttribute(node, 0, 'groupKeyManagement', 'groupKeyMap')) ?? [];
+    const after = groups.groupKeyMapRemove(map, groupId);
+    if (after.length !== map.length) await _writeAttribute(node, 0, 'groupKeyManagement', 'groupKeyMap', after);
+    if (!groups.keySetStillMapped(after, ks.id)) {
+        try {
+            await sendCommand(nodeId, 0, 'groupKeyManagement', 'keySetRemove', { groupKeySetId: Number(ks.id) });
+        } catch (err) {
+            _log?.debug(`matter: key set ${ks.id} not removed from node ${nodeId}: ${err.message}`);
+        }
+    }
+}
+
+async function _provisionMember(group, ks, node, endpointId, clusters) {
+    _requireOnline(node, 'the member');
+    const nodeId = _nodeIdStr(node.peerAddress.nodeId);
+    await _ensureKeySetOnDevice(node, ks, group.id);
+    const resp = await sendCommand(nodeId, endpointId, 'groups', 'addGroup', { groupId: Number(group.id), groupName: group.name });
+    if (resp?.status !== undefined && Number(resp.status) !== 0) throw new Error(`AddGroup refused with status ${resp.status}`);
+    const sheNodeId = _sheNodeIdFor(node);
+    const acl = (await _readAttribute(node, 0, 'accessControl', 'acl')) ?? [];
+    const aclAfter = bindings.grantOperate(acl, {
+        subject: Number(group.id),
+        authMode: bindings.AUTH_MODE.group,
+        endpoint: Number(endpointId),
+        clusters,
+        sheNodeId,
+        limits: _rootState(node, 'accessControl'),
+        fabricIndex: _deviceFabricIndex(node),
+    });
+    if (JSON.stringify(_jsonSafe(aclAfter)) !== JSON.stringify(_jsonSafe(acl))) {
+        bindings.assertSafeAcl(aclAfter, sheNodeId);
+        await _writeAttribute(node, 0, 'accessControl', 'acl', aclAfter);
+        const back = (await _readAttribute(node, 0, 'accessControl', 'acl')) ?? [];
+        if (!bindings.findAdminEntry(back, sheNodeId)) throw new Error("the device's ACL lost she's Administer entry after the write — check the device immediately");
+        const granted = bindings.grantedClusters(back, { subject: Number(group.id), endpoint: Number(endpointId), authMode: bindings.AUTH_MODE.group });
+        const missing = clusters.filter((id) => !granted.includes(id));
+        if (missing.length) throw new Error(`the device did not keep the group's access grant for cluster(s) ${missing.join(', ')}`);
+    }
+}
+
+/** Reverse of _provisionMember, each step best effort; the other groups of she on the device keep their key set. */
+async function _deprovisionMember(group, ks, node, endpointId, clusters) {
+    const nodeId = _nodeIdStr(node.peerAddress.nodeId);
+    const problems = [];
+    try {
+        await sendCommand(nodeId, endpointId, 'groups', 'removeGroup', { groupId: Number(group.id) });
+    } catch (err) {
+        problems.push(`RemoveGroup: ${err.message}`);
+    }
+    try {
+        const sheNodeId = _sheNodeIdFor(node);
+        const acl = (await _readAttribute(node, 0, 'accessControl', 'acl')) ?? [];
+        const aclAfter = bindings.revokeOperate(acl, { subject: Number(group.id), authMode: bindings.AUTH_MODE.group, endpoint: Number(endpointId), clusters, sheNodeId });
+        if (JSON.stringify(_jsonSafe(aclAfter)) !== JSON.stringify(_jsonSafe(acl))) {
+            bindings.assertSafeAcl(aclAfter, sheNodeId);
+            await _writeAttribute(node, 0, 'accessControl', 'acl', aclAfter);
+        }
+    } catch (err) {
+        problems.push(`ACL: ${err.message}`);
+    }
+    // the map entry stays while another endpoint of this node is in the group
+    const stillMember = group.members.some((m) => m.nodeId === nodeId && Number(m.endpointId) !== Number(endpointId));
+    if (!stillMember) {
+        try {
+            await _dropKeySetOnDevice(node, ks, group.id);
+        } catch (err) {
+            problems.push(`key set: ${err.message}`);
+        }
+    }
+    return problems;
+}
+
+function _memberView(m) {
+    let node = null;
+    try {
+        node = _findClientNode(m.nodeId);
+    } catch {
+        /* unpaired since */
+    }
+    let endpointName = null;
+    let state = { onOff: null, level: null };
+    if (node) {
+        try {
+            const ep = _resolveEndpoint(node, m.endpointId);
+            endpointName = _getEndpointName(ep);
+            const onOff = ep.state?.onOff?.onOff;
+            const level = ep.state?.levelControl?.currentLevel;
+            state = { onOff: typeof onOff === 'boolean' ? onOff : null, level: level === undefined || level === null ? null : Number(level) };
+        } catch {
+            /* endpoint gone */
+        }
+    }
+    return {
+        nodeId: m.nodeId,
+        endpointId: Number(m.endpointId),
+        name: node ? _getDeviceName(node) : null,
+        endpointName,
+        online: node?.lifecycle?.isOnline ?? false,
+        paired: !!node,
+        clusters: (m.clusters ?? []).map(Number),
+        clusterNames: (m.clusters ?? []).map((id) => bindings.clusterNameOf(Number(id)) ?? String(id)),
+        status: m.status ?? 'ok',
+        error: m.error ?? null,
+        state,
+    };
+}
+
+function _groupView(g) {
+    const members = (g.members ?? []).map(_memberView);
+    const ks = _groupStore.keySets[String(g.keySetId)];
+    return {
+        id: Number(g.id),
+        name: g.name,
+        keySetId: Number(g.keySetId),
+        keySet: ks ? groups.publicKeySet(ks) : null,
+        members,
+        state: groups.derivedState(members.map((m) => m.state)),
+        created: g.created ?? null,
+    };
+}
+
+/** she's groups with their members, the derived state and the key sets (never the keys). */
+function listGroups() {
+    if (!_server) return { available: false, error: 'Matter controller not started', groups: [], keySets: [] };
+    if (!_groupStore) return { available: false, error: _groupStoreError, groups: [], keySets: [] };
+    return {
+        available: true,
+        error: null,
+        groups: _groupStore.groups.map(_groupView),
+        keySets: Object.values(_groupStore.keySets).map(groups.publicKeySet),
+        sharedKeySetId: groups.SHARED_KEY_SET_ID,
+    };
+}
+
+function _sharedKeySet() {
+    const store = _requireGroups();
+    const id = String(groups.SHARED_KEY_SET_ID);
+    if (!store.keySets[id]) store.keySets[id] = groups.newKeySet(groups.SHARED_KEY_SET_ID, { name: 'shared', shared: true });
+    return store.keySets[id];
+}
+
+/**
+ * Create a group: a free application group ID, the shared key set (default) or one of its own.
+ * @param {{ name: string, keySet?: 'shared'|'own' }} opts
+ */
+async function createGroup({ name, keySet = 'shared' } = {}) {
+    const store = _requireGroups();
+    if (!groups.validName(name)) throw new Error(`the group name must be 1 to ${groups.GROUP_NAME_MAX} bytes`);
+    name = String(name).trim();
+    if (store.groups.some((g) => g.name === name)) throw new Error(`a group named "${name}" exists`);
+    const id = groups.nextGroupId(store.groups);
+    let ks;
+    if (keySet === 'own') {
+        ks = groups.newKeySet(groups.nextKeySetId(store.keySets), { name, shared: false });
+        store.keySets[String(ks.id)] = ks;
+    } else {
+        ks = _sharedKeySet();
+    }
+    const g = { id, name, keySetId: ks.id, members: [], created: Date.now() };
+    store.groups.push(g);
+    _saveGroups();
+    await _registerGroupsInFabric();
+    _log?.info(`matter: group "${name}" (${id}) created with key set ${ks.id}${ks.shared ? ' (shared)' : ''}`);
+    _broadcast?.({ type: 'matter:groups' });
+    return _groupView(g);
+}
+
+/** Rename a group in she (the name the devices hold is cosmetic and stays). */
+function renameGroup(ref, name) {
+    const g = _findGroup(ref);
+    if (!groups.validName(name)) throw new Error(`the group name must be 1 to ${groups.GROUP_NAME_MAX} bytes`);
+    g.name = String(name).trim();
+    _saveGroups();
+    _broadcast?.({ type: 'matter:groups' });
+    return _groupView(g);
+}
+
+/** Delete a group: every member is deprovisioned (best effort), an own key set that is no longer used goes too. */
+async function deleteGroup(ref) {
+    const store = _requireGroups();
+    const g = _findGroup(ref);
+    const ks = store.keySets[String(g.keySetId)];
+    const problems = [];
+    for (const m of [...g.members]) {
+        try {
+            const node = _findClientNode(m.nodeId);
+            if (!node.lifecycle?.isOnline) {
+                problems.push(`${_getDeviceName(node) ?? m.nodeId}/${m.endpointId}: offline — the device keeps the group until it is removed again`);
+                continue;
+            }
+            g.members = g.members.filter((x) => x !== m);
+            problems.push(...(await _deprovisionMember(g, ks, node, m.endpointId, m.clusters ?? [])).map((p) => `${_getDeviceName(node) ?? m.nodeId}/${m.endpointId}: ${p}`));
+        } catch (err) {
+            problems.push(`${m.nodeId}/${m.endpointId}: ${err.message}`);
+        }
+    }
+    store.groups = store.groups.filter((x) => x !== g);
+    if (ks && !ks.shared && !store.groups.some((x) => Number(x.keySetId) === Number(ks.id))) delete store.keySets[String(ks.id)];
+    _saveGroups();
+    await _registerGroupsInFabric();
+    _log?.info(`matter: group "${g.name}" (${g.id}) deleted`);
+    _broadcast?.({ type: 'matter:groups' });
+    return { ok: true, problems };
+}
+
+/**
+ * Add an endpoint to a group: key set and map entry on the device, AddGroup on the endpoint, the
+ * group's ACL entry (guarded, read back). A failure is recorded on the member for the UI.
+ * @param {string|number} ref  group id or name
+ * @param {{ nodeId: string, endpointId: number, clusters?: (string|number)[] }} member
+ */
+async function addGroupMember(ref, { nodeId, endpointId, clusters }) {
+    const store = _requireGroups();
+    const g = _findGroup(ref);
+    const node = _findClientNode(nodeId);
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    const ep = Number(endpointId);
+    if (!Number.isInteger(ep) || ep < 1) throw new Error('endpointId must be an endpoint number ≥ 1');
+    const clusterIds = clusters && clusters.length ? clusters.map(bindings.clusterIdOf) : _memberClusters(node, ep);
+    const ks = store.keySets[String(g.keySetId)];
+    if (!ks) throw new Error(`the group's key set ${g.keySetId} is missing from the store`);
+    let m = g.members.find((x) => x.nodeId === id && Number(x.endpointId) === ep);
+    if (!m) {
+        m = { nodeId: id, endpointId: ep, clusters: clusterIds, status: 'pending', error: null, added: Date.now() };
+        g.members.push(m);
+    } else {
+        m.clusters = clusterIds;
+        m.status = 'pending';
+        m.error = null;
+    }
+    _saveGroups();
+    try {
+        await _provisionMember(g, ks, node, ep, clusterIds);
+        m.status = 'ok';
+        m.error = null;
+        _log?.info(`matter: ${_getDeviceName(node) ?? id}/${ep} joined group "${g.name}"`);
+    } catch (err) {
+        m.status = 'error';
+        m.error = err.message;
+        _log?.warn(`matter: ${_getDeviceName(node) ?? id}/${ep} could not join group "${g.name}": ${err.message}`);
+        _saveGroups();
+        _broadcast?.({ type: 'matter:groups' });
+        throw err;
+    }
+    _saveGroups();
+    _broadcast?.({ type: 'matter:groups' });
+    return _groupView(g);
+}
+
+/** Remove an endpoint from a group; the device is cleaned when online (problems are reported, not thrown). */
+async function removeGroupMember(ref, nodeId, endpointId) {
+    const store = _requireGroups();
+    const g = _findGroup(ref);
+    const ep = Number(endpointId);
+    const m = g.members.find((x) => String(x.nodeId) === String(nodeId) && Number(x.endpointId) === ep);
+    if (!m) throw new Error(`${nodeId}/${endpointId} is not a member of group "${g.name}"`);
+    g.members = g.members.filter((x) => x !== m);
+    _saveGroups();
+    let problems = [];
+    try {
+        const node = _findClientNode(m.nodeId);
+        if (node.lifecycle?.isOnline) problems = await _deprovisionMember(g, store.keySets[String(g.keySetId)], node, ep, m.clusters ?? []);
+        else problems.push('the device is offline — it keeps the group until it is removed again');
+    } catch (err) {
+        problems.push(err.message);
+    }
+    _broadcast?.({ type: 'matter:groups' });
+    return { ok: true, problems, group: _groupView(g) };
+}
+
+/**
+ * Send a command to a group — one multicast, no answer by design (best effort; a lost multicast
+ * on Thread is not retried).
+ * @param {string|number} ref  group id or name
+ */
+async function sendGroupCommand(ref, clusterName, commandName, args) {
+    const g = _findGroup(ref);
+    const { Invoke } = require('@matter/protocol');
+    const { GroupId, NodeId } = require('@matter/types');
+    const clusterDef = _clusterDef(clusterName);
+    if (!clusterDef.commands?.[commandName]) throw new Error(`Command "${commandName}" not found in cluster "${clusterName}"`);
+    const [fabric] = _ownFabrics();
+    if (!fabric) throw new Error('she has no fabric yet');
+    const address = { fabricIndex: fabric.fabricIndex, nodeId: NodeId.fromGroupId(GroupId(Number(g.id))) };
+    const group = _server.peers.get(address) ?? (await _server.peers.forAddress(address));
+    const merged = args !== undefined && args !== null && typeof args === 'object' ? { ...args } : {};
+    for (const field of _mandatoryCommandFields({ cluster: clusterDef }, commandName)) {
+        if (merged[field] !== undefined) continue;
+        if (field === 'optionsMask' || field === 'optionsOverride') merged[field] = {};
+        else if (field === 'transitionTime') merged[field] = 0;
+    }
+    const invoke = Invoke({ commands: [{ cluster: clusterDef, command: commandName, fields: merged }] });
+    for await (const chunk of group.interaction.invoke(invoke)) {
+        for (const _entry of chunk) {
+            /* a group invoke has no response */
+        }
+    }
+    _log?.debug(`matter: group "${g.name}" ← ${clusterName}.${commandName}`);
+    return null;
+}
+
+/** A group binding: the source gets the group's key set and map entry, then a `{ group, cluster }` entry (M23). */
+async function _addGroupBinding({ source, group, clusters }) {
+    const store = _requireGroups();
+    const g = _findGroup(group);
+    const clusterIds = clusters.map(bindings.clusterIdOf);
+    const sourceNode = _findClientNode(source.nodeId);
+    _requireOnline(sourceNode, 'the source');
+    const sourceEp = Number(source.endpointId);
+    const ks = store.keySets[String(g.keySetId)];
+    if (!ks) throw new Error(`the group's key set ${g.keySetId} is missing from the store`);
+    await _ensureKeySetOnDevice(sourceNode, ks, g.id);
+    const before = (await _readAttribute(sourceNode, sourceEp, 'binding', 'binding')) ?? [];
+    const { bindings: after, added } = bindings.addBindingEntries(before, { group: g.id, clusters: clusterIds, fabricIndex: _deviceFabricIndex(sourceNode) });
+    if (added.length) {
+        await _writeAttribute(sourceNode, sourceEp, 'binding', 'binding', after);
+        const back = (await _readAttribute(sourceNode, sourceEp, 'binding', 'binding')) ?? [];
+        const bound = bindings.clustersStillBound(back, { group: g.id });
+        const missing = clusterIds.filter((id) => !bound.includes(id));
+        if (missing.length) throw new Error(`the source did not keep the group binding for cluster(s) ${missing.join(', ')}`);
+    }
+    _log?.info(`matter: group binding ${_getDeviceName(sourceNode) ?? source.nodeId}/${sourceEp} → "${g.name}"`);
+    _broadcast?.({ type: 'matter:bindings' });
+    return { ok: true, clusters: clusterIds, aclChanged: false, bindingsAdded: added, group: Number(g.id) };
+}
+
+async function _removeGroupBinding({ source, group, clusters }) {
+    const store = _requireGroups();
+    const clusterIds = clusters.map(bindings.clusterIdOf);
+    const sourceNode = _findClientNode(source.nodeId);
+    _requireOnline(sourceNode, 'the source');
+    const sourceEp = Number(source.endpointId);
+    const groupId = Number(group);
+    const before = (await _readAttribute(sourceNode, sourceEp, 'binding', 'binding')) ?? [];
+    const { bindings: after, removed } = bindings.removeBindingEntries(before, { group: groupId, clusters: clusterIds });
+    if (removed.length) await _writeAttribute(sourceNode, sourceEp, 'binding', 'binding', after);
+    let warning = null;
+    const g = store.groups.find((x) => Number(x.id) === groupId);
+    const id = _nodeIdStr(sourceNode.peerAddress.nodeId);
+    const isMember = !!g?.members.some((m) => m.nodeId === id);
+    if (!bindings.groupStillBound(after, groupId) && !isMember && g) {
+        try {
+            await _dropKeySetOnDevice(sourceNode, store.keySets[String(g.keySetId)], groupId);
+        } catch (err) {
+            warning = `the source keeps the group's key set: ${err.message}`;
+        }
+    }
+    _broadcast?.({ type: 'matter:bindings' });
+    return { ok: true, clusters: clusterIds, bindingsRemoved: removed, aclRevoked: false, warning };
 }
 
 // ── Firmware updates (M22) ────────────────────────────────────────────────────
@@ -1666,6 +2138,13 @@ module.exports = {
     setAttribute,
     rename,
     sendCommand,
+    listGroups,
+    createGroup,
+    renameGroup,
+    deleteGroup,
+    addGroupMember,
+    removeGroupMember,
+    sendGroupCommand,
     listUpdates,
     checkUpdates,
     startUpdate,

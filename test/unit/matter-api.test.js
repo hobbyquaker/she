@@ -370,3 +370,44 @@ describe('matter-api: firmware updates (M22)', () => {
         expect((await httpRequest('POST', port, '/she/matter/devices/9/update', {})).status).toBe(404);
     });
 });
+
+describe('matter-api: groups (M23)', () => {
+    let srv, port, mock;
+    beforeAll(async () => {
+        mock = {
+            isStarted: () => true,
+            listGroups: jest.fn().mockReturnValue({ available: true, groups: [], keySets: [] }),
+            createGroup: jest.fn().mockResolvedValue({ id: 1, name: 'A' }),
+            renameGroup: jest.fn().mockReturnValue({ id: 1, name: 'B' }),
+            deleteGroup: jest.fn().mockResolvedValue({ ok: true, problems: [] }),
+            addGroupMember: jest.fn().mockResolvedValue({ id: 1, members: [1] }),
+            removeGroupMember: jest.fn().mockResolvedValue({ ok: true, problems: [], group: { id: 1 } }),
+            sendGroupCommand: jest.fn().mockResolvedValue(null),
+            addBinding: jest.fn().mockResolvedValue({ ok: true }),
+        };
+        srv = await startApp(await _makeApp(mock));
+        port = srv.address().port;
+    });
+    afterAll(() => new Promise((r) => srv.close(r)));
+
+    test('the routes validate and call through', async () => {
+        expect((await httpRequest('GET', port, '/she/matter/groups')).body).toEqual({ available: true, groups: [], keySets: [] });
+        expect((await httpRequest('POST', port, '/she/matter/groups', { name: '' })).status).toBe(400);
+        expect((await httpRequest('POST', port, '/she/matter/groups', { name: 'A', keySet: 'x' })).status).toBe(400);
+        expect((await httpRequest('POST', port, '/she/matter/groups', { name: 'A', keySet: 'own' })).status).toBe(201);
+        expect(mock.createGroup).toHaveBeenCalledWith({ name: 'A', keySet: 'own' });
+        expect((await httpRequest('PATCH', port, '/she/matter/groups/1', { name: 'B' })).body).toEqual({ id: 1, name: 'B' });
+        expect((await httpRequest('DELETE', port, '/she/matter/groups/1')).body).toEqual({ ok: true, problems: [] });
+        expect((await httpRequest('POST', port, '/she/matter/groups/1/members', { nodeId: 4, endpointId: '1' })).status).toBe(201);
+        expect(mock.addGroupMember).toHaveBeenCalledWith('1', { nodeId: '4', endpointId: 1, clusters: undefined });
+        expect((await httpRequest('DELETE', port, '/she/matter/groups/1/members/4/1')).body).toMatchObject({ ok: true });
+        expect(mock.removeGroupMember).toHaveBeenCalledWith('1', '4', 1);
+        expect((await httpRequest('POST', port, '/she/matter/groups/1/command', { clusterName: 'onOff', command: 'on' })).body).toEqual({ ok: true });
+        expect(mock.sendGroupCommand).toHaveBeenCalledWith('1', 'onOff', 'on', {});
+        mock.addGroupMember.mockRejectedValueOnce(new Error('the device holds at most 3 group key sets per fabric'));
+        expect((await httpRequest('POST', port, '/she/matter/groups/1/members', { nodeId: 4, endpointId: 1 })).status).toBe(409);
+        // a group target for a binding
+        expect((await httpRequest('POST', port, '/she/matter/bindings', { source: { nodeId: '2', endpointId: 1 }, target: { group: 1 }, clusters: ['onOff'] })).status).toBe(201);
+        expect(mock.addBinding).toHaveBeenCalledWith({ source: { nodeId: '2', endpointId: 1 }, target: { group: 1 }, clusters: ['onOff'] });
+    });
+});

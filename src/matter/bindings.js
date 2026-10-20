@@ -83,12 +83,15 @@ function assertSafeAcl(acl, sheNodeId) {
     }
 }
 
-/** Entries she manages for bindings: Operate, CASE, exactly one subject (the source node), explicit targets. */
-function isOperateEntryFor(entry, subject) {
+/**
+ * Entries she manages for bindings and groups: Operate, the auth mode (CASE for a source node,
+ * Group for a group ID), exactly one subject, explicit targets.
+ */
+function isOperateEntryFor(entry, subject, authMode = AUTH_MODE.case) {
     return (
         !!entry &&
         entry.privilege === PRIVILEGE.operate &&
-        entry.authMode === AUTH_MODE.case &&
+        entry.authMode === authMode &&
         Array.isArray(entry.subjects) &&
         entry.subjects.length === 1 &&
         sameId(entry.subjects[0], subject) &&
@@ -118,17 +121,17 @@ function effectiveLimits(limits) {
  * @param {{ subject: bigint|number|string, endpoint: number, clusters: (number|string)[], sheNodeId: bigint|number|string, limits?: object, fabricIndex?: number }} opts
  * @returns {object[]}
  */
-function grantOperate(acl, { subject, endpoint, clusters, sheNodeId, limits, fabricIndex }) {
+function grantOperate(acl, { subject, endpoint, clusters, sheNodeId, limits, fabricIndex, authMode = AUTH_MODE.case }) {
     assertSafeAcl(acl, sheNodeId);
     const lim = effectiveLimits(limits);
     const out = acl.map((e) => ({ ...e, subjects: e.subjects ? [...e.subjects] : e.subjects, targets: e.targets ? e.targets.map((t) => ({ ...t })) : e.targets }));
     const wanted = clusters.map(clusterIdOf).filter((id, i, arr) => arr.indexOf(id) === i);
-    const missing = wanted.filter((id) => !out.some((e) => isOperateEntryFor(e, subject) && e.targets.some((t) => targetMatches(t, endpoint, id))));
+    const missing = wanted.filter((id) => !out.some((e) => isOperateEntryFor(e, subject, authMode) && e.targets.some((t) => targetMatches(t, endpoint, id))));
     if (missing.length === 0) return out;
     const fi = fabricIndex ?? findAdminEntry(acl, sheNodeId).fabricIndex;
     for (const id of missing) {
         const target = { cluster: id, endpoint: Number(endpoint), deviceType: null };
-        const room = out.find((e) => isOperateEntryFor(e, subject) && e.targets.length < lim.targetsPerAccessControlEntry);
+        const room = out.find((e) => isOperateEntryFor(e, subject, authMode) && e.targets.length < lim.targetsPerAccessControlEntry);
         if (room) {
             room.targets.push(target);
             continue;
@@ -136,7 +139,7 @@ function grantOperate(acl, { subject, endpoint, clusters, sheNodeId, limits, fab
         if (out.length >= lim.accessControlEntriesPerFabric) {
             throw new Error(`the device allows only ${lim.accessControlEntriesPerFabric} access control entries per fabric and all are in use`);
         }
-        const entry = { privilege: PRIVILEGE.operate, authMode: AUTH_MODE.case, subjects: [typeof subject === 'bigint' ? subject : BigInt(subject)], targets: [target] };
+        const entry = { privilege: PRIVILEGE.operate, authMode, subjects: [typeof subject === 'bigint' ? subject : BigInt(subject)], targets: [target] };
         if (fi !== undefined) entry.fabricIndex = fi;
         out.push(entry);
     }
@@ -148,12 +151,12 @@ function grantOperate(acl, { subject, endpoint, clusters, sheNodeId, limits, fab
  * entries she manages (Operate, CASE, that one subject). An entry left without targets is dropped.
  * Returns the new ACL list.
  */
-function revokeOperate(acl, { subject, endpoint, clusters, sheNodeId }) {
+function revokeOperate(acl, { subject, endpoint, clusters, sheNodeId, authMode = AUTH_MODE.case }) {
     assertSafeAcl(acl, sheNodeId);
     const ids = clusters.map(clusterIdOf);
     const out = [];
     for (const e of acl) {
-        if (!isOperateEntryFor(e, subject)) {
+        if (!isOperateEntryFor(e, subject, authMode)) {
             out.push(e);
             continue;
         }
@@ -164,30 +167,33 @@ function revokeOperate(acl, { subject, endpoint, clusters, sheNodeId }) {
 }
 
 /** Which clusters of target endpoint the source node is granted Operate on (by she's entries). */
-function grantedClusters(acl, { subject, endpoint }) {
+function grantedClusters(acl, { subject, endpoint, authMode = AUTH_MODE.case }) {
     const ids = new Set();
     for (const e of acl ?? []) {
-        if (!isOperateEntryFor(e, subject)) continue;
+        if (!isOperateEntryFor(e, subject, authMode)) continue;
         for (const t of e.targets) if (sameId(t.endpoint, endpoint) && t.cluster !== null && t.cluster !== undefined) ids.add(Number(t.cluster));
     }
     return [...ids];
 }
 
-function bindingEntryMatches(b, { node, endpoint, cluster }) {
-    return !!b && sameId(b.node, node) && sameId(b.endpoint, endpoint) && sameId(b.cluster, cluster);
+function bindingEntryMatches(b, { node, group, endpoint, cluster }) {
+    if (!b || !sameId(b.cluster, cluster)) return false;
+    if (group !== undefined && group !== null) return sameId(b.group, group) && (b.node === undefined || b.node === null);
+    return sameId(b.node, node) && sameId(b.endpoint, endpoint);
 }
 
 /**
  * Append unicast binding entries `{ node, endpoint, cluster }` for the clusters not bound yet.
  * Returns the new list (and which clusters were added).
  */
-function addBindingEntries(bindings, { node, endpoint, clusters, fabricIndex }) {
+function addBindingEntries(bindings, { node, group, endpoint, clusters, fabricIndex }) {
     const out = (bindings ?? []).map((b) => ({ ...b }));
     const added = [];
+    const isGroup = group !== undefined && group !== null;
     for (const c of clusters) {
         const cluster = clusterIdOf(c);
-        if (out.some((b) => bindingEntryMatches(b, { node, endpoint, cluster }))) continue;
-        const entry = { node: typeof node === 'bigint' ? node : BigInt(node), endpoint: Number(endpoint), cluster };
+        if (out.some((b) => bindingEntryMatches(b, { node, group, endpoint, cluster }))) continue;
+        const entry = isGroup ? { group: Number(group), cluster } : { node: typeof node === 'bigint' ? node : BigInt(node), endpoint: Number(endpoint), cluster };
         if (fabricIndex !== undefined) entry.fabricIndex = fabricIndex;
         out.push(entry);
         added.push(cluster);
@@ -196,11 +202,11 @@ function addBindingEntries(bindings, { node, endpoint, clusters, fabricIndex }) 
 }
 
 /** Remove the unicast binding entries for the clusters; returns the new list and which clusters were removed. */
-function removeBindingEntries(bindings, { node, endpoint, clusters }) {
+function removeBindingEntries(bindings, { node, group, endpoint, clusters }) {
     const ids = clusters.map(clusterIdOf);
     const removed = [];
     const out = (bindings ?? []).filter((b) => {
-        const hit = ids.find((cluster) => bindingEntryMatches(b, { node, endpoint, cluster }));
+        const hit = ids.find((cluster) => bindingEntryMatches(b, { node, group, endpoint, cluster }));
         if (hit === undefined) return true;
         removed.push(hit);
         return false;
@@ -209,10 +215,20 @@ function removeBindingEntries(bindings, { node, endpoint, clusters }) {
 }
 
 /** The clusters of `{ node, endpoint }` that other entries of the list still bind — their ACL grant must stay. */
-function clustersStillBound(bindings, { node, endpoint }) {
+function clustersStillBound(bindings, { node, group, endpoint }) {
     const ids = new Set();
-    for (const b of bindings ?? []) if (sameId(b.node, node) && sameId(b.endpoint, endpoint) && b.cluster !== undefined && b.cluster !== null) ids.add(Number(b.cluster));
+    const isGroup = group !== undefined && group !== null;
+    for (const b of bindings ?? []) {
+        if (b.cluster === undefined || b.cluster === null) continue;
+        const hit = isGroup ? sameId(b.group, group) : sameId(b.node, node) && sameId(b.endpoint, endpoint);
+        if (hit) ids.add(Number(b.cluster));
+    }
     return [...ids];
+}
+
+/** Does the source still bind anything to the group (its key set must stay)? */
+function groupStillBound(bindings, group) {
+    return (bindings ?? []).some((b) => sameId(b.group, group));
 }
 
 /**
@@ -270,5 +286,6 @@ module.exports = {
     addBindingEntries,
     removeBindingEntries,
     clustersStillBound,
+    groupStillBound,
     classifyEndpoints,
 };

@@ -8,6 +8,13 @@
  *   POST   /she/matter/commission                       → commission a device
  *   GET    /she/matter/devices/:nodeId                  → node detail (endpoints + clusters)
  *   GET    /she/matter/devices/:nodeId/dcl              → vendor and product details from the CSA ledger
+ *   GET    /she/matter/groups                           → she's groups, members, derived state, key sets
+ *   POST   /she/matter/groups                           → create { name, keySet? }
+ *   PATCH  /she/matter/groups/:id                       → rename
+ *   DELETE /she/matter/groups/:id                       → delete (members deprovisioned)
+ *   POST   /she/matter/groups/:id/members               → add { nodeId, endpointId, clusters? }
+ *   DELETE /she/matter/groups/:id/members/:nodeId/:ep   → remove a member
+ *   POST   /she/matter/groups/:id/command               → one multicast command { clusterName, command, args? }
  *   GET    /she/matter/updates                          → firmware state of every node, updates the ledger offers
  *   POST   /she/matter/updates/check                    → ask the ledger now (every online node)
  *   POST   /she/matter/devices/:nodeId/update/check     → ask the ledger for one node
@@ -116,6 +123,95 @@ router.get('/devices/:nodeId/dcl', async (req, res) => {
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Groups (M23) ──────────────────────────────────────────────────────────────
+
+function groupError(res, err) {
+    const msg = err.message || String(err);
+    if (/not found/.test(msg)) return res.status(404).json({ error: msg });
+    if (/not available|offline|exists|must be|holds at most|no cluster|not a member|missing from the store|refused/.test(msg)) return res.status(409).json({ error: msg });
+    return res.status(500).json({ error: msg });
+}
+
+// GET /she/matter/groups — she's groups, members, derived state, key sets (never the keys)
+router.get('/groups', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(getController().listGroups());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/groups — { name, keySet?: 'shared' | 'own' }
+router.post('/groups', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    const { name, keySet } = req.body || {};
+    if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'body must contain a name' });
+    if (keySet !== undefined && keySet !== 'shared' && keySet !== 'own') return res.status(400).json({ error: "keySet must be 'shared' or 'own'" });
+    try {
+        res.status(201).json(await getController().createGroup({ name, keySet }));
+    } catch (err) {
+        groupError(res, err);
+    }
+});
+
+// PATCH /she/matter/groups/:id — { name }
+router.patch('/groups/:id', (req, res) => {
+    if (!isReady()) return notReady(res);
+    const name = req.body?.name;
+    if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'body must contain a name' });
+    try {
+        res.json(getController().renameGroup(req.params.id, name));
+    } catch (err) {
+        groupError(res, err);
+    }
+});
+
+// DELETE /she/matter/groups/:id
+router.delete('/groups/:id', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().deleteGroup(req.params.id));
+    } catch (err) {
+        groupError(res, err);
+    }
+});
+
+// POST /she/matter/groups/:id/members — { nodeId, endpointId, clusters? }
+router.post('/groups/:id/members', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    const { nodeId, endpointId, clusters } = req.body || {};
+    if (nodeId === undefined || endpointId === undefined) return res.status(400).json({ error: 'body must contain nodeId and endpointId' });
+    try {
+        res.status(201).json(await getController().addGroupMember(req.params.id, { nodeId: String(nodeId), endpointId: Number(endpointId), clusters }));
+    } catch (err) {
+        groupError(res, err);
+    }
+});
+
+// DELETE /she/matter/groups/:id/members/:nodeId/:endpointId
+router.delete('/groups/:id/members/:nodeId/:endpointId', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().removeGroupMember(req.params.id, req.params.nodeId, Number(req.params.endpointId)));
+    } catch (err) {
+        groupError(res, err);
+    }
+});
+
+// POST /she/matter/groups/:id/command — { clusterName, command, args? }
+router.post('/groups/:id/command', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    const { clusterName, command, args } = req.body || {};
+    if (!clusterName || !command) return res.status(400).json({ error: 'body must contain clusterName and command' });
+    try {
+        await getController().sendGroupCommand(req.params.id, clusterName, command, args ?? {});
+        res.json({ ok: true });
+    } catch (err) {
+        groupError(res, err);
     }
 });
 
@@ -261,13 +357,14 @@ router.post('/devices/:nodeId/command', async (req, res) => {
 function bindingBody(body) {
     const { source, target, clusters } = body || {};
     const ok = (x) => x && typeof x === 'object' && x.nodeId !== undefined && x.endpointId !== undefined;
-    if (!ok(source) || !ok(target) || !Array.isArray(clusters) || clusters.length === 0) {
-        return { error: 'body must contain source {nodeId, endpointId}, target {nodeId, endpointId} and a non-empty clusters list' };
+    const isGroup = target && typeof target === 'object' && target.group !== undefined && target.group !== null;
+    if (!ok(source) || !(ok(target) || isGroup) || !Array.isArray(clusters) || clusters.length === 0) {
+        return { error: 'body must contain source {nodeId, endpointId}, target {nodeId, endpointId} or {group}, and a non-empty clusters list' };
     }
     return {
         value: {
             source: { nodeId: String(source.nodeId), endpointId: Number(source.endpointId) },
-            target: { nodeId: String(target.nodeId), endpointId: Number(target.endpointId) },
+            target: isGroup ? { group: Number(target.group) } : { nodeId: String(target.nodeId), endpointId: Number(target.endpointId) },
             clusters,
         },
     };

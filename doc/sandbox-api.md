@@ -801,6 +801,13 @@ await she.matter.send('1', 1, 'levelControl', 'moveToLevel', { level: 128, trans
 await she.matter.send('1', 1, 'levelControl', 'moveToLevelWithOnOff', { level: 254 });
 ```
 
+**Groups.** A group made on the Matter page's Bindings tab is addressed as `'group:<name>'` (or `'group:<id>'`) with the endpoint left `null`: one multicast command reaches every member, and nothing answers — the promise resolves when the message is out (best effort; on Thread a lost multicast is not retried).
+
+```js
+await she.matter.send('group:Wohnzimmer', null, 'onOff', 'off');
+await she.matter.send('group:Wohnzimmer', null, 'levelControl', 'moveToLevelWithOnOff', { level: 64, transitionTime: 20 });
+```
+
 Argument names follow the Matter *command* schema, which differs from the attribute names you read — e.g. the readable attribute is `currentLevel`, but `moveToLevel` takes `level`. Mandatory boilerplate fields are filled with neutral defaults when omitted: `optionsMask`/`optionsOverride` (empty bitmap — "obey the device's options") and `transitionTime` (`0` = instant). Any other mandatory field (like `level`) must be provided or the command fails TLV validation with a `Missing mandatory field` error naming the field.
 
 ---

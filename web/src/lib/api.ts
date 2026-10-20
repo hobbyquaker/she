@@ -503,6 +503,55 @@ export function getMatterDeviceInfo(nodeId: string): Promise<MatterDeviceInfo> {
     return request('GET', `/she/matter/devices/${nodeId}/dcl`);
 }
 
+// ---- Matter groups (M23) ----
+
+export interface MatterGroupMember {
+    nodeId: string;
+    endpointId: number;
+    name: string | null;
+    endpointName: string | null;
+    online: boolean;
+    paired: boolean;
+    clusters: number[];
+    clusterNames: string[];
+    status: 'ok' | 'pending' | 'error';
+    error: string | null;
+    state: { onOff: boolean | null; level: number | null };
+}
+export interface MatterGroupKeySet { id: number; name: string; shared: boolean; created: number | null }
+export interface MatterGroup {
+    id: number;
+    name: string;
+    keySetId: number;
+    keySet: MatterGroupKeySet | null;
+    members: MatterGroupMember[];
+    state: { on: 'all' | 'some' | 'none' | null; onCount: number; memberCount: number; level: number | null };
+    created: number | null;
+}
+export interface MatterGroups { available: boolean; error: string | null; groups: MatterGroup[]; keySets: MatterGroupKeySet[]; sharedKeySetId?: number }
+
+export function listMatterGroups(): Promise<MatterGroups> {
+    return request('GET', '/she/matter/groups');
+}
+export function createMatterGroup(name: string, keySet: 'shared' | 'own' = 'shared'): Promise<MatterGroup> {
+    return request('POST', '/she/matter/groups', { name, keySet });
+}
+export function renameMatterGroup(id: number, name: string): Promise<MatterGroup> {
+    return request('PATCH', `/she/matter/groups/${id}`, { name });
+}
+export function deleteMatterGroup(id: number): Promise<{ ok: boolean; problems: string[] }> {
+    return request('DELETE', `/she/matter/groups/${id}`);
+}
+export function addMatterGroupMember(id: number, nodeId: string, endpointId: number, clusters?: (string | number)[]): Promise<MatterGroup> {
+    return request('POST', `/she/matter/groups/${id}/members`, { nodeId, endpointId, clusters });
+}
+export function removeMatterGroupMember(id: number, nodeId: string, endpointId: number): Promise<{ ok: boolean; problems: string[]; group: MatterGroup }> {
+    return request('DELETE', `/she/matter/groups/${id}/members/${nodeId}/${endpointId}`);
+}
+export function sendMatterGroupCommand(id: number, clusterName: string, command: string, args?: Record<string, unknown>): Promise<{ ok: boolean }> {
+    return request('POST', `/she/matter/groups/${id}/command`, { clusterName, command, args });
+}
+
 // ---- Matter firmware updates (M22) ----
 
 export interface MatterUpdateInfo { softwareVersion: number; softwareVersionString: string; releaseNotesUrl: string | null; vendorId: number; productId: number; source: string | null }
@@ -604,7 +653,7 @@ export interface MatterBindingCandidates {
 
 export interface MatterBindingSpec {
     source: { nodeId: string; endpointId: number };
-    target: { nodeId: string; endpointId: number };
+    target: { nodeId: string; endpointId: number } | { group: number };
     clusters: (string | number)[];
 }
 

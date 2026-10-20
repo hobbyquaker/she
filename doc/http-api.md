@@ -410,6 +410,48 @@ What the CSA Distributed Compliance Ledger (the public registry of certified Mat
 
 ---
 
+### GET /she/matter/groups
+
+she's Matter groups: one multicast command reaches every member. A group has an application group ID, a name, a key set (the shared one by default, or its own — devices hold only a few key sets, often 3 including the fabric's IPK) and members (endpoints). The derived state comes from the members' subscribed attributes — groups cannot be read. The key sets are listed without their keys (they are kept encrypted in the Matter storage, `groups.enc`, with the secrets store's key).
+
+**Response (HTTP 200):**
+
+```json
+{
+  "available": true, "error": null, "sharedKeySetId": 1,
+  "keySets": [ { "id": 1, "name": "shared", "shared": true, "created": 1760000000000 } ],
+  "groups": [
+    { "id": 1, "name": "Wohnzimmer", "keySetId": 1, "keySet": { "id": 1, "name": "shared", "shared": true, "created": 1760000000000 },
+      "members": [ { "nodeId": "4", "endpointId": 1, "name": "Bulb", "endpointName": null, "online": true, "paired": true, "clusters": [6, 8], "clusterNames": ["onOff", "levelControl"], "status": "ok", "error": null, "state": { "onOff": true, "level": 200 } } ],
+      "state": { "on": "all", "onCount": 1, "memberCount": 1, "level": 200 }, "created": 1760000000000 }
+  ]
+}
+```
+
+### POST /she/matter/groups
+
+Create a group. **Request body:** `{ "name": "Wohnzimmer", "keySet": "shared" }` (`"own"` for a key set of its own). **Response (HTTP 201):** the group.
+
+### PATCH /she/matter/groups/:id · DELETE /she/matter/groups/:id
+
+Rename (`{ "name": "…" }`; the name devices hold is cosmetic and stays) or delete a group. Deleting deprovisions every online member (an offline one keeps the group until it is removed again — listed in `problems`) and drops an own key set no other group uses. **Response (HTTP 200):** the group, or `{ "ok": true, "problems": [] }`.
+
+### POST /she/matter/groups/:id/members
+
+Add an endpoint: `KeySetWrite` when the device lacks the key set, the `groupKeyMap` entry, Groups `AddGroup` on the endpoint, and an ACL entry (auth mode Group, Operate on the endpoint's controllable clusters — guarded like a binding's). Refused (HTTP 409) when the device's `maxGroupKeysPerFabric` or `maxGroupsPerFabric` would be exceeded; a failed step is recorded on the member (`status: "error"`).
+
+**Request body:** `{ "nodeId": "4", "endpointId": 1, "clusters": ["onOff", "levelControl"] }` (`clusters` optional: every controllable server cluster of the endpoint). **Response (HTTP 201):** the group.
+
+### DELETE /she/matter/groups/:id/members/:nodeId/:endpointId
+
+Remove a member; the device is cleaned (`RemoveGroup`, the ACL entry, the map entry and the key set when nothing else uses them) — best effort, `problems` lists what did not work. **Response (HTTP 200):** `{ "ok": true, "problems": [], "group": { … } }`
+
+### POST /she/matter/groups/:id/command
+
+One multicast command to the group: `{ "clusterName": "onOff", "command": "on" }` or `{ "clusterName": "levelControl", "command": "moveToLevel", "args": { "level": 128 } }`. No device answers a group message — best effort; on Thread a lost multicast is not retried. Scripts do the same with `she.matter.send('group:Wohnzimmer', null, 'onOff', 'on')`. **Response (HTTP 200):** `{ "ok": true }`
+
+A **group binding** is `POST /she/matter/bindings` with `"target": { "group": 1 }`: the source gets the group's key set and map entry and a `{ group, cluster }` binding entry; the members already grant the group.
+
 ### GET /she/matter/updates
 
 Firmware state of every paired node and the updates the CSA ledger offers. she runs a Matter OTA provider (matter.js's `SoftwareUpdateManager`): the ledger is asked daily and on request, the image is served to the device over BDX when the user starts the update — **never automatically**. Not available with `--matter-dcl-offline`.

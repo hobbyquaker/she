@@ -1224,3 +1224,280 @@ describe('matter controller: firmware updates', () => {
         expect((await controller.listUpdates()).nodes[0].outcome).toBe('failed');
     });
 });
+
+// ── groups (M23) ─────────────────────────────────────────────────────────────
+
+describe('matter controller: groups', () => {
+    let controller;
+    let ServerNode;
+    const fakeLog = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const SHE = 112233n;
+    const admin = { privilege: 5, authMode: 2, subjects: [SHE], targets: null, fabricIndex: 1 };
+    let dir;
+    let fabric;
+    let groupInvokes;
+
+    beforeEach(() => {
+        jest.resetModules();
+        dir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'she-grp-'));
+        const secrets = require('../../src/lib/secrets');
+        secrets.init({ file: require('path').join(dir, 'secrets.enc'), keyFile: require('path').join(dir, 'secrets.key'), env: {} });
+        groupInvokes = [];
+        fabric = { fabricIndex: 1, rootNodeId: SHE, groups: { setFromGroupKeySet: jest.fn().mockResolvedValue(undefined), groupKeyIdMap: new Map() } };
+        jest.doMock('@matter/main', () => ({
+            Environment: { default: { vars: { set: jest.fn() } } },
+            ServerNode: { create: jest.fn() },
+            Logger: { destinations: { default: {} } },
+            LogLevel: { DEBUG: 0, INFO: 1, NOTICE: 2, WARN: 3, ERROR: 4, FATAL: 5 },
+            LogFormat: { PLAIN: 'plain' },
+        }));
+        jest.doMock('@matter/protocol', () => ({
+            Write: Object.assign(
+                jest.fn((attr) => ({ kind: 'write', attr })),
+                { Attribute: jest.fn((d) => d) },
+            ),
+            WriteResult: { assertSuccess: jest.fn() },
+            Read: Object.assign(
+                jest.fn((options, attr) => ({ kind: 'read', options, attr })),
+                { Attribute: jest.fn((d) => d) },
+            ),
+            Invoke: jest.fn((def) => ({ kind: 'invoke', ...def })),
+            FabricManager: class FabricManager {},
+        }));
+        jest.doMock('@matter/types', () => ({ GroupId: (n) => n, NodeId: { fromGroupId: (n) => BigInt(0xffffffffffff0000n) | BigInt(n) } }));
+        jest.doMock('@matter/main/clusters', () => ({
+            AccessControl: { Complete: { id: 31, attributes: { acl: { id: 0 } } } },
+            Binding: { Complete: { id: 30, attributes: { binding: { id: 0 } } } },
+            GroupKeyManagement: { Complete: { id: 63, attributes: { groupKeyMap: { id: 0 }, groupTable: { id: 1 } } } },
+            OnOff: { Complete: { id: 6, commands: { on: {}, off: {}, toggle: {} } } },
+            LevelControl: {
+                Complete: { id: 8, commands: { moveToLevel: { requestSchema: { fieldDefinitions: { level: {}, transitionTime: {}, optionsMask: {}, optionsOverride: {} } } } } },
+            },
+        }));
+        jest.doMock('../../src/matter/dcl', () => ({
+            start: jest.fn().mockResolvedValue(undefined),
+            close: jest.fn().mockResolvedValue(undefined),
+            deviceInfo: jest.fn(),
+            vendorName: () => null,
+        }));
+        controller = require('../../src/matter/controller');
+        ({ ServerNode } = require('@matter/main'));
+    });
+    afterEach(() => require('fs').rmSync(dir, { recursive: true, force: true }));
+
+    /** A bulb-like device: endpoint 1 serves On/Off and Level Control; commands and attribute I/O recorded. */
+    function makeBulb(nodeId, { online = true, keySetIds = [0], limits = { maxGroupKeysPerFabric: 3, maxGroupsPerFabric: 4 } } = {}) {
+        const store = { '0/31/acl': [admin], '0/63/groupKeyMap': [], '0/63/groupTable': [], '1/30/binding': [] };
+        const commands = [];
+        const agent = {
+            groupKeyManagement: {
+                keySetReadAllIndices: jest.fn(async () => ({ groupKeySetIDs: [...keySetIds] })),
+                keySetWrite: jest.fn(async (a) => {
+                    keySetIds.push(a.groupKeySet.groupKeySetId);
+                }),
+                keySetRemove: jest.fn(async (a) => {
+                    keySetIds.splice(keySetIds.indexOf(a.groupKeySetId), 1);
+                }),
+            },
+            groups: { addGroup: jest.fn(async (a) => ({ status: 0, groupId: a.groupId })), removeGroup: jest.fn(async (a) => ({ status: 0, groupId: a.groupId })) },
+        };
+        const root = {
+            number: 0,
+            state: {
+                basicInformation: { nodeLabel: `Bulb ${nodeId}` },
+                operationalCredentials: { currentFabricIndex: 1 },
+                accessControl: {},
+                groupKeyManagement: limits,
+                descriptor: { deviceTypeList: [{ deviceType: 22 }], serverList: [29, 31, 63], clientList: [] },
+            },
+        };
+        const ep1 = {
+            number: 1,
+            state: {
+                descriptor: { deviceTypeList: [{ deviceType: 0x101 }], serverList: [29, 3, 4, 6, 8, 30], clientList: [] },
+                onOff: { onOff: true },
+                levelControl: { currentLevel: 100 },
+                binding: { binding: [] },
+            },
+        };
+        const act = jest.fn((label, fn) => {
+            commands.push(label);
+            return fn(agent);
+        });
+        root.act = act;
+        ep1.act = act;
+        const node = {
+            peerAddress: { nodeId, fabricIndex: 1 },
+            lifecycle: { isOnline: online, online: { on: jest.fn() }, offline: { on: jest.fn() } },
+            endpoints: { [Symbol.iterator]: () => [root, ep1][Symbol.iterator](), for: (id) => (id === 0 ? root : id === 1 ? ep1 : null) },
+            interaction: {
+                read: (req) =>
+                    (async function* () {
+                        yield [{ kind: 'attr-value', value: store[`${req.attr.endpoint}/${req.attr.cluster.id}/${req.attr.attributes}`] ?? [] }];
+                    })(),
+                write: async (req) => {
+                    store[`${req.attr.endpoint}/${req.attr.cluster.id}/${req.attr.attributes}`] = req.attr.value;
+                    return {};
+                },
+            },
+            act,
+            store,
+            agent,
+            keySetIds,
+        };
+        return node;
+    }
+
+    async function setup(nodes) {
+        const group = {
+            interaction: {
+                invoke: (req) => {
+                    groupInvokes.push(req);
+                    return (async function* () {})();
+                },
+            },
+        };
+        const server = {
+            peers: { [Symbol.iterator]: () => nodes[Symbol.iterator](), commission: jest.fn(), get: () => undefined, forAddress: jest.fn(async () => group) },
+            start: jest.fn(),
+            close: jest.fn(),
+            env: { get: () => ({ for: () => fabric, fabrics: [fabric] }) },
+        };
+        ServerNode.create.mockResolvedValue(server);
+        const broadcast = jest.fn();
+        await controller.init(dir, fakeLog, broadcast);
+        return { server, broadcast };
+    }
+
+    test('createGroup uses the shared key set by default, an own one on request, and registers both in the fabric', async () => {
+        await setup([]);
+        const a = await controller.createGroup({ name: 'Wohnzimmer' });
+        expect(a).toMatchObject({ id: 1, name: 'Wohnzimmer', keySetId: 1, keySet: { id: 1, shared: true }, members: [], state: { on: null } });
+        const b = await controller.createGroup({ name: 'Küche', keySet: 'own' });
+        expect(b).toMatchObject({ id: 2, keySetId: 2, keySet: { id: 2, shared: false } });
+        expect(fabric.groups.setFromGroupKeySet).toHaveBeenCalled();
+        expect([...fabric.groups.groupKeyIdMap.entries()]).toEqual([
+            [1, 1],
+            [2, 2],
+        ]);
+        await expect(controller.createGroup({ name: 'Wohnzimmer' })).rejects.toThrow('exists');
+        const list = controller.listGroups();
+        expect(list.groups.length).toBe(2);
+        expect(JSON.stringify(list)).not.toMatch(/epochKey/);
+        // the store survives a restart
+        await controller.close();
+        await setup([]);
+        expect(controller.listGroups().groups.map((g) => g.name)).toEqual(['Wohnzimmer', 'Küche']);
+    });
+
+    test('addGroupMember writes the key set, the map entry, AddGroup and the group ACL entry; removal cleans up', async () => {
+        const bulb = makeBulb(4n);
+        const { broadcast } = await setup([bulb]);
+        await controller.createGroup({ name: 'Wohnzimmer' });
+        const g = await controller.addGroupMember('Wohnzimmer', { nodeId: '4', endpointId: 1 });
+        expect(g.members).toEqual([
+            expect.objectContaining({
+                nodeId: '4',
+                endpointId: 1,
+                name: 'Bulb 4',
+                status: 'ok',
+                clusters: [6, 8],
+                clusterNames: ['onOff', 'levelControl'],
+                state: { onOff: true, level: 100 },
+            }),
+        ]);
+        expect(g.state).toEqual({ on: 'all', onCount: 1, memberCount: 1, level: 100 });
+        expect(bulb.agent.groupKeyManagement.keySetWrite).toHaveBeenCalledWith({ groupKeySet: expect.objectContaining({ groupKeySetId: 1 }) });
+        expect(bulb.store['0/63/groupKeyMap']).toEqual([{ groupId: 1, groupKeySetId: 1, fabricIndex: 1 }]);
+        expect(bulb.agent.groups.addGroup).toHaveBeenCalledWith({ groupId: 1, groupName: 'Wohnzimmer' });
+        expect(bulb.store['0/31/acl']).toEqual([
+            admin,
+            {
+                privilege: 3,
+                authMode: 3,
+                subjects: [1n],
+                targets: [
+                    { cluster: 6, endpoint: 1, deviceType: null },
+                    { cluster: 8, endpoint: 1, deviceType: null },
+                ],
+                fabricIndex: 1,
+            },
+        ]);
+        expect(broadcast).toHaveBeenCalledWith({ type: 'matter:groups' });
+
+        const r = await controller.removeGroupMember(1, '4', 1);
+        expect(r.problems).toEqual([]);
+        expect(bulb.agent.groups.removeGroup).toHaveBeenCalledWith({ groupId: 1 });
+        expect(bulb.store['0/31/acl']).toEqual([admin]);
+        expect(bulb.store['0/63/groupKeyMap']).toEqual([]);
+        expect(bulb.agent.groupKeyManagement.keySetRemove).toHaveBeenCalledWith({ groupKeySetId: 1 });
+        expect(controller.listGroups().groups[0].members).toEqual([]);
+    });
+
+    test('a device at its key-set limit is refused with a message and the member records the error', async () => {
+        const bulb = makeBulb(4n, { keySetIds: [0, 7, 8], limits: { maxGroupKeysPerFabric: 3, maxGroupsPerFabric: 4 } });
+        await setup([bulb]);
+        await controller.createGroup({ name: 'Wohnzimmer' });
+        await expect(controller.addGroupMember(1, { nodeId: '4', endpointId: 1 })).rejects.toThrow('at most 3 group key sets');
+        expect(bulb.agent.groupKeyManagement.keySetWrite).not.toHaveBeenCalled();
+        expect(controller.listGroups().groups[0].members[0]).toMatchObject({ status: 'error', error: expect.stringContaining('key sets') });
+    });
+
+    test('an offline member is refused; the key set is written once per device', async () => {
+        const off = makeBulb(5n, { online: false });
+        const bulb = makeBulb(4n);
+        await setup([bulb, off]);
+        await controller.createGroup({ name: 'A' });
+        await controller.createGroup({ name: 'B' });
+        await expect(controller.addGroupMember(1, { nodeId: '5', endpointId: 1 })).rejects.toThrow('offline');
+        await controller.addGroupMember(1, { nodeId: '4', endpointId: 1 });
+        await controller.addGroupMember(2, { nodeId: '4', endpointId: 1 });
+        expect(bulb.agent.groupKeyManagement.keySetWrite).toHaveBeenCalledTimes(1);
+        expect(bulb.store['0/63/groupKeyMap'].map((e) => e.groupId)).toEqual([1, 2]);
+        // leaving group 1 keeps the shared key set while group 2 maps it
+        await controller.removeGroupMember(1, '4', 1);
+        expect(bulb.agent.groupKeyManagement.keySetRemove).not.toHaveBeenCalled();
+        expect(bulb.store['0/63/groupKeyMap'].map((e) => e.groupId)).toEqual([2]);
+    });
+
+    test('sendCommand with group: sends one invoke to the group address with neutral defaults filled', async () => {
+        const { server } = await setup([]);
+        await controller.createGroup({ name: 'Wohnzimmer' });
+        await controller.sendCommand('group:Wohnzimmer', null, 'onOff', 'on');
+        expect(server.peers.forAddress).toHaveBeenCalledWith({ fabricIndex: 1, nodeId: BigInt(0xffffffffffff0000n) | 1n });
+        expect(groupInvokes[0].commands[0]).toMatchObject({ command: 'on', fields: {} });
+        await controller.sendGroupCommand(1, 'levelControl', 'moveToLevel', { level: 128 });
+        expect(groupInvokes[1].commands[0].fields).toEqual({ level: 128, transitionTime: 0, optionsMask: {}, optionsOverride: {} });
+        await expect(controller.sendCommand('group:Nope', null, 'onOff', 'on')).rejects.toThrow('not found');
+    });
+
+    test('a group binding gives the source the key set and a { group, cluster } entry; removal drops both', async () => {
+        const sw = makeBulb(2n);
+        await setup([sw]);
+        await controller.createGroup({ name: 'Wohnzimmer' });
+        const r = await controller.addBinding({ source: { nodeId: '2', endpointId: 1 }, target: { group: 1 }, clusters: ['onOff'] });
+        expect(r).toMatchObject({ ok: true, clusters: [6], aclChanged: false, bindingsAdded: [6], group: 1 });
+        expect(sw.agent.groupKeyManagement.keySetWrite).toHaveBeenCalledTimes(1);
+        expect(sw.store['1/30/binding']).toEqual([{ group: 1, cluster: 6, fabricIndex: 1 }]);
+        const list = await controller.listBindings();
+        expect(list).toEqual([expect.objectContaining({ sourceNodeId: '2', own: true, group: 1, node: null, targetName: 'group Wohnzimmer', clusterName: 'onOff' })]);
+        const rm = await controller.removeBinding({ source: { nodeId: '2', endpointId: 1 }, target: { group: 1 }, clusters: ['onOff'] });
+        expect(rm).toMatchObject({ bindingsRemoved: [6], warning: null });
+        expect(sw.store['1/30/binding']).toEqual([]);
+        expect(sw.agent.groupKeyManagement.keySetRemove).toHaveBeenCalledWith({ groupKeySetId: 1 });
+    });
+
+    test('deleteGroup deprovisions online members, reports offline ones and drops an own key set', async () => {
+        const bulb = makeBulb(4n);
+        const off = makeBulb(5n);
+        await setup([bulb, off]);
+        await controller.createGroup({ name: 'Own', keySet: 'own' });
+        await controller.addGroupMember(1, { nodeId: '4', endpointId: 1 });
+        await controller.addGroupMember(1, { nodeId: '5', endpointId: 1 });
+        off.lifecycle.isOnline = false;
+        const r = await controller.deleteGroup(1);
+        expect(r.problems).toEqual([expect.stringContaining('Bulb 5/1: offline')]);
+        expect(bulb.agent.groups.removeGroup).toHaveBeenCalled();
+        expect(controller.listGroups()).toMatchObject({ groups: [], keySets: [] });
+    });
+});

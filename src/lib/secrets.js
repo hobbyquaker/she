@@ -317,4 +317,31 @@ function cli(argv, io = { stdout: process.stdout, stderr: process.stderr, stdin:
     }
 }
 
-module.exports = { init, load, status, list, get, has, set, mark, remove, redact, cli, validName, NAME_RE, MAX_VALUE, MIN_REDACT };
+/**
+ * The encryption of the secrets store for other files that must not sit in plaintext in the data
+ * directory (the Matter group keys, the Thread datasets): same key, same format, their own file.
+ */
+function readEncryptedFile(file) {
+    let raw;
+    try {
+        raw = fs.readFileSync(file, 'utf8');
+    } catch (err) {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+    }
+    const key = loadKey();
+    if (!key) throw new Error(`no key to read ${file}: set SHE_SECRETS_KEY or restore ${_keyFile}`);
+    const obj = JSON.parse(raw);
+    if (!obj || obj.alg !== ALG) throw new Error(`${file}: unknown file format`);
+    return JSON.parse(decrypt(key, obj));
+}
+
+function writeEncryptedFile(file, data) {
+    const key = loadKey({ create: true });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(encrypt(key, JSON.stringify(data))) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, file);
+}
+
+module.exports = { init, load, status, list, get, has, set, mark, remove, redact, cli, validName, NAME_RE, MAX_VALUE, MIN_REDACT, readEncryptedFile, writeEncryptedFile };
