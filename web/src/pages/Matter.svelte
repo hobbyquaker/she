@@ -1,11 +1,13 @@
 <script lang="ts">
-    import { onMount, onDestroy, tick } from 'svelte';
+    import { onMount, onDestroy, tick, untrack } from 'svelte';
     import jsQR from 'jsqr';
     import { subscribeWs } from '../lib/ws.js';
     import { listMatterDevices, getMatterDevice, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, type MatterDevice, type MatterNodeDetail } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import MatterValue from '../lib/MatterValue.svelte';
+    import Bindings from './matter/Bindings.svelte';
+    import Thread from './matter/Thread.svelte';
 
     let { active = true, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
@@ -416,22 +418,39 @@
 
     const LS_MATTER_NODE = 'she:matter:selectedNodeId';
 
-    // ── URL: #/matter/<nodeId> ─────────────────────────────────────────────────
-    // The address bar names the device on screen, and a link to one opens it. `selectedId` is
-    // the node asked for, set before its details are fetched — `selected` only arrives with the
-    // answer, and the url must not fall back to "nothing open" in between.
+    // ── Sub-navigation and URL: #/matter/<tab>[/<nodeId>] ──────────────────────
+    // The tabs are the sub-navigation the Broker, MQTT, Adapters and DB pages have (M12). On the
+    // Devices tab the address bar also names the device on screen, and a link to one opens it:
+    // `selectedId` is the node asked for, set before its details are fetched — `selected` only
+    // arrives with the answer, and the url must not fall back to "nothing open" in between. An
+    // old `#/matter/<nodeId>` link (before the tabs) still opens that device.
+    type Tab = 'devices' | 'bindings' | 'thread';
+    const TABS: Tab[] = ['devices', 'bindings', 'thread'];
+    let tab = $state<Tab>('devices');
     let selectedId = $state<string | null>(null);
     let seenSub: string | null | undefined = undefined;
     $effect(() => {
         const want = sub;
         if (want === seenSub) return;
         seenSub = want;
-        if (want && want !== selectedId) selectDevice(want);
+        if (!want) return;
+        const [first, ...rest] = want.split('/');
+        untrack(() => {
+            if ((TABS as string[]).includes(first)) {
+                tab = first as Tab;
+                const node = rest.join('/');
+                if (tab === 'devices' && node && node !== selectedId) selectDevice(node);
+            } else {
+                tab = 'devices';
+                if (first !== selectedId) selectDevice(first);
+            }
+        });
     });
     $effect(() => {
         if (!active) return;
-        seenSub = selectedId ?? '';
-        onsub?.(selectedId ?? '');
+        const s = tab === 'devices' ? 'devices' + (selectedId ? '/' + selectedId : '') : tab;
+        seenSub = s;
+        onsub?.(s);
     });
 
     async function loadDevices() {
@@ -604,6 +623,12 @@
 <ConfirmDialog bind:this={dialog} />
 <InputDialog bind:this={inputDialog} />
 <div class="matter-page">
+    <div class="toolbar">
+        <button class="vt" class:active={tab === 'devices'} onclick={() => (tab = 'devices')}>Devices</button>
+        <button class="vt" class:active={tab === 'bindings'} onclick={() => (tab = 'bindings')} title="Switch-to-device bindings: one device controls another without she in the loop">Bindings</button>
+        <button class="vt" class:active={tab === 'thread'} onclick={() => (tab = 'thread')} title="Thread networks, border routers and the mesh">Thread</button>
+    </div>
+    <div class="tab-wrap" class:hidden={tab !== 'devices'}>
     <div class="matter-main">
     <div class="sidebar">
         <div class="sidebar-header">
@@ -876,6 +901,9 @@
             </div>
         {/if}
     </div>
+    </div>
+    <div class="tab-wrap" class:hidden={tab !== 'bindings'}><Bindings active={active && tab === 'bindings'} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'thread'}><Thread active={active && tab === 'thread'} /></div>
 </div>
 
 {#if scanOpen}
@@ -908,6 +936,42 @@
         color: var(--fg);
         font-size: 13px;
     }
+    /* menubar tabs — the sub-navigation look shared by the Broker, MQTT, Adapters and DB pages */
+    .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 6px 10px 0;
+        border-bottom: 1px solid var(--border-sub);
+        flex-shrink: 0;
+    }
+    .vt {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--fg-muted);
+        cursor: pointer;
+        font-size: 13px;
+        padding: 5px 12px 6px;
+        margin-bottom: -1px;
+    }
+    .vt:hover { color: var(--fg); }
+    .vt.active {
+        color: var(--fg-text);
+        border-bottom-color: var(--fg-brand);
+    }
+    /* the tabs keep their state while hidden, like the pages in App.svelte */
+    .tab-wrap {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-height: 0;
+    }
+    .tab-wrap.hidden { display: none; }
     .matter-main {
         flex: 1;
         display: flex;
