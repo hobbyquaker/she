@@ -89,6 +89,7 @@ describe('matter controller', () => {
         }));
 
         // Re-require with fresh modules so _server is reset to null
+        jest.doMock('../../src/matter/thread', () => ({ start: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) }));
         jest.doMock('../../src/matter/dcl', () => ({
             start: jest.fn().mockResolvedValue(undefined),
             close: jest.fn().mockResolvedValue(undefined),
@@ -675,6 +676,7 @@ describe('matter controller: bindings', () => {
             AccessControl: { Complete: { id: 31, attributes: { acl: { id: 0 } } } },
             Binding: { Complete: { id: 30, attributes: { binding: { id: 0 } } } },
         }));
+        jest.doMock('../../src/matter/thread', () => ({ start: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) }));
         jest.doMock('../../src/matter/dcl', () => ({
             start: jest.fn().mockResolvedValue(undefined),
             close: jest.fn().mockResolvedValue(undefined),
@@ -941,6 +943,7 @@ describe('matter controller: fabrics and pairing windows', () => {
             AdministratorCommissioning: { Complete: { id: 60, commands: { openCommissioningWindow: {}, revokeCommissioning: {} } } },
             OperationalCredentials: { Complete: { id: 62, attributes: { fabrics: { id: 1 } } } },
         }));
+        jest.doMock('../../src/matter/thread', () => ({ start: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) }));
         jest.doMock('../../src/matter/dcl', () => ({
             start: jest.fn().mockResolvedValue(undefined),
             close: jest.fn().mockResolvedValue(undefined),
@@ -1093,6 +1096,7 @@ describe('matter controller: firmware updates', () => {
         }));
         jest.doMock('@matter/main/endpoints', () => ({ OtaProviderEndpoint: { with: (b) => ({ ota: true, b }) } }));
         jest.doMock('@matter/node', () => ({ SoftwareUpdateManager: class SoftwareUpdateManager {} }));
+        jest.doMock('../../src/matter/thread', () => ({ start: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) }));
         jest.doMock('../../src/matter/dcl', () => ({
             start: jest.fn().mockResolvedValue(undefined),
             close: jest.fn().mockResolvedValue(undefined),
@@ -1274,6 +1278,7 @@ describe('matter controller: groups', () => {
                 Complete: { id: 8, commands: { moveToLevel: { requestSchema: { fieldDefinitions: { level: {}, transitionTime: {}, optionsMask: {}, optionsOverride: {} } } } } },
             },
         }));
+        jest.doMock('../../src/matter/thread', () => ({ start: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) }));
         jest.doMock('../../src/matter/dcl', () => ({
             start: jest.fn().mockResolvedValue(undefined),
             close: jest.fn().mockResolvedValue(undefined),

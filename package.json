@@ -34,6 +34,7 @@
         "@influxdata/influxdb-client": "^1.35.0",
         "@matter/dcl-data": "^2026.10.18",
         "@matter/main": "^0.17.9",
+        "@matter/thread-br-client": "^0.17.9",
         "bcryptjs": "^2.4.3",
         "chokidar": "^4.0.0",
         "express": "^5.2.1",

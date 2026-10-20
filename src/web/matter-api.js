@@ -8,6 +8,9 @@
  *   POST   /she/matter/commission                       → commission a device
  *   GET    /she/matter/devices/:nodeId                  → node detail (endpoints + clusters)
  *   GET    /she/matter/devices/:nodeId/dcl              → vendor and product details from the CSA ledger
+ *   GET    /she/matter/thread/networks                  → Thread networks on the LAN with their border routers
+ *   POST   /she/matter/thread/refresh                   → probe every border router's REST API again
+ *   POST   /she/matter/thread/routers/:ext/probe        → probe one border router
  *   GET    /she/matter/bridge                           → the MQTT bridge's settings, devices, status
  *   PUT    /she/matter/bridge                           → { enabled?, format?, templates? }
  *   PUT    /she/matter/bridge/devices/:nodeId           → { name?, publish? } (the MQTT name, on/off)
@@ -125,6 +128,43 @@ router.get('/devices/:nodeId/dcl', async (req, res) => {
         res.json(await getController().getDeviceInfo(req.params.nodeId));
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Thread (M15) ──────────────────────────────────────────────────────────────
+
+function getThread() {
+    return require('../matter/thread');
+}
+
+// GET /she/matter/thread/networks — the Thread networks on the LAN with their border routers
+router.get('/thread/networks', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(getThread().listNetworks());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/thread/refresh — probe every border router's REST API again
+router.post('/thread/refresh', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getThread().refresh());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/thread/routers/:ext/probe — probe one border router
+router.post('/thread/routers/:ext/probe', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getThread().probeRouter(req.params.ext, { force: true }));
+    } catch (err) {
+        if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });
     }
 });

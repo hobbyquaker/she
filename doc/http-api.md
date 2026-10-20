@@ -410,6 +410,31 @@ What the CSA Distributed Compliance Ledger (the public registry of certified Mat
 
 ---
 
+### GET /she/matter/thread/networks
+
+The Thread networks on the LAN, from the border agents' `_meshcop._udp` mDNS announcements (passive discovery on the controller's mDNS): per network (extended PAN ID) its border routers — Apple TV, HomePod, OpenThread border routers, the ESP router — with vendor, model, Thread version, the decoded state bitmap (role, interface status, connection mode, BBR flags, ePSKc), addresses, partition ID and last seen; border routers that name no PAN ID under `unknown`. A border router with the classic OpenThread REST API (OTBR on 8081, esp-thread-br on 80) is probed once and shows `rest.manageable` with its role, RLOC16 and leader data. Nothing is written to any border router.
+
+**Response (HTTP 200):**
+
+```json
+{
+  "running": true,
+  "networks": [
+    { "extPanId": "1122334455667788", "networkName": "Home", "routerCount": 2, "partitions": ["0a0b0c0d"], "datasetKnown": false,
+      "borderRouters": [
+        { "extAddress": "AABBCCDDEEFF0011", "vendorName": "Apple Inc.", "modelName": "AppleTV14,1", "hostname": "Wohnzimmer.local.", "addresses": ["192.168.1.20"], "meshcopPort": 49153, "threadVersion": "1.3.0",
+          "state": { "connectionMode": "PSKc", "interfaceStatus": "active", "availability": "high", "bbrActive": false, "bbrPrimary": true, "role": "leader", "epskcSupported": false, "threadActive": true },
+          "lastSeen": 1760000000000, "rest": { "manageable": false, "port": null, "node": null, "probedAt": 1760000000000, "error": null } }
+      ] }
+  ],
+  "unknown": []
+}
+```
+
+### POST /she/matter/thread/refresh · POST /she/matter/thread/routers/:extAddress/probe
+
+Probe every border router's REST API again, or one. **Response (HTTP 200):** as `GET …/networks`, or the border router.
+
 ### GET /she/matter/bridge
 
 The Matter ↔ MQTT bridge: every paired node's application attributes (endpoints ≥ 1, the diagnostics and commissioning clusters left out) published to MQTT, cluster events too, commands and writes accepted on `set`, reads on `get`. Off until switched on. Defaults are mqtt-smarthome: `matter/connected` (2 while she runs, 0 on shutdown), `matter/status/<device>/<endpoint>/<cluster>/<attribute>` retained as `{ "val", "ts", "lc" }` (`lc` = last change), `matter/status/<device>/online`, `matter/set/<device>/<endpoint>/<cluster>/<attribute-or-command>`, `matter/get/<device>/<endpoint>/<cluster>/<attribute>`. Cluster, attribute, event and command names are matter.js's camelCase turned into snake_case (`level_control/current_level`), values in Matter's own units. `<device>` is the node's MQTT name — its device name as snake_case when it first appears, kept across renames in Apple Home or she, editable here; inbound topics accept the MQTT name or the node ID.

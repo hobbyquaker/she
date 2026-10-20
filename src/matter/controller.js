@@ -243,6 +243,11 @@ async function init(storagePath, log, broadcastFn, options = {}) {
         _log?.warn(`matter: groups not registered: ${err.message}`);
     }
 
+    // Thread border router discovery on the controller's mDNS (M15) — never holds the start
+    require('./thread')
+        .start(_server.env, { log, broadcast: _broadcast })
+        .catch((err) => _log?.warn(`matter: Thread discovery not started: ${err.message}`));
+
     // Device information from the CSA ledger (M25) — never holds the start, never throws
     dcl.start({ env: _server.env, storageDir: storagePath, log, offline: options.dclOffline === true }).catch((err) => _log?.warn(`matter: DCL start failed: ${err.message}`));
 
@@ -259,6 +264,7 @@ async function init(storagePath, log, broadcastFn, options = {}) {
 async function close() {
     if (!_server) return;
     _ota = null;
+    await require('./thread').stop();
     await dcl.close();
     try {
         await _server.close();

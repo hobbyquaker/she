@@ -503,6 +503,42 @@ export function getMatterDeviceInfo(nodeId: string): Promise<MatterDeviceInfo> {
     return request('GET', `/she/matter/devices/${nodeId}/dcl`);
 }
 
+// ---- Thread (M15) ----
+
+export interface ThreadBorderRouter {
+    extAddress: string;
+    extPanId: string | null;
+    networkName: string | null;
+    vendorName: string | null;
+    modelName: string | null;
+    hostname: string | null;
+    addresses: string[];
+    meshcopPort: number | null;
+    trelPort: number | null;
+    threadVersion: string | null;
+    swVersion: string | null;
+    borderAgentId: string | null;
+    partitionId: string | null;
+    activeTimestamp: string | null;
+    domainName: string | null;
+    state: { connectionMode: string; interfaceStatus: string; availability: string; bbrActive: boolean; bbrPrimary: boolean; role: string; epskcSupported: boolean; threadActive: boolean } | null;
+    sources: string[];
+    lastSeen: number | null;
+    rest: { manageable: boolean; port: number | null; baseUrl: string | null; diagnosticsApi: string | null; node: { state: string | null; role: string | null; rloc16: number | null; rlocAddress: string | null; numOfRouter: number | null; networkName: string | null; extAddress: string | null; extPanId: string | null; leaderData: { partitionId: number; weighting: number; dataVersion: number; stableDataVersion: number; leaderRouterId: number } | null } | null; probedAt: number; error: string | null } | null;
+}
+export interface ThreadNetwork { extPanId: string; networkName: string | null; borderRouters: ThreadBorderRouter[]; partitions: string[]; routerCount: number; datasetKnown: boolean }
+export interface ThreadNetworks { running: boolean; networks: ThreadNetwork[]; unknown: ThreadBorderRouter[] }
+
+export function getThreadNetworks(): Promise<ThreadNetworks> {
+    return request('GET', '/she/matter/thread/networks');
+}
+export function refreshThreadNetworks(): Promise<ThreadNetworks> {
+    return request('POST', '/she/matter/thread/refresh');
+}
+export function probeThreadRouter(ext: string): Promise<ThreadBorderRouter> {
+    return request('POST', `/she/matter/thread/routers/${ext}/probe`);
+}
+
 // ---- Matter MQTT bridge (M19) ----
 
 export interface MatterBridgeTemplates { connected: string; attribute: string; event: string; online: string; set: string; get: string }
