@@ -36,9 +36,13 @@ function httpRequest(method, port, urlPath, body) {
                 headers: { accept: 'application/json', ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}) },
             },
             (res) => {
-                let data = '';
-                res.on('data', (c) => (data += c));
+                // Collect Buffers and decode once: `data += chunk` decodes every chunk on its own and
+                // mangles a multi-byte character split at a chunk boundary (the 40 KB setup script with
+                // the helper's non-ASCII comments arrives in several chunks, platform-dependently).
+                const chunks = [];
+                res.on('data', (c) => chunks.push(c));
                 res.on('end', () => {
+                    const data = Buffer.concat(chunks).toString('utf8');
                     let b;
                     try {
                         b = JSON.parse(data);
