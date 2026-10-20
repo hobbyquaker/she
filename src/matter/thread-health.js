@@ -107,7 +107,15 @@ function evaluate(state, { networks = [], mesh = { nodes: [], links: [] }, now =
             next.routers.set(br.extAddress, { lastSeen: br.lastSeen ?? now, name: label, network: name });
             if (br.lastSeen && now - br.lastSeen > ROUTER_STALE_MS)
                 raise('border_router_offline', br.extAddress, `${name}: border router ${label} not seen for ${Math.round((now - br.lastSeen) / 60000)} min`, { network: name });
-            else seen.add(_alertKey('border_router_offline', br.extAddress));
+            else {
+                // seen fresh: an offline alert for it (stale or vanished) is over
+                const key = _alertKey('border_router_offline', br.extAddress);
+                if (next.active.has(key)) {
+                    cleared.push(next.active.get(key));
+                    next.history.unshift({ ...next.active.get(key), event: 'cleared', at: now });
+                    next.active.delete(key);
+                }
+            }
         }
     }
     // border routers that vanished from the registry
