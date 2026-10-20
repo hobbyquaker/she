@@ -46,6 +46,17 @@ function hex64(v) {
 }
 
 /** LQI 3 → good, 2 → fair, 1 → poor, 0 → unknown (the OHF dashboard's colours). */
+/**
+ * A Thread partition ID as 8 hex digits: devices report it as a number (Network Diagnostics), border
+ * routers as hex (their mDNS TXT record) — the same partition must compare equal.
+ */
+function partitionHex(v) {
+    if (typeof v === 'number' || typeof v === 'bigint' || /^\d+$/.test(String(v))) {
+        return Number(v).toString(16).toUpperCase().padStart(8, '0');
+    }
+    return String(v).toUpperCase().padStart(8, '0');
+}
+
 /** an IPv6 address from 16 bytes (a Uint8Array or `{ $bytes }`) in the usual short form */
 function _ipv6(v) {
     const buf = v?.$bytes ? Buffer.from(v.$bytes, 'hex') : ArrayBuffer.isView(v) ? Buffer.from(v.buffer, v.byteOffset, v.byteLength) : null;
@@ -292,7 +303,7 @@ function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
         g.network = key;
         const n = nets.get(key) ?? { key, extPanId: g.extPanId ?? null, networkName: g.networkName ?? null, partitions: new Set(), channel: null, nodes: 0, borderRouters: 0 };
         if (!n.networkName && g.networkName) n.networkName = g.networkName;
-        if (g.partitionId !== null && g.partitionId !== undefined) n.partitions.add(String(g.partitionId));
+        if (g.partitionId !== null && g.partitionId !== undefined) n.partitions.add(partitionHex(g.partitionId));
         if (n.channel === null && g.channel !== null && g.channel !== undefined) n.channel = g.channel;
         n.nodes++;
         if (g.kind === 'border-router' || g.borderRouter) n.borderRouters++;
@@ -521,4 +532,4 @@ function stop() {
     _lastRefresh = null;
 }
 
-module.exports = { _ipv6, buildGraph, getMesh, refresh, meshcopQuery, start, stop, hex64, lqiQuality, rssiQuality, ROLES, _tables, _meshcop, _meshcopNode };
+module.exports = { _ipv6, partitionHex, buildGraph, getMesh, refresh, meshcopQuery, start, stop, hex64, lqiQuality, rssiQuality, ROLES, _tables, _meshcop, _meshcopNode };

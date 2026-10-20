@@ -64,7 +64,7 @@ describe('thread mesh: buildGraph', () => {
             expect.objectContaining({ source: 'node:4', target: 'node:2', lqi: 2, lqiBack: 2, quality: 'fair', bidirectional: true, isChild: true }),
         ]);
         // one network, the border router in it; the devices took its extended PAN ID by the network name
-        expect(g.networks).toEqual([{ key: '01', extPanId: '01', networkName: 'Home', partitions: ['7'], channel: 25, nodes: 3, borderRouters: 1 }]);
+        expect(g.networks).toEqual([{ key: '01', extPanId: '01', networkName: 'Home', partitions: ['00000007'], channel: 25, nodes: 3, borderRouters: 1 }]);
         expect(g.nodes.map((n) => n.network)).toEqual(['01', '01', '01']);
     });
 
@@ -295,6 +295,20 @@ describe('thread mesh: networks and addresses', () => {
         const ext = g.nodes.find((n) => n.kind === 'external');
         expect(ext.network).toBe('0DAB60AA62634026');
         expect(g.nodes.find((n) => n.name === 'Apple BorderRouter').partitionId).toBe('4AD1BF4F');
+    });
+
+    test('a partition reported as a number by a device and as hex by a border router is one partition', () => {
+        expect(mesh.partitionHex(1255259983)).toBe('4AD1BF4F');
+        expect(mesh.partitionHex('1255259983')).toBe('4AD1BF4F');
+        expect(mesh.partitionHex('4ad1bf4f')).toBe('4AD1BF4F');
+        const node = {
+            nodeId: '2',
+            name: 'S',
+            online: true,
+            thread: { role: 5, rloc16: 1, extAddress: 'AA', networkName: 'N', extPanId: 'E1', partitionId: 1255259983, neighborTable: [], routeTable: [] },
+        };
+        const br = { extAddress: 'BB', vendorName: 'Apple', modelName: 'BR', networkName: 'N', extPanId: 'E1', partitionId: '4AD1BF4F', state: { role: 'leader' } };
+        expect(mesh.buildGraph([node], [br], []).networks[0].partitions).toEqual(['4AD1BF4F']);
     });
 
     test('IPv6 addresses in the short form', () => {

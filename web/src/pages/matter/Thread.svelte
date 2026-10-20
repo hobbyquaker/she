@@ -305,6 +305,10 @@
         if (n.partitions.length > 1) parts.push('split!');
         return parts.join(' · ');
     }
+    /** devices report the partition as a number, border routers as hex: show both as hex */
+    function partitionHex(v: number | string): string {
+        return (typeof v === 'number' || /^\d+$/.test(String(v)) ? Number(v).toString(16) : String(v)).toUpperCase().padStart(8, '0');
+    }
     function rloc(n: GNode): string {
         return n.rloc16 !== null && n.rloc16 !== undefined ? '0x' + Number(n.rloc16).toString(16).padStart(4, '0') : '';
     }
@@ -320,7 +324,7 @@
         if (n.role) lines.push(`role ${n.role}`);
         if (rloc(n)) lines.push(`RLOC16 ${rloc(n)}`);
         if (n.extAddress) lines.push(`ext address ${hexAddr(n.extAddress)}`);
-        if (n.partitionId !== null && n.partitionId !== undefined) lines.push(`partition ${n.partitionId}`);
+        if (n.partitionId !== null && n.partitionId !== undefined) lines.push(`partition ${partitionHex(n.partitionId)}`);
         for (const a of n.ipv6 ?? []) lines.push(`Thread ${a}`);
         for (const a of n.addresses ?? []) lines.push(`LAN ${a}`);
         return lines.join('\n');
@@ -546,7 +550,7 @@
                                 {#if n.kind === 'thread'}
                                     <div>role <b>{n.role}</b>{n.borderRouter ? ` · border router (${n.borderRouter.vendorName ?? ''} ${n.borderRouter.modelName ?? ''})` : ''}</div>
                                     <div class="mono dim">RLOC16 {n.rloc16 !== null && n.rloc16 !== undefined ? '0x' + n.rloc16.toString(16).padStart(4, '0') : '—'} · ext {n.extAddress ? hexAddr(n.extAddress) : '—'}</div>
-                                    <div class="dim">{n.networkName ?? ''}{n.channel ? ` · channel ${n.channel}` : ''}{n.partitionId !== null && n.partitionId !== undefined ? ` · partition ${n.partitionId}` : ''} · {n.neighbours} neighbour{n.neighbours === 1 ? '' : 's'}, {n.routes} route{n.routes === 1 ? '' : 's'}{n.readAt ? ` · read ${ago(n.readAt)}` : ''}</div>
+                                    <div class="dim">{n.networkName ?? ''}{n.channel ? ` · channel ${n.channel}` : ''}{n.partitionId !== null && n.partitionId !== undefined ? ` · partition ${partitionHex(n.partitionId)}` : ''} · {n.neighbours} neighbour{n.neighbours === 1 ? '' : 's'}, {n.routes} route{n.routes === 1 ? '' : 's'}{n.readAt ? ` · read ${ago(n.readAt)}` : ''}</div>
                                     {#if n.ipv6?.length}<div class="mono dim">{#each n.ipv6 as a}<div>{a}</div>{/each}</div>{/if}
                                     <div class="nd-links">{#each gLinks.filter((l) => l.kind === 'neighbour' && ((l.source as GNode).id === n.id || (l.target as GNode).id === n.id)) as l}{@const other = (l.source as GNode).id === n.id ? (l.target as GNode) : (l.source as GNode)}<div><span class="lq {l.quality}">●</span> {other.name} <span class="dim">LQI {l.lqi}{l.rssi !== null && l.rssi !== undefined ? ` · ${l.rssi} dBm` : ''}{l.isChild ? ' · child' : ''}{l.bidirectional ? '' : ' · one-way'}</span></div>{/each}</div>
                                     {#if n.nodeId}<button class="ghost sm" disabled={meshRefreshing} onclick={() => refreshMesh(n.nodeId)}>refresh this device</button>{/if}
