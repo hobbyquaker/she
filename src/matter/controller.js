@@ -503,15 +503,49 @@ async function getAttribute(nodeId, endpointId, clusterName, attrName) {
  * @returns {Promise<void>}
  */
 async function setAttribute(nodeId, endpointId, clusterName, attrName, value) {
-    const node = _findClientNode(nodeId);
-    const { Write, WriteResult } = require('@matter/protocol');
+    await _writeAttribute(_findClientNode(nodeId), endpointId, clusterName, attrName, value);
+}
+
+function _clusterDef(clusterName, attrName) {
     const clusters = require('@matter/main/clusters');
     const clusterDef = clusters[clusterName.charAt(0).toUpperCase() + clusterName.slice(1)]?.Complete;
     if (!clusterDef) throw new Error(`Unknown cluster "${clusterName}"`);
-    if (!clusterDef.attributes?.[attrName]) throw new Error(`Unknown attribute "${clusterName}.${attrName}"`);
+    if (attrName !== undefined && !clusterDef.attributes?.[attrName]) throw new Error(`Unknown attribute "${clusterName}.${attrName}"`);
+    return clusterDef;
+}
+
+/** The interaction-level write (see setAttribute) for a resolved node. */
+async function _writeAttribute(node, endpointId, clusterName, attrName, value) {
+    const { Write, WriteResult } = require('@matter/protocol');
+    const clusterDef = _clusterDef(clusterName, attrName);
     const request = Write(Write.Attribute({ endpoint: Number(endpointId), cluster: clusterDef, attributes: attrName, value }));
     const result = await node.interaction.write(request);
     WriteResult.assertSuccess(result);
+}
+
+/**
+ * A fresh read of one attribute from the device (not the cached state): the bindings code must
+ * never write a fabric-scoped list from stale state. `fabricFiltered: false` returns the other
+ * fabrics' entries of a fabric-scoped list too (their non-sensitive fields).
+ */
+async function _readAttribute(node, endpointId, clusterName, attrName, { fabricFiltered = true } = {}) {
+    const { Read } = require('@matter/protocol');
+    const clusterDef = _clusterDef(clusterName, attrName);
+    const request = Read({ fabricFilter: fabricFiltered }, Read.Attribute({ endpoint: Number(endpointId), cluster: clusterDef, attributes: attrName }));
+    let value;
+    let found = false;
+    for await (const chunk of node.interaction.read(request)) {
+        for await (const report of chunk) {
+            if (report.kind === 'attr-value') {
+                value = report.value;
+                found = true;
+            } else if (report.kind === 'attr-status') {
+                throw new Error(`reading ${clusterName}.${attrName} failed with status ${report.status}`);
+            }
+        }
+    }
+    if (!found) throw new Error(`reading ${clusterName}.${attrName}: the device returned no value`);
+    return value;
 }
 
 /**
@@ -632,6 +666,257 @@ async function sendCommand(nodeId, endpointId, clusterName, commandName, args) {
         const hasArgs = Object.keys(merged).length > 0;
         return hasArgs ? cmd.call(clusterAgent, merged) : cmd.call(clusterAgent);
     });
+}
+
+// ── Bindings and ACLs (M13) ───────────────────────────────────────────────────
+
+const bindings = require('./bindings');
+
+/** The root endpoint's cluster state of a node, or undefined. */
+function _rootState(node, clusterName) {
+    try {
+        for (const ep of node.endpoints) if ((ep.number ?? 0) === 0) return ep.state?.[clusterName];
+    } catch {
+        /* offline */
+    }
+    return undefined;
+}
+
+/** she's own node ID in the fabric the peer was commissioned into. */
+function _sheNodeIdFor(node) {
+    const { FabricManager } = require('@matter/protocol');
+    const fabric = _server.env.get(FabricManager).for(node.peerAddress.fabricIndex);
+    return fabric.rootNodeId;
+}
+
+/** The index the *device* gives she's fabric (what its fabric-scoped entries carry). */
+function _deviceFabricIndex(node) {
+    const v = _rootState(node, 'operationalCredentials')?.currentFabricIndex;
+    return v === undefined || v === null ? undefined : Number(v);
+}
+
+function _requireOnline(node, what) {
+    if (!node.lifecycle?.isOnline) throw new Error(`${what} (${_getDeviceName(node) ?? _nodeIdStr(node.peerAddress.nodeId)}) is offline`);
+}
+
+/** Endpoint data the bindings classifier needs: device types, server and client cluster IDs. */
+function _endpointSummary(node) {
+    const out = [];
+    for (const ep of node.endpoints) {
+        const d = ep.state?.descriptor;
+        out.push({
+            endpointId: ep.number ?? 0,
+            name: _getEndpointName(ep),
+            deviceTypes: (d?.deviceTypeList ?? []).map((t) => Number(t?.deviceType ?? t)),
+            serverList: (d?.serverList ?? []).map(Number),
+            clientList: (d?.clientList ?? []).map(Number),
+        });
+    }
+    return out;
+}
+
+/**
+ * Every binding of every commissioned node: she's own fabric's entries resolved to device names,
+ * the other fabrics' entries (D-10) with node IDs in that fabric's numbering. Online nodes are
+ * read fresh with fabric filtering off; offline ones show what the cache holds (own fabric).
+ */
+async function listBindings() {
+    if (!_server) return [];
+    const result = [];
+    for (const node of _server.peers) {
+        const addr = node.peerAddress;
+        if (!addr) continue;
+        const nodeId = _nodeIdStr(addr.nodeId);
+        const deviceFabric = _deviceFabricIndex(node);
+        for (const ep of node.endpoints) {
+            const endpointId = ep.number ?? 0;
+            const cached = ep.state?.binding;
+            if (!cached) continue;
+            let entries = Array.isArray(cached.binding) ? cached.binding : [];
+            let fresh = false;
+            if (node.lifecycle?.isOnline) {
+                try {
+                    entries = (await _readAttribute(node, endpointId, 'binding', 'binding', { fabricFiltered: false })) ?? [];
+                    fresh = true;
+                } catch (err) {
+                    _log?.debug(`matter: reading bindings of ${nodeId}/${endpointId} failed, using cached state: ${err.message}`);
+                }
+            }
+            for (const b of entries) {
+                const fi = b.fabricIndex === undefined || b.fabricIndex === null ? undefined : Number(b.fabricIndex);
+                const own = !fresh || fi === undefined || deviceFabric === undefined || fi === deviceFabric;
+                const entry = {
+                    sourceNodeId: nodeId,
+                    sourceName: _getDeviceName(node),
+                    sourceEndpointId: endpointId,
+                    sourceEndpointName: _getEndpointName(ep),
+                    own,
+                    fabricIndex: fi,
+                    node: b.node === undefined || b.node === null ? null : String(b.node),
+                    group: b.group === undefined || b.group === null ? null : Number(b.group),
+                    endpoint: b.endpoint === undefined || b.endpoint === null ? null : Number(b.endpoint),
+                    cluster: b.cluster === undefined || b.cluster === null ? null : Number(b.cluster),
+                    clusterName: b.cluster === undefined || b.cluster === null ? null : bindings.clusterNameOf(Number(b.cluster)),
+                    targetName: null,
+                    targetEndpointName: null,
+                };
+                if (own && entry.node !== null) {
+                    try {
+                        const target = _findClientNode(entry.node);
+                        entry.targetName = _getDeviceName(target);
+                        if (entry.endpoint !== null) entry.targetEndpointName = _getEndpointName(_resolveEndpoint(target, entry.endpoint));
+                    } catch {
+                        /* a node she does not know (any more) */
+                    }
+                }
+                result.push(entry);
+            }
+        }
+    }
+    return result;
+}
+
+/** Binding sources, targets and the endpoints that cannot bind, from the descriptor clusters. */
+function bindingCandidates() {
+    if (!_server) return { sources: [], targets: [], notBindable: [] };
+    const nodes = [];
+    for (const node of _server.peers) {
+        const addr = node.peerAddress;
+        if (!addr) continue;
+        nodes.push({ nodeId: _nodeIdStr(addr.nodeId), name: _getDeviceName(node), online: node.lifecycle?.isOnline ?? false, endpoints: _endpointSummary(node) });
+    }
+    return bindings.classifyEndpoints(nodes);
+}
+
+/**
+ * Create a binding: grant the source Operate on the target (ACL, guarded, read back), then add
+ * the entries to the source's Binding list (read back); the ACL change is rolled back when the
+ * binding write fails.
+ *
+ * @param {{ source: { nodeId: string, endpointId: number }, target: { nodeId: string, endpointId: number }, clusters: (string|number)[] }} opts
+ * @returns {Promise<{ ok: true, clusters: number[], aclChanged: boolean, bindingsAdded: number[] }>}
+ */
+async function addBinding({ source, target, clusters }) {
+    if (!_server) throw new Error('Matter controller not started');
+    if (!Array.isArray(clusters) || clusters.length === 0) throw new Error('clusters must name at least one cluster');
+    const clusterIds = clusters.map(bindings.clusterIdOf);
+    const sourceNode = _findClientNode(source.nodeId);
+    const targetNode = _findClientNode(target.nodeId);
+    if (sourceNode === targetNode && Number(source.endpointId) === Number(target.endpointId)) throw new Error('source and target are the same endpoint');
+    _requireOnline(sourceNode, 'the source');
+    _requireOnline(targetNode, 'the target');
+    if (sourceNode.peerAddress.fabricIndex !== targetNode.peerAddress.fabricIndex) throw new Error('source and target are not in the same fabric');
+    const sheNodeId = _sheNodeIdFor(targetNode);
+    const subject = sourceNode.peerAddress.nodeId;
+    const targetEp = Number(target.endpointId);
+    const sourceEp = Number(source.endpointId);
+    const label = `${_getDeviceName(sourceNode) ?? source.nodeId}/${sourceEp} → ${_getDeviceName(targetNode) ?? target.nodeId}/${targetEp}`;
+
+    // 1. the target's ACL: read fresh, extend, guard, write, read back
+    const aclBefore = (await _readAttribute(targetNode, 0, 'accessControl', 'acl')) ?? [];
+    const limits = _rootState(targetNode, 'accessControl');
+    const aclAfter = bindings.grantOperate(aclBefore, { subject, endpoint: targetEp, clusters: clusterIds, sheNodeId, limits, fabricIndex: _deviceFabricIndex(targetNode) });
+    const aclChanged = JSON.stringify(_jsonSafe(aclAfter)) !== JSON.stringify(_jsonSafe(aclBefore));
+    if (aclChanged) {
+        bindings.assertSafeAcl(aclAfter, sheNodeId);
+        _log?.info(`matter: binding ${label}: granting Operate on the target`);
+        await _writeAttribute(targetNode, 0, 'accessControl', 'acl', aclAfter);
+        const readBack = (await _readAttribute(targetNode, 0, 'accessControl', 'acl')) ?? [];
+        if (!bindings.findAdminEntry(readBack, sheNodeId)) throw new Error("the target's ACL lost she's Administer entry after the write — check the device immediately");
+        const granted = bindings.grantedClusters(readBack, { subject, endpoint: targetEp });
+        const missing = clusterIds.filter((id) => !granted.includes(id));
+        if (missing.length) throw new Error(`the target did not keep the access grant for cluster(s) ${missing.join(', ')}`);
+    }
+
+    // 2. the source's Binding list: read fresh, append, write, read back — roll the ACL back on failure
+    try {
+        const before = (await _readAttribute(sourceNode, sourceEp, 'binding', 'binding')) ?? [];
+        const { bindings: after, added } = bindings.addBindingEntries(before, {
+            node: targetNode.peerAddress.nodeId,
+            endpoint: targetEp,
+            clusters: clusterIds,
+            fabricIndex: _deviceFabricIndex(sourceNode),
+        });
+        if (added.length) {
+            _log?.info(`matter: binding ${label}: writing the source's binding list`);
+            await _writeAttribute(sourceNode, sourceEp, 'binding', 'binding', after);
+            const readBack = (await _readAttribute(sourceNode, sourceEp, 'binding', 'binding')) ?? [];
+            const bound = bindings.clustersStillBound(readBack, { node: targetNode.peerAddress.nodeId, endpoint: targetEp });
+            const missing = clusterIds.filter((id) => !bound.includes(id));
+            if (missing.length) throw new Error(`the source did not keep the binding for cluster(s) ${missing.join(', ')}`);
+        }
+        _broadcast?.({ type: 'matter:bindings' });
+        return { ok: true, clusters: clusterIds, aclChanged, bindingsAdded: added };
+    } catch (err) {
+        if (aclChanged) {
+            _log?.warn(`matter: binding ${label} failed (${err.message}) — rolling the target's ACL back`);
+            try {
+                bindings.assertSafeAcl(aclBefore, sheNodeId);
+                await _writeAttribute(targetNode, 0, 'accessControl', 'acl', aclBefore);
+            } catch (rollbackErr) {
+                _log?.error(`matter: ACL rollback on ${target.nodeId} failed: ${rollbackErr.message}`);
+            }
+        }
+        throw err;
+    }
+}
+
+/**
+ * Remove a binding: drop the entries from the source's Binding list, then revoke the ACL grant
+ * for the clusters no other binding of that source still needs. A target that is offline keeps
+ * its grant (reported in the result) — the binding itself is gone.
+ */
+async function removeBinding({ source, target, clusters }) {
+    if (!_server) throw new Error('Matter controller not started');
+    if (!Array.isArray(clusters) || clusters.length === 0) throw new Error('clusters must name at least one cluster');
+    const clusterIds = clusters.map(bindings.clusterIdOf);
+    const sourceNode = _findClientNode(source.nodeId);
+    _requireOnline(sourceNode, 'the source');
+    const sourceEp = Number(source.endpointId);
+    const targetEp = Number(target.endpointId);
+    let targetNode = null;
+    try {
+        targetNode = _findClientNode(target.nodeId);
+    } catch {
+        /* the target may be gone — the binding entry is removed anyway */
+    }
+    const targetNodeId = targetNode ? targetNode.peerAddress.nodeId : BigInt(target.nodeId);
+
+    const before = (await _readAttribute(sourceNode, sourceEp, 'binding', 'binding')) ?? [];
+    const { bindings: after, removed } = bindings.removeBindingEntries(before, { node: targetNodeId, endpoint: targetEp, clusters: clusterIds });
+    if (removed.length) {
+        await _writeAttribute(sourceNode, sourceEp, 'binding', 'binding', after);
+        const readBack = (await _readAttribute(sourceNode, sourceEp, 'binding', 'binding')) ?? [];
+        const still = bindings.clustersStillBound(readBack, { node: targetNodeId, endpoint: targetEp });
+        const left = clusterIds.filter((id) => still.includes(id));
+        if (left.length) throw new Error(`the source kept the binding for cluster(s) ${left.join(', ')}`);
+    }
+
+    // which of the clusters does another entry of this source still bind on that endpoint?
+    const stillBound = bindings.clustersStillBound(after, { node: targetNodeId, endpoint: targetEp });
+    const toRevoke = clusterIds.filter((id) => !stillBound.includes(id));
+    let aclRevoked = false;
+    let warning = null;
+    if (toRevoke.length && targetNode) {
+        if (!targetNode.lifecycle?.isOnline) {
+            warning = 'the target is offline — its access grant for the source stays until it is back and the binding is removed again';
+        } else {
+            const sheNodeId = _sheNodeIdFor(targetNode);
+            const acl = (await _readAttribute(targetNode, 0, 'accessControl', 'acl')) ?? [];
+            const aclAfter = bindings.revokeOperate(acl, { subject: sourceNode.peerAddress.nodeId, endpoint: targetEp, clusters: toRevoke, sheNodeId });
+            if (JSON.stringify(_jsonSafe(aclAfter)) !== JSON.stringify(_jsonSafe(acl))) {
+                bindings.assertSafeAcl(aclAfter, sheNodeId);
+                await _writeAttribute(targetNode, 0, 'accessControl', 'acl', aclAfter);
+                const readBack = (await _readAttribute(targetNode, 0, 'accessControl', 'acl')) ?? [];
+                if (!bindings.findAdminEntry(readBack, sheNodeId)) throw new Error("the target's ACL lost she's Administer entry after the write — check the device immediately");
+                aclRevoked = true;
+            }
+        }
+    } else if (toRevoke.length && !targetNode) {
+        warning = 'the target is not paired with she — nothing to revoke there';
+    }
+    _broadcast?.({ type: 'matter:bindings' });
+    return { ok: true, clusters: clusterIds, bindingsRemoved: removed, aclRevoked, warning };
 }
 
 // ── Node lifecycle events (online / offline) ────────────────────────────────
@@ -968,6 +1253,10 @@ module.exports = {
     setAttribute,
     rename,
     sendCommand,
+    listBindings,
+    bindingCandidates,
+    addBinding,
+    removeBinding,
     subscribeAttribute,
     unsubscribe,
     cleanup,

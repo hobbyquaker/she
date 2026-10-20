@@ -484,6 +484,66 @@ export function renameMatterDevice(nodeId: string, name: string): Promise<{ ok: 
     return request('POST', `/she/matter/devices/${nodeId}/rename`, { name });
 }
 
+// ---- Matter bindings (M13/M14) ----
+
+export interface MatterBinding {
+    sourceNodeId: string;
+    sourceName: string | null;
+    sourceEndpointId: number;
+    sourceEndpointName: string | null;
+    own: boolean;
+    fabricIndex?: number;
+    node: string | null;
+    group: number | null;
+    endpoint: number | null;
+    cluster: number | null;
+    clusterName: string | null;
+    targetName: string | null;
+    targetEndpointName: string | null;
+}
+
+export interface MatterBindingCluster { name: string; id: number; label: string }
+
+export interface MatterBindingEndpoint {
+    nodeId: string;
+    nodeName: string | null;
+    online: boolean;
+    endpointId: number;
+    name: string | null;
+    deviceTypes: number[];
+    clusters: MatterBindingCluster[];
+    deviceTypeName?: string | null;
+    reason?: string;
+}
+
+export interface MatterBindingCandidates {
+    sources: MatterBindingEndpoint[];
+    targets: MatterBindingEndpoint[];
+    notBindable: MatterBindingEndpoint[];
+}
+
+export interface MatterBindingSpec {
+    source: { nodeId: string; endpointId: number };
+    target: { nodeId: string; endpointId: number };
+    clusters: (string | number)[];
+}
+
+export function listMatterBindings(): Promise<MatterBinding[]> {
+    return request('GET', '/she/matter/bindings');
+}
+
+export function getMatterBindingCandidates(): Promise<MatterBindingCandidates> {
+    return request('GET', '/she/matter/bindings/candidates');
+}
+
+export function addMatterBinding(spec: MatterBindingSpec): Promise<{ ok: boolean; clusters: number[]; aclChanged: boolean; bindingsAdded: number[] }> {
+    return request('POST', '/she/matter/bindings', spec);
+}
+
+export function removeMatterBinding(spec: MatterBindingSpec): Promise<{ ok: boolean; bindingsRemoved: number[]; aclRevoked: boolean; warning: string | null }> {
+    return request('DELETE', '/she/matter/bindings', spec);
+}
+
 export function sendMatterCommand(
     nodeId: string,
     endpointId: number,

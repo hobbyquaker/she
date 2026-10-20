@@ -269,3 +269,42 @@ describe('POST /she/matter/devices/:nodeId/rename', () => {
         expect(res.status).toBe(404);
     });
 });
+
+describe('matter-api: bindings (M13)', () => {
+    let srv, port, mock;
+    beforeAll(async () => {
+        mock = {
+            isStarted: () => true,
+            listBindings: jest.fn().mockResolvedValue([{ sourceNodeId: '2', own: true }]),
+            bindingCandidates: jest.fn().mockReturnValue({ sources: [1], targets: [2], notBindable: [] }),
+            addBinding: jest.fn().mockResolvedValue({ ok: true, clusters: [6] }),
+            removeBinding: jest.fn().mockResolvedValue({ ok: true, bindingsRemoved: [6] }),
+        };
+        srv = await startApp(await _makeApp(mock));
+        port = srv.address().port;
+    });
+    afterAll(() => new Promise((r) => srv.close(r)));
+
+    test('GET lists bindings and candidates', async () => {
+        expect((await httpRequest('GET', port, '/she/matter/bindings')).body).toEqual([{ sourceNodeId: '2', own: true }]);
+        expect((await httpRequest('GET', port, '/she/matter/bindings/candidates')).body).toEqual({ sources: [1], targets: [2], notBindable: [] });
+    });
+
+    test('POST validates the body and passes normalised ids on', async () => {
+        expect((await httpRequest('POST', port, '/she/matter/bindings', { source: { nodeId: 2 } })).status).toBe(400);
+        const r = await httpRequest('POST', port, '/she/matter/bindings', { source: { nodeId: 2, endpointId: '1' }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] });
+        expect(r.status).toBe(201);
+        expect(mock.addBinding).toHaveBeenCalledWith({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] });
+    });
+
+    test('errors map to 404 / 409 / 500', async () => {
+        const body = { source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] };
+        mock.addBinding.mockRejectedValueOnce(new Error('Matter node not found: 9'));
+        expect((await httpRequest('POST', port, '/she/matter/bindings', body)).status).toBe(404);
+        mock.addBinding.mockRejectedValueOnce(new Error('the target (Bulb) is offline'));
+        expect((await httpRequest('POST', port, '/she/matter/bindings', body)).status).toBe(409);
+        mock.removeBinding.mockRejectedValueOnce(new Error('boom'));
+        expect((await httpRequest('DELETE', port, '/she/matter/bindings', body)).status).toBe(500);
+        expect((await httpRequest('DELETE', port, '/she/matter/bindings', body)).body).toEqual({ ok: true, bindingsRemoved: [6] });
+    });
+});

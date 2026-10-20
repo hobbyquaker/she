@@ -9,6 +9,10 @@
  *   GET    /she/matter/devices/:nodeId                  → node detail (endpoints + clusters)
  *   DELETE /she/matter/devices/:nodeId                  → unpair a device
  *   POST   /she/matter/devices/:nodeId/command          → invoke a cluster command
+ *   GET    /she/matter/bindings                         → every binding (own fabric resolved, other fabrics read-only)
+ *   GET    /she/matter/bindings/candidates              → sources, targets, endpoints that cannot bind
+ *   POST   /she/matter/bindings                         → create { source, target, clusters } (ACL grant + binding)
+ *   DELETE /she/matter/bindings                         → remove { source, target, clusters }
  *
  * All NodeIds are represented as decimal strings in JSON.
  */
@@ -119,6 +123,74 @@ router.post('/devices/:nodeId/command', async (req, res) => {
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Bindings (M13) ────────────────────────────────────────────────────────────
+
+function bindingBody(body) {
+    const { source, target, clusters } = body || {};
+    const ok = (x) => x && typeof x === 'object' && x.nodeId !== undefined && x.endpointId !== undefined;
+    if (!ok(source) || !ok(target) || !Array.isArray(clusters) || clusters.length === 0) {
+        return { error: 'body must contain source {nodeId, endpointId}, target {nodeId, endpointId} and a non-empty clusters list' };
+    }
+    return {
+        value: {
+            source: { nodeId: String(source.nodeId), endpointId: Number(source.endpointId) },
+            target: { nodeId: String(target.nodeId), endpointId: Number(target.endpointId) },
+            clusters,
+        },
+    };
+}
+
+function bindingError(res, err) {
+    const msg = err.message || String(err);
+    if (/not found/.test(msg)) return res.status(404).json({ error: msg });
+    if (/offline|same fabric|same endpoint|at least one cluster|Unknown cluster|allows only/.test(msg)) return res.status(409).json({ error: msg });
+    return res.status(500).json({ error: msg });
+}
+
+// GET /she/matter/bindings
+router.get('/bindings', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().listBindings());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /she/matter/bindings/candidates
+router.get('/bindings/candidates', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(getController().bindingCandidates());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/bindings — { source, target, clusters }
+router.post('/bindings', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    const parsed = bindingBody(req.body);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    try {
+        res.status(201).json(await getController().addBinding(parsed.value));
+    } catch (err) {
+        bindingError(res, err);
+    }
+});
+
+// DELETE /she/matter/bindings — { source, target, clusters }
+router.delete('/bindings', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    const parsed = bindingBody(req.body);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    try {
+        res.json(await getController().removeBinding(parsed.value));
+    } catch (err) {
+        bindingError(res, err);
     }
 });
 

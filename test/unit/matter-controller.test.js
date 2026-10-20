@@ -75,9 +75,16 @@ describe('matter controller', () => {
                 { Attribute: jest.fn((d) => d) },
             ),
             WriteResult: { assertSuccess: jest.fn() },
+            Read: Object.assign(
+                jest.fn((options, attr) => ({ options, attr })),
+                { Attribute: jest.fn((d) => d) },
+            ),
+            FabricManager: class FabricManager {},
         }));
         jest.doMock('@matter/main/clusters', () => ({
             BasicInformation: { Complete: { id: 40, attributes: { nodeLabel: { id: 5 } } } },
+            AccessControl: { Complete: { id: 31, attributes: { acl: { id: 0 } } } },
+            Binding: { Complete: { id: 30, attributes: { binding: { id: 0 } } } },
             GeneralCommissioning: { RegulatoryLocationType: { Indoor: 0, Outdoor: 1, IndoorOutdoor: 2 } },
         }));
 
@@ -625,5 +632,250 @@ describe('matter controller', () => {
         // one attach was detached again — net one active listener
         expect(changeEventEmitter.on).toHaveBeenCalledTimes(2);
         expect(changeEventEmitter.off).toHaveBeenCalledTimes(1);
+    });
+});
+
+// ── bindings (M13) ────────────────────────────────────────────────────────────
+
+describe('matter controller: bindings', () => {
+    let controller;
+    let ServerNode;
+    const fakeLog = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const SHE = 112233n;
+    const admin = { privilege: 5, authMode: 2, subjects: [SHE], targets: null, fabricIndex: 1 };
+
+    beforeEach(() => {
+        jest.resetModules();
+        jest.doMock('@matter/main', () => ({
+            Environment: { default: { vars: { set: jest.fn() } } },
+            ServerNode: { create: jest.fn() },
+            Logger: { destinations: { default: {} } },
+            LogLevel: { DEBUG: 0, INFO: 1, NOTICE: 2, WARN: 3, ERROR: 4, FATAL: 5 },
+            LogFormat: { PLAIN: 'plain' },
+        }));
+        jest.doMock('@matter/protocol', () => ({
+            Write: Object.assign(
+                jest.fn((attr) => ({ kind: 'write', attr })),
+                { Attribute: jest.fn((d) => d) },
+            ),
+            WriteResult: { assertSuccess: jest.fn() },
+            Read: Object.assign(
+                jest.fn((options, attr) => ({ kind: 'read', options, attr })),
+                { Attribute: jest.fn((d) => d) },
+            ),
+            FabricManager: class FabricManager {},
+        }));
+        jest.doMock('@matter/main/clusters', () => ({
+            AccessControl: { Complete: { id: 31, attributes: { acl: { id: 0 } } } },
+            Binding: { Complete: { id: 30, attributes: { binding: { id: 0 } } } },
+        }));
+        controller = require('../../src/matter/controller');
+        ({ ServerNode } = require('@matter/main'));
+    });
+
+    /**
+     * A fake device: `store` holds attribute values by "endpoint/clusterId/attr"; reads yield one
+     * attr-value chunk, writes replace the value (and may be made to fail or to drop entries).
+     */
+    function makeDevice(nodeId, { store, endpoints, online = true, fabricIndex = 1, writeHook } = {}) {
+        const reads = [];
+        const writes = [];
+        const node = {
+            peerAddress: { nodeId, fabricIndex },
+            lifecycle: { isOnline: online, online: { on: jest.fn() }, offline: { on: jest.fn() } },
+            endpoints: {
+                [Symbol.iterator]: () => endpoints[Symbol.iterator](),
+                for: (id) => endpoints.find((ep) => ep.number === id) ?? null,
+            },
+            interaction: {
+                read: (req) => {
+                    const key = `${req.attr.endpoint}/${req.attr.cluster.id}/${req.attr.attributes}`;
+                    reads.push({ key, fabricFiltered: req.options.fabricFilter });
+                    const value = store[key];
+                    return (async function* () {
+                        yield [{ kind: 'attr-value', value: value === undefined ? [] : value }];
+                    })();
+                },
+                write: async (req) => {
+                    const key = `${req.attr.endpoint}/${req.attr.cluster.id}/${req.attr.attributes}`;
+                    writes.push({ key, value: req.attr.value });
+                    if (writeHook) await writeHook(key, req.attr.value, store);
+                    else store[key] = req.attr.value;
+                    return {};
+                },
+            },
+            reads,
+            writes,
+        };
+        return node;
+    }
+
+    function rootEp(extra = {}) {
+        return {
+            number: 0,
+            state: {
+                descriptor: { deviceTypeList: [{ deviceType: 22 }], serverList: [29, 31, 40, 62], clientList: [] },
+                operationalCredentials: { currentFabricIndex: 1 },
+                accessControl: { targetsPerAccessControlEntry: 3, accessControlEntriesPerFabric: 4 },
+                basicInformation: extra.name ? { nodeLabel: extra.name } : {},
+            },
+        };
+    }
+
+    async function setup({ switchOnline = true, bulbOnline = true, bulbWriteHook, switchWriteHook, bulbAcl, switchBindings } = {}) {
+        const bulbStore = { '0/31/acl': bulbAcl ?? [admin] };
+        const switchStore = { '1/30/binding': switchBindings ?? [] };
+        const sw = makeDevice(2n, {
+            store: switchStore,
+            online: switchOnline,
+            writeHook: switchWriteHook,
+            endpoints: [
+                rootEp({ name: 'H2 switch' }),
+                {
+                    number: 1,
+                    state: {
+                        descriptor: { deviceTypeList: [{ deviceType: 0x103 }], serverList: [29, 3, 30, 4], clientList: [6, 3, 4] },
+                        binding: { binding: switchStore['1/30/binding'] },
+                    },
+                },
+            ],
+        });
+        const bulb = makeDevice(4n, {
+            store: bulbStore,
+            online: bulbOnline,
+            writeHook: bulbWriteHook,
+            endpoints: [
+                rootEp({ name: 'Bulb' }),
+                { number: 1, state: { descriptor: { deviceTypeList: [{ deviceType: 0x101 }], serverList: [29, 3, 4, 6, 8], clientList: [] }, onOff: { onOff: false } } },
+            ],
+        });
+        const peers = { [Symbol.iterator]: () => [sw, bulb][Symbol.iterator](), commission: jest.fn() };
+        const server = { peers, start: jest.fn(), close: jest.fn(), env: { get: () => ({ for: (fi) => ({ rootNodeId: SHE, fabricIndex: fi }) }) } };
+        ServerNode.create.mockResolvedValue(server);
+        const broadcast = jest.fn();
+        await controller.init('/tmp/matter', fakeLog, broadcast);
+        return { sw, bulb, bulbStore, switchStore, broadcast };
+    }
+
+    test('bindingCandidates classifies the switch as source and the bulb as target', async () => {
+        await setup();
+        const c = controller.bindingCandidates();
+        expect(c.sources).toEqual([expect.objectContaining({ nodeId: '2', endpointId: 1, nodeName: 'H2 switch', clusters: [expect.objectContaining({ name: 'onOff' })] })]);
+        expect(c.targets).toEqual([expect.objectContaining({ nodeId: '4', endpointId: 1, nodeName: 'Bulb' })]);
+    });
+
+    test('addBinding grants Operate on the bulb (read fresh, guarded, read back) and binds the switch', async () => {
+        const { sw, bulb, bulbStore, switchStore, broadcast } = await setup();
+        const r = await controller.addBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] });
+        expect(r).toEqual({ ok: true, clusters: [6], aclChanged: true, bindingsAdded: [6] });
+        expect(bulb.writes.map((w) => w.key)).toEqual(['0/31/acl']);
+        expect(bulbStore['0/31/acl']).toEqual([admin, { privilege: 3, authMode: 2, subjects: [2n], targets: [{ cluster: 6, endpoint: 1, deviceType: null }], fabricIndex: 1 }]);
+        expect(sw.writes.map((w) => w.key)).toEqual(['1/30/binding']);
+        expect(switchStore['1/30/binding']).toEqual([{ node: 4n, endpoint: 1, cluster: 6, fabricIndex: 1 }]);
+        // reads: fresh ACL, read-back, fresh bindings, read-back — all fabric-filtered
+        expect(bulb.reads.map((x) => x.fabricFiltered)).toEqual([true, true]);
+        expect(sw.reads.map((x) => x.fabricFiltered)).toEqual([true, true]);
+        expect(broadcast).toHaveBeenCalledWith({ type: 'matter:bindings' });
+    });
+
+    test('addBinding refuses an offline target', async () => {
+        await setup({ bulbOnline: false });
+        await expect(controller.addBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] })).rejects.toThrow(
+            'the target (Bulb) is offline',
+        );
+    });
+
+    test('addBinding refuses to write an ACL without the admin entry and writes nothing', async () => {
+        const { bulb } = await setup({ bulbAcl: [{ privilege: 5, authMode: 2, subjects: [999n], targets: null, fabricIndex: 1 }] });
+        await expect(controller.addBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] })).rejects.toThrow(
+            'lock itself out',
+        );
+        expect(bulb.writes).toEqual([]);
+    });
+
+    test('addBinding rolls the ACL back when the binding write fails', async () => {
+        const { bulb, bulbStore } = await setup({
+            switchWriteHook: async () => {
+                throw new Error('device says no');
+            },
+        });
+        await expect(controller.addBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] })).rejects.toThrow(
+            'device says no',
+        );
+        expect(bulb.writes.length).toBe(2); // the grant and the rollback
+        expect(bulbStore['0/31/acl']).toEqual([admin]);
+        expect(fakeLog.warn).toHaveBeenCalledWith(expect.stringContaining('rolling the target'));
+    });
+
+    test('addBinding fails when the target drops the grant on read-back', async () => {
+        await setup({
+            bulbWriteHook: async (key, value, store) => {
+                store[key] = [admin]; // the device silently keeps its old list
+            },
+        });
+        await expect(controller.addBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] })).rejects.toThrow(
+            'did not keep the access grant',
+        );
+    });
+
+    test('listBindings resolves own entries to names and marks other fabrics', async () => {
+        await setup({
+            switchBindings: [
+                { node: 4n, endpoint: 1, cluster: 6, fabricIndex: 1 },
+                { node: 77n, endpoint: 2, cluster: 6, fabricIndex: 2 },
+            ],
+        });
+        const list = await controller.listBindings();
+        expect(list).toEqual([
+            expect.objectContaining({
+                sourceNodeId: '2',
+                sourceName: 'H2 switch',
+                sourceEndpointId: 1,
+                own: true,
+                node: '4',
+                endpoint: 1,
+                cluster: 6,
+                clusterName: 'onOff',
+                targetName: 'Bulb',
+            }),
+            expect.objectContaining({ sourceNodeId: '2', own: false, fabricIndex: 2, node: '77', endpoint: 2, cluster: 6, targetName: null }),
+        ]);
+    });
+
+    test('removeBinding drops the entry and revokes the grant only when no other binding needs it', async () => {
+        const { bulbStore, switchStore } = await setup({
+            bulbAcl: [
+                admin,
+                {
+                    privilege: 3,
+                    authMode: 2,
+                    subjects: [2n],
+                    targets: [
+                        { cluster: 6, endpoint: 1, deviceType: null },
+                        { cluster: 8, endpoint: 1, deviceType: null },
+                    ],
+                    fabricIndex: 1,
+                },
+            ],
+            switchBindings: [
+                { node: 4n, endpoint: 1, cluster: 6, fabricIndex: 1 },
+                { node: 4n, endpoint: 1, cluster: 8, fabricIndex: 1 },
+            ],
+        });
+        let r = await controller.removeBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['levelControl'] });
+        expect(r).toMatchObject({ ok: true, bindingsRemoved: [8], aclRevoked: true });
+        expect(switchStore['1/30/binding']).toEqual([{ node: 4n, endpoint: 1, cluster: 6, fabricIndex: 1 }]);
+        expect(bulbStore['0/31/acl'][1].targets).toEqual([{ cluster: 6, endpoint: 1, deviceType: null }]);
+        r = await controller.removeBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] });
+        expect(r).toMatchObject({ bindingsRemoved: [6], aclRevoked: true });
+        expect(bulbStore['0/31/acl']).toEqual([admin]);
+        expect(switchStore['1/30/binding']).toEqual([]);
+    });
+
+    test('removeBinding with the target offline removes the binding and reports the grant left behind', async () => {
+        const { bulb } = await setup({ bulbOnline: false, switchBindings: [{ node: 4n, endpoint: 1, cluster: 6, fabricIndex: 1 }] });
+        const r = await controller.removeBinding({ source: { nodeId: '2', endpointId: 1 }, target: { nodeId: '4', endpointId: 1 }, clusters: ['onOff'] });
+        expect(r).toMatchObject({ bindingsRemoved: [6], aclRevoked: false, warning: expect.stringContaining('offline') });
+        expect(bulb.writes).toEqual([]);
     });
 });
