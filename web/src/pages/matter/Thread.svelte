@@ -342,7 +342,12 @@
     function fitHeight() {
         if (!svgEl) return;
         const area = scrollArea(svgEl);
-        const rest = area.scrollHeight - svgEl.getBoundingClientRect().height;
+        // the content's own height — scrollHeight never reports less than the area itself
+        const areaTop = area.getBoundingClientRect().top;
+        let bottom = areaTop;
+        for (const child of area.children) bottom = Math.max(bottom, child.getBoundingClientRect().bottom);
+        const content = bottom - areaTop + area.scrollTop + parseFloat(getComputedStyle(area).paddingBottom || '0');
+        const rest = content - svgEl.getBoundingClientRect().height;
         const free = Math.floor(area.clientHeight - rest) - 2;
         const next = Math.max(GRAPH_MIN_H, free);
         if (Math.abs(next - graphH) > 1) graphH = next;
