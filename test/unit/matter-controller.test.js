@@ -1054,3 +1054,173 @@ describe('matter controller: fabrics and pairing windows', () => {
         await expect(controller.removeFabric('4', 1)).rejects.toThrow('status 11 (nope)');
     });
 });
+
+// ── firmware updates (M22) ───────────────────────────────────────────────────
+
+describe('matter controller: firmware updates', () => {
+    let controller;
+    let ServerNode;
+    const fakeLog = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    let manager;
+    let otaEvents;
+
+    beforeEach(() => {
+        jest.resetModules();
+        otaEvents = { updateAvailable: { on: jest.fn() }, updateDone: { on: jest.fn() }, updateFailed: { on: jest.fn() } };
+        manager = {
+            queuedUpdates: [],
+            queryUpdates: jest.fn().mockResolvedValue([]),
+            forceUpdate: jest.fn().mockResolvedValue(undefined),
+            removeConsent: jest.fn().mockResolvedValue(undefined),
+        };
+        class Endpoint {
+            constructor(type, options) {
+                this.type = type;
+                this.options = options;
+                this.events = { softwareupdates: otaEvents };
+            }
+            act(label, fn) {
+                return fn({ softwareupdates: manager });
+            }
+        }
+        jest.doMock('@matter/main', () => ({
+            Environment: { default: { vars: { set: jest.fn() } } },
+            ServerNode: { create: jest.fn() },
+            Endpoint,
+            Logger: { destinations: { default: {} } },
+            LogLevel: { DEBUG: 0, INFO: 1, NOTICE: 2, WARN: 3, ERROR: 4, FATAL: 5 },
+            LogFormat: { PLAIN: 'plain' },
+        }));
+        jest.doMock('@matter/main/endpoints', () => ({ OtaProviderEndpoint: { with: (b) => ({ ota: true, b }) } }));
+        jest.doMock('@matter/node', () => ({ SoftwareUpdateManager: class SoftwareUpdateManager {} }));
+        jest.doMock('../../src/matter/dcl', () => ({
+            start: jest.fn().mockResolvedValue(undefined),
+            close: jest.fn().mockResolvedValue(undefined),
+            deviceInfo: jest.fn(),
+            vendorName: () => null,
+        }));
+        controller = require('../../src/matter/controller');
+        ({ ServerNode } = require('@matter/main'));
+    });
+
+    const tmp = () => require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'she-ota-'));
+
+    async function setup({ online = true, updateState = 1, requestor = true, dclOffline = false } = {}) {
+        const root = {
+            number: 0,
+            state: {
+                basicInformation: { nodeLabel: 'Bulb', vendorId: 4874, productId: 7, softwareVersion: 10021, softwareVersionString: '1.0.21' },
+                ...(requestor ? { otaSoftwareUpdateRequestor: { updateState, updateStateProgress: null } } : {}),
+            },
+        };
+        const node = {
+            peerAddress: { nodeId: 4n, fabricIndex: 1 },
+            lifecycle: { isOnline: online, online: { on: jest.fn() }, offline: { on: jest.fn() } },
+            endpoints: { [Symbol.iterator]: () => [root][Symbol.iterator](), for: (id) => (id === 0 ? root : null) },
+        };
+        const added = [];
+        const server = {
+            peers: { [Symbol.iterator]: () => [node][Symbol.iterator](), commission: jest.fn() },
+            start: jest.fn(),
+            close: jest.fn(),
+            add: jest.fn(async (ep) => added.push(ep)),
+            env: { get: () => ({}) },
+        };
+        ServerNode.create.mockResolvedValue(server);
+        const broadcast = jest.fn();
+        const dir = tmp();
+        await controller.init(dir, fakeLog, broadcast, { dclOffline });
+        await new Promise((r) => setTimeout(r, 5)); // _setupOta is not awaited by init
+        return { node, server, added, broadcast, dir };
+    }
+
+    test('init adds the OTA provider endpoint without announcing she as default provider, not with DCL off', async () => {
+        const { added } = await setup();
+        expect(added.length).toBe(1);
+        expect(added[0].options).toEqual({ id: 'ota-provider', softwareupdates: { announceAsDefaultProvider: false } });
+        expect(otaEvents.updateAvailable.on).toHaveBeenCalled();
+        await controller.close();
+        const { added: none } = await setup({ dclOffline: true });
+        expect(none.length).toBe(0);
+        expect((await controller.listUpdates()).available).toBe(false);
+    });
+
+    test('checkUpdates stores what the ledger offers, persists it and listUpdates shows it against the installed version', async () => {
+        const { node, broadcast, dir } = await setup();
+        manager.queryUpdates.mockResolvedValueOnce([
+            {
+                peerAddress: node.peerAddress,
+                info: { vendorId: 4874, productId: 7, softwareVersion: 10030, softwareVersionString: '1.0.30', releaseNotesUrl: 'https://x', source: 'ProductionDcl' },
+            },
+        ]);
+        const r = await controller.checkUpdates('4');
+        expect(manager.queryUpdates).toHaveBeenCalledWith({ peerToCheck: node });
+        expect(r.nodes[0]).toMatchObject({
+            nodeId: '4',
+            softwareVersionString: '1.0.21',
+            available: { softwareVersion: 10030, softwareVersionString: '1.0.30', releaseNotesUrl: 'https://x' },
+            updateState: 1,
+            updateStateName: 'idle',
+            hasRequestor: true,
+        });
+        expect(broadcast).toHaveBeenCalledWith({ type: 'matter:update' });
+        const onDisk = JSON.parse(require('fs').readFileSync(require('path').join(dir, 'ota-updates.json'), 'utf8'));
+        expect(onDisk['4'].info.softwareVersion).toBe(10030);
+        // the ledger answers nothing the next time → no update
+        const r2 = await controller.checkUpdates('4');
+        expect(r2.nodes[0].available).toBeNull();
+        expect(r2.nodes[0].checkedAt).toBeGreaterThan(0);
+    });
+
+    test('an offered version that is not newer than the installed one is not shown as available', async () => {
+        const { node } = await setup();
+        manager.queryUpdates.mockResolvedValueOnce([
+            { peerAddress: node.peerAddress, info: { vendorId: 4874, productId: 7, softwareVersion: 10021, softwareVersionString: '1.0.21' } },
+        ]);
+        const r = await controller.checkUpdates();
+        expect(r.nodes[0].available).toBeNull();
+    });
+
+    test('startUpdate guards: known update, idle device, online, requestor; then forceUpdate', async () => {
+        const { node, broadcast } = await setup();
+        await expect(controller.startUpdate('4')).rejects.toThrow('no update is known');
+        manager.queryUpdates.mockResolvedValueOnce([
+            { peerAddress: node.peerAddress, info: { vendorId: 4874, productId: 7, softwareVersion: 10030, softwareVersionString: '1.0.30' } },
+        ]);
+        await controller.checkUpdates('4');
+        await expect(controller.startUpdate('4', { softwareVersion: 10000 })).rejects.toThrow('not newer');
+        expect(await controller.startUpdate('4')).toEqual({ ok: true, nodeId: '4', targetSoftwareVersion: 10030 });
+        expect(manager.forceUpdate).toHaveBeenCalledWith(node.peerAddress, 4874, 7, 10030);
+        expect(broadcast).toHaveBeenCalledWith({ type: 'matter:update', nodeId: '4', started: 10030 });
+        manager.queuedUpdates = [{ peerAddress: node.peerAddress, status: 'in-progress', targetSoftwareVersion: 10030, bdxTransferredBytes: 10, bdxDataLength: 100 }];
+        await expect(controller.startUpdate('4')).rejects.toThrow('already in-progress');
+        expect((await controller.listUpdates()).nodes[0].pending).toEqual({ status: 'in-progress', targetSoftwareVersion: 10030, bdxTransferredBytes: 10, bdxDataLength: 100 });
+        expect(await controller.cancelUpdate('4')).toEqual({ ok: true, nodeId: '4' });
+        expect(manager.removeConsent).toHaveBeenCalledWith(node.peerAddress);
+    });
+
+    test('startUpdate refuses a busy device, one without requestor and an offline one', async () => {
+        await setup({ updateState: 4 });
+        await expect(controller.startUpdate('4', { softwareVersion: 10030 })).rejects.toThrow('busy (downloading)');
+        await controller.close();
+        await setup({ requestor: false });
+        await expect(controller.startUpdate('4', { softwareVersion: 10030 })).rejects.toThrow('no OTA requestor');
+        await controller.close();
+        await setup({ online: false });
+        await expect(controller.startUpdate('4', { softwareVersion: 10030 })).rejects.toThrow('offline');
+    });
+
+    test('the manager events keep the stored updates and the outcome in step', async () => {
+        const { node, broadcast } = await setup();
+        const onAvailable = otaEvents.updateAvailable.on.mock.calls[0][0];
+        onAvailable(node.peerAddress, { vendorId: 4874, productId: 7, softwareVersion: 10030, softwareVersionString: '1.0.30' });
+        expect((await controller.listUpdates()).nodes[0].available.softwareVersion).toBe(10030);
+        expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:update', nodeId: '4', available: expect.objectContaining({ softwareVersion: 10030 }) }));
+        otaEvents.updateDone.on.mock.calls[0][0](node.peerAddress);
+        const after = (await controller.listUpdates()).nodes[0];
+        expect(after.available).toBeNull();
+        expect(after.outcome).toBe('done');
+        otaEvents.updateFailed.on.mock.calls[0][0](node.peerAddress);
+        expect((await controller.listUpdates()).nodes[0].outcome).toBe('failed');
+    });
+});

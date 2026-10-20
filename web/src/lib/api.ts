@@ -503,6 +503,41 @@ export function getMatterDeviceInfo(nodeId: string): Promise<MatterDeviceInfo> {
     return request('GET', `/she/matter/devices/${nodeId}/dcl`);
 }
 
+// ---- Matter firmware updates (M22) ----
+
+export interface MatterUpdateInfo { softwareVersion: number; softwareVersionString: string; releaseNotesUrl: string | null; vendorId: number; productId: number; source: string | null }
+export interface MatterNodeUpdate {
+    nodeId: string;
+    name: string | null;
+    online: boolean;
+    vendorId: number | null;
+    productId: number | null;
+    softwareVersion: number | null;
+    softwareVersionString: string | null;
+    hasRequestor: boolean;
+    available: MatterUpdateInfo | null;
+    checkedAt: number | null;
+    updateState: number | null;
+    updateStateName: string | null;
+    updateStateProgress: number | null;
+    pending: { status: string; targetSoftwareVersion: number; bdxTransferredBytes: number | null; bdxDataLength: number | null } | null;
+    outcome: 'done' | 'failed' | null;
+}
+export interface MatterUpdates { available: boolean; nodes: MatterNodeUpdate[] }
+
+export function listMatterUpdates(): Promise<MatterUpdates> {
+    return request('GET', '/she/matter/updates');
+}
+export function checkMatterUpdates(nodeId?: string): Promise<MatterUpdates> {
+    return request('POST', nodeId ? `/she/matter/devices/${nodeId}/update/check` : '/she/matter/updates/check');
+}
+export function startMatterUpdate(nodeId: string, softwareVersion?: number): Promise<{ ok: boolean; targetSoftwareVersion: number }> {
+    return request('POST', `/she/matter/devices/${nodeId}/update`, { softwareVersion });
+}
+export function cancelMatterUpdate(nodeId: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/matter/devices/${nodeId}/update`);
+}
+
 // ---- Matter multi-admin (M20) ----
 
 export interface MatterFabric { fabricIndex: number | null; fabricId: string | null; nodeId: string | null; vendorId: number | null; vendorName: string | null; label: string; own: boolean; name: string }

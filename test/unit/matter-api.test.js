@@ -338,3 +338,35 @@ describe('matter-api: fabrics and pairing windows (M20)', () => {
         expect((await httpRequest('GET', port, '/she/matter/devices/9/fabrics')).status).toBe(404);
     });
 });
+
+describe('matter-api: firmware updates (M22)', () => {
+    let srv, port, mock;
+    beforeAll(async () => {
+        mock = {
+            isStarted: () => true,
+            listUpdates: jest.fn().mockResolvedValue({ available: true, nodes: [] }),
+            checkUpdates: jest.fn().mockResolvedValue({ available: true, nodes: [1] }),
+            startUpdate: jest.fn().mockResolvedValue({ ok: true, nodeId: '4', targetSoftwareVersion: 2 }),
+            cancelUpdate: jest.fn().mockResolvedValue({ ok: true, nodeId: '4' }),
+        };
+        srv = await startApp(await _makeApp(mock));
+        port = srv.address().port;
+    });
+    afterAll(() => new Promise((r) => srv.close(r)));
+
+    test('the routes call through and map errors', async () => {
+        expect((await httpRequest('GET', port, '/she/matter/updates')).body).toEqual({ available: true, nodes: [] });
+        expect((await httpRequest('POST', port, '/she/matter/updates/check')).body).toEqual({ available: true, nodes: [1] });
+        expect(mock.checkUpdates).toHaveBeenLastCalledWith();
+        await httpRequest('POST', port, '/she/matter/devices/4/update/check');
+        expect(mock.checkUpdates).toHaveBeenLastCalledWith('4');
+        const r = await httpRequest('POST', port, '/she/matter/devices/4/update', { softwareVersion: 2 });
+        expect(r.status).toBe(202);
+        expect(mock.startUpdate).toHaveBeenCalledWith('4', { softwareVersion: 2 });
+        expect((await httpRequest('DELETE', port, '/she/matter/devices/4/update')).body).toEqual({ ok: true, nodeId: '4' });
+        mock.startUpdate.mockRejectedValueOnce(new Error('the device is busy (downloading) — wait until it is idle'));
+        expect((await httpRequest('POST', port, '/she/matter/devices/4/update', {})).status).toBe(409);
+        mock.startUpdate.mockRejectedValueOnce(new Error('Matter node not found: 9'));
+        expect((await httpRequest('POST', port, '/she/matter/devices/9/update', {})).status).toBe(404);
+    });
+});

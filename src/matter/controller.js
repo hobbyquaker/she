@@ -210,7 +210,13 @@ async function init(storagePath, log, broadcastFn, options = {}) {
 
     _server = await ServerNode.create({
         id: 'she-matter-controller',
+        // the fabric label devices show for she (new commissionings; existing fabrics keep theirs)
+        controller: { adminFabricLabel: 'she' },
     });
+
+    // The OTA provider endpoint with matter.js's SoftwareUpdateManager (M22): finds updates on the
+    // CSA ledger, serves the image over BDX when the user starts an update. Not with DCL access off.
+    if (options.dclOffline !== true) _setupOta(storagePath).catch((err) => _log?.warn(`matter: OTA provider not available: ${err.message}`));
 
     await _server.start();
     _log.info('matter controller started, storage:', storagePath);
@@ -230,6 +236,7 @@ async function init(storagePath, log, broadcastFn, options = {}) {
 
 async function close() {
     if (!_server) return;
+    _ota = null;
     await dcl.close();
     try {
         await _server.close();
@@ -924,6 +931,214 @@ async function removeBinding({ source, target, clusters }) {
     return { ok: true, clusters: clusterIds, bindingsRemoved: removed, aclRevoked, warning };
 }
 
+// ── Firmware updates (M22) ────────────────────────────────────────────────────
+
+/** @type {object|null} the OTA provider endpoint (matter.js Endpoint) */
+let _ota = null;
+/** nodeId → { info, checkedAt } — the updates the ledger offered, persisted across restarts */
+let _updates = new Map();
+let _updatesFile = null;
+/** nodeId → 'done' | 'failed' | null — the last outcome, for the UI */
+const _updateOutcome = new Map();
+
+/** OTA requestor UpdateState (cluster 0x002A) names. */
+const UPDATE_STATES = ['unknown', 'idle', 'querying', 'delayed on query', 'downloading', 'applying', 'delayed on apply', 'rolling back', 'delayed on user consent'];
+
+function _loadUpdates() {
+    _updates = new Map();
+    if (!_updatesFile) return;
+    try {
+        const raw = JSON.parse(require('fs').readFileSync(_updatesFile, 'utf8'));
+        for (const [k, v] of Object.entries(raw)) if (v && typeof v === 'object') _updates.set(k, v);
+    } catch (err) {
+        if (err.code !== 'ENOENT') _log?.warn(`matter: cannot read ${_updatesFile}: ${err.message}`);
+    }
+}
+
+function _saveUpdates() {
+    if (!_updatesFile) return;
+    try {
+        const fs = require('fs');
+        fs.writeFileSync(_updatesFile + '.tmp', JSON.stringify(Object.fromEntries(_updates), null, 1));
+        fs.renameSync(_updatesFile + '.tmp', _updatesFile);
+    } catch (err) {
+        _log?.warn(`matter: cannot write ${_updatesFile}: ${err.message}`);
+    }
+}
+
+function _updateInfo(info) {
+    return {
+        softwareVersion: Number(info.softwareVersion),
+        softwareVersionString: info.softwareVersionString ?? String(info.softwareVersion),
+        releaseNotesUrl: info.releaseNotesUrl ?? null,
+        vendorId: Number(info.vendorId),
+        productId: Number(info.productId),
+        source: info.source === undefined ? null : String(info.source),
+    };
+}
+
+async function _setupOta(storagePath) {
+    const { Endpoint } = require('@matter/main');
+    const { OtaProviderEndpoint } = require('@matter/main/endpoints');
+    const { SoftwareUpdateManager } = require('@matter/node');
+    _updatesFile = require('path').join(storagePath, 'ota-updates.json');
+    _loadUpdates();
+    const ota = new Endpoint(OtaProviderEndpoint.with(SoftwareUpdateManager), {
+        id: 'ota-provider',
+        // never announce she as every device's default provider: updates start on a click only
+        softwareupdates: { announceAsDefaultProvider: false },
+    });
+    await _server.add(ota);
+    _ota = ota;
+    const ev = ota.events.softwareupdates;
+    ev.updateAvailable.on((peer, info) => {
+        const nodeId = _nodeIdStr(peer.nodeId);
+        _updates.set(nodeId, { info: _updateInfo(info), checkedAt: Date.now() });
+        _saveUpdates();
+        _log?.info(`matter: update available for node ${nodeId}: ${info.softwareVersionString ?? info.softwareVersion}`);
+        _broadcast?.({ type: 'matter:update', nodeId, available: _updateInfo(info) });
+    });
+    ev.updateDone.on((peer) => {
+        const nodeId = _nodeIdStr(peer.nodeId);
+        _updates.delete(nodeId);
+        _saveUpdates();
+        _updateOutcome.set(nodeId, 'done');
+        _log?.info(`matter: update of node ${nodeId} finished`);
+        _broadcast?.({ type: 'matter:update', nodeId, outcome: 'done' });
+    });
+    ev.updateFailed.on((peer) => {
+        const nodeId = _nodeIdStr(peer.nodeId);
+        _updateOutcome.set(nodeId, 'failed');
+        _log?.warn(`matter: update of node ${nodeId} failed or was cancelled`);
+        _broadcast?.({ type: 'matter:update', nodeId, outcome: 'failed' });
+    });
+    _log?.info('matter: OTA provider ready (updates from the CSA ledger, started by the user only)');
+}
+
+/** Run a function with the SoftwareUpdateManager agent. */
+function _withUpdates(label, fn) {
+    if (!_ota) throw new Error('firmware updates are not available (DCL access is off or the OTA provider failed to start)');
+    return _ota.act(label, (agent) => fn(agent.softwareupdates));
+}
+
+/** The update view of one node: versions, what the ledger offered, the requestor's state. */
+function _nodeUpdateView(node, pending) {
+    const nodeId = _nodeIdStr(node.peerAddress.nodeId);
+    const bi = _rootState(node, 'basicInformation') ?? {};
+    const req = _rootState(node, 'otaSoftwareUpdateRequestor') ?? {};
+    const state = req.updateState === undefined || req.updateState === null ? null : Number(req.updateState);
+    const known = _updates.get(nodeId);
+    const current = bi.softwareVersion === undefined ? null : Number(bi.softwareVersion);
+    const available = known?.info && (current === null || known.info.softwareVersion > current) ? known.info : null;
+    const q = pending?.find((p) => _nodeIdStr(p.peerAddress.nodeId) === nodeId) ?? null;
+    return {
+        nodeId,
+        name: _getDeviceName(node),
+        online: node.lifecycle?.isOnline ?? false,
+        vendorId: bi.vendorId === undefined ? null : Number(bi.vendorId),
+        productId: bi.productId === undefined ? null : Number(bi.productId),
+        softwareVersion: current,
+        softwareVersionString: bi.softwareVersionString ?? null,
+        hasRequestor: !!_rootState(node, 'otaSoftwareUpdateRequestor'),
+        available,
+        checkedAt: known?.checkedAt ?? null,
+        updateState: state,
+        updateStateName: state === null ? null : (UPDATE_STATES[state] ?? String(state)),
+        updateStateProgress: req.updateStateProgress === undefined || req.updateStateProgress === null ? null : Number(req.updateStateProgress),
+        pending: q
+            ? {
+                  status: q.status,
+                  targetSoftwareVersion: Number(q.targetSoftwareVersion),
+                  bdxTransferredBytes: q.bdxTransferredBytes ?? null,
+                  bdxDataLength: q.bdxDataLength ?? null,
+              }
+            : null,
+        outcome: _updateOutcome.get(nodeId) ?? null,
+    };
+}
+
+/** All nodes with their firmware state (M22). */
+async function listUpdates() {
+    if (!_server) return { available: false, nodes: [] };
+    let pending = [];
+    if (_ota) {
+        try {
+            pending = await _withUpdates('she.matter.updates', (m) => m.queuedUpdates);
+        } catch (err) {
+            _log?.debug(`matter: reading the update queue failed: ${err.message}`);
+        }
+    }
+    const nodes = [];
+    for (const node of _server.peers) if (node.peerAddress) nodes.push(_nodeUpdateView(node, pending));
+    return { available: !!_ota, nodes };
+}
+
+/**
+ * Ask the ledger now — for one node, or for every online node. Returns the update view.
+ * @param {string} [nodeId]
+ */
+async function checkUpdates(nodeId) {
+    if (!_server) throw new Error('Matter controller not started');
+    const peerToCheck = nodeId === undefined ? undefined : _findClientNode(nodeId);
+    if (peerToCheck) _requireOnline(peerToCheck, 'the device');
+    const found = await _withUpdates('she.matter.checkUpdates', (m) => m.queryUpdates(peerToCheck ? { peerToCheck } : {}));
+    const seen = new Set();
+    for (const { peerAddress, info } of found ?? []) {
+        const id = _nodeIdStr(peerAddress.nodeId);
+        seen.add(id);
+        _updates.set(id, { info: _updateInfo(info), checkedAt: Date.now() });
+    }
+    // a node checked without a result has no update (any more)
+    const checked = peerToCheck
+        ? [_nodeIdStr(peerToCheck.peerAddress.nodeId)]
+        : [..._server.peers].filter((n) => n.peerAddress && n.lifecycle?.isOnline).map((n) => _nodeIdStr(n.peerAddress.nodeId));
+    for (const id of checked) {
+        if (!seen.has(id)) _updates.set(id, { info: null, checkedAt: Date.now() });
+    }
+    for (const [id, v] of _updates) if (v.info === null) _updates.set(id, { info: null, checkedAt: v.checkedAt });
+    _saveUpdates();
+    _broadcast?.({ type: 'matter:update' });
+    return listUpdates();
+}
+
+/**
+ * Start the update of a node to the version the ledger offered (or the given one). Never
+ * automatic: this is the user's click. One update per device at a time; the device must be idle.
+ * @param {string} nodeId
+ * @param {{ softwareVersion?: number }} [opts]
+ */
+async function startUpdate(nodeId, { softwareVersion } = {}) {
+    const node = _findClientNode(nodeId);
+    _requireOnline(node, 'the device');
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    const pending = await _withUpdates('she.matter.startUpdate', (m) => m.queuedUpdates);
+    const view = _nodeUpdateView(node, pending);
+    if (!view.hasRequestor) throw new Error('the device has no OTA requestor cluster — it cannot be updated over Matter');
+    const target = softwareVersion !== undefined ? Number(softwareVersion) : view.available?.softwareVersion;
+    if (!Number.isFinite(target)) throw new Error('no update is known for this device — check for updates first');
+    if (view.softwareVersion !== null && target <= view.softwareVersion) throw new Error(`version ${target} is not newer than the installed ${view.softwareVersion}`);
+    if (view.updateState !== null && view.updateState !== 1 && view.updateState !== 0) throw new Error(`the device is busy (${view.updateStateName}) — wait until it is idle`);
+    if (view.pending) throw new Error(`an update to ${view.pending.targetSoftwareVersion} is already ${view.pending.status}`);
+    const vendorId = view.vendorId;
+    const productId = view.productId;
+    if (vendorId === null || productId === null) throw new Error('the device reports no vendor/product ID');
+    _updateOutcome.delete(id);
+    await _withUpdates('she.matter.startUpdate', (m) => m.forceUpdate(node.peerAddress, vendorId, productId, target));
+    _log?.info(`matter: update of node ${id} to ${target} started`);
+    _broadcast?.({ type: 'matter:update', nodeId: id, started: target });
+    return { ok: true, nodeId: id, targetSoftwareVersion: target };
+}
+
+/** Cancel a queued or running update (possible while querying or downloading). */
+async function cancelUpdate(nodeId) {
+    const node = _findClientNode(nodeId);
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    await _withUpdates('she.matter.cancelUpdate', (m) => m.removeConsent(node.peerAddress));
+    _log?.info(`matter: update of node ${id} cancelled`);
+    _broadcast?.({ type: 'matter:update', nodeId: id, outcome: 'cancelled' });
+    return { ok: true, nodeId: id };
+}
+
 // ── Multi-admin: fabrics, pairing windows (M20) ───────────────────────────────
 
 /** Vendor IDs of the common controllers, for when the ledger has no name (or is off). */
@@ -1451,6 +1666,10 @@ module.exports = {
     setAttribute,
     rename,
     sendCommand,
+    listUpdates,
+    checkUpdates,
+    startUpdate,
+    cancelUpdate,
     listFabrics,
     openCommissioningWindow,
     closeCommissioningWindow,

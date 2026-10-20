@@ -410,6 +410,39 @@ What the CSA Distributed Compliance Ledger (the public registry of certified Mat
 
 ---
 
+### GET /she/matter/updates
+
+Firmware state of every paired node and the updates the CSA ledger offers. she runs a Matter OTA provider (matter.js's `SoftwareUpdateManager`): the ledger is asked daily and on request, the image is served to the device over BDX when the user starts the update — **never automatically**. Not available with `--matter-dcl-offline`.
+
+**Response (HTTP 200):**
+
+```json
+{
+  "available": true,
+  "nodes": [
+    { "nodeId": "4", "name": "Bulb", "online": true, "vendorId": 4874, "productId": 7, "softwareVersion": 10021, "softwareVersionString": "1.0.21", "hasRequestor": true,
+      "available": { "softwareVersion": 10030, "softwareVersionString": "1.0.30", "releaseNotesUrl": "https://…", "vendorId": 4874, "productId": 7, "source": "ProductionDcl" },
+      "checkedAt": 1760000000000, "updateState": 1, "updateStateName": "idle", "updateStateProgress": null, "pending": null, "outcome": null }
+  ]
+}
+```
+
+`updateState` is the device's OTA requestor state (0 unknown, 1 idle, 2 querying, 3 delayed on query, 4 downloading, 5 applying, 6 delayed on apply, 7 rolling back, 8 delayed on user consent); `pending` describes she's queue entry while an update runs (`queued`, `in-progress`, `stalled`); the requestor's attributes also arrive as `matter:attr` websocket events.
+
+### POST /she/matter/updates/check · POST /she/matter/devices/:nodeId/update/check
+
+Ask the ledger now, for every online node or for one. **Response (HTTP 200):** as `GET /she/matter/updates`.
+
+### POST /she/matter/devices/:nodeId/update
+
+Start the update to the version the ledger offered (or `{ "softwareVersion": N }`). Refused (HTTP 409) when the device is offline, busy, has no OTA requestor, no update is known, or an update is already queued. The device fetches the image from she and restarts at the end — 10–30 minutes on Thread, 5–15 on Wi-Fi.
+
+**Response (HTTP 202):** `{ "ok": true, "nodeId": "4", "targetSoftwareVersion": 10030 }`
+
+### DELETE /she/matter/devices/:nodeId/update
+
+Cancel a queued or running update (possible while querying or downloading). **Response (HTTP 200):** `{ "ok": true, "nodeId": "4" }`
+
 ### GET /she/matter/devices/:nodeId/fabrics
 
 The controllers (fabrics) a device belongs to — Apple Home, Home Assistant, she, … — read from its Operational Credentials cluster with fabric filtering off, each named after its fabric label or its vendor (from the CSA ledger), she's own marked; plus the device's pairing-window state.

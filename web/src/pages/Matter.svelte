@@ -2,7 +2,7 @@
     import { onMount, onDestroy, tick, untrack } from 'svelte';
     import jsQR from 'jsqr';
     import { subscribeWs } from '../lib/ws.js';
-    import { listMatterDevices, getMatterDevice, getMatterDeviceInfo, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, type MatterDevice, type MatterNodeDetail, type MatterDeviceInfo } from '../lib/api.js';
+    import { listMatterDevices, getMatterDevice, getMatterDeviceInfo, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, listMatterUpdates, checkMatterUpdates, startMatterUpdate, cancelMatterUpdate, type MatterDevice, type MatterNodeDetail, type MatterDeviceInfo, type MatterUpdates, type MatterNodeUpdate } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import MatterValue from '../lib/MatterValue.svelte';
@@ -218,6 +218,8 @@
             batPresent: 0x0011, activeBatFaults: 0x0012, batChargeState: 0x001A,
         },
     };
+
+    const UPDATE_STATE_NAMES = ['unknown', 'idle', 'querying', 'delayed on query', 'downloading', 'applying', 'delayed on apply', 'rolling back', 'delayed on user consent'];
 
     function fmtHex(id: number): string {
         return '0x' + id.toString(16).toUpperCase().padStart(4, '0');
@@ -455,6 +457,7 @@
     });
 
     async function loadDevices() {
+        loadUpdates();
         try {
             devices = await listMatterDevices();
             // Pre-fetch details for all paired nodes so the event feed can show friendly names.
@@ -476,6 +479,33 @@
             devices = [];
         }
     }
+
+    // ── Firmware updates (M22) ───────────────────────────────────────────────
+    let updates = $state<MatterUpdates | null>(null);
+    let checkingUpdates = $state(false);
+    let updateError = $state<string | null>(null);
+    let updateOf = $derived.by(() => (selected ? (updates?.nodes.find((n) => n.nodeId === selected?.nodeId) ?? null) : null));
+    let updatesAvailable = $derived(new Set((updates?.nodes ?? []).filter((n) => n.available).map((n) => n.nodeId)));
+    async function loadUpdates() {
+        try { updates = await listMatterUpdates(); } catch { /* optional */ }
+    }
+    async function checkUpdates(nodeId?: string) {
+        checkingUpdates = true;
+        updateError = null;
+        try { updates = await checkMatterUpdates(nodeId); } catch (e) { updateError = e instanceof Error ? e.message : String(e); } finally { checkingUpdates = false; }
+    }
+    async function runUpdate(n: MatterNodeUpdate) {
+        if (!n.available) return;
+        const ok = await dialog.show(`Update ${n.name ?? `node ${n.nodeId}`} from ${n.softwareVersionString ?? n.softwareVersion} to ${n.available.softwareVersionString}? The device downloads the image from she and restarts at the end — this can take 10–30 minutes on Thread, 5–15 on Wi-Fi; do not unplug it.`, { confirm: 'Update' });
+        if (!ok) return;
+        updateError = null;
+        try { await startMatterUpdate(n.nodeId); await loadUpdates(); } catch (e) { updateError = e instanceof Error ? e.message : String(e); }
+    }
+    async function stopUpdate(n: MatterNodeUpdate) {
+        updateError = null;
+        try { await cancelMatterUpdate(n.nodeId); await loadUpdates(); } catch (e) { updateError = e instanceof Error ? e.message : String(e); }
+    }
+    const unsubUpdate = subscribeWs('matter:update', () => { loadUpdates(); });
 
     // what the CSA ledger knows about the selected device (M25) — fetched after the detail,
     // so a slow ledger never delays the page
@@ -597,6 +627,12 @@
         const attrName   = String(msg.attrName);
         const value      = msg.value;
 
+        // the OTA requestor's state drives the firmware line (M22)
+        if (clusterName === 'otaSoftwareUpdateRequestor' && updates) {
+            const n = updates.nodes.find((x) => x.nodeId === nodeId);
+            if (n && attrName === 'updateState') { n.updateState = Number(value); n.updateStateName = UPDATE_STATE_NAMES[Number(value)] ?? String(value); }
+            if (n && attrName === 'updateStateProgress') n.updateStateProgress = value === null ? null : Number(value);
+        }
         // Update the live table for the currently selected node.
         if (selected && selected.nodeId === nodeId) {
             const ep = selected.endpoints.find((e) => e.endpointId === endpointId);
@@ -637,7 +673,7 @@
         }, ...feed.slice(0, FEED_MAX - 1)];
     });
 
-    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); unsubEvent(); stopScan(); });
+    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); unsubEvent(); unsubUpdate(); stopScan(); });
 </script>
 
 <ConfirmDialog bind:this={dialog} />
@@ -653,6 +689,9 @@
     <div class="sidebar">
         <div class="sidebar-header">
             <span class="sidebar-title">Matter Devices</span>
+            {#if updates?.available}
+                <button class="upd-btn" onclick={() => checkUpdates()} disabled={checkingUpdates} title="Ask the CSA ledger for firmware updates of every online device">{checkingUpdates ? '…' : '⬆'}</button>
+            {/if}
             <button class="add-btn" onclick={() => {
                 showWizard = !showWizard;
                 // Reset state left over from a previous (possibly hung) attempt
@@ -725,6 +764,7 @@
                                 <span class="device-name">Node {device.nodeId}</span>
                             {/if}
                         </span>
+                        {#if updatesAvailable.has(device.nodeId)}<span class="upd-badge" title="Firmware update available">⬆</span>{/if}
                     </button>
                     <button
                         class="unpair-btn"
@@ -787,6 +827,38 @@
                     </div>
                 {/if}
             </div>
+            {#if updateOf}
+                {@const u = updateOf}
+                <div class="fw" class:fw-avail={!!u.available}>
+                    <span class="dcl-k">Firmware</span>
+                    <span class="dcl-v">{u.softwareVersionString ?? (u.softwareVersion !== null ? `version ${u.softwareVersion}` : '—')}</span>
+                    {#if u.pending || (u.updateState !== null && u.updateState > 1)}
+                        <span class="dcl-sep">·</span>
+                        <span class="fw-run">{u.pending?.status === 'queued' ? 'queued' : (u.updateStateName ?? 'updating')}{u.updateStateProgress !== null && u.updateState === 4 ? ` ${u.updateStateProgress} %` : ''}{u.pending?.targetSoftwareVersion ? ` → ${u.pending.targetSoftwareVersion}` : ''}</span>
+                        <span class="dcl-dim">— 10–30 minutes on Thread; the device restarts at the end</span>
+                        {#if u.updateState === 2 || u.updateState === 4 || u.pending?.status === 'queued'}<button class="fw-btn ghost" onclick={() => stopUpdate(u)}>Cancel</button>{/if}
+                    {:else if u.available}
+                        <span class="dcl-sep">·</span>
+                        <span class="fw-new">update available: {u.available.softwareVersionString}</span>
+                        {#if u.available.releaseNotesUrl}<a class="dcl-link" href={u.available.releaseNotesUrl} target="_blank" rel="noopener">release notes</a>{/if}
+                        <button class="fw-btn" onclick={() => runUpdate(u)} disabled={!u.online}>Update</button>
+                    {:else if u.outcome === 'done'}
+                        <span class="dcl-sep">·</span><span class="fw-new">updated</span>
+                    {:else if u.outcome === 'failed'}
+                        <span class="dcl-sep">·</span><span class="fw-err">the last update failed or was cancelled</span>
+                    {:else if !u.hasRequestor}
+                        <span class="dcl-sep">·</span><span class="dcl-dim">no OTA requestor — not updatable over Matter</span>
+                    {:else if u.checkedAt}
+                        <span class="dcl-sep">·</span><span class="dcl-dim">no update on the ledger (checked {fmtTime(u.checkedAt)})</span>
+                    {:else}
+                        <span class="dcl-sep">·</span><span class="dcl-dim">not checked yet</span>
+                    {/if}
+                    {#if !(u.pending || (u.updateState !== null && u.updateState > 1))}
+                        <button class="fw-btn ghost" onclick={() => checkUpdates(u.nodeId)} disabled={checkingUpdates || !u.online} title="Ask the CSA ledger for this device">{checkingUpdates ? 'checking…' : 'check'}</button>
+                    {/if}
+                </div>
+            {/if}
+            {#if updateError}<p class="err">{updateError}</p>{/if}
             <Fabrics nodeId={selected.nodeId} online={devices.find((d) => d.nodeId === selected?.nodeId)?.online ?? false} />
             {#each selected.endpoints as ep (ep.endpointId)}
                 <details>
@@ -1241,6 +1313,19 @@
     .dcl-sep { color: var(--fg-dim); }
     .dcl-link { color: var(--accent, #569cd6); text-decoration: none; }
     .dcl-link:hover { text-decoration: underline; }
+    /* the firmware line (M22) */
+    .fw { margin: 2px 0 10px; font-size: 11px; color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; }
+    .fw-new { color: #98c379; font-weight: 600; }
+    .fw-run { color: #e5a86b; font-weight: 600; }
+    .fw-err { color: #e74c3c; }
+    .fw-btn { background: var(--accent); border: none; color: #fff; padding: 1px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; }
+    .fw-btn:disabled { opacity: 0.5; cursor: default; }
+    .fw-btn.ghost { background: none; border: 1px solid var(--border); color: var(--fg-muted); }
+    .fw-btn.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
+    .upd-btn { background: none; border: none; color: var(--fg-muted); cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1; margin-left: auto; margin-right: 2px; }
+    .upd-btn:hover:not(:disabled) { color: var(--fg-brand); }
+    .upd-btn:disabled { opacity: 0.5; cursor: default; }
+    .upd-badge { color: #98c379; font-size: 11px; margin-left: 4px; }
     details {
         margin-bottom: 8px;
         background: var(--bg-panel);

@@ -8,6 +8,11 @@
  *   POST   /she/matter/commission                       → commission a device
  *   GET    /she/matter/devices/:nodeId                  → node detail (endpoints + clusters)
  *   GET    /she/matter/devices/:nodeId/dcl              → vendor and product details from the CSA ledger
+ *   GET    /she/matter/updates                          → firmware state of every node, updates the ledger offers
+ *   POST   /she/matter/updates/check                    → ask the ledger now (every online node)
+ *   POST   /she/matter/devices/:nodeId/update/check     → ask the ledger for one node
+ *   POST   /she/matter/devices/:nodeId/update           → start the update (the user's click)
+ *   DELETE /she/matter/devices/:nodeId/update           → cancel it
  *   GET    /she/matter/devices/:nodeId/fabrics          → the device's fabrics and pairing-window state
  *   POST   /she/matter/devices/:nodeId/commissioning-window → open a pairing window (QR + manual code)
  *   DELETE /she/matter/devices/:nodeId/commissioning-window → close it
@@ -111,6 +116,65 @@ router.get('/devices/:nodeId/dcl', async (req, res) => {
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Firmware updates (M22) ────────────────────────────────────────────────────
+
+function updateError(res, err) {
+    const msg = err.message || String(err);
+    if (/not found/.test(msg)) return res.status(404).json({ error: msg });
+    if (/offline|not available|no update is known|not newer|is busy|already|no OTA requestor|no vendor/.test(msg)) return res.status(409).json({ error: msg });
+    return res.status(500).json({ error: msg });
+}
+
+// GET /she/matter/updates — every node's firmware state and what the ledger offers
+router.get('/updates', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().listUpdates());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/updates/check — ask the ledger for every online node
+router.post('/updates/check', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().checkUpdates());
+    } catch (err) {
+        updateError(res, err);
+    }
+});
+
+// POST /she/matter/devices/:nodeId/update/check — ask the ledger for one node
+router.post('/devices/:nodeId/update/check', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().checkUpdates(req.params.nodeId));
+    } catch (err) {
+        updateError(res, err);
+    }
+});
+
+// POST /she/matter/devices/:nodeId/update — { softwareVersion? } start the update
+router.post('/devices/:nodeId/update', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.status(202).json(await getController().startUpdate(req.params.nodeId, { softwareVersion: req.body?.softwareVersion }));
+    } catch (err) {
+        updateError(res, err);
+    }
+});
+
+// DELETE /she/matter/devices/:nodeId/update — cancel
+router.delete('/devices/:nodeId/update', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().cancelUpdate(req.params.nodeId));
+    } catch (err) {
+        updateError(res, err);
     }
 });
 
