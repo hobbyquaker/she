@@ -7,7 +7,8 @@ Use the tools; they read the running daemon. Where to start:
 - which script does what: read_script (the source with its subscriptions, publishes and the scripts wired to it), list_scripts, who_publishes
 - what a script did or logged: get_script_logs with a time window; what is still pending: list_timers
 - "nothing happens": get_health first, then list_services for the adapters
-- Matter: list_matter_devices (with state), get_matter_attribute; sheDB: list_shedb_docs, get_shedb_doc
+- Matter: list_matter_devices (with state), get_matter_device (one device in full), get_matter_attribute; the bindings (a switch driving a device without she): list_matter_bindings; the groups: list_matter_groups; which apps a device belongs to: get_matter_fabrics; a Matter device acts only through she.matter.send in a script, or — with the Matter ↔ MQTT bridge on — through publish_mqtt on `matter/set/<device>/<endpoint>/<cluster>/<attribute>`
+- Thread ("why is the sensor offline", "which devices route over the basement", "where is the weak link"): get_thread_mesh (roles, neighbours with link quality), get_thread_networks (border routers), get_matter_health (batteries, offline periods, Thread alerts, firmware updates); sheDB: list_shedb_docs, get_shedb_doc
 How to call them:
 - ask for every independent tool in the same turn — the calls of a turn run concurrently, and each turn costs a round trip
 - use MQTT filters (`radar-x/status/#`, `zigbee2mqtt/+_workshop/#`) where the topic tree is known; a substring search is for an unknown name

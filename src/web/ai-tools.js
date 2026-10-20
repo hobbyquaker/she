@@ -242,6 +242,85 @@ const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: 'get_matter_device',
+            description:
+                'One Matter device in full: every endpoint with its clusters and attribute values (what list_matter_devices leaves out), the device types, the CSA ledger vendor/product. Narrow with cluster.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    node: { type: 'string', description: 'Node id or device name.' },
+                    endpoint: { type: 'string', description: 'Only this endpoint (id or name).' },
+                    cluster: { type: 'string', description: 'Only this cluster (camelCase, e.g. "onOff"); then every attribute of it is listed.' },
+                },
+                required: ['node'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_matter_bindings',
+            description:
+                'The Matter bindings (a switch controlling a device directly, without she): per source endpoint its targets and clusters, whether she or another controller made it; and which endpoints can be binding sources or targets.',
+            parameters: { type: 'object', properties: { node: { type: 'string', description: 'Only bindings of this source or target node (id or name).' } }, required: [] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'list_matter_groups',
+            description: "she's Matter groups (one multicast command for several devices): members with their state and provisioning status, the derived group state, the key set.",
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_matter_fabrics',
+            description: 'Which controllers (fabrics — Apple Home, Home Assistant, she, …) a Matter device belongs to, and whether a pairing window is open.',
+            parameters: { type: 'object', properties: { node: { type: 'string', description: 'Node id or device name.' } }, required: ['node'] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_thread_networks',
+            description:
+                'The Thread networks on the LAN with their border routers (Apple TV, HomePod, OpenThread, the ESP router): vendor, model, Thread version, role, state, addresses, last seen; whether she knows the network credentials.',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_thread_mesh',
+            description:
+                'The Thread mesh: every Thread device in she\'s fabric with its routing role, RLOC16 and partition, its neighbours with link quality (LQI 3 good, 2 fair, 1 poor) and RSSI, the border routers, Wi-Fi devices by RSSI, bindings. For "why is X offline", "which devices route over Y", "where is the weak link".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    node: { type: 'string', description: 'Only this device and its links (id or name).' },
+                    refresh: {
+                        type: 'boolean',
+                        description: 'Re-read the neighbour tables from the devices first (slow — sleepy devices answer late). Default false: the last read.',
+                    },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_matter_health',
+            description:
+                'The health of the Matter devices and the Thread mesh: battery, last seen, offline periods, active alerts (low battery, offline, leader change, partition, border router offline, degraded link), firmware updates the ledger offers.',
+            parameters: { type: 'object', properties: { node: { type: 'string', description: 'Only this device (id or name).' } }, required: [] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: 'get_topic_history',
             description:
                 'The values of one or several MQTT topics over time from InfluxDB (when she has an Influx integration configured), as compact time series: change points, downsampled when long. Several topics or an MQTT filter ("radar-x/status/#") in one call share the window and the point cap. ' +
@@ -557,6 +636,20 @@ async function runTool(name, args, ctx) {
                 return await toolListMatterDevices(args);
             case 'get_matter_attribute':
                 return await toolGetMatterAttribute(args);
+            case 'get_matter_device':
+                return await toolGetMatterDevice(args);
+            case 'list_matter_bindings':
+                return await toolListMatterBindings(args);
+            case 'list_matter_groups':
+                return toolListMatterGroups(args);
+            case 'get_matter_fabrics':
+                return await toolGetMatterFabrics(args);
+            case 'get_thread_networks':
+                return toolGetThreadNetworks(args);
+            case 'get_thread_mesh':
+                return await toolGetThreadMesh(args);
+            case 'get_matter_health':
+                return await toolGetMatterHealth(args);
             case 'get_topic_history':
                 return await toolGetTopicHistory(args, ctx);
             case 'get_timeline':
@@ -1756,6 +1849,282 @@ async function toolGetMatterAttribute({ node, endpoint, cluster, attribute } = {
     } catch (e) {
         return `Could not read ${cluster}.${attribute} of ${node}/${endpoint}: ${e.message}`;
     }
+}
+
+// ── Matter and Thread (I44) — read-only views over the controller's modules ──
+
+function matterModule(name) {
+    try {
+        return require(`../matter/${name}`);
+    } catch {
+        return null;
+    }
+}
+
+function resolveNodeId(controller, node) {
+    const s = String(node);
+    const paired = controller.listPaired();
+    const hit = paired.find((n) => n.nodeId === s) ?? paired.find((n) => n.name === s) ?? paired.find((n) => (n.name ?? '').toLowerCase() === s.toLowerCase());
+    return hit ? hit.nodeId : null;
+}
+
+const fmtJson = (v) => {
+    const j = JSON.stringify(v);
+    return j.length > 160 ? j.slice(0, 157) + '…' : j;
+};
+
+async function toolGetMatterDevice({ node, endpoint, cluster } = {}) {
+    const controller = matterController();
+    if (!controller) return 'Matter controller not available.';
+    if (!node) return 'node is required.';
+    const nodeId = resolveNodeId(controller, node);
+    if (!nodeId) return `No Matter device "${node}".`;
+    const dev = controller.listPaired().find((n) => n.nodeId === nodeId);
+    let endpoints;
+    try {
+        endpoints = controller.getEndpoints(nodeId);
+    } catch (e) {
+        return `Cannot read ${node}: ${e.message}`;
+    }
+    const lines = [`### ${dev.name || 'Unnamed'} (nodeId "${nodeId}", ${dev.online ? 'online' : 'offline'})`];
+    const dcl = matterModule('dcl');
+    if (dcl && typeof controller.getDeviceInfo === 'function') {
+        try {
+            const info = await withTimeout(controller.getDeviceInfo(nodeId), 3000);
+            if (info.vendorName || info.product)
+                lines.push(
+                    `ledger: ${info.vendorName ?? '?'}${info.product?.productName ? ' · ' + info.product.productName : ''}${info.reported?.softwareVersionString ? ' · firmware ' + info.reported.softwareVersionString : ''}`,
+                );
+        } catch {
+            /* optional */
+        }
+    }
+    const wantEp = endpoint === undefined || endpoint === null || endpoint === '' ? null : String(endpoint);
+    const perCluster = cluster ? 1000 : 12;
+    for (const ep of endpoints) {
+        if (wantEp !== null && String(ep.endpointId) !== wantEp && (ep.name ?? '') !== wantEp) continue;
+        const types = (ep.clusters.find((c) => c.name === 'descriptor')?.attrs?.deviceTypeList ?? []).map((t) => `0x${Number(t?.deviceType ?? t).toString(16)}`);
+        lines.push(`\n- endpoint ${ep.endpointId}${ep.name ? ` "${ep.name}"` : ''}${types.length ? ` (device types ${types.join(', ')})` : ''}`);
+        for (const c of ep.clusters) {
+            if (cluster && c.name.toLowerCase() !== String(cluster).toLowerCase()) continue;
+            const entries = Object.entries(c.attrs ?? {}).filter(
+                ([k]) => !['generatedCommandList', 'acceptedCommandList', 'eventList', 'attributeList', 'clusterRevision', 'featureMap'].includes(k),
+            );
+            const shown = entries.slice(0, perCluster).map(([k, v]) => `${k}=${fmtJson(v)}`);
+            lines.push(`  - ${c.name}: ${shown.join(', ')}${entries.length > perCluster ? ` … ${entries.length - perCluster} more (ask with cluster="${c.name}")` : ''}`);
+        }
+    }
+    return lines.join('\n');
+}
+
+async function toolListMatterBindings({ node } = {}) {
+    const controller = matterController();
+    if (!controller || typeof controller.listBindings !== 'function') return 'Matter controller not available.';
+    const want = node ? resolveNodeId(controller, node) : null;
+    if (node && !want) return `No Matter device "${node}".`;
+    let bindings;
+    try {
+        bindings = await withTimeout(controller.listBindings(), 8000);
+    } catch (e) {
+        return `Cannot read the bindings: ${e.message}`;
+    }
+    const rows = bindings.filter((b) => !want || b.sourceNodeId === want || b.node === want);
+    const lines = [];
+    if (rows.length === 0) lines.push(want ? `No bindings involve ${node}.` : 'No bindings on any paired device.');
+    else {
+        lines.push(`${rows.length} binding entr${rows.length === 1 ? 'y' : 'ies'}:`);
+        for (const b of rows) {
+            const src = `${b.sourceName ?? 'node ' + b.sourceNodeId}/${b.sourceEndpointName ?? 'ep ' + b.sourceEndpointId}`;
+            const tgt =
+                b.group !== null && b.group !== undefined
+                    ? (b.targetName ?? `group ${b.group}`)
+                    : b.own
+                      ? `${b.targetName ?? 'node ' + b.node}/${b.targetEndpointName ?? 'ep ' + b.endpoint}`
+                      : `node ${b.node} ep ${b.endpoint} (that fabric's numbering)`;
+            lines.push(`- ${src} → ${tgt}: ${b.clusterName ?? 'cluster ' + b.cluster} [${b.own ? 'she' : 'another controller, fabric ' + b.fabricIndex}]`);
+        }
+    }
+    if (typeof controller.bindingCandidates === 'function') {
+        try {
+            const c = controller.bindingCandidates();
+            const name = (e) => `${e.nodeName ?? 'node ' + e.nodeId}/${e.name ?? 'ep ' + e.endpointId}`;
+            lines.push(
+                `\nCan be a source (Binding cluster + client cluster): ${c.sources.length ? c.sources.map((e) => `${name(e)} (${e.clusters.map((x) => x.label).join(', ')})`).join('; ') : 'none'}`,
+            );
+            lines.push(`Can be a target: ${c.targets.length ? c.targets.map((e) => `${name(e)} (${e.clusters.map((x) => x.label).join(', ')})`).join('; ') : 'none'}`);
+            if (c.notBindable.length) lines.push(`Cannot bind (button events only — use she.matter.sub): ${c.notBindable.map(name).join('; ')}`);
+        } catch {
+            /* optional */
+        }
+    }
+    return lines.join('\n');
+}
+
+function toolListMatterGroups() {
+    const controller = matterController();
+    if (!controller || typeof controller.listGroups !== 'function') return 'Matter controller not available.';
+    const g = controller.listGroups();
+    if (!g.available) return `Groups are not available${g.error ? ': ' + g.error : ''}.`;
+    if (!g.groups.length) return 'No Matter groups defined.';
+    const lines = [`${g.groups.length} group(s):`];
+    for (const x of g.groups) {
+        const st = x.state.on === null ? 'state unknown' : x.state.on === 'all' ? 'all on' : x.state.on === 'some' ? `${x.state.onCount} of ${x.state.memberCount} on` : 'all off';
+        lines.push(
+            `\n### ${x.name} (group id ${x.id}, key set ${x.keySet?.shared ? 'shared' : 'own'}; ${st}${x.state.level !== null ? `, level ${x.state.level}` : ''}) — she.matter.send('group:${x.name}', null, 'onOff', 'on')`,
+        );
+        for (const m of x.members)
+            lines.push(
+                `- ${m.name ?? 'node ' + m.nodeId}/${m.endpointName ?? 'ep ' + m.endpointId}: ${m.clusterNames.join(', ')}; ${m.online ? 'online' : 'offline'}; ${m.status}${m.error ? ' (' + m.error + ')' : ''}${m.state.onOff !== null ? '; ' + (m.state.onOff ? 'on' : 'off') : ''}${m.state.level !== null ? ', level ' + m.state.level : ''}`,
+            );
+    }
+    return lines.join('\n');
+}
+
+async function toolGetMatterFabrics({ node } = {}) {
+    const controller = matterController();
+    if (!controller || typeof controller.listFabrics !== 'function') return 'Matter controller not available.';
+    if (!node) return 'node is required.';
+    const nodeId = resolveNodeId(controller, node);
+    if (!nodeId) return `No Matter device "${node}".`;
+    try {
+        const f = await withTimeout(controller.listFabrics(nodeId), 8000);
+        const lines = [
+            `${node}: ${f.fabrics.length} fabric(s)${f.supportedFabrics ? ` of ${f.supportedFabrics} supported` : ''}${f.fresh ? '' : ' (from the cache — the device is offline)'}:`,
+        ];
+        for (const x of f.fabrics)
+            lines.push(`- ${x.name}${x.vendorName ? ` (${x.vendorName})` : ''}${x.own ? ' — she' : ''}: fabric index ${x.fabricIndex}, node id there ${x.nodeId}`);
+        const w = f.window;
+        lines.push(
+            w.status
+                ? `A pairing window is open${w.codes ? ` (she opened it; manual code ${w.codes.manualCode}, closes ${isoShort(w.codes.expiresAt)})` : ''}.`
+                : 'No pairing window open.',
+        );
+        return lines.join('\n');
+    } catch (e) {
+        return `Cannot read the fabrics of ${node}: ${e.message}`;
+    }
+}
+
+function toolGetThreadNetworks() {
+    const thread = matterModule('thread');
+    if (!thread) return 'Thread discovery not available.';
+    const n = thread.listNetworks();
+    if (!n.running) return 'Thread discovery is not running (the Matter controller is off).';
+    if (!n.networks.length && !n.unknown.length) return 'No Thread border router has announced itself on the LAN (discovery is passive — give it a minute after start).';
+    const lines = [`${n.networks.length} Thread network(s):`];
+    for (const net of n.networks) {
+        lines.push(
+            `\n### ${net.networkName ?? 'unnamed'} (ext PAN ID ${net.extPanId}; credentials ${net.datasetKnown ? 'known to she' : 'unknown'}${net.partitions.length > 1 ? `; WARNING ${net.partitions.length} partition IDs — split network` : ''})`,
+        );
+        for (const br of net.borderRouters) {
+            const st = br.state ? `${br.state.role}${br.state.bbrPrimary ? ', primary BBR' : ''}, ${br.state.interfaceStatus}` : 'state unknown';
+            lines.push(
+                `- ${br.vendorName ?? '?'} ${br.modelName ?? ''}${br.hostname ? ` (${br.hostname.replace(/\.$/, '')})` : ''}: Thread ${br.threadVersion ?? '?'}; ${st}; ${br.addresses.slice(0, 2).join(', ')}; seen ${br.lastSeen ? ago(Date.now() - br.lastSeen) + ' ago' : '?'}${br.rest?.manageable ? `; REST API on :${br.rest.port}${br.rest.node ? ` (${br.rest.node.role}, ${br.rest.node.numOfRouter ?? '?'} routers)` : ''}` : ''}`,
+            );
+        }
+    }
+    if (n.unknown.length) lines.push(`\nBorder routers without a network: ${n.unknown.map((b) => `${b.vendorName ?? '?'} ${b.modelName ?? ''}`).join('; ')}`);
+    return lines.join('\n');
+}
+
+async function toolGetThreadMesh({ node, refresh = false } = {}) {
+    const mesh = matterModule('thread-mesh');
+    const controller = matterController();
+    if (!mesh || !controller) return 'Thread mesh not available.';
+    let g;
+    try {
+        g = refresh ? await withTimeout(mesh.refresh(), 60000) : await withTimeout(mesh.getMesh(), 10000);
+    } catch (e) {
+        return `Cannot read the mesh: ${e.message}`;
+    }
+    const want = node ? resolveNodeId(controller, node) : null;
+    if (node && !want) return `No Matter device "${node}".`;
+    const nameOf = (id) => g.nodes.find((x) => x.id === id)?.name ?? id;
+    const nodes = g.nodes
+        .filter((n) => n.kind !== 'other')
+        .filter((n) => !want || n.nodeId === want || g.links.some((l) => (l.source === `node:${want}` && l.target === n.id) || (l.target === `node:${want}` && l.source === n.id)));
+    if (!nodes.length) return want ? `${node} has no Thread or Wi-Fi diagnostics.` : "No Thread device in she's fabric and no border router seen.";
+    const lines = [
+        `${g.nodes.filter((n) => n.kind === 'thread').length} Thread device(s) in she's fabric, ${g.nodes.filter((n) => n.kind === 'border-router').length} border router(s), ${g.links.filter((l) => l.kind === 'neighbour').length} link(s)${g.lastRefresh ? `; tables read ${ago(Date.now() - g.lastRefresh)} ago` : '; tables from the subscriptions (refresh=true re-reads them)'}${g.meshcop?.nodes ? `; ${g.meshcop.nodes} node(s) seen through a border router (MeshCoP)` : ''}:`,
+    ];
+    for (const n of nodes.slice(0, 40)) {
+        const head =
+            n.kind === 'thread'
+                ? `${n.name}: ${n.role ?? 'role ?'}${n.rloc16 !== null && n.rloc16 !== undefined ? `, RLOC16 0x${n.rloc16.toString(16)}` : ''}${n.partitionId !== null && n.partitionId !== undefined ? `, partition ${n.partitionId}` : ''}${n.online ? '' : ', OFFLINE'}${n.borderRouter ? ' (border router)' : ''}`
+                : n.kind === 'border-router'
+                  ? `${n.name} [border router${n.role ? ', ' + n.role : ''}]`
+                  : n.kind === 'wifi'
+                    ? `${n.name} [Wi-Fi, RSSI ${n.rssi ?? '?'} dBm = ${n.quality}]`
+                    : n.kind === 'meshcop'
+                      ? `${n.name} [seen through the border router${n.role ? ', ' + n.role : ''}]`
+                      : `${n.name} [not paired with she]`;
+        const links = g.links
+            .filter((l) => l.kind === 'neighbour' && (l.source === n.id || l.target === n.id))
+            .slice(0, 8)
+            .map(
+                (l) =>
+                    `${nameOf(l.source === n.id ? l.target : l.source)} LQI ${l.lqi}${l.rssi !== null && l.rssi !== undefined ? ` ${l.rssi} dBm` : ''}${l.isChild ? ' child' : ''}${l.bidirectional === false ? ' one-way' : ''}`,
+            );
+        lines.push(`- ${head}${links.length ? ` — links: ${links.join('; ')}` : ''}`);
+    }
+    if (nodes.length > 40) lines.push(`… ${nodes.length - 40} more node(s); ask for one device with node.`);
+    const arrows = g.links.filter((l) => l.kind === 'binding');
+    if (arrows.length) lines.push(`Bindings: ${arrows.map((l) => `${nameOf(l.source)} → ${nameOf(l.target)}`).join('; ')}`);
+    return lines.join('\n');
+}
+
+async function toolGetMatterHealth({ node } = {}) {
+    const controller = matterController();
+    if (!controller) return 'Matter controller not available.';
+    const want = node ? resolveNodeId(controller, node) : null;
+    if (node && !want) return `No Matter device "${node}".`;
+    const lines = [];
+    const dh = matterModule('device-health');
+    if (dh) {
+        const h = dh.listHealth();
+        const nodes = h.nodes.filter((n) => !want || n.nodeId === want);
+        lines.push(`Devices (${h.val}${h.alerts.length ? `, ${h.alerts.length} alert(s)` : ''}):`);
+        for (const n of nodes) {
+            const bat = n.battery
+                ? `battery ${n.battery.percent !== null ? n.battery.percent + ' %' : (n.battery.level ?? '?')}${n.battery.state && n.battery.state !== 'unknown' ? ' ' + n.battery.state : ''}`
+                : 'no battery info';
+            lines.push(
+                `- ${n.name ?? 'node ' + n.nodeId}: ${n.online === false ? `OFFLINE since ${n.since ? isoShort(n.since) : '?'}` : n.online ? `online since ${n.since ? isoShort(n.since) : '?'}` : 'state unknown'}; last seen ${n.lastSeen ? ago(Date.now() - n.lastSeen) + ' ago' : 'never'}; ${bat}${n.offlineCount7d ? `; ${n.offlineCount7d} offline period(s) in 7 days` : ''}${n.alerts.length ? `; ALERT: ${n.alerts.map((a) => a.message).join('; ')}` : ''}`,
+            );
+        }
+    }
+    const th = matterModule('thread-health');
+    if (th && !want) {
+        const t = th.status();
+        lines.push(
+            `\nThread (${t.val}): ${t.active.length ? t.active.map((a) => `${a.kind}: ${a.message} (since ${isoShort(a.since)})`).join('; ') : 'no active alert'}${
+                t.history.length
+                    ? `; last events: ${t.history
+                          .slice(0, 3)
+                          .map((e) => `${isoShort(e.at)} ${e.event} ${e.kind}`)
+                          .join(', ')}`
+                    : ''
+            }`,
+        );
+    }
+    if (typeof controller.listUpdates === 'function') {
+        try {
+            const u = await withTimeout(controller.listUpdates(), 5000);
+            const avail = u.nodes.filter((n) => n.available && (!want || n.nodeId === want));
+            const running = u.nodes.filter((n) => n.pending && (!want || n.nodeId === want));
+            if (avail.length || running.length)
+                lines.push(
+                    `\nFirmware: ${avail
+                        .map((n) => `${n.name ?? n.nodeId} ${n.softwareVersionString ?? n.softwareVersion} → ${n.available.softwareVersionString} available`)
+                        .concat(running.map((n) => `${n.name ?? n.nodeId} updating (${n.updateStateName ?? n.pending.status})`))
+                        .join('; ')}`,
+                );
+            else if (u.available) lines.push('\nFirmware: no update offered by the ledger for any device.');
+        } catch {
+            /* optional */
+        }
+    }
+    return lines.join('\n') || 'No health data.';
 }
 
 module.exports = {

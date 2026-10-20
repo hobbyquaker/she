@@ -12,7 +12,22 @@ fs.mkdirSync(path.join(DATA_DIR, 'logs'), { recursive: true });
 
 jest.mock('../../src/influx', () => ({ getMode: jest.fn(() => null), v1Query: jest.fn() }));
 jest.mock('../../src/elastic', () => ({ getClient: jest.fn(() => null) }));
-jest.mock('../../src/matter/controller', () => ({ listPaired: jest.fn(() => []), getEndpoints: jest.fn(() => []), getAttribute: jest.fn() }));
+jest.mock('../../src/matter/controller', () => ({
+    listPaired: jest.fn(() => []),
+    getEndpoints: jest.fn(() => []),
+    getAttribute: jest.fn(),
+    getDeviceInfo: jest.fn(),
+    listBindings: jest.fn(),
+    bindingCandidates: jest.fn(),
+    listGroups: jest.fn(),
+    listFabrics: jest.fn(),
+    listUpdates: jest.fn(),
+}));
+jest.mock('../../src/matter/dcl', () => ({}));
+jest.mock('../../src/matter/thread', () => ({ listNetworks: jest.fn() }));
+jest.mock('../../src/matter/thread-mesh', () => ({ getMesh: jest.fn(), refresh: jest.fn() }));
+jest.mock('../../src/matter/device-health', () => ({ listHealth: jest.fn() }));
+jest.mock('../../src/matter/thread-health', () => ({ status: jest.fn() }));
 
 const influx = require('../../src/influx');
 const elastic = require('../../src/elastic');
@@ -822,4 +837,206 @@ describe('run_analysis (I42)', () => {
         expect(out.event.result.length).toBeLessThan(700);
         expect(out.text).toMatch(/cut after 600 characters \(10002 total\)/);
     }, 20000);
+});
+
+describe('Matter and Thread tools (I44)', () => {
+    const thread = require('../../src/matter/thread');
+    const mesh = require('../../src/matter/thread-mesh');
+    const dh = require('../../src/matter/device-health');
+    const th = require('../../src/matter/thread-health');
+    beforeEach(() => {
+        matter.listPaired.mockReturnValue([
+            { nodeId: '2', name: 'Switch', online: true },
+            { nodeId: '4', name: 'Bulb', online: true },
+        ]);
+        matter.getEndpoints.mockImplementation((id) =>
+            id === '4'
+                ? [
+                      { endpointId: 0, name: null, clusters: [{ name: 'basicInformation', attrs: { nodeLabel: 'Bulb', vendorId: 4874 } }] },
+                      {
+                          endpointId: 1,
+                          name: 'Licht',
+                          clusters: [
+                              { name: 'descriptor', attrs: { deviceTypeList: [{ deviceType: 257 }] } },
+                              { name: 'onOff', attrs: { onOff: true, featureMap: 1, onTime: 0 } },
+                              { name: 'levelControl', attrs: { currentLevel: 200 } },
+                          ],
+                      },
+                  ]
+                : [],
+        );
+        matter.getDeviceInfo.mockResolvedValue({ vendorName: 'IKEA', product: { productName: 'TRADFRI bulb' }, reported: { softwareVersionString: '1.0.21' } });
+        matter.listBindings.mockResolvedValue([
+            {
+                sourceNodeId: '2',
+                sourceName: 'Switch',
+                sourceEndpointId: 1,
+                sourceEndpointName: null,
+                own: true,
+                node: '4',
+                endpoint: 1,
+                group: null,
+                cluster: 6,
+                clusterName: 'onOff',
+                targetName: 'Bulb',
+                targetEndpointName: 'Licht',
+            },
+            { sourceNodeId: '2', sourceName: 'Switch', sourceEndpointId: 1, own: false, fabricIndex: 1, node: '77', endpoint: 2, group: null, cluster: 6, clusterName: 'onOff' },
+        ]);
+        matter.bindingCandidates.mockReturnValue({
+            sources: [{ nodeId: '2', nodeName: 'Switch', endpointId: 1, name: null, clusters: [{ label: 'on/off' }] }],
+            targets: [{ nodeId: '4', nodeName: 'Bulb', endpointId: 1, name: 'Licht', clusters: [{ label: 'on/off' }, { label: 'dimming' }] }],
+            notBindable: [{ nodeId: '9', nodeName: 'Button', endpointId: 1, name: null }],
+        });
+        matter.listGroups.mockReturnValue({
+            available: true,
+            groups: [
+                {
+                    id: 1,
+                    name: 'Wohnzimmer',
+                    keySet: { shared: true },
+                    state: { on: 'some', onCount: 1, memberCount: 2, level: 100 },
+                    members: [
+                        {
+                            nodeId: '4',
+                            name: 'Bulb',
+                            endpointId: 1,
+                            endpointName: 'Licht',
+                            clusterNames: ['onOff'],
+                            online: true,
+                            status: 'ok',
+                            error: null,
+                            state: { onOff: true, level: 100 },
+                        },
+                    ],
+                },
+            ],
+        });
+        matter.listFabrics.mockResolvedValue({
+            fresh: true,
+            supportedFabrics: 5,
+            fabrics: [
+                { name: 'Apple Home', vendorName: 'Apple', own: false, fabricIndex: 1, nodeId: '100' },
+                { name: 'she', own: true, fabricIndex: 2, nodeId: '4' },
+            ],
+            window: { status: 0, codes: null },
+        });
+        matter.listUpdates.mockResolvedValue({
+            available: true,
+            nodes: [{ nodeId: '4', name: 'Bulb', softwareVersionString: '1.0.21', available: { softwareVersionString: '1.0.30' }, pending: null }],
+        });
+        thread.listNetworks.mockReturnValue({
+            running: true,
+            networks: [
+                {
+                    networkName: 'Home',
+                    extPanId: 'PAN',
+                    datasetKnown: false,
+                    partitions: ['1'],
+                    borderRouters: [
+                        {
+                            vendorName: 'Apple',
+                            modelName: 'TV',
+                            hostname: 'tv.local.',
+                            threadVersion: '1.4.0',
+                            state: { role: 'leader', bbrPrimary: true, interfaceStatus: 'active' },
+                            addresses: ['192.168.1.20'],
+                            lastSeen: Date.now() - 30000,
+                            rest: null,
+                        },
+                    ],
+                },
+            ],
+            unknown: [],
+        });
+        mesh.getMesh.mockResolvedValue({
+            nodes: [
+                { id: 'node:4', kind: 'thread', nodeId: '4', name: 'Bulb', role: 'router', rloc16: 0x5400, partitionId: 7, online: true },
+                { id: 'br:A', kind: 'border-router', name: 'Apple TV', role: 'leader', online: true },
+                { id: 'node:1', kind: 'other', nodeId: '1', name: 'Bridge', online: false },
+            ],
+            links: [
+                { kind: 'neighbour', source: 'node:4', target: 'br:A', lqi: 3, rssi: -60, bidirectional: false },
+                { kind: 'binding', source: 'node:2', target: 'node:4' },
+            ],
+            lastRefresh: null,
+            meshcop: { nodes: 0 },
+        });
+        dh.listHealth.mockReturnValue({
+            val: 'warning',
+            alerts: [{ nodeId: '2' }],
+            nodes: [
+                {
+                    nodeId: '2',
+                    name: 'Switch',
+                    online: false,
+                    since: Date.now() - 7200000,
+                    lastSeen: Date.now() - 7200000,
+                    battery: { percent: 15, level: 'warning', state: 'unknown' },
+                    offlineCount7d: 2,
+                    alerts: [{ message: 'Switch: battery 15 %' }],
+                },
+                { nodeId: '4', name: 'Bulb', online: true, since: Date.now(), lastSeen: Date.now(), battery: null, offlineCount7d: 0, alerts: [] },
+            ],
+        });
+        th.status.mockReturnValue({ val: 'ok', active: [], history: [] });
+    });
+
+    it('get_matter_device lists every endpoint with its attributes, narrows with cluster, names the ledger', async () => {
+        const out = await executeTool('get_matter_device', { node: 'Bulb' }, {});
+        expect(out).toContain('### Bulb (nodeId "4", online)');
+        expect(out).toContain('ledger: IKEA · TRADFRI bulb · firmware 1.0.21');
+        expect(out).toContain('endpoint 1 "Licht" (device types 0x101)');
+        expect(out).toContain('onOff: onOff=true, onTime=0');
+        expect(out).not.toContain('featureMap');
+        const one = await executeTool('get_matter_device', { node: '4', cluster: 'levelControl' }, {});
+        expect(one).toContain('levelControl: currentLevel=200');
+        expect(one).not.toContain('onOff:');
+        expect(await executeTool('get_matter_device', { node: 'Nope' }, {})).toBe('No Matter device "Nope".');
+    });
+
+    it('list_matter_bindings shows own and foreign entries and the candidates', async () => {
+        const out = await executeTool('list_matter_bindings', {}, {});
+        expect(out).toContain('2 binding entries:');
+        expect(out).toContain('- Switch/ep 1 → Bulb/Licht: onOff [she]');
+        expect(out).toContain("node 77 ep 2 (that fabric's numbering): onOff [another controller, fabric 1]");
+        expect(out).toContain('Can be a source (Binding cluster + client cluster): Switch/ep 1 (on/off)');
+        expect(out).toContain('Cannot bind (button events only — use she.matter.sub): Button/ep 1');
+        expect(await executeTool('list_matter_bindings', { node: 'Bulb' }, {})).toContain('1 binding entry:');
+    });
+
+    it('list_matter_groups, get_matter_fabrics, get_thread_networks', async () => {
+        const g = await executeTool('list_matter_groups', {}, {});
+        expect(g).toContain("### Wohnzimmer (group id 1, key set shared; 1 of 2 on, level 100) — she.matter.send('group:Wohnzimmer', null, 'onOff', 'on')");
+        expect(g).toContain('- Bulb/Licht: onOff; online; ok; on, level 100');
+        const f = await executeTool('get_matter_fabrics', { node: 'Bulb' }, {});
+        expect(f).toContain('Bulb: 2 fabric(s) of 5 supported:');
+        expect(f).toContain('- Apple Home (Apple): fabric index 1, node id there 100');
+        expect(f).toContain('- she — she: fabric index 2');
+        expect(f).toContain('No pairing window open.');
+        const t = await executeTool('get_thread_networks', {}, {});
+        expect(t).toContain('### Home (ext PAN ID PAN; credentials unknown)');
+        expect(t).toContain('- Apple TV (tv.local): Thread 1.4.0; leader, primary BBR, active; 192.168.1.20; seen 30s ago');
+    });
+
+    it('get_thread_mesh lists roles and links, refresh re-reads; get_matter_health combines the sources', async () => {
+        const m = await executeTool('get_thread_mesh', {}, {});
+        expect(m).toContain("1 Thread device(s) in she's fabric, 1 border router(s), 1 link(s); tables from the subscriptions");
+        expect(m).toContain('- Bulb: router, RLOC16 0x5400, partition 7 — links: Apple TV LQI 3 -60 dBm one-way');
+        expect(m).toContain('- Apple TV [border router, leader]');
+        expect(m).not.toContain('Bridge');
+        expect(m).toContain('Bindings: node:2 → Bulb');
+        mesh.refresh.mockResolvedValue({ nodes: [], links: [], lastRefresh: Date.now() });
+        expect(await executeTool('get_thread_mesh', { refresh: true }, {})).toContain('No Thread device');
+        expect(mesh.refresh).toHaveBeenCalled();
+        const h = await executeTool('get_matter_health', {}, {});
+        expect(h).toContain('Devices (warning, 1 alert(s)):');
+        expect(h).toContain('- Switch: OFFLINE since');
+        expect(h).toContain('battery 15 %; 2 offline period(s) in 7 days; ALERT: Switch: battery 15 %');
+        expect(h).toContain('Thread (ok): no active alert');
+        expect(h).toContain('Firmware: Bulb 1.0.21 → 1.0.30 available');
+        const one = await executeTool('get_matter_health', { node: 'Bulb' }, {});
+        expect(one).not.toContain('Switch:');
+        expect(one).not.toContain('Thread (');
+    });
 });

@@ -69,7 +69,9 @@ The model reads the daemon through tools. Two tools change something, both behin
 | `who_publishes`, `describe_device`, `describe_room` | which script or adapter writes a topic; everything under one device (or several names), with its discovery entities; the whole room: devices, variables, scripts, discovery |
 | `get_script_logs` | the log files on disk with a time window, a level and a script filter |
 | `list_timers`, `get_health`, `list_services` | pending timers and schedules, the daemon's health, the adapter instances |
-| `list_matter_devices`, `get_matter_attribute` | paired Matter devices with their state; one attribute |
+| `list_matter_devices`, `get_matter_device`, `get_matter_attribute` | paired Matter devices with their state; one device in full (endpoints, clusters, attributes, the CSA ledger's vendor/product); one attribute |
+| `list_matter_bindings`, `list_matter_groups`, `get_matter_fabrics` | the bindings (a switch driving a device without she) and which endpoints can bind; she's groups with members and state; which controllers a device belongs to |
+| `get_thread_networks`, `get_thread_mesh`, `get_matter_health` | the Thread networks and border routers on the LAN; the mesh with roles, neighbours and link quality (`refresh: true` re-reads the tables); batteries, offline periods, Thread alerts and firmware updates |
 | `list_shedb_docs`, `get_shedb_doc` | sheDB ids and documents, paged, a dotted path into a document |
 | `she_fetch` | a public web page as text |
 | `remember`, `forget` | the facts about the installation the user confirmed (the 🧠 panel in the chat; stored in the data directory) |
