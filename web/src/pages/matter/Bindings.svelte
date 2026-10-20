@@ -321,7 +321,7 @@
                     <span>What to bind</span>
                     <div class="clusters">
                         {#each common as c (c.name)}
-                            <label class="chk"><input type="checkbox" checked={chosen.has(c.name)} onchange={() => toggleCluster(c.name)} /> {c.label} <span class="dim">({c.name})</span></label>
+                            <label class="chk"><input type="checkbox" checked={chosen.has(c.name)} onchange={() => toggleCluster(c.name)} /><span class="checkmark"></span> {c.label} <span class="dim">({c.name})</span></label>
                         {/each}
                     </div>
                 </div>
@@ -461,7 +461,6 @@
         padding: 3px 6px; border-radius: 3px; font-size: 12px;
     }
     .clusters { display: flex; flex-wrap: wrap; gap: 12px; color: var(--fg); font-size: 12px; }
-    .chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
     .preview { margin: 0; color: var(--fg-text); font-size: 12px; }
     .err { margin: 0; color: #e74c3c; font-size: 12px; }
     .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -504,4 +503,14 @@
     .nb summary { cursor: pointer; }
     .nb ul { margin: 6px 0 0; padding-left: 18px; }
     .nb-name { color: var(--fg); }
+    /* the checkbox look of the other pages (DB, Secrets, chat): the native box hidden, a themed one drawn */
+    .chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .chk input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .chk .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 2px; background: var(--bg-app); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .chk input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .chk input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .chk:hover .checkmark { border-color: var(--accent); }
+    .chk input:focus-visible + .checkmark { outline: 1px solid var(--accent); outline-offset: 1px; }
+    .chk:has(input:disabled) { cursor: default; opacity: 0.5; }
+    .chk:has(input:disabled):hover .checkmark { border-color: var(--border); }
 </style>

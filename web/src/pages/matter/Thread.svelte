@@ -558,7 +558,7 @@
                                     <td class="mono">{d.meshLocalPrefix ?? '—'}</td>
                                     <td class="dim">{d.hasNetworkKey ? 'network key' : 'no key'} · {d.hasPskc ? 'PSKc' : 'no PSKc'}</td>
                                     <td class="dim">{d.source ?? '—'}{d.note ? ` · ${d.note}` : ''}</td>
-                                    <td><label class="chk"><input type="checkbox" checked={d.meshcop} disabled={dsBusy || !d.hasPskc} onchange={() => toggleMeshcop(d)} /> {d.meshcop ? 'on' : 'off'}</label></td>
+                                    <td><label class="chk"><input type="checkbox" checked={d.meshcop} disabled={dsBusy || !d.hasPskc} onchange={() => toggleMeshcop(d)} /><span class="checkmark"></span> {d.meshcop ? 'on' : 'off'}</label></td>
                                     <td class="c-act"><button class="ghost sm" onclick={() => reveal(d)}>reveal</button> <button class="ghost sm" disabled={dsBusy} onclick={() => forget(d)}>forget</button></td>
                                 </tr>
                             {/each}
@@ -706,7 +706,6 @@
     .row { display: flex; align-items: center; gap: 8px; }
     .scan-btn { display: inline-flex; align-items: center; background: none; border: 1px solid var(--border); color: var(--fg-muted); padding: 2px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; }
     .note-in { background: var(--bg-app); border: 1px solid var(--border); color: var(--fg-text); padding: 3px 6px; border-radius: 3px; font-size: 12px; flex: 1; max-width: 320px; }
-    .chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
     .revealed { margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .tlv { word-break: break-all; background: var(--bg-app); padding: 2px 6px; border-radius: 3px; }
     /* the mesh graph (M16) */
@@ -731,4 +730,14 @@
     .node-detail { position: absolute; right: 8px; top: 8px; width: 300px; max-height: calc(100% - 16px); overflow: auto; background: var(--bg-app); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; font-size: 11px; display: flex; flex-direction: column; gap: 4px; }
     .nd-hdr { display: flex; align-items: center; gap: 6px; }
     .nd-links { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
+    /* the checkbox look of the other pages (DB, Secrets, chat): the native box hidden, a themed one drawn */
+    .chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .chk input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .chk .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 2px; background: var(--bg-app); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .chk input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .chk input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .chk:hover .checkmark { border-color: var(--accent); }
+    .chk input:focus-visible + .checkmark { outline: 1px solid var(--accent); outline-offset: 1px; }
+    .chk:has(input:disabled) { cursor: default; opacity: 0.5; }
+    .chk:has(input:disabled):hover .checkmark { border-color: var(--border); }
 </style>

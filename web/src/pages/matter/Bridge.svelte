@@ -184,7 +184,7 @@
                                         <code>{d.name}</code>
                                     {/if}
                                 </td>
-                                <td><label class="chk"><input type="checkbox" checked={d.publish} disabled={busy || d.gone} onchange={(e) => togglePublish(d.nodeId, (e.currentTarget as HTMLInputElement).checked)} /> {d.publish ? 'yes' : 'no'}</label></td>
+                                <td><label class="chk"><input type="checkbox" checked={d.publish} disabled={busy || d.gone} onchange={(e) => togglePublish(d.nodeId, (e.currentTarget as HTMLInputElement).checked)} /><span class="checkmark"></span> {d.publish ? 'yes' : 'no'}</label></td>
                                 <td class="c-act">
                                     {#if editing === d.nodeId}
                                         <button class="sm" onclick={() => saveName(d.nodeId)} disabled={busy || !editName.trim()}>Save</button>
@@ -238,8 +238,17 @@
     tr.gone td { color: var(--fg-dim); }
     .mono { font-family: var(--font-mono, monospace); font-size: 11px; }
     .name-in { background: var(--bg-app); border: 1px solid var(--border); color: var(--fg-text); padding: 2px 6px; border-radius: 3px; font-size: 12px; font-family: var(--font-mono, monospace); width: 200px; }
-    .chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
     .c-act { text-align: right; white-space: nowrap; }
     .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--fg-dim); margin-right: 6px; }
     .status-dot.online { background: #98c379; }
+    /* the checkbox look of the other pages (DB, Secrets, chat): the native box hidden, a themed one drawn */
+    .chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+    .chk input[type='checkbox'] { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+    .chk .checkmark { flex-shrink: 0; width: 13px; height: 13px; border: 1.5px solid var(--border); border-radius: 2px; background: var(--bg-app); position: relative; transition: background 0.12s, border-color 0.12s; }
+    .chk input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
+    .chk input:checked + .checkmark::after { content: ''; position: absolute; left: 3px; top: 0; width: 4px; height: 7px; border: 1.5px solid #fff; border-top: none; border-left: none; transform: rotate(45deg); }
+    .chk:hover .checkmark { border-color: var(--accent); }
+    .chk input:focus-visible + .checkmark { outline: 1px solid var(--accent); outline-offset: 1px; }
+    .chk:has(input:disabled) { cursor: default; opacity: 0.5; }
+    .chk:has(input:disabled):hover .checkmark { border-color: var(--border); }
 </style>
