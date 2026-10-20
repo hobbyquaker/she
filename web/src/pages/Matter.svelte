@@ -8,6 +8,7 @@
     import MatterValue from '../lib/MatterValue.svelte';
     import Bindings from './matter/Bindings.svelte';
     import Thread from './matter/Thread.svelte';
+    import Fabrics from './matter/Fabrics.svelte';
 
     let { active = true, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
@@ -782,10 +783,11 @@
                             <span class="dcl-sep">·</span>
                             <span class="dcl-dim">product 0x{(dclInfo.productId ?? 0).toString(16).padStart(4, '0')}: {dclInfo.productStatus}</span>
                         {/if}
-                        {#if dclInfo.reported.softwareVersionString}<span class="dcl-sep">·</span><span class="dcl-dim">firmware {dclInfo.reported.softwareVersionString}</span>{/if}
+                        {#if dclInfo.reported.softwareVersionString}<span class="dcl-sep">·</span> <span class="dcl-dim">firmware {dclInfo.reported.softwareVersionString}</span>{/if}
                     </div>
                 {/if}
             </div>
+            <Fabrics nodeId={selected.nodeId} online={devices.find((d) => d.nodeId === selected?.nodeId)?.online ?? false} />
             {#each selected.endpoints as ep (ep.endpointId)}
                 <details>
                     <summary>

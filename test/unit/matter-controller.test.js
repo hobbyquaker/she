@@ -891,3 +891,166 @@ describe('matter controller: bindings', () => {
         expect(bulb.writes).toEqual([]);
     });
 });
+
+// ── multi-admin (M20) ────────────────────────────────────────────────────────
+
+describe('matter controller: fabrics and pairing windows', () => {
+    let controller;
+    let ServerNode;
+    const fakeLog = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    let invokes;
+
+    beforeEach(() => {
+        jest.resetModules();
+        invokes = [];
+        jest.doMock('@matter/main', () => ({
+            Environment: { default: { vars: { set: jest.fn() } } },
+            ServerNode: { create: jest.fn() },
+            Logger: { destinations: { default: {} } },
+            LogLevel: { DEBUG: 0, INFO: 1, NOTICE: 2, WARN: 3, ERROR: 4, FATAL: 5 },
+            LogFormat: { PLAIN: 'plain' },
+        }));
+        jest.doMock('@matter/protocol', () => ({
+            Read: Object.assign(
+                jest.fn((options, attr) => ({ kind: 'read', options, attr })),
+                { Attribute: jest.fn((d) => d) },
+            ),
+            Invoke: Object.assign(
+                jest.fn((def) => ({ kind: 'invoke', ...def })),
+                { ConcreteCommandRequest: jest.fn((d) => d) },
+            ),
+            PaseClient: {
+                generateRandomPasscode: () => 20202021,
+                generateRandomDiscriminator: () => 3840,
+                generatePakePasscodeVerifier: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+            },
+            FabricManager: class FabricManager {},
+        }));
+        jest.doMock('@matter/general', () => ({ Crypto: class Crypto {} }));
+        jest.doMock('@matter/types', () => ({
+            Status: { Success: 0 },
+            StatusResponseError: {
+                create: (status, msg, clusterStatus) =>
+                    Object.assign(new Error(`${msg}: status ${status}${clusterStatus !== undefined ? ' cluster status ' + clusterStatus : ''}`), { status, clusterStatus }),
+            },
+            QrPairingCodeCodec: { encode: (d) => `MT:QR-${d[0].discriminator}-${d[0].passcode}` },
+            ManualPairingCodeCodec: { encode: (d) => `MANUAL-${d.discriminator}-${d.passcode}` },
+            DiscoveryCapabilitiesSchema: { encode: () => 4 },
+        }));
+        jest.doMock('@matter/main/clusters', () => ({
+            AdministratorCommissioning: { Complete: { id: 60, commands: { openCommissioningWindow: {}, revokeCommissioning: {} } } },
+            OperationalCredentials: { Complete: { id: 62, attributes: { fabrics: { id: 1 } } } },
+        }));
+        jest.doMock('../../src/matter/dcl', () => ({
+            start: jest.fn().mockResolvedValue(undefined),
+            close: jest.fn().mockResolvedValue(undefined),
+            deviceInfo: jest.fn(),
+            vendorName: (id) => (id === 4937 ? 'Apple' : null),
+        }));
+        controller = require('../../src/matter/controller');
+        ({ ServerNode } = require('@matter/main'));
+    });
+
+    async function setup({ online = true, fabrics, removeStatus = 0 } = {}) {
+        const list = fabrics ?? [
+            { rootPublicKey: new Uint8Array(1), vendorId: 4937, fabricId: 1n, nodeId: 100n, label: 'Apple Home', fabricIndex: 1 },
+            { rootPublicKey: new Uint8Array(1), vendorId: 0xfff1, fabricId: 2n, nodeId: 2n, label: '', fabricIndex: 2 },
+            { rootPublicKey: new Uint8Array(1), vendorId: 0x1234, fabricId: 3n, nodeId: 7n, label: '', fabricIndex: 3 },
+        ];
+        const root = {
+            number: 0,
+            state: {
+                basicInformation: { nodeLabel: 'Bulb', vendorId: 4874, productId: 7 },
+                operationalCredentials: { currentFabricIndex: 2, fabrics: list, supportedFabrics: 5, commissionedFabrics: list.length },
+                administratorCommissioning: { windowStatus: 0, adminFabricIndex: null, adminVendorId: null },
+            },
+        };
+        const agent = {
+            operationalCredentials: {
+                removeFabric: jest.fn().mockResolvedValue({ statusCode: removeStatus, fabricIndex: 1, debugText: removeStatus ? 'nope' : '' }),
+                cluster: { commands: { removeFabric: { requestSchema: { fieldDefinitions: { fabricIndex: {} } } } } },
+            },
+        };
+        const node = {
+            peerAddress: { nodeId: 4n, fabricIndex: 1 },
+            lifecycle: { isOnline: online, online: { on: jest.fn() }, offline: { on: jest.fn() } },
+            endpoints: { [Symbol.iterator]: () => [root][Symbol.iterator](), for: (id) => (id === 0 ? root : null) },
+            interaction: {
+                read: () =>
+                    (async function* () {
+                        yield [{ kind: 'attr-value', value: list }];
+                    })(),
+                invoke: (req) => {
+                    invokes.push(req);
+                    return (async function* () {
+                        yield [{ kind: 'cmd-status', status: 0 }];
+                    })();
+                },
+            },
+            act: jest.fn((label, fn) => fn(agent)),
+        };
+        root.act = node.act;
+        const server = {
+            peers: { [Symbol.iterator]: () => [node][Symbol.iterator](), commission: jest.fn() },
+            start: jest.fn(),
+            close: jest.fn(),
+            env: { get: () => ({ randomBytes: () => new Uint8Array(32) }) },
+        };
+        ServerNode.create.mockResolvedValue(server);
+        const broadcast = jest.fn();
+        await controller.init('/tmp/matter', fakeLog, broadcast);
+        return { node, agent, broadcast };
+    }
+
+    test("listFabrics names fabrics by label, ledger vendor or vendor id and marks she's own", async () => {
+        await setup();
+        const r = await controller.listFabrics('4');
+        expect(r.fresh).toBe(true);
+        expect(r.supportedFabrics).toBe(5);
+        expect(r.fabrics).toEqual([
+            expect.objectContaining({ fabricIndex: 1, name: 'Apple Home', vendorName: 'Apple', own: false, nodeId: '100', fabricId: '1' }),
+            expect.objectContaining({ fabricIndex: 2, name: 'she', own: true, vendorName: 'matter.js (test vendor)' }),
+            expect.objectContaining({ fabricIndex: 3, name: 'vendor 0x1234', vendorName: null, own: false }),
+        ]);
+        expect(r.window).toEqual({ status: 0, adminFabricIndex: null, adminVendorId: null, codes: null });
+    });
+
+    test('openCommissioningWindow sends the timed command with a PAKE verifier and returns the codes', async () => {
+        const { broadcast } = await setup();
+        const win = await controller.openCommissioningWindow('4', { timeoutSeconds: 60 });
+        expect(win).toMatchObject({ passcode: 20202021, discriminator: 3840, qrCode: 'MT:QR-3840-20202021', manualCode: 'MANUAL-3840-20202021', timeoutSeconds: 180 });
+        expect(invokes.length).toBe(1);
+        expect(invokes[0].timed).toBe(true);
+        expect(invokes[0].commands[0]).toMatchObject({
+            endpoint: 0,
+            command: 'openCommissioningWindow',
+            fields: expect.objectContaining({ commissioningTimeout: 180, discriminator: 3840, iterations: 1000 }),
+        });
+        expect(broadcast).toHaveBeenCalledWith({ type: 'matter:fabrics', nodeId: '4' });
+        // the codes show in listFabrics until they expire
+        expect((await controller.listFabrics('4')).window.codes).toMatchObject({ manualCode: 'MANUAL-3840-20202021' });
+        await controller.closeCommissioningWindow('4');
+        expect(invokes[1].commands[0].command).toBe('revokeCommissioning');
+        expect((await controller.listFabrics('4')).window.codes).toBeNull();
+    });
+
+    test('openCommissioningWindow refuses an offline device', async () => {
+        await setup({ online: false });
+        await expect(controller.openCommissioningWindow('4')).rejects.toThrow('offline');
+        expect(invokes).toEqual([]);
+    });
+
+    test("removeFabric refuses she's own fabric and reports a refusal, removes another one", async () => {
+        const { agent, broadcast } = await setup();
+        await expect(controller.removeFabric('4', 2)).rejects.toThrow("she's own fabric");
+        await expect(controller.removeFabric('4', 0)).rejects.toThrow('positive integer');
+        expect(await controller.removeFabric('4', 1)).toEqual({ ok: true, fabricIndex: 1 });
+        expect(agent.operationalCredentials.removeFabric).toHaveBeenCalledWith({ fabricIndex: 1 });
+        expect(broadcast).toHaveBeenCalledWith({ type: 'matter:fabrics', nodeId: '4' });
+    });
+
+    test('removeFabric surfaces the device status', async () => {
+        await setup({ removeStatus: 11 });
+        await expect(controller.removeFabric('4', 1)).rejects.toThrow('status 11 (nope)');
+    });
+});

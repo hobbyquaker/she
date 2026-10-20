@@ -924,6 +924,173 @@ async function removeBinding({ source, target, clusters }) {
     return { ok: true, clusters: clusterIds, bindingsRemoved: removed, aclRevoked, warning };
 }
 
+// ── Multi-admin: fabrics, pairing windows (M20) ───────────────────────────────
+
+/** Vendor IDs of the common controllers, for when the ledger has no name (or is off). */
+const KNOWN_FABRIC_VENDORS = { 0x1349: 'Apple', 0x6006: 'Google', 0x131d: 'Amazon', 0x10e1: 'SmartThings', 0x1393: 'Home Assistant', 0xfff1: 'matter.js (test vendor)' };
+
+// nodeId → the codes of the pairing window she opened on that device
+const _windows = new Map();
+
+/** Run an invoke request on a node and return the response data; throws on a failure status. */
+async function _invoke(node, invoke, what) {
+    const { Status, StatusResponseError } = require('@matter/types');
+    let data;
+    for await (const chunk of node.interaction.invoke(invoke)) {
+        for (const entry of chunk) {
+            if (entry.kind === 'cmd-status' && entry.status !== Status.Success) {
+                throw StatusResponseError.create(entry.status, `${what} failed`, entry.clusterStatus);
+            }
+            if (entry.kind === 'cmd-response') data = entry.data;
+        }
+    }
+    return data;
+}
+
+/**
+ * The fabrics a device belongs to (Operational Credentials `fabrics`, read with fabric filtering
+ * off), each named after its label or its vendor; she's own fabric marked.
+ * @param {string} nodeId
+ */
+async function listFabrics(nodeId) {
+    const node = _findClientNode(nodeId);
+    const oc = _rootState(node, 'operationalCredentials') ?? {};
+    let fabrics = Array.isArray(oc.fabrics) ? oc.fabrics : [];
+    let fresh = false;
+    if (node.lifecycle?.isOnline) {
+        try {
+            fabrics = (await _readAttribute(node, 0, 'operationalCredentials', 'fabrics', { fabricFiltered: false })) ?? [];
+            fresh = true;
+        } catch (err) {
+            _log?.debug(`matter: reading fabrics of ${nodeId} failed, using cached state: ${err.message}`);
+        }
+    }
+    const current = _deviceFabricIndex(node);
+    const ac = _rootState(node, 'administratorCommissioning') ?? {};
+    const list = fabrics.map((f) => {
+        const vendorId = f.vendorId === undefined || f.vendorId === null ? null : Number(f.vendorId);
+        const fabricIndex = f.fabricIndex === undefined || f.fabricIndex === null ? null : Number(f.fabricIndex);
+        const vendorName = vendorId === null ? null : (dcl.vendorName(vendorId) ?? KNOWN_FABRIC_VENDORS[vendorId] ?? null);
+        const label = typeof f.label === 'string' ? f.label : '';
+        const own = fabricIndex !== null && current !== undefined && fabricIndex === current;
+        return {
+            fabricIndex,
+            fabricId: f.fabricId === undefined || f.fabricId === null ? null : String(f.fabricId),
+            nodeId: f.nodeId === undefined || f.nodeId === null ? null : String(f.nodeId),
+            vendorId,
+            vendorName,
+            label,
+            own,
+            name: own ? label || 'she' : label || vendorName || (vendorId === null ? 'unknown' : `vendor 0x${vendorId.toString(16).padStart(4, '0')}`),
+        };
+    });
+    const win = _windows.get(_nodeIdStr(node.peerAddress.nodeId));
+    return {
+        nodeId: _nodeIdStr(node.peerAddress.nodeId),
+        fresh,
+        fabrics: list,
+        supportedFabrics: oc.supportedFabrics === undefined ? null : Number(oc.supportedFabrics),
+        commissionedFabrics: oc.commissionedFabrics === undefined ? null : Number(oc.commissionedFabrics),
+        window: {
+            status: ac.windowStatus === undefined || ac.windowStatus === null ? null : Number(ac.windowStatus), // 0 closed, 1 enhanced, 2 basic
+            adminFabricIndex: ac.adminFabricIndex === undefined || ac.adminFabricIndex === null ? null : Number(ac.adminFabricIndex),
+            adminVendorId: ac.adminVendorId === undefined || ac.adminVendorId === null ? null : Number(ac.adminVendorId),
+            codes: win && win.expiresAt > Date.now() ? win : null,
+        },
+    };
+}
+
+/**
+ * Open an enhanced commissioning window on a device so another app (Apple Home, Home Assistant,
+ * …) can add it: a random passcode and discriminator, the PAKE verifier computed here, the timed
+ * OpenCommissioningWindow command, and the QR payload and manual code to show.
+ * @param {string} nodeId
+ * @param {{ timeoutSeconds?: number }} [opts]  the window length, 180 … 900 s (Matter's limits)
+ */
+async function openCommissioningWindow(nodeId, { timeoutSeconds = 900 } = {}) {
+    const node = _findClientNode(nodeId);
+    _requireOnline(node, 'the device');
+    const timeout = Math.min(900, Math.max(180, Number(timeoutSeconds) || 900));
+    const { PaseClient, Invoke } = require('@matter/protocol');
+    const { Crypto } = require('@matter/general');
+    const { QrPairingCodeCodec, ManualPairingCodeCodec, DiscoveryCapabilitiesSchema } = require('@matter/types');
+    const clusters = require('@matter/main/clusters');
+    const crypto = _server.env.get(Crypto);
+    const passcode = PaseClient.generateRandomPasscode(crypto);
+    const discriminator = PaseClient.generateRandomDiscriminator(crypto);
+    const salt = require('crypto').randomBytes(32);
+    const iterations = 1000;
+    const pakePasscodeVerifier = await PaseClient.generatePakePasscodeVerifier(crypto, passcode, { iterations, salt });
+    const invoke = Invoke({
+        timed: true,
+        commands: [
+            Invoke.ConcreteCommandRequest({
+                endpoint: 0,
+                cluster: clusters.AdministratorCommissioning.Complete,
+                command: 'openCommissioningWindow',
+                fields: { commissioningTimeout: timeout, pakePasscodeVerifier, discriminator, iterations, salt },
+            }),
+        ],
+    });
+    await _invoke(node, invoke, 'OpenCommissioningWindow');
+    const bi = _rootState(node, 'basicInformation') ?? {};
+    const vendorId = Number(bi.vendorId ?? 0);
+    const productId = Number(bi.productId ?? 0);
+    const qrCode = QrPairingCodeCodec.encode([
+        { version: 0, vendorId, productId, flowType: 0, discoveryCapabilities: DiscoveryCapabilitiesSchema.encode({ onIpNetwork: true }), discriminator, passcode },
+    ]);
+    const manualCode = ManualPairingCodeCodec.encode({ discriminator, passcode });
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    const win = { passcode, discriminator, qrCode, manualCode, openedAt: Date.now(), expiresAt: Date.now() + timeout * 1000, timeoutSeconds: timeout };
+    _windows.set(id, win);
+    _log?.info(`matter: commissioning window opened on node ${id} for ${timeout} s (discriminator ${discriminator})`);
+    _broadcast?.({ type: 'matter:fabrics', nodeId: id });
+    return win;
+}
+
+/** Close a pairing window early (RevokeCommissioning, timed). */
+async function closeCommissioningWindow(nodeId) {
+    const node = _findClientNode(nodeId);
+    _requireOnline(node, 'the device');
+    const { Invoke } = require('@matter/protocol');
+    const clusters = require('@matter/main/clusters');
+    const invoke = Invoke({
+        timed: true,
+        commands: [Invoke.ConcreteCommandRequest({ endpoint: 0, cluster: clusters.AdministratorCommissioning.Complete, command: 'revokeCommissioning', fields: {} })],
+    });
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    try {
+        await _invoke(node, invoke, 'RevokeCommissioning');
+    } catch (err) {
+        // WindowNotOpen (cluster status 4) when it already closed — not a failure for the user
+        if (!/WindowNotOpen|clusterStatus.*4\b|status 4\b/i.test(err.message) && err.clusterStatus !== 4) throw err;
+    }
+    _windows.delete(id);
+    _log?.info(`matter: commissioning window on node ${id} closed`);
+    _broadcast?.({ type: 'matter:fabrics', nodeId: id });
+}
+
+/**
+ * Remove another controller's fabric from a device (Operational Credentials RemoveFabric). she's
+ * own fabric cannot be removed this way — that is "unpair".
+ * @param {string} nodeId
+ * @param {number} fabricIndex  the device's index of that fabric (from listFabrics)
+ */
+async function removeFabric(nodeId, fabricIndex) {
+    const node = _findClientNode(nodeId);
+    _requireOnline(node, 'the device');
+    const fi = Number(fabricIndex);
+    if (!Number.isInteger(fi) || fi < 1) throw new Error('fabricIndex must be a positive integer');
+    if (fi === _deviceFabricIndex(node)) throw new Error("that is she's own fabric — unpair the device instead");
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    const result = await sendCommand(id, 0, 'operationalCredentials', 'removeFabric', { fabricIndex: fi });
+    const status = result?.statusCode === undefined ? 0 : Number(result.statusCode);
+    if (status !== 0) throw new Error(`the device refused to remove fabric ${fi}: status ${status}${result?.debugText ? ' (' + result.debugText + ')' : ''}`);
+    _log?.info(`matter: removed fabric ${fi} from node ${id}`);
+    _broadcast?.({ type: 'matter:fabrics', nodeId: id });
+    return { ok: true, fabricIndex: fi };
+}
+
 // ── Node lifecycle events (online / offline) ────────────────────────────────
 
 /**
@@ -1284,6 +1451,10 @@ module.exports = {
     setAttribute,
     rename,
     sendCommand,
+    listFabrics,
+    openCommissioningWindow,
+    closeCommissioningWindow,
+    removeFabric,
     listBindings,
     bindingCandidates,
     addBinding,

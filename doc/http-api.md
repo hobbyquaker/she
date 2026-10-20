@@ -410,6 +410,45 @@ What the CSA Distributed Compliance Ledger (the public registry of certified Mat
 
 ---
 
+### GET /she/matter/devices/:nodeId/fabrics
+
+The controllers (fabrics) a device belongs to — Apple Home, Home Assistant, she, … — read from its Operational Credentials cluster with fabric filtering off, each named after its fabric label or its vendor (from the CSA ledger), she's own marked; plus the device's pairing-window state.
+
+**Response (HTTP 200):**
+
+```json
+{
+  "nodeId": "4", "fresh": true, "supportedFabrics": 5, "commissionedFabrics": 2,
+  "fabrics": [
+    { "fabricIndex": 1, "fabricId": "1", "nodeId": "100", "vendorId": 4937, "vendorName": "Apple", "label": "Apple Home", "own": false, "name": "Apple Home" },
+    { "fabricIndex": 2, "fabricId": "2", "nodeId": "4", "vendorId": 65521, "vendorName": "matter.js (test vendor)", "label": "", "own": true, "name": "she" }
+  ],
+  "window": { "status": 0, "adminFabricIndex": null, "adminVendorId": null, "codes": null }
+}
+```
+
+`window.status`: `0` closed, `1` enhanced window open, `2` basic window open; `codes` holds the codes of a window she opened while it lasts.
+
+### POST /she/matter/devices/:nodeId/commissioning-window
+
+Open an enhanced commissioning window on the device so another app can add it: she generates a passcode and discriminator, computes the PAKE verifier and sends the timed `OpenCommissioningWindow` command. The device stays in she; the other app gets a fabric of its own.
+
+**Request body:** `{ "timeoutSeconds": 900 }` (optional, 180 … 900)
+
+**Response (HTTP 201):** `{ "passcode": 20202021, "discriminator": 3840, "qrCode": "MT:…", "manualCode": "34970112332", "openedAt": 1760000000000, "expiresAt": 1760000900000, "timeoutSeconds": 900 }`
+
+### DELETE /she/matter/devices/:nodeId/commissioning-window
+
+Close the window early (`RevokeCommissioning`). **Response (HTTP 200):** `{ "ok": true }`
+
+### DELETE /she/matter/devices/:nodeId/fabrics/:fabricIndex
+
+Remove another controller's fabric from the device (`RemoveFabric`); that controller loses the device. she's own fabric cannot be removed this way (HTTP 409) — unpair the device instead.
+
+**Response (HTTP 200):** `{ "ok": true, "fabricIndex": 1 }`
+
+---
+
 ### GET /she/matter/bindings
 
 Every binding of every paired node. A binding lets one device (a switch) drive another (a light) directly, without she in the loop. Entries of she's own fabric are resolved to device names; entries made by other controllers (Apple Home, Home Assistant, …) are listed with `own: false` and node IDs in that fabric's numbering — she shows them but cannot edit them.

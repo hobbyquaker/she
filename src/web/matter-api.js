@@ -8,6 +8,10 @@
  *   POST   /she/matter/commission                       → commission a device
  *   GET    /she/matter/devices/:nodeId                  → node detail (endpoints + clusters)
  *   GET    /she/matter/devices/:nodeId/dcl              → vendor and product details from the CSA ledger
+ *   GET    /she/matter/devices/:nodeId/fabrics          → the device's fabrics and pairing-window state
+ *   POST   /she/matter/devices/:nodeId/commissioning-window → open a pairing window (QR + manual code)
+ *   DELETE /she/matter/devices/:nodeId/commissioning-window → close it
+ *   DELETE /she/matter/devices/:nodeId/fabrics/:fabricIndex → remove another controller's fabric
  *   DELETE /she/matter/devices/:nodeId                  → unpair a device
  *   POST   /she/matter/devices/:nodeId/command          → invoke a cluster command
  *   GET    /she/matter/bindings                         → every binding (own fabric resolved, other fabrics read-only)
@@ -107,6 +111,56 @@ router.get('/devices/:nodeId/dcl', async (req, res) => {
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Multi-admin (M20) ─────────────────────────────────────────────────────────
+
+function fabricError(res, err) {
+    const msg = err.message || String(err);
+    if (/not found/.test(msg)) return res.status(404).json({ error: msg });
+    if (/offline|own fabric|positive integer/.test(msg)) return res.status(409).json({ error: msg });
+    return res.status(500).json({ error: msg });
+}
+
+// GET /she/matter/devices/:nodeId/fabrics — the fabrics the device belongs to, and its pairing-window state
+router.get('/devices/:nodeId/fabrics', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().listFabrics(req.params.nodeId));
+    } catch (err) {
+        fabricError(res, err);
+    }
+});
+
+// POST /she/matter/devices/:nodeId/commissioning-window — { timeoutSeconds? } → the codes to show
+router.post('/devices/:nodeId/commissioning-window', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.status(201).json(await getController().openCommissioningWindow(req.params.nodeId, { timeoutSeconds: req.body?.timeoutSeconds }));
+    } catch (err) {
+        fabricError(res, err);
+    }
+});
+
+// DELETE /she/matter/devices/:nodeId/commissioning-window — close it early
+router.delete('/devices/:nodeId/commissioning-window', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        await getController().closeCommissioningWindow(req.params.nodeId);
+        res.json({ ok: true });
+    } catch (err) {
+        fabricError(res, err);
+    }
+});
+
+// DELETE /she/matter/devices/:nodeId/fabrics/:fabricIndex — remove another controller's fabric
+router.delete('/devices/:nodeId/fabrics/:fabricIndex', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().removeFabric(req.params.nodeId, Number(req.params.fabricIndex)));
+    } catch (err) {
+        fabricError(res, err);
     }
 });
 

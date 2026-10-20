@@ -308,3 +308,33 @@ describe('matter-api: bindings (M13)', () => {
         expect((await httpRequest('DELETE', port, '/she/matter/bindings', body)).body).toEqual({ ok: true, bindingsRemoved: [6] });
     });
 });
+
+describe('matter-api: fabrics and pairing windows (M20)', () => {
+    let srv, port, mock;
+    beforeAll(async () => {
+        mock = {
+            isStarted: () => true,
+            listFabrics: jest.fn().mockResolvedValue({ nodeId: '4', fabrics: [] }),
+            openCommissioningWindow: jest.fn().mockResolvedValue({ manualCode: '123' }),
+            closeCommissioningWindow: jest.fn().mockResolvedValue(undefined),
+            removeFabric: jest.fn().mockResolvedValue({ ok: true, fabricIndex: 1 }),
+        };
+        srv = await startApp(await _makeApp(mock));
+        port = srv.address().port;
+    });
+    afterAll(() => new Promise((r) => srv.close(r)));
+
+    test('the routes call through and map errors', async () => {
+        expect((await httpRequest('GET', port, '/she/matter/devices/4/fabrics')).body).toEqual({ nodeId: '4', fabrics: [] });
+        const r = await httpRequest('POST', port, '/she/matter/devices/4/commissioning-window', { timeoutSeconds: 300 });
+        expect(r.status).toBe(201);
+        expect(mock.openCommissioningWindow).toHaveBeenCalledWith('4', { timeoutSeconds: 300 });
+        expect((await httpRequest('DELETE', port, '/she/matter/devices/4/commissioning-window')).body).toEqual({ ok: true });
+        expect((await httpRequest('DELETE', port, '/she/matter/devices/4/fabrics/1')).body).toEqual({ ok: true, fabricIndex: 1 });
+        expect(mock.removeFabric).toHaveBeenCalledWith('4', 1);
+        mock.removeFabric.mockRejectedValueOnce(new Error("that is she's own fabric — unpair the device instead"));
+        expect((await httpRequest('DELETE', port, '/she/matter/devices/4/fabrics/2')).status).toBe(409);
+        mock.listFabrics.mockRejectedValueOnce(new Error('Matter node not found: 9'));
+        expect((await httpRequest('GET', port, '/she/matter/devices/9/fabrics')).status).toBe(404);
+    });
+});

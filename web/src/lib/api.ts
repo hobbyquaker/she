@@ -503,6 +503,32 @@ export function getMatterDeviceInfo(nodeId: string): Promise<MatterDeviceInfo> {
     return request('GET', `/she/matter/devices/${nodeId}/dcl`);
 }
 
+// ---- Matter multi-admin (M20) ----
+
+export interface MatterFabric { fabricIndex: number | null; fabricId: string | null; nodeId: string | null; vendorId: number | null; vendorName: string | null; label: string; own: boolean; name: string }
+export interface MatterWindowCodes { passcode: number; discriminator: number; qrCode: string; manualCode: string; openedAt: number; expiresAt: number; timeoutSeconds: number }
+export interface MatterFabrics {
+    nodeId: string;
+    fresh: boolean;
+    fabrics: MatterFabric[];
+    supportedFabrics: number | null;
+    commissionedFabrics: number | null;
+    window: { status: number | null; adminFabricIndex: number | null; adminVendorId: number | null; codes: MatterWindowCodes | null };
+}
+
+export function getMatterFabrics(nodeId: string): Promise<MatterFabrics> {
+    return request('GET', `/she/matter/devices/${nodeId}/fabrics`);
+}
+export function openMatterCommissioningWindow(nodeId: string, timeoutSeconds?: number): Promise<MatterWindowCodes> {
+    return request('POST', `/she/matter/devices/${nodeId}/commissioning-window`, { timeoutSeconds });
+}
+export function closeMatterCommissioningWindow(nodeId: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/matter/devices/${nodeId}/commissioning-window`);
+}
+export function removeMatterFabric(nodeId: string, fabricIndex: number): Promise<{ ok: boolean; fabricIndex: number }> {
+    return request('DELETE', `/she/matter/devices/${nodeId}/fabrics/${fabricIndex}`);
+}
+
 // ---- Matter bindings (M13/M14) ----
 
 export interface MatterBinding {
