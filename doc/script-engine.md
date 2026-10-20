@@ -157,13 +157,17 @@ A user script that runs a synchronous infinite loop blocks the whole daemon: MQT
 **Two ways in:**
 
 - **`--safe-mode`** on the command line — always, regardless of anything else. As a one-off systemd override: `systemctl edit --force smart-home-engine` with `ExecStart=` + `ExecStart=/usr/local/bin/she --safe-mode --data-dir /var/lib/she`.
-- **Automatically after an unclean shutdown** (default on). She writes `<data-dir>/.she-running` — containing its PID — at startup and removes it again when it stops, synchronously, before any other cleanup. If the file is still there at the next start *and the PID in it is dead*, the previous run was killed rather than stopped, and she starts in safe mode. Turn this off with `"safeModeAutoDetect": false` (or `--no-safe-mode-auto-detect`).
+- **Automatically after repeated early crashes** (default on). She writes `<data-dir>/.she-running` — containing its PID and its start time — at startup and removes it again when it stops, synchronously, before any other cleanup. If the file is still there at the next start *and the PID in it is dead*, the previous run was killed rather than stopped. That alone is **not** a reason for safe mode: a daemon that ran for days and then died (out of memory, a power cut, `kill -9`) is restarted by systemd and should run its scripts again — otherwise the house runs without automation until someone notices. Safe mode is entered only when the crash **repeats** and happens **early**: by default when the last **3** unclean ends (`safeModeCrashCount`) each came within **300 s** of their start (`safeModeEarlyCrash`) and all within the last **30 min** (`safeModeCrashWindow`) — the signature of a script that kills the daemon at or shortly after load. The unclean ends are kept in `<data-dir>/.she-crashes.json`; a run that stays up past the threshold clears the record. The log says what happened either way (`the previous run was killed after 12 d of uptime — not an early crash; starting normally`), and the banner says why safe mode was entered (`3 crashes within 5 min of start`). Turn the detection off with `"safeModeAutoDetect": false` (or `--no-safe-mode-auto-detect`).
+
+  A sentinel written by a she before 2.0 carries no start time; such a dead run counts as early once.
 
   A **live** PID means a second instance is sharing the data directory (see [Multiple instances](cli.md#multiple-instances)): no safe mode, and the marker is left to its owner rather than removed on exit. The one case this gets wrong is a PID recycled by an unrelated process after a reboot — then a genuine crash goes undetected, which is the harmless direction to be wrong in.
 
 **The way out:** restart the daemon — the "Restart daemon" button in the safe-mode banner (or in the stats popup) is enough. A clean start with no `--safe-mode` and no leftover marker runs scripts normally.
 
-Safe mode is visible as `safeMode: true` in `GET /she/status` and `GET /she/health`, and as a red banner across the top of the web UI.
+Safe mode is visible as `safeMode: true` (with `safeModeReason`) in `GET /she/status` and `GET /she/health`, and as a red banner across the top of the web UI.
+
+The restart loop this relies on needs systemd not to give up first: the unit has `Restart=on-failure`, `RestartSec=5s` and the default start limit (5 starts in 10 s), so three early crashes at least 5 s apart stay within it; Docker's `--restart unless-stopped` has no limit.
 
 **When auto-detect is a nuisance:** any out-of-band SIGKILL leaves the marker — the OOM killer, `docker rm -f`, a `kill -9` during development. That is arguably the right signal (something did go wrong), but on a Docker volume that outlives the container, or on a development box where the daemon is killed routinely, `safeModeAutoDetect: false` is the escape hatch.
 

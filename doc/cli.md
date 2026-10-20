@@ -27,7 +27,10 @@ Usage: she [options]
 | | `--matter-storage` | — | Enable the Matter controller. Pass a directory path or `true` (uses `~/.she/matter`). |
 | | `--matter-dcl-offline` | `false` | Never contact the CSA Distributed Compliance Ledger. Vendor names then come from the bundled snapshot, product details from the cache only. |
 | | `--safe-mode` | `false` | Start without loading any user script — recovery from a script that blocks the event loop. See [safe mode](script-engine.md#safe-mode). |
-| | `--safe-mode-auto-detect` | `true` | Enter safe mode automatically when the previous run was killed instead of stopped (leftover `<data-dir>/.she-running`). Disable with `--no-safe-mode-auto-detect`. |
+| | `--safe-mode-auto-detect` | `true` | Enter safe mode automatically when the daemon was killed shortly after start several times in a row (leftover `<data-dir>/.she-running`, counted in `.she-crashes.json`). Disable with `--no-safe-mode-auto-detect`. |
+| | `--safe-mode-early-crash` | `300` | Seconds after start within which an unclean end counts as an *early* crash. |
+| | `--safe-mode-crash-count` | `3` | How many early crashes in a row put the next start into safe mode. |
+| | `--safe-mode-crash-window` | `1800` | Seconds within which those crashes must have happened. |
 | | `--script-timeout` | `5000` | Milliseconds a script's synchronous top-level code may run before it is terminated; the other scripts load anyway. `0` = no limit. |
 | | `--sentinel-timeout` | `5000` | Milliseconds to wait for the retained-state sentinel after connecting to MQTT before starting scripts anyway. |
 | `-h` | `--help` | — | Show help. |
@@ -77,6 +80,9 @@ SHE_URL=mqtt://192.168.1.10 SHE_PORT=8081 SHE_VERBOSITY=debug she
 | `--longitude` | `SHE_LONGITUDE` |
 | `--safe-mode` | `SHE_SAFE_MODE` |
 | `--safe-mode-auto-detect` | `SHE_SAFE_MODE_AUTO_DETECT` |
+| `--safe-mode-early-crash` | `SHE_SAFE_MODE_EARLY_CRASH` |
+| `--safe-mode-crash-count` | `SHE_SAFE_MODE_CRASH_COUNT` |
+| `--safe-mode-crash-window` | `SHE_SAFE_MODE_CRASH_WINDOW` |
 | `--script-timeout` | `SHE_SCRIPT_TIMEOUT` |
 | `--sentinel-timeout` | `SHE_SENTINEL_TIMEOUT` |
 | `--config` | `SHE_CONFIG` |

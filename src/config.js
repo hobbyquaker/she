@@ -132,9 +132,24 @@ const config = require('yargs')
         type: 'boolean',
     })
     .option('safe-mode-auto-detect', {
-        describe: 'enter safe mode automatically after an unclean shutdown (default: true)',
+        describe: 'enter safe mode automatically when the daemon crashes repeatedly shortly after start (default: true)',
         default: true,
         type: 'boolean',
+    })
+    .option('safe-mode-early-crash', {
+        describe: 'seconds after start within which an unclean end counts as an early crash (default: 300)',
+        default: 300,
+        type: 'number',
+    })
+    .option('safe-mode-crash-count', {
+        describe: 'how many early crashes in a row put the next start into safe mode (default: 3)',
+        default: 3,
+        type: 'number',
+    })
+    .option('safe-mode-crash-window', {
+        describe: 'seconds within which those crashes must have happened (default: 1800)',
+        default: 1800,
+        type: 'number',
     })
     .option('script-timeout', {
         describe: "ms a script's synchronous top-level code may run before it is terminated, 0 = no limit (default: 5000)",

@@ -150,7 +150,10 @@ app.get('/she/health', (req, res) => {
         mqtt,
         scripts: h?.scripts ?? 0,
     };
-    if (h?.safeMode) body.safeMode = true;
+    if (h?.safeMode) {
+        body.safeMode = true;
+        if (h.safeModeReason) body.safeModeReason = h.safeModeReason;
+    }
     if (checkAuth(req)) body.version = pkg.version;
     res.set('Cache-Control', 'no-store');
     res.status(ok ? 200 : 503).json(body);

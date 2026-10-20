@@ -350,7 +350,7 @@
 <div class="shell" style={navMin ? `min-width: ${navMin}px` : undefined}>
     {#if stats?.safeMode}
         <div class="safe-banner">
-            <strong>⚠ SAFE MODE</strong> — no user script is running and the script directory is not watched. She was killed instead of stopped last time, which usually means a script blocked the event loop. Edit or delete it, then restart.
+            <strong>⚠ SAFE MODE</strong> — no user script is running and the script directory is not watched. {stats.safeModeReason === '--safe-mode' ? 'Started with --safe-mode.' : `${stats.safeModeReason ?? 'She was killed shortly after start repeatedly'} — the daemon died shortly after start several times in a row, which usually means a script blocks the event loop or crashes it at load.`} Edit or delete it, then restart.
             <button class="safe-restart" onclick={restart}>Restart daemon</button>
         </div>
     {/if}

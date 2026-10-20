@@ -168,6 +168,7 @@ export interface DaemonStatus {
     runningScripts?: string[];
     topics: number;
     mqttMsgPerSec?: number;
+    safeModeReason?: string | null;
     matterEnabled?: boolean;
     matterNodes?: number;
     matterEndpoints?: number;

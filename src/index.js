@@ -102,23 +102,44 @@ const _sentinelFile = _path.join(require('./lib/storage').STORAGE_ROOT, '.she-ru
  * unrelated process after a reboot is the one case this misses, which is the harmless
  * direction to be wrong in.
  */
+const _crashRecord = require('./lib/crash-record');
+const _crashFile = _path.join(require('./lib/storage').STORAGE_ROOT, '.she-crashes.json');
+let _deadRun = null; // the stale sentinel's { pid, startMs }
 function _sentinelState() {
-    let pid;
+    let parsed;
     try {
-        pid = parseInt(_fs.readFileSync(_sentinelFile, 'utf8').trim(), 10);
+        parsed = _crashRecord.parseSentinel(_fs.readFileSync(_sentinelFile, 'utf8'));
     } catch {
         return null; // no marker
     }
-    if (!pid) return 'stale';
+    if (!parsed.pid) {
+        _deadRun = parsed;
+        return 'stale';
+    }
     try {
-        process.kill(pid, 0);
+        process.kill(parsed.pid, 0);
         return 'live';
     } catch (e) {
-        return e.code === 'EPERM' ? 'live' : 'stale'; // EPERM: alive, just not ours
+        if (e.code === 'EPERM') return 'live'; // alive, just not ours
+        _deadRun = parsed;
+        return 'stale';
     }
 }
 const _sentinelBefore = _sentinelState();
-const SAFE_MODE = config.safeMode === true || (config.safeModeAutoDetect !== false && _sentinelBefore === 'stale');
+// A stale sentinel alone is no longer a reason for safe mode (roadmap A10): only a crash that
+// repeats and happens early — the signature of a script that kills the daemon at load — is.
+// A single crash after days of uptime restarts normally, so the house keeps its automation.
+let _crashEval = null;
+if (_sentinelBefore === 'stale') {
+    _crashEval = _crashRecord.evaluate(_deadRun, _crashRecord.readCrashes(_crashFile), {
+        earlyCrashSec: config.safeModeEarlyCrash,
+        crashCount: config.safeModeCrashCount,
+        windowSec: config.safeModeCrashWindow,
+    });
+    _crashRecord.writeCrashes(_crashFile, _crashEval.crashes);
+}
+const SAFE_MODE = config.safeMode === true || (config.safeModeAutoDetect !== false && _sentinelBefore === 'stale' && !!_crashEval?.safeMode);
+const SAFE_MODE_REASON = !SAFE_MODE ? null : config.safeMode === true ? '--safe-mode' : _crashEval.reason;
 let _sentinelWritten = false;
 function _clearSentinel() {
     if (!_sentinelWritten) return;
@@ -131,7 +152,7 @@ function _clearSentinel() {
 }
 if (_sentinelBefore !== 'live') {
     try {
-        _fs.writeFileSync(_sentinelFile, String(process.pid));
+        _fs.writeFileSync(_sentinelFile, _crashRecord.formatSentinel(process.pid, Date.now()));
         _sentinelWritten = true;
     } catch (e) {
         // not fatal — auto-detect simply never triggers when the file cannot be written
@@ -185,8 +206,19 @@ if (SAFE_MODE) {
     if (config.safeMode === true) log.warn('SAFE MODE (--safe-mode): user scripts are not loaded. Restart without the flag to run them.');
     else
         log.warn(
-            `SAFE MODE: ${_sentinelFile} was left behind, so the previous run was killed rather than stopped — a script may be blocking the event loop. User scripts are not loaded; fix the script and restart. Set "safeModeAutoDetect": false to disable this detection.`,
+            `SAFE MODE: ${_crashEval.reason} — ${_sentinelFile} was left behind each time, so the daemon was killed rather than stopped shortly after start; a script may be blocking the event loop or crashing the daemon at load. User scripts are not loaded; fix the script and restart. Set "safeModeAutoDetect": false to disable this detection, or raise safeModeCrashCount.`,
         );
+} else if (_sentinelBefore === 'stale' && _crashEval) {
+    log.warn(`${_crashEval.message} (${_sentinelFile} was left behind${config.safeModeAutoDetect === false ? '; safe-mode detection is off' : ''})`);
+}
+// a run that stays up past the early-crash threshold is healthy: the crash record starts over
+if (_sentinelBefore !== 'live' && !SAFE_MODE) {
+    setTimeout(
+        () => {
+            _crashRecord.writeCrashes(_crashFile, []);
+        },
+        (config.safeModeEarlyCrash || 300) * 1000,
+    ).unref();
 }
 log.debug('loaded config: ', config);
 
@@ -544,6 +576,7 @@ const statsSnapshot = () => {
         elMeanMs,
         elMaxMs,
         safeMode: SAFE_MODE,
+        safeModeReason: SAFE_MODE_REASON,
     };
 };
 require('./web/server').setStatsProvider(statsSnapshot);
@@ -555,6 +588,7 @@ const healthSnapshot = () => ({
     mqttConnected: connected,
     scripts: Object.keys(scripts).length,
     safeMode: SAFE_MODE,
+    safeModeReason: SAFE_MODE_REASON,
 });
 require('./web/server').setHealthProvider(healthSnapshot);
 
