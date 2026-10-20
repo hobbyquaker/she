@@ -25,6 +25,7 @@ Usage: she [options]
 | | `--db-path` | — | Path to sheDB storage file. sheDB is disabled when omitted. |
 | | `--db-retain` | `false` | Publish sheDB document changes as retained MQTT messages. |
 | | `--matter-storage` | — | Enable the Matter controller. Pass a directory path or `true` (uses `~/.she/matter`). |
+| | `--matter-dcl-offline` | `false` | Never contact the CSA Distributed Compliance Ledger. Vendor names then come from the bundled snapshot, product details from the cache only. |
 | | `--safe-mode` | `false` | Start without loading any user script — recovery from a script that blocks the event loop. See [safe mode](script-engine.md#safe-mode). |
 | | `--safe-mode-auto-detect` | `true` | Enter safe mode automatically when the previous run was killed instead of stopped (leftover `<data-dir>/.she-running`). Disable with `--no-safe-mode-auto-detect`. |
 | | `--script-timeout` | `5000` | Milliseconds a script's synchronous top-level code may run before it is terminated; the other scripts load anyway. `0` = no limit. |
@@ -69,6 +70,7 @@ SHE_URL=mqtt://192.168.1.10 SHE_PORT=8081 SHE_VERBOSITY=debug she
 | `--db-path` | `SHE_DB_PATH` |
 | `--db-retain` | `SHE_DB_RETAIN` |
 | `--matter-storage` | `SHE_MATTER_STORAGE` |
+| `--matter-dcl-offline` | `SHE_MATTER_DCL_OFFLINE` |
 | `--disable-variables` | `SHE_DISABLE_VARIABLES` |
 | `--disable-watch` | `SHE_DISABLE_WATCH` |
 | `--latitude` | `SHE_LATITUDE` |

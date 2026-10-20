@@ -385,6 +385,74 @@ Invoke a cluster command on a device endpoint.
 
 ---
 
+### GET /she/matter/devices/:nodeId/dcl
+
+What the CSA Distributed Compliance Ledger (the public registry of certified Matter products) says about the device's vendor and product IDs, next to what the device reports about itself. Vendor names come from a bundled snapshot (`@matter/dcl-data`) refreshed daily from the ledger; product details are fetched on demand and cached for 30 days in the Matter storage directory, so the answer works offline once seen. With `--matter-dcl-offline` the ledger is never contacted.
+
+**Response (HTTP 200):**
+
+```json
+{
+  "vendorId": 4874,
+  "productId": 16641,
+  "vendor": { "vendorId": 4874, "vendorName": "IKEA of Sweden AB", "companyPreferredName": "IKEA", "companyLegalName": "IKEA of Sweden AB", "vendorLandingPageUrl": "https://www.ikea.com" },
+  "vendorName": "IKEA",
+  "product": { "productName": "TRADFRI bulb E27", "productLabel": null, "partNumber": null, "deviceTypeId": 257, "productUrl": "https://…", "userManualUrl": null, "supportUrl": null, "commissioningFallbackUrl": null },
+  "productStatus": "found",
+  "fetchedAt": 1760000000000,
+  "offline": false,
+  "live": true,
+  "reported": { "vendorName": "IKEA of Sweden AB", "productName": "TRADFRI bulb E27 WW 806lm", "softwareVersionString": "1.0.21", "...": "…" }
+}
+```
+
+`product` is `null` when the ledger has no entry (`productStatus` says why: `not in the ledger`, `offline — not cached`, `ledger not reachable yet`).
+
+---
+
+### GET /she/matter/bindings
+
+Every binding of every paired node. A binding lets one device (a switch) drive another (a light) directly, without she in the loop. Entries of she's own fabric are resolved to device names; entries made by other controllers (Apple Home, Home Assistant, …) are listed with `own: false` and node IDs in that fabric's numbering — she shows them but cannot edit them.
+
+**Response (HTTP 200):**
+
+```json
+[
+  { "sourceNodeId": "2", "sourceName": "Wall switch", "sourceEndpointId": 1, "sourceEndpointName": null, "own": true, "fabricIndex": 1,
+    "node": "4", "group": null, "endpoint": 1, "cluster": 6, "clusterName": "onOff", "targetName": "Kitchen light", "targetEndpointName": null }
+]
+```
+
+### GET /she/matter/bindings/candidates
+
+Which endpoints can be binding sources (a Binding cluster plus an On/Off, Level Control, Color Control, Window Covering, Thermostat, Fan Control or Door Lock *client*), which can be targets (the matching *server* cluster), and which cannot bind — Generic Switch devices only send button events; use `she.matter.sub` for those.
+
+**Response (HTTP 200):** `{ "sources": [ { "nodeId", "nodeName", "online", "endpointId", "name", "deviceTypes", "deviceTypeName", "clusters": [ { "name": "onOff", "id": 6, "label": "on/off" } ] } ], "targets": [ … ], "notBindable": [ { …, "reason": "…" } ] }`
+
+### POST /she/matter/bindings
+
+Create a binding. she reads the target's Access Control list fresh, adds an *Operate* grant for the source node on the bound clusters of that endpoint (never *Administer*), refuses to write a list that lost she's own Administer entry, writes it and reads it back; then appends the entries to the source's Binding list and reads that back. A failed binding write rolls the grant back. Both devices must be online and in she's fabric.
+
+**Request body:**
+
+```json
+{ "source": { "nodeId": "2", "endpointId": 1 }, "target": { "nodeId": "4", "endpointId": 1 }, "clusters": ["onOff", "levelControl"] }
+```
+
+Clusters are named (`onOff`, `levelControl`, `colorControl`, `windowCovering`, `thermostat`, `fanControl`, `doorLock`) or numeric IDs.
+
+**Response (HTTP 201):** `{ "ok": true, "clusters": [6, 8], "aclChanged": true, "bindingsAdded": [6, 8] }`
+
+**Errors:** `400` bad body · `404` unknown node · `409` a device offline, different fabrics, same endpoint, or the device's access-control limits reached · `500` the device refused a write (the message says which).
+
+### DELETE /she/matter/bindings
+
+Remove a binding (same body as `POST`). The entries leave the source's Binding list; the target's grant is revoked for the clusters no other binding of that source still needs. An offline target keeps its grant until the binding is removed again (`warning` says so).
+
+**Response (HTTP 200):** `{ "ok": true, "clusters": [6], "bindingsRemoved": [6], "aclRevoked": true, "warning": null }`
+
+---
+
 ## Config — `/she/config`
 
 ### GET /she/config

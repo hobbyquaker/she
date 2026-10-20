@@ -89,6 +89,12 @@ describe('matter controller', () => {
         }));
 
         // Re-require with fresh modules so _server is reset to null
+        jest.doMock('../../src/matter/dcl', () => ({
+            start: jest.fn().mockResolvedValue(undefined),
+            close: jest.fn().mockResolvedValue(undefined),
+            deviceInfo: jest.fn().mockResolvedValue({ vendorName: null }),
+            vendorName: () => null,
+        }));
         controller = require('../../src/matter/controller');
         ({ Environment, ServerNode } = require('@matter/main'));
     });
@@ -668,6 +674,12 @@ describe('matter controller: bindings', () => {
         jest.doMock('@matter/main/clusters', () => ({
             AccessControl: { Complete: { id: 31, attributes: { acl: { id: 0 } } } },
             Binding: { Complete: { id: 30, attributes: { binding: { id: 0 } } } },
+        }));
+        jest.doMock('../../src/matter/dcl', () => ({
+            start: jest.fn().mockResolvedValue(undefined),
+            close: jest.fn().mockResolvedValue(undefined),
+            deviceInfo: jest.fn().mockResolvedValue({ vendorName: null }),
+            vendorName: () => null,
         }));
         controller = require('../../src/matter/controller');
         ({ ServerNode } = require('@matter/main'));

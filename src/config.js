@@ -29,6 +29,11 @@ const config = require('yargs')
         describe: 'enable Matter controller; pass a directory path or true to use <data-dir>/matter',
         type: 'string',
     })
+    .option('matter-dcl-offline', {
+        describe: 'never contact the CSA Distributed Compliance Ledger (vendor names from the bundled snapshot, product details from the cache only)',
+        type: 'boolean',
+        default: false,
+    })
     .option('port', {
         alias: 'p',
         describe: 'HTTP server port (0 = OS-assigned random port)',

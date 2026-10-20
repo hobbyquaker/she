@@ -781,7 +781,7 @@ if (config.matterStorage) {
         matterGateOpen();
     }, 30000);
     matterController
-        .init(matterStoragePath, log, broadcast)
+        .init(matterStoragePath, log, broadcast, { dclOffline: config.matterDclOffline === true })
         .catch((err) => {
             log.error('matter controller init failed:', err.message, err.stack);
         })

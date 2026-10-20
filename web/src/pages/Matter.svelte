@@ -2,7 +2,7 @@
     import { onMount, onDestroy, tick, untrack } from 'svelte';
     import jsQR from 'jsqr';
     import { subscribeWs } from '../lib/ws.js';
-    import { listMatterDevices, getMatterDevice, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, type MatterDevice, type MatterNodeDetail } from '../lib/api.js';
+    import { listMatterDevices, getMatterDevice, getMatterDeviceInfo, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, type MatterDevice, type MatterNodeDetail, type MatterDeviceInfo } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import MatterValue from '../lib/MatterValue.svelte';
@@ -476,14 +476,19 @@
         }
     }
 
+    // what the CSA ledger knows about the selected device (M25) — fetched after the detail,
+    // so a slow ledger never delays the page
+    let dclInfo = $state<MatterDeviceInfo | null>(null);
     async function selectDevice(nodeId: string) {
         selectedId = nodeId;
         loading = true;
         error = null;
+        dclInfo = null;
         try {
             selected = await getMatterDevice(nodeId);
             nodeDetails.set(nodeId, selected); // keep cache up-to-date
             localStorage.setItem(LS_MATTER_NODE, nodeId);
+            getMatterDeviceInfo(nodeId).then((info) => { if (selectedId === nodeId) dclInfo = info; }).catch(() => { /* the ledger is optional */ });
         } catch (e: unknown) {
             error = e instanceof Error ? e.message : String(e);
         } finally {
@@ -762,6 +767,24 @@
                     <p class="device-subtitle">{selected.subtitle}</p>
                 {/if}
                 <p class="detail-nodeid">Node ID: {selected.nodeId}</p>
+                {#if dclInfo && dclInfo.vendorId !== null}
+                    <div class="dcl" title="From the CSA Distributed Compliance Ledger, the public registry of certified Matter products">
+                        <span class="dcl-k">CSA ledger</span>
+                        <span class="dcl-v">{dclInfo.vendorName ?? `vendor 0x${dclInfo.vendorId.toString(16).padStart(4, '0')}`}</span>
+                        {#if dclInfo.product}
+                            <span class="dcl-sep">·</span>
+                            <span class="dcl-v">{dclInfo.product.productName ?? dclInfo.product.productLabel ?? `product 0x${(dclInfo.productId ?? 0).toString(16).padStart(4, '0')}`}</span>
+                            {#if dclInfo.product.partNumber}<span class="dcl-dim">({dclInfo.product.partNumber})</span>{/if}
+                            {#if dclInfo.product.productUrl}<a class="dcl-link" href={dclInfo.product.productUrl} target="_blank" rel="noopener">product page</a>{/if}
+                            {#if dclInfo.product.userManualUrl}<a class="dcl-link" href={dclInfo.product.userManualUrl} target="_blank" rel="noopener">manual</a>{/if}
+                            {#if dclInfo.product.supportUrl}<a class="dcl-link" href={dclInfo.product.supportUrl} target="_blank" rel="noopener">support</a>{/if}
+                        {:else}
+                            <span class="dcl-sep">·</span>
+                            <span class="dcl-dim">product 0x{(dclInfo.productId ?? 0).toString(16).padStart(4, '0')}: {dclInfo.productStatus}</span>
+                        {/if}
+                        {#if dclInfo.reported.softwareVersionString}<span class="dcl-sep">·</span><span class="dcl-dim">firmware {dclInfo.reported.softwareVersionString}</span>{/if}
+                    </div>
+                {/if}
             </div>
             {#each selected.endpoints as ep (ep.endpointId)}
                 <details>
@@ -1208,6 +1231,14 @@
         font-size: 10px;
         color: var(--fg-dim);
     }
+    /* the CSA ledger line (M25) */
+    .dcl { margin-top: 4px; font-size: 11px; color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; }
+    .dcl-k { font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-dim); }
+    .dcl-v { color: var(--fg); }
+    .dcl-dim { color: var(--fg-dim); }
+    .dcl-sep { color: var(--fg-dim); }
+    .dcl-link { color: var(--accent, #569cd6); text-decoration: none; }
+    .dcl-link:hover { text-decoration: underline; }
     details {
         margin-bottom: 8px;
         background: var(--bg-panel);

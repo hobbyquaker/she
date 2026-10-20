@@ -10,6 +10,7 @@
  */
 
 const { Environment, ServerNode, ControllerBehavior, Logger, LogLevel, LogFormat } = require('@matter/main');
+const dcl = require('./dcl');
 
 // Upper bound for a commissioning attempt — matter.js has internal retries that
 // can keep an HTTP request (and the pairing wizard) hanging for a very long time.
@@ -117,7 +118,7 @@ function _clusterName(clusterId) {
  * @param {{ info: Function, warn: Function, error: Function }} log  Daemon logger
  * @param {((msg: object) => void) | null} [broadcastFn]  WebSocket broadcast function from log-ws.js
  */
-async function init(storagePath, log, broadcastFn) {
+async function init(storagePath, log, broadcastFn, options = {}) {
     _broadcast = broadcastFn ?? null;
     if (_server) throw new Error('Matter controller already started');
     _log = log;
@@ -214,6 +215,9 @@ async function init(storagePath, log, broadcastFn) {
     await _server.start();
     _log.info('matter controller started, storage:', storagePath);
 
+    // Device information from the CSA ledger (M25) — never holds the start, never throws
+    dcl.start({ env: _server.env, storageDir: storagePath, log, offline: options.dclOffline === true }).catch((err) => _log?.warn(`matter: DCL start failed: ${err.message}`));
+
     // Subscribe lifecycle events for already-paired nodes (persisted from previous session).
     for (const node of _server.peers) {
         const addr = node.peerAddress;
@@ -226,6 +230,7 @@ async function init(storagePath, log, broadcastFn) {
 
 async function close() {
     if (!_server) return;
+    await dcl.close();
     try {
         await _server.close();
     } catch (err) {
@@ -1234,6 +1239,31 @@ function getDeviceSubtitle(nodeId) {
     }
 }
 
+/**
+ * Vendor and product details for a node from the CSA ledger (M25): what the ledger says about
+ * the vendor/product IDs the device reports.
+ * @param {string} nodeId
+ */
+async function getDeviceInfo(nodeId) {
+    const node = _findClientNode(nodeId);
+    const bi = _rootState(node, 'basicInformation') ?? {};
+    const info = await dcl.deviceInfo(bi);
+    return {
+        ...info,
+        reported: {
+            vendorName: bi.vendorName ?? null,
+            productName: bi.productName ?? null,
+            productLabel: bi.productLabel ?? null,
+            productUrl: bi.productUrl ?? null,
+            partNumber: bi.partNumber ?? null,
+            softwareVersion: bi.softwareVersion === undefined ? null : Number(bi.softwareVersion),
+            softwareVersionString: bi.softwareVersionString ?? null,
+            hardwareVersionString: bi.hardwareVersionString ?? null,
+            serialNumber: bi.serialNumber ?? null,
+        },
+    };
+}
+
 function isStarted() {
     return _server !== null;
 }
@@ -1249,6 +1279,7 @@ module.exports = {
     unpair,
     getEndpoints,
     getDeviceSubtitle,
+    getDeviceInfo,
     getAttribute,
     setAttribute,
     rename,

@@ -484,6 +484,25 @@ export function renameMatterDevice(nodeId: string, name: string): Promise<{ ok: 
     return request('POST', `/she/matter/devices/${nodeId}/rename`, { name });
 }
 
+export interface MatterDclVendor { vendorId: number; vendorName: string | null; companyLegalName: string | null; companyPreferredName: string | null; vendorLandingPageUrl: string | null }
+export interface MatterDclProduct { productName: string | null; productLabel: string | null; partNumber: string | null; deviceTypeId: number | null; productUrl: string | null; userManualUrl: string | null; supportUrl: string | null; commissioningFallbackUrl: string | null }
+export interface MatterDeviceInfo {
+    vendorId: number | null;
+    productId: number | null;
+    vendor: MatterDclVendor | null;
+    vendorName: string | null;
+    product: MatterDclProduct | null;
+    productStatus: string;
+    fetchedAt: number | null;
+    offline: boolean;
+    live: boolean;
+    reported: { vendorName: string | null; productName: string | null; productLabel: string | null; productUrl: string | null; partNumber: string | null; softwareVersion: number | null; softwareVersionString: string | null; hardwareVersionString: string | null; serialNumber: string | null };
+}
+
+export function getMatterDeviceInfo(nodeId: string): Promise<MatterDeviceInfo> {
+    return request('GET', `/she/matter/devices/${nodeId}/dcl`);
+}
+
 // ---- Matter bindings (M13/M14) ----
 
 export interface MatterBinding {

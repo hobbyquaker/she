@@ -7,6 +7,7 @@
  *   GET    /she/matter/devices                          → list paired nodes
  *   POST   /she/matter/commission                       → commission a device
  *   GET    /she/matter/devices/:nodeId                  → node detail (endpoints + clusters)
+ *   GET    /she/matter/devices/:nodeId/dcl              → vendor and product details from the CSA ledger
  *   DELETE /she/matter/devices/:nodeId                  → unpair a device
  *   POST   /she/matter/devices/:nodeId/command          → invoke a cluster command
  *   GET    /she/matter/bindings                         → every binding (own fabric resolved, other fabrics read-only)
@@ -92,6 +93,17 @@ router.get('/devices/:nodeId', (req, res) => {
         const name = rootEp?.name ?? endpoints.find((ep) => ep.name)?.name ?? null;
         const subtitle = ctrl.getDeviceSubtitle(req.params.nodeId);
         res.json({ nodeId: req.params.nodeId, endpoints, name, subtitle });
+    } catch (err) {
+        if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /she/matter/devices/:nodeId/dcl — vendor and product details from the CSA ledger (M25)
+router.get('/devices/:nodeId/dcl', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await getController().getDeviceInfo(req.params.nodeId));
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });
