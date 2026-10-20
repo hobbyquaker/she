@@ -215,7 +215,7 @@
             .force('link', forceLink<GNode, GLink>(links).id((d) => d.id).distance((l) => (l.kind === 'binding' ? 120 : l.quality === 'good' ? 70 : l.quality === 'fair' ? 110 : 150)).strength((l) => (l.kind === 'binding' ? 0.05 : 0.6)))
             .force('charge', forceManyBody().strength(-260))
             .force('center', forceCenter(W / 2, H / 2))
-            .force('collide', forceCollide(34))
+            .force('collide', forceCollide(44))
             .force('x', forceX<GNode>(centreX).strength(keys.length > 1 ? 0.12 : 0.02))
             .force('y', forceY<GNode>(H / 2).strength(0.04))
             .alpha(1)
@@ -280,30 +280,58 @@
     function resetView() {
         view = { k: 1, x: 0, y: 0 };
     }
-    /** the box around a network's nodes, for its coloured area and label */
+    /** text widths for the network boxes, measured with the fonts the SVG uses */
+    let measureCtx: CanvasRenderingContext2D | null = null;
+    function textWidth(text: string, font: string): number {
+        measureCtx ??= document.createElement('canvas').getContext('2d');
+        if (!measureCtx) return text.length * 7;
+        measureCtx.font = font;
+        return measureCtx.measureText(text).width;
+    }
+    const FONT_LABEL = '10px sans-serif';
+    const FONT_SUB = '8.5px monospace';
+    const FONT_NET = '600 10.5px sans-serif';
+    const NET_LINE = 14;
+    const NET_PAD = 22;
+    /**
+     * The box around a network's nodes — every node's circle, name and second line inside, the network's
+     * label lines above them, and room around all of it.
+     */
     function hull(key: string): { x: number; y: number; w: number; h: number } | null {
         const ns = gNodes.filter((n) => (n.network ?? '') === key);
         if (ns.length === 0) return null;
-        const xs = ns.map((n) => n.x ?? 0);
-        const ys = ns.map((n) => n.y ?? 0);
-        const pad = 40;
-        const x = Math.min(...xs) - pad;
-        const y = Math.min(...ys) - pad;
-        return { x, y, w: Math.max(...xs) + pad - x, h: Math.max(...ys) + pad + 14 - y };
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (const n of ns) {
+            const half = Math.max(16, textWidth(n.name, FONT_LABEL) / 2, textWidth(subLabel(n), FONT_SUB) / 2);
+            minX = Math.min(minX, (n.x ?? 0) - half);
+            maxX = Math.max(maxX, (n.x ?? 0) + half);
+            minY = Math.min(minY, (n.y ?? 0) - 16);
+            maxY = Math.max(maxY, (n.y ?? 0) + (subLabel(n) ? 46 : 34));
+        }
+        const lines = netLines(key);
+        const labelW = Math.max(0, ...lines.map((l) => textWidth(l, FONT_NET)));
+        const header = lines.length * NET_LINE + 10;
+        const x = minX - NET_PAD;
+        const w = Math.max(maxX - minX + 2 * NET_PAD, labelW + 2 * NET_PAD);
+        const y = minY - NET_PAD - header;
+        return { x, y, w, h: maxY + NET_PAD - y };
     }
     const NET_COLOURS = ['#61afef', '#c678dd', '#98c379', '#e5c07b', '#56b6c2', '#e06c75'];
     function netColour(key: string): string {
         const i = (mesh?.networks ?? []).findIndex((n) => n.key === key);
         return i < 0 ? '#7f848e' : NET_COLOURS[i % NET_COLOURS.length];
     }
-    function netLabel(key: string): string {
+    /** a network's label, one fact per line: name, channel, partition(s) */
+    function netLines(key: string): string[] {
         const n = mesh?.networks.find((x) => x.key === key);
-        if (!n) return '';
-        const parts = [n.networkName ?? n.extPanId ?? 'network'];
-        if (n.channel !== null && n.channel !== undefined) parts.push(`ch ${n.channel}`);
-        if (n.partitions.length) parts.push(`partition ${n.partitions.join(', ')}`);
-        if (n.partitions.length > 1) parts.push('split!');
-        return parts.join(' · ');
+        if (!n) return [];
+        const lines = [n.networkName ?? n.extPanId ?? 'network'];
+        if (n.channel !== null && n.channel !== undefined) lines.push(`channel ${n.channel}`);
+        if (n.partitions.length) lines.push(`partition ${n.partitions.join(', ')}${n.partitions.length > 1 ? ' — split!' : ''}`);
+        return lines;
     }
     /** devices report the partition as a number, border routers as hex: show both as hex */
     function partitionHex(v: number | string): string {
@@ -517,7 +545,7 @@
                                 {@const b = hull(net.key)}
                                 {#if b}
                                     <rect class="net-hull" x={b.x} y={b.y} width={b.w} height={b.h} rx="14" fill={netColour(net.key)} fill-opacity="0.07" stroke={netColour(net.key)} stroke-opacity="0.45" stroke-dasharray="4 3" />
-                                    <text class="net-label" x={b.x + 10} y={b.y + 15} fill={netColour(net.key)}>{netLabel(net.key)}</text>
+                                    <text class="net-label" fill={netColour(net.key)}>{#each netLines(net.key) as line, i}<tspan x={b.x + NET_PAD} y={b.y + NET_PAD - 4 + i * NET_LINE}>{line}</tspan>{/each}</text>
                                 {/if}
                             {/each}
                             {#each gLinks as l (l.kind + '|' + (l.source as GNode).id + '|' + (l.target as GNode).id)}
@@ -639,7 +667,8 @@
     .gnode text.sublabel { font-size: 8.5px; fill: var(--fg-dim); pointer-events: none; font-family: monospace; }
     .graph { cursor: grab; }
     .graph.panning { cursor: grabbing; }
-    .net-label { font-size: 10.5px; font-weight: 600; pointer-events: none; }
+    .net-label { font-size: 10.5px; font-weight: 600; font-family: sans-serif; pointer-events: none; }
+    .gnode text.label { font-family: sans-serif; }
     .graph-tools { position: absolute; left: 8px; top: 8px; display: flex; gap: 4px; }
     .lq { font-weight: 600; }
     .lq.good { color: #98c379; }
