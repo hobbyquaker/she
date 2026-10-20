@@ -294,7 +294,7 @@
 
     interface EventRow {
         id: number;
-        kind: 'attr' | 'status';
+        kind: 'attr' | 'status' | 'event';
         nodeId: string;
         endpointId?: number;
         clusterName?: string;
@@ -617,7 +617,21 @@
         }, ...feed.slice(0, FEED_MAX - 1)];
     });
 
-    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); stopScan(); });
+    // cluster events (button presses …) — typed matter:event by the daemon (M18)
+    const unsubEvent  = subscribeWs('matter:event', (msg) => {
+        feed = [{
+            id: _evtSeq++,
+            kind: 'event',
+            nodeId: String(msg.nodeId),
+            endpointId: msg.endpointId as number,
+            clusterName: String(msg.clusterName),
+            attrName: String(msg.eventName),
+            value: msg.value,
+            ts: (msg.ts as number) ?? Date.now(),
+        }, ...feed.slice(0, FEED_MAX - 1)];
+    });
+
+    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); unsubEvent(); stopScan(); });
 </script>
 
 <ConfirmDialog bind:this={dialog} />
@@ -888,7 +902,7 @@
                                 <span class="e-node">{dname ?? `#${row.nodeId}`}{#if dname}&nbsp;<span class="e-sub">(#{row.nodeId})</span>{/if}</span>
                                 <span class="e-val" class:e-online={row.online} class:e-offline={!row.online}>{row.online ? 'online' : 'offline'}</span>
                             {:else}
-                                <span class="e-badge e-badge-attr">attr</span>
+                                {#if row.kind === 'event'}<span class="e-badge e-badge-event">event</span>{:else}<span class="e-badge e-badge-attr">attr</span>{/if}
                                 <span class="e-node">{dname ?? `#${row.nodeId}`}{#if dname}&nbsp;<span class="e-sub">(#{row.nodeId})</span>{/if}</span>
                                 <span class="e-ep">{epname ?? `ep${row.endpointId}`}{#if epname}&nbsp;<span class="e-sub">(ep {row.endpointId})</span>{/if}</span>
                                 <span class="e-cluster">{row.clusterName}</span>
@@ -1525,6 +1539,7 @@
     }
     .e-badge-attr   { background: #1e3a5f; color: #79b8ff; }
     .e-badge-status { background: #2d3b1e; color: #98c379; }
+    .e-badge-event  { background: #4a2d1e; color: #e5a86b; }
     .e-node  { color: var(--fg-muted); flex-shrink: 0; }
     .e-ep    { color: var(--fg-dim); flex-shrink: 0; }
     .e-cluster { color: #ce9178; flex-shrink: 0; }

@@ -752,6 +752,17 @@ const id = she.matter.sub('1', 1, 'onOff', 'onOff', (val) => {
 });
 ```
 
+**Events.** When `attrName` names a cluster *event* instead of an attribute, the callback gets the event's payload and, as its second argument, `{ event: true, cluster, name, ts }`. Battery buttons (IKEA BILRESA, the *Generic Switch* endpoints of the JUNG/smattex buttons) report presses as events of the Switch cluster — `initialPress`, `shortRelease`, `longPress`, `longRelease`, `multiPressOngoing`, `multiPressComplete` — which carry what the `currentPosition` attribute does not: the press count and long presses.
+
+```js
+she.matter.sub('bilresa', 1, 'switch', 'multiPressComplete', (ev) => {
+    if (ev.totalNumberOfPressesCounted === 2) she.mqtt.pub('hm/set/Licht Bad/STATE', true);
+});
+she.matter.sub('bilresa', 1, 'switch', 'longPress', () => she.mqtt.pub('hm/set/Licht Bad/STATE', false));
+```
+
+The Matter page's event feed shows the same events, tagged `event`.
+
 ---
 
 ### she.matter.unsub(listenerId)

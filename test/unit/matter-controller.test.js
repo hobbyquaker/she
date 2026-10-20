@@ -267,6 +267,48 @@ describe('matter controller', () => {
         expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'matter:attr', nodeId: '7', endpointId: 1, clusterName: 'onOff', attrName: 'onOff', value: true }));
     });
 
+    test('cluster events are broadcast as matter:event, their names from the behavior model (M18)', async () => {
+        const changeEvent = { on: jest.fn() };
+        const pressEvent = { on: jest.fn() };
+        const endpoint = {
+            number: 1,
+            state: { switch: { currentPosition: 0 } },
+            events: { switch: { currentPosition$Changed: changeEvent, multiPressComplete: pressEvent } },
+            behaviors: {
+                supported: {
+                    switch: {
+                        schema: {
+                            children: [
+                                { tag: 'attribute', name: 'CurrentPosition' },
+                                { tag: 'event', name: 'MultiPressComplete' },
+                            ],
+                        },
+                    },
+                },
+            },
+        };
+        const fakeClientNode = makeFakeClientNode(BigInt('7'), { endpoints: [endpoint] });
+        const fakeServer = makeFakeServer();
+        fakeServer.peers.commission.mockResolvedValue(fakeClientNode);
+        ServerNode.create.mockResolvedValue(fakeServer);
+        const broadcast = jest.fn();
+        await controller.init('/tmp/matter', fakeLog, broadcast);
+        await controller.commission({ passcode: 20202021 });
+
+        expect(pressEvent.on).toHaveBeenCalledTimes(1);
+        pressEvent.on.mock.calls[0][0]({ newPosition: 1, totalNumberOfPressesCounted: 2 });
+        expect(broadcast).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'matter:event',
+                nodeId: '7',
+                endpointId: 1,
+                clusterName: 'switch',
+                eventName: 'multiPressComplete',
+                value: { newPosition: 1, totalNumberOfPressesCounted: 2 },
+            }),
+        );
+    });
+
     test('nodeLabel change rebroadcasts the device list (rename completion)', async () => {
         const changeEvent = { on: jest.fn() };
         const endpoint = {
@@ -551,6 +593,25 @@ describe('matter controller', () => {
         const observer = changeEventEmitter.on.mock.calls[0][0];
         controller.unsubscribe('/scripts/test.js', id);
         expect(changeEventEmitter.off).toHaveBeenCalledWith(observer);
+    });
+
+    test('subscribeAttribute falls back to the cluster event of that name and tags the callback (M18)', async () => {
+        const pressEvent = { on: jest.fn(), off: jest.fn() };
+        const ep = { number: 1, state: { switch: {} }, events: { switch: { currentPosition$Changed: { on: jest.fn(), off: jest.fn() }, multiPressComplete: pressEvent } } };
+        const fakeClientNode = makeFakeClientNode(BigInt('5'), { endpoints: [ep] });
+        fakeClientNode.endpoints.for.mockReturnValue(ep);
+        ServerNode.create.mockResolvedValue(makeFakeServer([fakeClientNode]));
+        await controller.init('/tmp/matter', fakeLog);
+
+        const cb = jest.fn();
+        const id = controller.subscribeAttribute('/scripts/test.js', '5', 1, 'switch', 'multiPressComplete', cb);
+        expect(typeof id).toBe('number');
+        pressEvent.on.mock.calls[0][0]({ totalNumberOfPressesCounted: 2 });
+        expect(cb).toHaveBeenCalledWith({ totalNumberOfPressesCounted: 2 }, expect.objectContaining({ event: true, cluster: 'switch', name: 'multiPressComplete' }));
+        controller.unsubscribe('/scripts/test.js', id);
+        expect(pressEvent.off).toHaveBeenCalledWith(pressEvent.on.mock.calls[0][0]);
+
+        expect(() => controller.subscribeAttribute('/scripts/test.js', '5', 1, 'switch', 'nope', cb)).toThrow('neither an attribute');
     });
 
     test('hot-reload cycle does not accumulate listeners (sub → cleanup → sub)', async () => {

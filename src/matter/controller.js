@@ -726,6 +726,37 @@ function _attrValue(clusterName, attrName, value) {
     return _jsonSafe(value);
 }
 
+/**
+ * The names (camelCase) of a cluster's events — from the client behavior's model (what matter.js
+ * generated for the discovered cluster), else from the standard cluster definition. Events live in
+ * the same per-cluster table as the attribute change events (`endpoint.events[cluster]`), keyed by
+ * their bare name; attribute and event names of a cluster never collide (M18).
+ * @param {object} endpoint
+ * @param {string} clusterName
+ * @returns {string[]}
+ */
+function _clusterEventNames(endpoint, clusterName) {
+    const names = new Set();
+    try {
+        const schema = endpoint.behaviors?.supported?.[clusterName]?.schema;
+        if (schema?.children) {
+            for (const c of schema.children) if (c.tag === 'event' && c.name) names.add(_camelize(c.name));
+        }
+    } catch {
+        /* best-effort */
+    }
+    if (names.size === 0) {
+        try {
+            const clusters = require('@matter/main/clusters');
+            const def = clusters[clusterName.charAt(0).toUpperCase() + clusterName.slice(1)]?.Complete;
+            for (const k of Object.keys(def?.events ?? {})) names.add(k);
+        } catch {
+            /* best-effort */
+        }
+    }
+    return [...names];
+}
+
 function _broadcastNodeAttributes(node, nodeId) {
     if (!_broadcast) return;
     if (_attrBroadcastNodes.has(nodeId)) return;
@@ -762,6 +793,24 @@ function _broadcastNodeAttributes(node, nodeId) {
                         if (attrName === 'nodeLabel' || attrName === 'productName') {
                             _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
                         }
+                    });
+                    count++;
+                }
+                // Cluster events (Switch.initialPress, multiPressComplete, …) go to the feed as
+                // well: the UI shows them typed matter:event (M18).
+                for (const eventName of _clusterEventNames(endpoint, clusterName)) {
+                    const ev = clusterEvents[eventName];
+                    if (!ev || typeof ev.on !== 'function') continue;
+                    ev.on((payload) => {
+                        _broadcast?.({
+                            type: 'matter:event',
+                            nodeId,
+                            endpointId,
+                            clusterName,
+                            eventName,
+                            value: _jsonSafe(payload),
+                            ts: Date.now(),
+                        });
                     });
                     count++;
                 }
@@ -817,13 +866,24 @@ function subscribeAttribute(scriptFile, nodeId, endpointId, clusterName, attrNam
     const endpoint = _resolveEndpoint(node, endpointId);
     const events = endpoint.events?.[_clusterName(clusterName)];
     if (!events) throw new Error(`Cluster "${clusterName}" not found on endpoint ${endpointId}`);
-    const changeEvent = events[`${attrName}$Changed`];
-    if (!changeEvent) throw new Error(`Attribute "${attrName}" on cluster "${clusterName}" has no change event`);
+    // An attribute's change event, or — when `attrName` is not an attribute — the cluster event of
+    // that name (Switch.multiPressComplete …), so button presses reach scripts through the same
+    // call (M18). An event callback gets the payload and `{ event: true, cluster, name, ts }`.
+    let changeEvent = events[`${attrName}$Changed`];
+    let isEvent = false;
+    if (!changeEvent) {
+        changeEvent = events[attrName];
+        isEvent = true;
+    }
+    if (!changeEvent || typeof changeEvent.on !== 'function') {
+        throw new Error(`"${attrName}" is neither an attribute with a change event nor an event of cluster "${clusterName}"`);
+    }
 
     const listenerId = _nextListenerId++;
     const observer = (value, oldValue) => {
         try {
-            callback(value, oldValue);
+            if (isEvent) callback(value, { event: true, cluster: clusterName, name: attrName, ts: Date.now() });
+            else callback(value, oldValue);
         } catch (err) {
             _log?.error(`matter subscriber error in ${scriptFile}:`, err.message);
         }
