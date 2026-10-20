@@ -576,6 +576,19 @@ export function importThreadDatasetFromRouter(ext: string): Promise<ThreadDatase
     return request('POST', `/she/matter/thread/routers/${ext}/import-dataset`);
 }
 
+export interface ThreadAlert { key: string; kind: string; subject: string; message: string; since: number; network?: string | null; transient?: boolean; event?: 'raised' | 'cleared'; at?: number }
+export interface ThreadHealth { val: 'ok' | 'warning'; active: ThreadAlert[]; history: ThreadAlert[]; checkedAt: number | null; topic: string | null }
+
+export function getThreadHealth(): Promise<ThreadHealth> {
+    return request('GET', '/she/matter/thread/health');
+}
+export function checkThreadHealth(): Promise<ThreadHealth> {
+    return request('POST', '/she/matter/thread/health/check');
+}
+export function clearThreadHealthHistory(): Promise<ThreadHealth> {
+    return request('DELETE', '/she/matter/thread/health/history');
+}
+
 export interface MeshNode {
     id: string;
     kind: 'thread' | 'wifi' | 'other' | 'border-router' | 'external';

@@ -8,6 +8,7 @@
     import { subscribeWs } from '../../lib/ws.js';
     import { getThreadNetworks, refreshThreadNetworks, probeThreadRouter, getThreadMesh, refreshThreadMesh, getThreadDatasets, addThreadDataset, setThreadDatasetMeshcop, removeThreadDataset, revealThreadDataset, importThreadDatasetFromRouter, type ThreadNetworks, type ThreadBorderRouter, type ThreadMesh, type MeshNode, type MeshLink, type ThreadDatasets, type ThreadDataset } from '../../lib/api.js';
     import jsQR from 'jsqr';
+    import { getThreadHealth, checkThreadHealth, clearThreadHealthHistory, type ThreadHealth } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation, type SimulationNodeDatum, type SimulationLinkDatum } from 'd3-force';
 
@@ -67,6 +68,27 @@
         return s.replace(/(..)(?=.)/g, '$1:').toLowerCase();
     }
     let total = $derived(data ? data.networks.reduce((n, x) => n + x.routerCount, 0) + data.unknown.length : 0);
+
+    // ── Health alerts (M26) ────────────────────────────────────────────────────
+    let health = $state<ThreadHealth | null>(null);
+    let healthBusy = $state(false);
+    let showHistory = $state(false);
+    async function loadHealth() {
+        try { health = await getThreadHealth(); } catch { /* optional */ }
+    }
+    async function checkNow() {
+        healthBusy = true;
+        try { health = await checkThreadHealth(); } catch (e) { error = e instanceof Error ? e.message : String(e); } finally { healthBusy = false; }
+    }
+    async function clearHistory() {
+        try { health = await clearThreadHealthHistory(); } catch { /* optional */ }
+    }
+    $effect(() => {
+        if (active && !health) untrack(loadHealth);
+    });
+    const unsubHealth = subscribeWs('matter:thread-health', () => { if (health) loadHealth(); });
+    onDestroy(unsubHealth);
+    const KIND_LABELS: Record<string, string> = { leader_changed: 'leader changed', partition: 'partition', border_router_offline: 'border router offline', role_dropped: 'router dropped', link_degraded: 'link degraded' };
 
     // ── The dataset store (M17) ────────────────────────────────────────────────
     let datasets = $state<ThreadDatasets | null>(null);
@@ -271,6 +293,24 @@
         <span class="hint">Passive mDNS (<code>_meshcop._udp</code>) — what every border agent on the LAN announces. Nothing is written to a border router.</span>
     </div>
     {#if error}<p class="err">{error}</p>{/if}
+    {#if health}
+        <div class="health" class:warn={health.val === 'warning'}>
+            <span class="h-state">{health.val === 'warning' ? `${health.active.length} alert${health.active.length === 1 ? '' : 's'}` : 'Thread health: ok'}</span>
+            {#each health.active as a (a.key)}<span class="h-alert" title={`since ${new Date(a.since).toLocaleString()}`}><span class="h-kind">{KIND_LABELS[a.kind] ?? a.kind}</span> {a.message}</span>{/each}
+            <span class="spacer"></span>
+            <span class="dim">{health.checkedAt ? `checked ${ago(health.checkedAt)}` : 'not checked yet'}{health.topic ? ` · MQTT ${health.topic}` : ''}</span>
+            <button class="ghost sm" onclick={checkNow} disabled={healthBusy}>{healthBusy ? '…' : 'check now'}</button>
+            <button class="ghost sm" onclick={() => (showHistory = !showHistory)} disabled={health.history.length === 0}>history ({health.history.length})</button>
+        </div>
+        {#if showHistory && health.history.length}
+            <div class="h-history">
+                {#each health.history as h, i (h.key + '|' + h.at + '|' + i)}
+                    <div class="h-row"><span class="dim">{new Date(h.at ?? h.since).toLocaleString()}</span> <span class="h-kind" class:cleared={h.event === 'cleared'}>{h.event === 'cleared' ? 'cleared' : KIND_LABELS[h.kind] ?? h.kind}</span> {h.message}</div>
+                {/each}
+                <button class="ghost sm" onclick={clearHistory}>clear history</button>
+            </div>
+        {/if}
+    {/if}
     {#if !loaded}
         <div class="info">Loading…</div>
     {:else if data && data.networks.length === 0 && data.unknown.length === 0}
@@ -474,6 +514,15 @@
     button.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     button.sm { padding: 1px 7px; font-size: 11px; }
     ul { margin: 0; padding-left: 18px; }
+    /* the health strip (M26) */
+    .health { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg-panel); font-size: 11px; color: var(--fg-muted); }
+    .health.warn { background: rgba(230,126,34,0.12); color: var(--fg); }
+    .h-state { font-weight: 600; }
+    .health.warn .h-state { color: #e67e22; }
+    .h-kind { display: inline-block; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 600; background: rgba(230,126,34,0.18); color: #e67e22; margin-right: 3px; }
+    .h-kind.cleared { background: rgba(152,195,121,0.18); color: #98c379; }
+    .h-history { padding: 4px 12px 8px; border-bottom: 1px solid var(--border); font-size: 11px; display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto; }
+    .h-row { display: flex; gap: 6px; align-items: baseline; }
     /* the datasets (M17) */
     .import { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; margin: 6px 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-panel); }
     .field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--fg-muted); }

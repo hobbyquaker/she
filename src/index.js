@@ -403,6 +403,19 @@ function _maybeStart() {
         } catch (err) {
             log.warn('matter bridge start failed:', err.message);
         }
+        // Thread health alerts (M26): evaluated once a minute, published under <name>/status/thread/health
+        try {
+            require('./matter/thread-health').start({
+                publish: (topic, payload, opts) => {
+                    if (mqtt && connected) mqtt.publish(topic, payload, opts || {});
+                },
+                name: config.name,
+                log,
+                broadcast,
+            });
+        } catch (err) {
+            log.warn('matter thread health start failed:', err.message);
+        }
     }
 }
 
@@ -1826,6 +1839,7 @@ async function gracefulShutdown(signal) {
     if (config.matterStorage) {
         try {
             require('./matter/mqtt-bridge').stop();
+            require('./matter/thread-health').stop();
         } catch {
             // ignore
         }

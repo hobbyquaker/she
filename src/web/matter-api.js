@@ -17,6 +17,9 @@
  *   DELETE /she/matter/thread/datasets/:ext             → forget a dataset
  *   POST   /she/matter/thread/datasets/:ext/reveal      → the full TLV (behind a confirmation in the UI)
  *   POST   /she/matter/thread/routers/:ext/import-dataset → read the active dataset from a border router's REST API
+ *   GET    /she/matter/thread/health                    → Thread health alerts (active, history, MQTT topic)
+ *   POST   /she/matter/thread/health/check              → evaluate now
+ *   DELETE /she/matter/thread/health/history            → forget the history
  *   GET    /she/matter/thread/mesh                      → the Thread mesh graph (nodes, links, bindings)
  *   POST   /she/matter/thread/mesh/refresh[/:nodeId]    → re-read the neighbour and route tables
  *   GET    /she/matter/bridge                           → the MQTT bridge's settings, devices, status
@@ -249,6 +252,36 @@ router.post('/thread/routers/:ext/import-dataset', async (req, res) => {
     } catch (err) {
         if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
         if (/no REST API|no active dataset/.test(err.message)) return res.status(409).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /she/matter/thread/health — the Thread health alerts (M26): active ones, the history, the MQTT topic
+router.get('/thread/health', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(require('../matter/thread-health').status());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/thread/health/check — evaluate now
+router.post('/thread/health/check', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await require('../matter/thread-health').check());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /she/matter/thread/health/history
+router.delete('/thread/health/history', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(require('../matter/thread-health').clearHistory());
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

@@ -457,6 +457,16 @@ The full TLV — the UI asks for a confirmation first. **Response (HTTP 200):** 
 
 Read the active dataset from a border router with the OpenThread REST API (probed as manageable) and import it. **HTTP 409** when the router has no REST API.
 
+### GET /she/matter/thread/health
+
+Thread health alerts, evaluated once a minute from the border routers and the mesh: a leader change (`leader_changed`, a one-off event), a network whose border routers or devices announce more than one partition ID (`partition`), a border router not seen for 15 minutes or gone from mDNS (`border_router_offline`), a router that dropped to a child or end device (`role_dropped`), a neighbour link whose quality fell from good to poor (`link_degraded`). Raised alerts are logged at warn, cleared ones at info; the state is published retained on `<name>/status/thread/health` as `{ "val": "ok" | "warning", "ts", "lc", "alerts": [ { kind, subject, message, since, network } ] }` for scripts and notifications.
+
+**Response (HTTP 200):** `{ "val": "ok", "active": [], "history": [ { "key": "partition:…", "kind": "partition", "subject": "…", "message": "…", "since": 1760000000000, "event": "raised", "at": 1760000000000 } ], "checkedAt": 1760000000000, "topic": "she/status/thread/health" }`
+
+### POST /she/matter/thread/health/check · DELETE /she/matter/thread/health/history
+
+Evaluate now; forget the history. **Response (HTTP 200):** as `GET`.
+
 ### GET /she/matter/thread/mesh
 
 The Thread mesh as a graph: every Thread device in she's fabric (role, RLOC16, extended address, channel, partition, the sizes of its neighbour and route tables), the Wi-Fi devices (RSSI, access point), the border routers from mDNS joined by extended address, neighbours nobody in the fabric knows as `external` nodes; `links` from the neighbour tables (LQI, average RSSI, child flag, whether both sides see it) and the bindings as `binding` links. The neighbour and route tables come from the subscriptions until they are re-read (most devices report them only when a subscription is set up).
