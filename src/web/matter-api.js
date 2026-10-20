@@ -11,6 +11,8 @@
  *   GET    /she/matter/thread/networks                  → Thread networks on the LAN with their border routers
  *   POST   /she/matter/thread/refresh                   → probe every border router's REST API again
  *   POST   /she/matter/thread/routers/:ext/probe        → probe one border router
+ *   GET    /she/matter/thread/mesh                      → the Thread mesh graph (nodes, links, bindings)
+ *   POST   /she/matter/thread/mesh/refresh[/:nodeId]    → re-read the neighbour and route tables
  *   GET    /she/matter/bridge                           → the MQTT bridge's settings, devices, status
  *   PUT    /she/matter/bridge                           → { enabled?, format?, templates? }
  *   PUT    /she/matter/bridge/devices/:nodeId           → { name?, publish? } (the MQTT name, on/off)
@@ -165,6 +167,26 @@ router.post('/thread/routers/:ext/probe', async (req, res) => {
         res.json(await getThread().probeRouter(req.params.ext, { force: true }));
     } catch (err) {
         if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /she/matter/thread/mesh — the mesh graph (M16): Thread nodes, border routers, neighbour links, bindings
+router.get('/thread/mesh', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await require('../matter/thread-mesh').getMesh());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/thread/mesh/refresh[/:nodeId] — re-read the neighbour and route tables
+router.post(['/thread/mesh/refresh', '/thread/mesh/refresh/:nodeId'], async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(await require('../matter/thread-mesh').refresh(req.params.nodeId));
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

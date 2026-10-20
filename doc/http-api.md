@@ -435,6 +435,16 @@ The Thread networks on the LAN, from the border agents' `_meshcop._udp` mDNS ann
 
 Probe every border router's REST API again, or one. **Response (HTTP 200):** as `GET …/networks`, or the border router.
 
+### GET /she/matter/thread/mesh
+
+The Thread mesh as a graph: every Thread device in she's fabric (role, RLOC16, extended address, channel, partition, the sizes of its neighbour and route tables), the Wi-Fi devices (RSSI, access point), the border routers from mDNS joined by extended address, neighbours nobody in the fabric knows as `external` nodes; `links` from the neighbour tables (LQI, average RSSI, child flag, whether both sides see it) and the bindings as `binding` links. The neighbour and route tables come from the subscriptions until they are re-read (most devices report them only when a subscription is set up).
+
+**Response (HTTP 200):** `{ "nodes": [ { "id": "node:4", "kind": "thread", "nodeId": "4", "name": "Bulb", "online": true, "role": "router", "roleCode": 5, "rloc16": 21504, "extAddress": "0011223344556677", "channel": 25, "partitionId": 7, "networkName": "Home", "neighbours": 2, "routes": 1, "readAt": null } ], "links": [ { "kind": "neighbour", "source": "node:4", "target": "br:AABBCCDDEEFF0011", "lqi": 3, "lqiBack": null, "rssi": -60, "isChild": false, "bidirectional": false, "quality": "good" } ], "networks": [ { "networkName": "Home", "partitions": ["7"], "channel": 25, "nodes": 2 } ], "lastRefresh": null, "nodeCount": 3 }`
+
+### POST /she/matter/thread/mesh/refresh · POST /she/matter/thread/mesh/refresh/:nodeId
+
+Re-read the neighbour and route tables of every online Thread device, or of one (sleepy devices answer slowly). **Response (HTTP 200):** as `GET …/mesh`. The tables are also re-read once a day.
+
 ### GET /she/matter/bridge
 
 The Matter ↔ MQTT bridge: every paired node's application attributes (endpoints ≥ 1, the diagnostics and commissioning clusters left out) published to MQTT, cluster events too, commands and writes accepted on `set`, reads on `get`. Off until switched on. Defaults are mqtt-smarthome: `matter/connected` (2 while she runs, 0 on shutdown), `matter/status/<device>/<endpoint>/<cluster>/<attribute>` retained as `{ "val", "ts", "lc" }` (`lc` = last change), `matter/status/<device>/online`, `matter/set/<device>/<endpoint>/<cluster>/<attribute-or-command>`, `matter/get/<device>/<endpoint>/<cluster>/<attribute>`. Cluster, attribute, event and command names are matter.js's camelCase turned into snake_case (`level_control/current_level`), values in Matter's own units. `<device>` is the node's MQTT name — its device name as snake_case when it first appears, kept across renames in Apple Home or she, editable here; inbound topics accept the MQTT name or the node ID.

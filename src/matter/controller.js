@@ -247,6 +247,8 @@ async function init(storagePath, log, broadcastFn, options = {}) {
     require('./thread')
         .start(_server.env, { log, broadcast: _broadcast })
         .catch((err) => _log?.warn(`matter: Thread discovery not started: ${err.message}`));
+    // the mesh's periodic table refresh (M16)
+    require('./thread-mesh').start({ log, broadcast: _broadcast });
 
     // Device information from the CSA ledger (M25) — never holds the start, never throws
     dcl.start({ env: _server.env, storageDir: storagePath, log, offline: options.dclOffline === true }).catch((err) => _log?.warn(`matter: DCL start failed: ${err.message}`));
@@ -264,6 +266,7 @@ async function init(storagePath, log, broadcastFn, options = {}) {
 async function close() {
     if (!_server) return;
     _ota = null;
+    require('./thread-mesh').stop();
     await require('./thread').stop();
     await dcl.close();
     try {
@@ -2150,6 +2153,9 @@ function isStarted() {
 module.exports = {
     // for the unit tests: the value conversion, without a running controller
     _attrValue,
+    // for the Thread mesh (M16): the raw peers and the fresh attribute read
+    _peers: () => (_server ? [..._server.peers] : []),
+    _readAttribute,
     events,
     init,
     close,

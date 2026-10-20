@@ -539,6 +539,51 @@ export function probeThreadRouter(ext: string): Promise<ThreadBorderRouter> {
     return request('POST', `/she/matter/thread/routers/${ext}/probe`);
 }
 
+export interface MeshNode {
+    id: string;
+    kind: 'thread' | 'wifi' | 'other' | 'border-router' | 'external';
+    nodeId?: string;
+    name: string;
+    online: boolean;
+    role?: string | null;
+    roleCode?: number | null;
+    rloc16?: number | null;
+    extAddress?: string | null;
+    channel?: number | null;
+    partitionId?: number | null;
+    networkName?: string | null;
+    neighbours?: number;
+    routes?: number;
+    readAt?: number | null;
+    rssi?: number | null;
+    bssid?: string | null;
+    quality?: string;
+    borderRouter?: { vendorName: string | null; modelName: string | null; networkName: string | null };
+    explanation?: string;
+}
+export interface MeshLink {
+    kind: 'neighbour' | 'binding';
+    source: string;
+    target: string;
+    lqi?: number;
+    lqiBack?: number | null;
+    rssi?: number | null;
+    isChild?: boolean;
+    bidirectional?: boolean;
+    quality?: string;
+    clusters?: (string | number | null)[];
+    label?: string;
+    key?: string;
+}
+export interface ThreadMesh { nodes: MeshNode[]; links: MeshLink[]; networks: { networkName: string; partitions: string[]; channel: number | null; nodes: number }[]; lastRefresh: number | null; nodeCount: number }
+
+export function getThreadMesh(): Promise<ThreadMesh> {
+    return request('GET', '/she/matter/thread/mesh');
+}
+export function refreshThreadMesh(nodeId?: string): Promise<ThreadMesh> {
+    return request('POST', nodeId ? `/she/matter/thread/mesh/refresh/${nodeId}` : '/she/matter/thread/mesh/refresh');
+}
+
 // ---- Matter MQTT bridge (M19) ----
 
 export interface MatterBridgeTemplates { connected: string; attribute: string; event: string; online: string; set: string; get: string }
