@@ -243,6 +243,12 @@ async function init(storagePath, log, broadcastFn, options = {}) {
         _log?.warn(`matter: groups not registered: ${err.message}`);
     }
 
+    // the Thread dataset store (M17) — before discovery, so the networks' badges are right
+    try {
+        require('./thread-datasets').init({ storageDir: storagePath, log, broadcast: _broadcast });
+    } catch (err) {
+        _log?.warn(`matter: Thread dataset store not loaded: ${err.message}`);
+    }
     // Thread border router discovery on the controller's mDNS (M15) — never holds the start
     require('./thread')
         .start(_server.env, { log, broadcast: _broadcast })

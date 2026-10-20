@@ -539,6 +539,43 @@ export function probeThreadRouter(ext: string): Promise<ThreadBorderRouter> {
     return request('POST', `/she/matter/thread/routers/${ext}/probe`);
 }
 
+export interface ThreadDataset {
+    extPanId: string;
+    networkName: string | null;
+    channel: number | null;
+    panId: number | null;
+    meshLocalPrefix: string | null;
+    activeTimestamp: string | null;
+    channelMask: string | null;
+    securityPolicy: Record<string, unknown> | null;
+    hasNetworkKey: boolean;
+    hasPskc: boolean;
+    source: string | null;
+    note: string | null;
+    added: number | null;
+    meshcop: boolean;
+}
+export interface ThreadDatasets { available: boolean; error: string | null; datasets: ThreadDataset[] }
+
+export function getThreadDatasets(): Promise<ThreadDatasets> {
+    return request('GET', '/she/matter/thread/datasets');
+}
+export function addThreadDataset(tlv: string, source = 'pasted', note = ''): Promise<ThreadDataset> {
+    return request('POST', '/she/matter/thread/datasets', { tlv, source, note });
+}
+export function setThreadDatasetMeshcop(extPanId: string, meshcop: boolean): Promise<ThreadDataset> {
+    return request('PUT', `/she/matter/thread/datasets/${extPanId}`, { meshcop });
+}
+export function removeThreadDataset(extPanId: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/matter/thread/datasets/${extPanId}`);
+}
+export function revealThreadDataset(extPanId: string): Promise<{ extPanId: string; tlv: string }> {
+    return request('POST', `/she/matter/thread/datasets/${extPanId}/reveal`);
+}
+export function importThreadDatasetFromRouter(ext: string): Promise<ThreadDataset> {
+    return request('POST', `/she/matter/thread/routers/${ext}/import-dataset`);
+}
+
 export interface MeshNode {
     id: string;
     kind: 'thread' | 'wifi' | 'other' | 'border-router' | 'external';

@@ -67,8 +67,8 @@ function rssiQuality(rssi) {
  * @param {object[]} borderRouters  the Thread tab's border router views (M15)
  * @param {object[]} bindings  M13's binding list
  */
-function buildGraph(nodes, borderRouters = [], bindings = []) {
-    const out = { nodes: [], links: [], networks: [] };
+function buildGraph(nodes, borderRouters = [], bindings = [], meshcop = []) {
+    const out = { nodes: [], links: [], networks: [], meshcop: { nodes: 0, networks: [] } };
     const byExt = new Map();
     const byRloc = new Map();
     const byNodeId = new Map();
@@ -182,6 +182,69 @@ function buildGraph(nodes, borderRouters = [], bindings = []) {
             links.set(key, entry);
         }
     }
+    // what a border router told us through MeshCoP (M17's dataset): nodes the fabric does not know, and
+    // their links — the mesh from the router's side, non-Matter nodes included
+    for (const m of meshcop) {
+        const ext = m.extAddress ? m.extAddress.toUpperCase() : null;
+        let g = (ext && byExt.get(ext)) || (m.rloc16 !== null && m.rloc16 !== undefined && byRloc.get(Number(m.rloc16))) || null;
+        if (g) {
+            if (g.kind === 'external') {
+                g.kind = 'meshcop';
+                g.name = m.vendorName || m.vendorModel ? `${m.vendorName ?? ''} ${m.vendorModel ?? ''}`.trim() : g.name;
+                g.explanation = 'Seen through the border router (MeshCoP): a node of this network that is not paired with she.';
+            }
+            if (g.role === undefined || g.role === null || g.kind === 'border-router') g.role = m.role ?? g.role ?? null;
+            if (g.rloc16 === null || g.rloc16 === undefined) g.rloc16 = m.rloc16 ?? null;
+            g.meshcop = { vendorName: m.vendorName ?? null, vendorModel: m.vendorModel ?? null, version: m.version ?? null, children: (m.children ?? []).length };
+        } else {
+            g = {
+                id: `mc:${ext ?? m.rloc16}`,
+                kind: 'meshcop',
+                name:
+                    m.vendorName || m.vendorModel
+                        ? `${m.vendorName ?? ''} ${m.vendorModel ?? ''}`.trim()
+                        : ext
+                          ? `node ${ext.slice(-4)}`
+                          : `node 0x${Number(m.rloc16).toString(16)}`,
+                extAddress: ext,
+                rloc16: m.rloc16 ?? null,
+                role: m.role ?? null,
+                online: true,
+                networkName: m.networkName ?? null,
+                explanation: 'Seen through the border router (MeshCoP): a node of this network that is not paired with she.',
+                meshcop: { vendorName: m.vendorName ?? null, vendorModel: m.vendorModel ?? null, version: m.version ?? null, children: (m.children ?? []).length },
+            };
+            out.nodes.push(g);
+            if (ext) byExt.set(ext, g);
+            if (g.rloc16 !== null) byRloc.set(g.rloc16, g);
+        }
+        out.meshcop.nodes++;
+    }
+    for (const m of meshcop) {
+        const ext = m.extAddress ? m.extAddress.toUpperCase() : null;
+        const from = (ext && byExt.get(ext)) || (m.rloc16 !== null && m.rloc16 !== undefined && byRloc.get(Number(m.rloc16))) || null;
+        if (!from) continue;
+        for (const nb of m.neighbours ?? []) {
+            const nbExt = nb.extAddress ? nb.extAddress.toUpperCase() : null;
+            const to = (nbExt && byExt.get(nbExt)) || (nb.rloc16 !== null && nb.rloc16 !== undefined && byRloc.get(Number(nb.rloc16))) || null;
+            if (!to || to === from) continue;
+            const key = linkKey(from.id, to.id);
+            if (links.has(key)) continue;
+            const lqi = nb.lqi ?? (nb.linkMargin !== undefined ? (nb.linkMargin > 20 ? 3 : nb.linkMargin > 10 ? 2 : 1) : 0);
+            links.set(key, {
+                kind: 'neighbour',
+                source: from.id,
+                target: to.id,
+                lqi,
+                lqiBack: null,
+                rssi: nb.averageRssi ?? null,
+                isChild: !!nb.isChild,
+                bidirectional: false,
+                quality: lqiQuality(lqi),
+                via: 'meshcop',
+            });
+        }
+    }
     out.links.push(...links.values());
     // bindings as arrows
     for (const b of bindings) {
@@ -250,6 +313,85 @@ function _nodeData(node, nodeId) {
     return dev;
 }
 
+// ── MeshCoP through a border router (M17's dataset, opt-in per network) ────────
+
+/** extPanId → { nodes, readAt, error } */
+const _meshcop = new Map();
+const MESHCOP_WINDOW_MS = 12000;
+
+function _datasets() {
+    return require('./thread-datasets');
+}
+
+/**
+ * Ask the network's nodes for their diagnostics through a border router, as the network's
+ * commissioner (CoAP over DTLS with the PSKc) — only for networks whose dataset is known and whose
+ * MeshCoP switch is on. One commissioner per network at a time: the petition fails when another
+ * app holds it. Returns the nodes seen.
+ */
+async function meshcopQuery(extPanId, { entry } = {}) {
+    const creds = _datasets().credentialsFor(extPanId);
+    if (!creds) throw new Error('MeshCoP is off for this network, or its dataset has no PSKc');
+    const reg = _registry();
+    const nets = reg.listNetworks();
+    const net = nets.networks.find((n) => n.extPanId.toUpperCase() === String(extPanId).toUpperCase());
+    if (!net) throw new Error('no border router of this network is on the LAN');
+    const brs = net.borderRouters.filter((b) => b.meshcopPort && b.addresses.some((a) => !/^fe80:/i.test(a)));
+    if (!brs.length) throw new Error('no border router of this network announces a MeshCoP port with a routable address');
+    const br = entry ?? brs[0];
+    const raw = reg._registryEntry ? reg._registryEntry(br.extAddress) : null;
+    const { connectMeshcop, DefaultTlvSet } = require('@matter/thread-br-client');
+    const env = reg._env ? reg._env() : null;
+    const brEntry = raw ?? {
+        extAddressHex: br.extAddress,
+        addresses: br.addresses,
+        meshcopPort: br.meshcopPort,
+        networkName: br.networkName,
+        extendedPanIdHex: br.extPanId,
+        sources: ['meshcop'],
+        lastSeen: Date.now(),
+    };
+    const handle = await connectMeshcop({ creds, br: brEntry, environment: env });
+    const seen = [];
+    try {
+        const q = handle.source.queryMulticast('ff03::2', { tlvTypes: [...DefaultTlvSet], windowMs: MESHCOP_WINDOW_MS });
+        q.onNode.on((r) => seen.push(_meshcopNode(r)));
+        q.onError.on((err) => _log?.debug(`matter thread: MeshCoP: ${err.message}`));
+        await q.done;
+    } finally {
+        await handle.close().catch(() => {});
+    }
+    _meshcop.set(String(extPanId).toUpperCase(), { nodes: seen, readAt: Date.now(), error: null, via: br.extAddress });
+    _log?.info(`matter thread: MeshCoP through ${br.vendorName ?? br.extAddress}: ${seen.length} node(s) answered`);
+    _broadcast?.({ type: 'matter:thread' });
+    return seen;
+}
+
+function _meshcopNode(r) {
+    const rloc16 = r.rloc16 === undefined ? null : Number(r.rloc16);
+    const isRouter = rloc16 !== null && (rloc16 & 0x3ff) === 0;
+    const leader = r.leaderData && rloc16 !== null && r.leaderData.leaderRouterId === rloc16 >> 10;
+    const role = leader ? 'leader' : isRouter ? 'router' : r.mode ? (r.mode.rxOnWhenIdle ? 'end device' : 'sleepy end device') : null;
+    const neighbours = [];
+    for (const n of r.routerNeighbors ?? [])
+        neighbours.push({ extAddress: hex64(n.extAddress), rloc16: n.rloc16, averageRssi: n.averageRssi ?? null, linkMargin: n.linkMargin ?? null });
+    for (const c of r.childTable ?? []) {
+        if (rloc16 === null) continue;
+        neighbours.push({ rloc16: (rloc16 & 0xfc00) | Number(c.childId), lqi: Number(c.incomingLinkQuality ?? 0), isChild: true, timeout: c.timeoutSeconds ?? null });
+    }
+    return {
+        extAddress: hex64(r.extMacAddress),
+        rloc16,
+        role,
+        vendorName: r.vendorName ?? null,
+        vendorModel: r.vendorModel ?? null,
+        version: r.vendorSwVersion ?? r.threadStackVersion ?? null,
+        batteryLevel: r.batteryLevel ?? null,
+        children: (r.childTable ?? []).map((c) => Number(c.childId)),
+        neighbours,
+    };
+}
+
 /** The graph from the cached state, the fresh tables, the border routers and the bindings. */
 async function getMesh({ withBindings = true } = {}) {
     const ctrl = _ctrl();
@@ -269,7 +411,15 @@ async function getMesh({ withBindings = true } = {}) {
     }
     const brs = _registry().listNetworks();
     const routers = [...brs.networks.flatMap((n) => n.borderRouters), ...brs.unknown];
-    const graph = buildGraph(nodes, routers, bindings);
+    const meshcopNodes = [];
+    const meshcopNets = [];
+    for (const [extPanId, m] of _meshcop) {
+        meshcopNodes.push(...m.nodes.map((n) => ({ ...n, networkName: brs.networks.find((x) => x.extPanId === extPanId)?.networkName ?? null })));
+        meshcopNets.push({ extPanId, nodes: m.nodes.length, readAt: m.readAt, via: m.via, error: m.error });
+    }
+    const graph = buildGraph(nodes, routers, bindings, meshcopNodes);
+    graph.meshcop.networks = meshcopNets;
+    graph.meshcop.enabled = brs.networks.filter((n) => n.datasetKnown && _datasets().credentialsFor(n.extPanId)).map((n) => n.extPanId);
     return { ...graph, lastRefresh: _lastRefresh, nodeCount: nodes.length };
 }
 
@@ -304,6 +454,23 @@ async function refresh(nodeId) {
     }
     _lastRefresh = Date.now();
     _log?.info(`matter thread: neighbour and route tables read from ${ok} of ${targets.length} Thread node(s)`);
+    // the networks with MeshCoP on: ask through their border router too
+    try {
+        for (const n of _registry().listNetworks().networks) {
+            if (!n.datasetKnown || !_datasets().credentialsFor(n.extPanId)) continue;
+            await meshcopQuery(n.extPanId).catch((err) => {
+                _meshcop.set(n.extPanId.toUpperCase(), {
+                    nodes: _meshcop.get(n.extPanId.toUpperCase())?.nodes ?? [],
+                    readAt: _meshcop.get(n.extPanId.toUpperCase())?.readAt ?? null,
+                    error: err.message,
+                    via: null,
+                });
+                _log?.warn(`matter thread: MeshCoP query of ${n.networkName ?? n.extPanId} failed: ${err.message}`);
+            });
+        }
+    } catch {
+        /* the registry is optional */
+    }
     _broadcast?.({ type: 'matter:thread' });
     return getMesh();
 }
@@ -322,7 +489,8 @@ function stop() {
     if (_timer) clearInterval(_timer);
     _timer = null;
     _tables.clear();
+    _meshcop.clear();
     _lastRefresh = null;
 }
 
-module.exports = { buildGraph, getMesh, refresh, start, stop, hex64, lqiQuality, rssiQuality, ROLES, _tables };
+module.exports = { buildGraph, getMesh, refresh, meshcopQuery, start, stop, hex64, lqiQuality, rssiQuality, ROLES, _tables, _meshcop, _meshcopNode };

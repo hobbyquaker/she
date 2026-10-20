@@ -435,6 +435,28 @@ The Thread networks on the LAN, from the border agents' `_meshcop._udp` mDNS ann
 
 Probe every border router's REST API again, or one. **Response (HTTP 200):** as `GET …/networks`, or the border router.
 
+### GET /she/matter/thread/datasets
+
+The Thread datasets (network credentials) she knows, one per extended PAN ID, kept encrypted in the Matter storage (`thread-datasets.enc`, the secrets store's key) and never handed to scripts. Listed **redacted**: name, channel, PAN ID, mesh-local prefix, active timestamp, channel mask, security policy, whether a network key and a PSKc are present — never the key or the PSKc. A known dataset marks its network on the Thread tab and, with `meshcop` switched on, lets she ask the network's nodes for their diagnostics through a border router (as the network's commissioner — one at a time per network, so it is off by default).
+
+**Response (HTTP 200):** `{ "available": true, "error": null, "datasets": [ { "extPanId": "DEAD00BEEF00CAFE", "networkName": "Lab", "channel": 25, "panId": 4660, "meshLocalPrefix": "FD00DEAD00BEEF00", "activeTimestamp": "0000000000010000", "channelMask": null, "securityPolicy": null, "hasNetworkKey": true, "hasPskc": true, "source": "pasted", "note": "", "added": 1760000000000, "meshcop": false } ] }`
+
+### POST /she/matter/thread/datasets
+
+Import a dataset: `{ "tlv": "0e080000…", "source": "pasted", "note": "" }` — the hex TLV (as `ot-ctl dataset active -x` prints it, or decoded from a border router's dataset QR; `0x`, spaces and colons are tolerated). **Response (HTTP 201):** the redacted entry. **HTTP 400** when it does not decode.
+
+### PUT /she/matter/thread/datasets/:extPanId · DELETE /she/matter/thread/datasets/:extPanId
+
+`{ "meshcop": true }` switches the MeshCoP diagnostics for that network on or off; `DELETE` forgets the dataset.
+
+### POST /she/matter/thread/datasets/:extPanId/reveal
+
+The full TLV — the UI asks for a confirmation first. **Response (HTTP 200):** `{ "extPanId": "…", "tlv": "0e08…" }`
+
+### POST /she/matter/thread/routers/:extAddress/import-dataset
+
+Read the active dataset from a border router with the OpenThread REST API (probed as manageable) and import it. **HTTP 409** when the router has no REST API.
+
 ### GET /she/matter/thread/mesh
 
 The Thread mesh as a graph: every Thread device in she's fabric (role, RLOC16, extended address, channel, partition, the sizes of its neighbour and route tables), the Wi-Fi devices (RSSI, access point), the border routers from mDNS joined by extended address, neighbours nobody in the fabric knows as `external` nodes; `links` from the neighbour tables (LQI, average RSSI, child flag, whether both sides see it) and the bindings as `binding` links. The neighbour and route tables come from the subscriptions until they are re-read (most devices report them only when a subscription is set up).
@@ -443,7 +465,7 @@ The Thread mesh as a graph: every Thread device in she's fabric (role, RLOC16, e
 
 ### POST /she/matter/thread/mesh/refresh · POST /she/matter/thread/mesh/refresh/:nodeId
 
-Re-read the neighbour and route tables of every online Thread device, or of one (sleepy devices answer slowly). **Response (HTTP 200):** as `GET …/mesh`. The tables are also re-read once a day.
+Re-read the neighbour and route tables of every online Thread device, or of one (sleepy devices answer slowly); for every network whose dataset is known with `meshcop` on, the nodes are also asked through a border router (MeshCoP) — those appear as `meshcop` nodes with `meshcop.{vendorName, vendorModel, version, children}`, non-Matter nodes included. **Response (HTTP 200):** as `GET …/mesh`, with `meshcop: { nodes, networks: [ { extPanId, nodes, readAt, via, error } ], enabled: [extPanId…] }`. The tables are also re-read once a day.
 
 ### GET /she/matter/bridge
 

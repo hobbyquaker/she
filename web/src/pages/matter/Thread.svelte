@@ -6,7 +6,9 @@
      */
     import { onDestroy, untrack } from 'svelte';
     import { subscribeWs } from '../../lib/ws.js';
-    import { getThreadNetworks, refreshThreadNetworks, probeThreadRouter, getThreadMesh, refreshThreadMesh, type ThreadNetworks, type ThreadBorderRouter, type ThreadMesh, type MeshNode, type MeshLink } from '../../lib/api.js';
+    import { getThreadNetworks, refreshThreadNetworks, probeThreadRouter, getThreadMesh, refreshThreadMesh, getThreadDatasets, addThreadDataset, setThreadDatasetMeshcop, removeThreadDataset, revealThreadDataset, importThreadDatasetFromRouter, type ThreadNetworks, type ThreadBorderRouter, type ThreadMesh, type MeshNode, type MeshLink, type ThreadDatasets, type ThreadDataset } from '../../lib/api.js';
+    import jsQR from 'jsqr';
+    import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
     import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation, type SimulationNodeDatum, type SimulationLinkDatum } from 'd3-force';
 
     let { active = false }: { active?: boolean } = $props();
@@ -65,6 +67,81 @@
         return s.replace(/(..)(?=.)/g, '$1:').toLowerCase();
     }
     let total = $derived(data ? data.networks.reduce((n, x) => n + x.routerCount, 0) + data.unknown.length : 0);
+
+    // ── The dataset store (M17) ────────────────────────────────────────────────
+    let datasets = $state<ThreadDatasets | null>(null);
+    let dsError = $state<string | null>(null);
+    let dsBusy = $state(false);
+    let showImport = $state(false);
+    let importTlv = $state('');
+    let importNote = $state('');
+    let revealed = $state<{ extPanId: string; tlv: string } | null>(null);
+    let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean> };
+    async function loadDatasets() {
+        try { datasets = await getThreadDatasets(); } catch (e) { dsError = e instanceof Error ? e.message : String(e); }
+    }
+    async function dsAction(fn: () => Promise<unknown>) {
+        dsBusy = true;
+        dsError = null;
+        try {
+            await fn();
+            await Promise.all([loadDatasets(), load()]);
+        } catch (e) {
+            dsError = e instanceof Error ? e.message : String(e);
+        } finally {
+            dsBusy = false;
+        }
+    }
+    async function importDataset() {
+        await dsAction(async () => {
+            await addThreadDataset(importTlv, 'pasted', importNote);
+            importTlv = '';
+            importNote = '';
+            showImport = false;
+        });
+    }
+    function handleQrFile(e: Event) {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width; canvas.height = img.height;
+            const ctx = canvas.getContext('2d')!;
+            ctx.drawImage(img, 0, 0);
+            const code = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+            if (!code) { dsError = 'No QR code found in the image.'; return; }
+            // an OTBR dataset QR holds the hex TLV; some wrap it as "dataset=…"
+            const m = code.data.match(/[0-9a-fA-F]{16,}/);
+            importTlv = m ? m[0] : code.data;
+            URL.revokeObjectURL(img.src);
+        };
+        img.src = URL.createObjectURL(file);
+        (e.target as HTMLInputElement).value = '';
+    }
+    async function toggleMeshcop(d: ThreadDataset) {
+        if (!d.meshcop) {
+            const ok = await dialog.show(`Ask the nodes of "${d.networkName ?? d.extPanId}" for their diagnostics through a border router? she then connects to the border agent as the network's commissioner (DTLS with the PSKc) whenever the mesh is refreshed. A Thread network has one commissioner at a time — while she holds it, Apple Home or Home Assistant cannot commission; the query takes about 12 seconds. Nothing is written to the network.`, { confirm: 'Switch on' });
+            if (!ok) return;
+        }
+        await dsAction(() => setThreadDatasetMeshcop(d.extPanId, !d.meshcop));
+    }
+    async function reveal(d: ThreadDataset) {
+        const ok = await dialog.show(`Show the full dataset of "${d.networkName ?? d.extPanId}" — including the network key and the PSKc — on screen? Anyone who sees it can join the network.`, { confirm: 'Reveal', danger: true });
+        if (!ok) return;
+        try { revealed = await revealThreadDataset(d.extPanId); } catch (e) { dsError = e instanceof Error ? e.message : String(e); }
+    }
+    async function forget(d: ThreadDataset) {
+        const ok = await dialog.show(`Forget the dataset of "${d.networkName ?? d.extPanId}"? she then no longer knows this network's credentials.`, { confirm: 'Forget', danger: true });
+        if (!ok) return;
+        await dsAction(() => removeThreadDataset(d.extPanId));
+    }
+    async function importFromRouter(br: ThreadBorderRouter) {
+        await dsAction(() => importThreadDatasetFromRouter(br.extAddress));
+    }
+    $effect(() => {
+        if (active && !datasets) untrack(loadDatasets);
+    });
 
     // ── The mesh graph (M16): d3-force in an SVG ───────────────────────────────
     type GNode = MeshNode & SimulationNodeDatum;
@@ -184,6 +261,7 @@
     }
 </script>
 
+<ConfirmDialog bind:this={dialog} />
 <div class="thread">
     <div class="bar">
         <span class="title">Thread networks</span>
@@ -237,13 +315,63 @@
                                         {/if}
                                     </td>
                                     <td class="dim">{ago(br.lastSeen)}</td>
-                                    <td class="c-act"><button class="ghost sm" disabled={probing === br.extAddress} onclick={() => probe(br)} title="Probe the OpenThread REST API (OTBR port 8081, esp-thread-br port 80)">{probing === br.extAddress ? '…' : 'probe'}</button></td>
+                                    <td class="c-act">{#if br.rest?.manageable && !net.datasetKnown}<button class="ghost sm" disabled={dsBusy} onclick={() => importFromRouter(br)} title="Read the active dataset from this router's REST API into she's dataset store">import dataset</button> {/if}<button class="ghost sm" disabled={probing === br.extAddress} onclick={() => probe(br)} title="Probe the OpenThread REST API (OTBR port 8081, esp-thread-br port 80)">{probing === br.extAddress ? '…' : 'probe'}</button></td>
                                 </tr>
                             {/each}
                         </tbody>
                     </table>
                 </section>
             {/each}
+            <section class="net datasets">
+                <div class="net-hdr">
+                    <span class="net-name">Datasets</span>
+                    <span class="dim">· the credentials of the networks she knows — kept encrypted here, never shown to scripts, listed without the keys</span>
+                    <span class="spacer"></span>
+                    <button class="sm" onclick={() => (showImport = !showImport)} disabled={dsBusy || !datasets?.available}>＋ Import dataset</button>
+                </div>
+                {#if dsError}<p class="err">{dsError}</p>{/if}
+                {#if showImport}
+                    <div class="import">
+                        <label class="field"><span>Operational dataset (hex TLV — <code>ot-ctl dataset active -x</code>, the border router's web UI, or the dataset QR)</span><textarea bind:value={importTlv} rows="3" spellcheck="false" placeholder="0e080000000000010000000300001935060004001fffe0…"></textarea></label>
+                        <div class="row">
+                            <label class="scan-btn" title="Decode the dataset QR from an image file">Image… <input type="file" accept="image/*" style="display:none" onchange={handleQrFile} /></label>
+                            <input class="note-in" type="text" bind:value={importNote} placeholder="note (optional)" maxlength="200" />
+                            <button class="sm" onclick={importDataset} disabled={dsBusy || !importTlv.trim()}>{dsBusy ? 'importing…' : 'Import'}</button>
+                            <button class="ghost sm" onclick={() => { showImport = false; importTlv = ''; }}>Cancel</button>
+                        </div>
+                        <p class="hint">The dataset is a secret: it lets any device join the network. she stores it encrypted with the secrets store's key and never logs it.</p>
+                    </div>
+                {/if}
+                {#if datasets && !datasets.available}
+                    <div class="info">The dataset store is not available{datasets.error ? `: ${datasets.error}` : ''}.</div>
+                {:else if datasets && datasets.datasets.length === 0}
+                    <div class="info">No dataset known yet. With one, the network's card above says so, and the mesh can be read through a border router (MeshCoP).</div>
+                {:else if datasets}
+                    <table>
+                        <thead><tr><th>Network</th><th>Channel · PAN</th><th>Mesh-local prefix</th><th>Keys</th><th>Source</th><th>MeshCoP</th><th></th></tr></thead>
+                        <tbody>
+                            {#each datasets.datasets as d (d.extPanId)}
+                                <tr>
+                                    <td><div class="br-name">{d.networkName ?? '—'}</div><div class="dim mono">ext PAN ID {d.extPanId}</div></td>
+                                    <td>{d.channel ?? '—'} · {d.panId !== null ? '0x' + d.panId.toString(16).padStart(4, '0') : '—'}</td>
+                                    <td class="mono">{d.meshLocalPrefix ?? '—'}</td>
+                                    <td class="dim">{d.hasNetworkKey ? 'network key' : 'no key'} · {d.hasPskc ? 'PSKc' : 'no PSKc'}</td>
+                                    <td class="dim">{d.source ?? '—'}{d.note ? ` · ${d.note}` : ''}</td>
+                                    <td><label class="chk"><input type="checkbox" checked={d.meshcop} disabled={dsBusy || !d.hasPskc} onchange={() => toggleMeshcop(d)} /> {d.meshcop ? 'on' : 'off'}</label></td>
+                                    <td class="c-act"><button class="ghost sm" onclick={() => reveal(d)}>reveal</button> <button class="ghost sm" disabled={dsBusy} onclick={() => forget(d)}>forget</button></td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                    {#if revealed}
+                        <div class="revealed">
+                            <span class="dim">Dataset {revealed.extPanId} — the full TLV:</span>
+                            <code class="tlv">{revealed.tlv}</code>
+                            <button class="ghost sm" onclick={() => (revealed = null)}>hide</button>
+                        </div>
+                    {/if}
+                {/if}
+            </section>
             <section class="net mesh">
                 <div class="net-hdr">
                     <span class="net-name">Mesh</span>
@@ -346,6 +474,16 @@
     button.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-muted); }
     button.sm { padding: 1px 7px; font-size: 11px; }
     ul { margin: 0; padding-left: 18px; }
+    /* the datasets (M17) */
+    .import { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; margin: 6px 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-panel); }
+    .field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--fg-muted); }
+    textarea { background: var(--bg-app); border: 1px solid var(--border); color: var(--fg-text); padding: 4px 6px; border-radius: 3px; font-size: 11px; font-family: var(--font-mono, monospace); width: 100%; box-sizing: border-box; }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .scan-btn { display: inline-flex; align-items: center; background: none; border: 1px solid var(--border); color: var(--fg-muted); padding: 2px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; }
+    .note-in { background: var(--bg-app); border: 1px solid var(--border); color: var(--fg-text); padding: 3px 6px; border-radius: 3px; font-size: 12px; flex: 1; max-width: 320px; }
+    .chk { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+    .revealed { margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .tlv { word-break: break-all; background: var(--bg-app); padding: 2px 6px; border-radius: 3px; }
     /* the mesh graph (M16) */
     .graph-wrap { position: relative; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-panel); }
     .graph { width: 100%; height: 420px; display: block; touch-action: none; }

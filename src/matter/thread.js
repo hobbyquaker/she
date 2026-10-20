@@ -101,7 +101,7 @@ function listNetworks(entries) {
         }
         let net = byPan.get(view.extPanId);
         if (!net) {
-            net = { extPanId: view.extPanId, networkName: view.networkName, borderRouters: [], partitions: new Set(), datasetKnown: false };
+            net = { extPanId: view.extPanId, networkName: view.networkName, borderRouters: [], partitions: new Set(), datasetKnown: _datasetKnown(view.extPanId) };
             byPan.set(view.extPanId, net);
         }
         if (!net.networkName && view.networkName) net.networkName = view.networkName;
@@ -116,6 +116,27 @@ function listNetworks(entries) {
     }));
     networks.sort((a, b) => (a.networkName ?? '').localeCompare(b.networkName ?? ''));
     return { running: !!_registry, networks, unknown };
+}
+
+function _datasetKnown(extPanId) {
+    try {
+        return require('./thread-datasets').has(extPanId);
+    } catch {
+        return false;
+    }
+}
+
+/** Import the active dataset from a border router with the REST API (M17). */
+async function importDataset(extAddressHex) {
+    const e = _registry?.get(extAddressHex);
+    if (!e) throw new Error(`border router not found: ${extAddressHex}`);
+    const probe = _probes.get(extAddressHex);
+    if (!probe?.capability) throw new Error('the border router has no REST API (probe it first)');
+    const { OtbrRestClient } = require('@matter/thread-br-client');
+    const client = new OtbrRestClient({ host: _ipForProbe(e), port: probe.port });
+    const ds = await client.getDataset();
+    if (!ds?.activeHex) throw new Error('the border router returned no active dataset');
+    return require('./thread-datasets').add({ tlv: ds.activeHex, source: 'router', note: `${e.vendorName ?? ''} ${e.modelName ?? ''}`.trim() });
 }
 
 function _ipForProbe(e) {
@@ -232,10 +253,15 @@ function isRunning() {
     return !!_registry;
 }
 
+/** The library's own entry (for `connectMeshcop`). */
+function _registryEntry(extAddressHex) {
+    return _registry?.get(extAddressHex) ?? null;
+}
+
 /** Test hook. */
 function _inject({ registry } = {}) {
     _registry = registry ?? null;
     _probes.clear();
 }
 
-module.exports = { start, stop, refresh, listNetworks, probeRouter, decodeStateBitmap, isRunning, _inject, _probes, _env: () => _env };
+module.exports = { start, stop, refresh, listNetworks, probeRouter, importDataset, decodeStateBitmap, isRunning, _inject, _probes, _registryEntry, _env: () => _env };

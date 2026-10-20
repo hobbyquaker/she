@@ -11,6 +11,12 @@
  *   GET    /she/matter/thread/networks                  → Thread networks on the LAN with their border routers
  *   POST   /she/matter/thread/refresh                   → probe every border router's REST API again
  *   POST   /she/matter/thread/routers/:ext/probe        → probe one border router
+ *   GET    /she/matter/thread/datasets                  → the known Thread datasets, redacted
+ *   POST   /she/matter/thread/datasets                  → import { tlv, source?, note? }
+ *   PUT    /she/matter/thread/datasets/:ext             → { meshcop } MeshCoP diagnostics on/off
+ *   DELETE /she/matter/thread/datasets/:ext             → forget a dataset
+ *   POST   /she/matter/thread/datasets/:ext/reveal      → the full TLV (behind a confirmation in the UI)
+ *   POST   /she/matter/thread/routers/:ext/import-dataset → read the active dataset from a border router's REST API
  *   GET    /she/matter/thread/mesh                      → the Thread mesh graph (nodes, links, bindings)
  *   POST   /she/matter/thread/mesh/refresh[/:nodeId]    → re-read the neighbour and route tables
  *   GET    /she/matter/bridge                           → the MQTT bridge's settings, devices, status
@@ -167,6 +173,82 @@ router.post('/thread/routers/:ext/probe', async (req, res) => {
         res.json(await getThread().probeRouter(req.params.ext, { force: true }));
     } catch (err) {
         if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Thread datasets (M17) ─────────────────────────────────────────────────────
+
+function getDatasets() {
+    return require('../matter/thread-datasets');
+}
+
+// GET /she/matter/thread/datasets — the known datasets, redacted (never the network key or PSKc)
+router.get('/thread/datasets', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(getDatasets().list());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/thread/datasets — { tlv, source?, note? } import a dataset from its TLV hex
+router.post('/thread/datasets', (req, res) => {
+    if (!isReady()) return notReady(res);
+    const { tlv, source, note } = req.body || {};
+    if (typeof tlv !== 'string' || !tlv.trim()) return res.status(400).json({ error: 'body must contain the dataset TLV as hex' });
+    try {
+        res.status(201).json(getDatasets().add({ tlv, source, note }));
+    } catch (err) {
+        if (/not available/.test(err.message)) return res.status(503).json({ error: err.message });
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// PUT /she/matter/thread/datasets/:ext — { meshcop } switch the MeshCoP diagnostics for the network
+router.put('/thread/datasets/:ext', (req, res) => {
+    if (!isReady()) return notReady(res);
+    const { meshcop } = req.body || {};
+    if (typeof meshcop !== 'boolean') return res.status(400).json({ error: 'body must contain meshcop (boolean)' });
+    try {
+        res.json(getDatasets().setMeshcop(req.params.ext, meshcop));
+    } catch (err) {
+        if (/no dataset/.test(err.message)) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /she/matter/thread/datasets/:ext
+router.delete('/thread/datasets/:ext', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(getDatasets().remove(req.params.ext));
+    } catch (err) {
+        if (/no dataset/.test(err.message)) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/thread/datasets/:ext/reveal — the full TLV (the UI asks for a confirmation first)
+router.post('/thread/datasets/:ext/reveal', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(getDatasets().reveal(req.params.ext));
+    } catch (err) {
+        if (/no dataset/.test(err.message)) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/thread/routers/:ext/import-dataset — read the active dataset from a border router's REST API
+router.post('/thread/routers/:ext/import-dataset', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.status(201).json(await getThread().importDataset(req.params.ext));
+    } catch (err) {
+        if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
+        if (/no REST API|no active dataset/.test(err.message)) return res.status(409).json({ error: err.message });
         res.status(500).json({ error: err.message });
     }
 });
