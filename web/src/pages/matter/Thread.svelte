@@ -215,7 +215,8 @@
             .force('link', forceLink<GNode, GLink>(links).id((d) => d.id).distance((l) => (l.kind === 'binding' ? 120 : l.quality === 'good' ? 70 : l.quality === 'fair' ? 110 : 150)).strength((l) => (l.kind === 'binding' ? 0.05 : 0.6)))
             .force('charge', forceManyBody().strength(-260))
             .force('center', forceCenter(W / 2, H / 2))
-            .force('collide', forceCollide(44))
+            .force('collide', forceCollide(24))
+            .force('labels', labelCollide())
             .force('x', forceX<GNode>(centreX).strength(keys.length > 1 ? 0.12 : 0.02))
             .force('y', forceY<GNode>(H / 2).strength(0.04))
             .alpha(1)
@@ -231,7 +232,9 @@
         if (!svgEl) return;
         const ro = new ResizeObserver(() => { const r = svgEl!.getBoundingClientRect(); if (r.width > 0) { W = r.width; H = Math.max(320, r.height); sim?.force('center', forceCenter(W / 2, H / 2)).alpha(0.3).restart(); } });
         ro.observe(svgEl);
-        return () => ro.disconnect();
+        fitHeight();
+        window.addEventListener('resize', fitHeight);
+        return () => { ro.disconnect(); window.removeEventListener('resize', fitHeight); };
     });
     onDestroy(() => sim?.stop());
     const unsubMesh = subscribeWs('matter:deviceStatus', () => { if (mesh) loadMesh(); });
@@ -280,6 +283,54 @@
     function resetView() {
         view = { k: 1, x: 0, y: 0 };
     }
+    /**
+     * The space a node takes with its name and second line: a rectangle centred on the circle's x, from
+     * the circle's top to the second line's bottom. Overlapping rectangles push each other apart along
+     * the axis with the smaller overlap, so labels never sit on top of each other.
+     */
+    function labelBox(n: GNode): { hw: number; top: number; bottom: number } {
+        const hw = Math.max(18, textWidth(n.name, FONT_LABEL) / 2, textWidth(subLabel(n), FONT_SUB) / 2) + 6;
+        return { hw, top: 18, bottom: subLabel(n) ? 48 : 36 };
+    }
+    function labelCollide() {
+        let nodes: GNode[] = [];
+        const force = (alpha: number) => {
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const a = nodes[i];
+                    const b = nodes[j];
+                    const ba = labelBox(a);
+                    const bb = labelBox(b);
+                    const ax = a.x ?? 0, ay = a.y ?? 0, bx = b.x ?? 0, by = b.y ?? 0;
+                    const ox = Math.min(ax + ba.hw, bx + bb.hw) - Math.max(ax - ba.hw, bx - bb.hw);
+                    const oy = Math.min(ay + ba.bottom, by + bb.bottom) - Math.max(ay - ba.top, by - bb.top);
+                    if (ox <= 0 || oy <= 0) continue;
+                    const k = 0.5 * Math.max(alpha, 0.1);
+                    if (ox < oy) {
+                        const d = (ox / 2) * k * (ax < bx ? -1 : 1);
+                        a.vx = (a.vx ?? 0) + d;
+                        b.vx = (b.vx ?? 0) - d;
+                    } else {
+                        const d = (oy / 2) * k * (ay < by ? -1 : 1);
+                        a.vy = (a.vy ?? 0) + d;
+                        b.vy = (b.vy ?? 0) - d;
+                    }
+                }
+            }
+        };
+        force.initialize = (ns: GNode[]) => { nodes = ns; };
+        return force;
+    }
+
+    /** the graph takes the rest of the screen below its caption — a whole screenful when scrolled to it */
+    let graphH = $state(420);
+    function fitHeight() {
+        if (!svgEl) return;
+        const section = svgEl.closest('section');
+        const caption = section ? svgEl.getBoundingClientRect().top - section.getBoundingClientRect().top : 80;
+        graphH = Math.max(420, Math.round(window.innerHeight - caption - 24));
+    }
+
     /** text widths for the network boxes, measured with the fonts the SVG uses */
     let measureCtx: CanvasRenderingContext2D | null = null;
     function textWidth(text: string, font: string): number {
@@ -536,7 +587,7 @@
                 {:else}
                     <div class="graph-wrap">
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <svg bind:this={svgEl} class="graph" class:panning={!!panning} viewBox="0 0 {W} {H}" onwheel={wheel} onpointerdown={panStart} onpointermove={dragMove} onpointerup={dragEnd} onpointerleave={dragEnd}>
+                        <svg bind:this={svgEl} class="graph" class:panning={!!panning} style="height: {graphH}px" viewBox="0 0 {W} {H}" onwheel={wheel} onpointerdown={panStart} onpointermove={dragMove} onpointerup={dragEnd} onpointerleave={dragEnd}>
                             <defs>
                                 <marker id="arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent, #569cd6)" /></marker>
                             </defs>
