@@ -9,6 +9,7 @@
     import Bindings from './matter/Bindings.svelte';
     import Thread from './matter/Thread.svelte';
     import Fabrics from './matter/Fabrics.svelte';
+    import Bridge from './matter/Bridge.svelte';
 
     let { active = true, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
@@ -427,8 +428,8 @@
     // `selectedId` is the node asked for, set before its details are fetched — `selected` only
     // arrives with the answer, and the url must not fall back to "nothing open" in between. An
     // old `#/matter/<nodeId>` link (before the tabs) still opens that device.
-    type Tab = 'devices' | 'bindings' | 'thread';
-    const TABS: Tab[] = ['devices', 'bindings', 'thread'];
+    type Tab = 'devices' | 'bindings' | 'thread' | 'mqtt';
+    const TABS: Tab[] = ['devices', 'bindings', 'thread', 'mqtt'];
     let tab = $state<Tab>('devices');
     let selectedId = $state<string | null>(null);
     let seenSub: string | null | undefined = undefined;
@@ -683,6 +684,7 @@
         <button class="vt" class:active={tab === 'devices'} onclick={() => (tab = 'devices')}>Devices</button>
         <button class="vt" class:active={tab === 'bindings'} onclick={() => (tab = 'bindings')} title="Switch-to-device bindings: one device controls another without she in the loop">Bindings</button>
         <button class="vt" class:active={tab === 'thread'} onclick={() => (tab = 'thread')} title="Thread networks, border routers and the mesh">Thread</button>
+        <button class="vt" class:active={tab === 'mqtt'} onclick={() => (tab = 'mqtt')} title="The Matter ↔ MQTT bridge: devices as MQTT topics">MQTT</button>
     </div>
     <div class="tab-wrap" class:hidden={tab !== 'devices'}>
     <div class="matter-main">
@@ -1015,6 +1017,7 @@
     </div>
     <div class="tab-wrap" class:hidden={tab !== 'bindings'}><Bindings active={active && tab === 'bindings'} /></div>
     <div class="tab-wrap" class:hidden={tab !== 'thread'}><Thread active={active && tab === 'thread'} /></div>
+    <div class="tab-wrap" class:hidden={tab !== 'mqtt'}><Bridge active={active && tab === 'mqtt'} /></div>
 </div>
 
 {#if scanOpen}

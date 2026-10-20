@@ -410,6 +410,34 @@ What the CSA Distributed Compliance Ledger (the public registry of certified Mat
 
 ---
 
+### GET /she/matter/bridge
+
+The Matter ↔ MQTT bridge: every paired node's application attributes (endpoints ≥ 1, the diagnostics and commissioning clusters left out) published to MQTT, cluster events too, commands and writes accepted on `set`, reads on `get`. Off until switched on. Defaults are mqtt-smarthome: `matter/connected` (2 while she runs, 0 on shutdown), `matter/status/<device>/<endpoint>/<cluster>/<attribute>` retained as `{ "val", "ts", "lc" }` (`lc` = last change), `matter/status/<device>/online`, `matter/set/<device>/<endpoint>/<cluster>/<attribute-or-command>`, `matter/get/<device>/<endpoint>/<cluster>/<attribute>`. Cluster, attribute, event and command names are matter.js's camelCase turned into snake_case (`level_control/current_level`), values in Matter's own units. `<device>` is the node's MQTT name — its device name as snake_case when it first appears, kept across renames in Apple Home or she, editable here; inbound topics accept the MQTT name or the node ID.
+
+**Response (HTTP 200):**
+
+```json
+{
+  "enabled": true, "format": "basic",
+  "templates": { "connected": "matter/connected", "attribute": "matter/status/${device}/${endpoint}/${cluster}/${attribute}", "event": "matter/status/${device}/${endpoint}/${cluster}/${event}", "online": "matter/status/${device}/online", "set": "matter/set/${device}/${endpoint}/${cluster}/${attributeOrCommand}", "get": "matter/get/${device}/${endpoint}/${cluster}/${attribute}" },
+  "defaults": { "…": "the same set" },
+  "placeholders": ["device", "nodeId", "endpoint", "cluster", "attribute", "event", "attributeOrCommand"],
+  "formats": ["plain", "basic", "extended"],
+  "devices": [ { "nodeId": "4", "deviceName": "Bad Licht", "online": true, "name": "bad_licht", "publish": true, "assigned": true } ],
+  "status": { "started": true, "connected": true, "published": 23 }
+}
+```
+
+### PUT /she/matter/bridge
+
+`{ "enabled": true, "format": "basic", "templates": { "attribute": "…" } }` — any subset. Formats: `plain` (the value; structs and lists as JSON), `basic` (`{ val, ts, lc }`, the default), `extended` (`{ val, ts, lc, matter: { nodeId, device, endpoint, cluster, attribute | event } }`). Inbound payloads are accepted plain or as `{ "val": … }` in every format. A template is validated (known placeholders only, no wildcards, an inbound template must not overlap an outbound one; an empty template disables that topic); a changed template or format clears the bridge's old retained topics and republishes. On `set`, an attribute with a mapped command runs the command (`on_off/on_off` true/false → `on`/`off`, `"toggle"` → `toggle`; `level_control/current_level` → `moveToLevel`; `window_covering/current_position_lift_percent100ths` → `goToLiftPercentage`; `color_control/color_temperature_mireds` → `moveToColorTemperature`), a command name runs that command with the payload object as its fields, anything else is an attribute write (the device refuses non-writable ones — logged at warn). **Response (HTTP 200):** as `GET`. **HTTP 400** with the validation problems.
+
+### PUT /she/matter/bridge/devices/:nodeId
+
+`{ "name": "licht_bad", "publish": false }` — the MQTT name (lower-case letters, digits, underscores, unique) and whether the node is bridged at all. A rename moves the topics and clears the old retained ones. **Response (HTTP 200):** as `GET`.
+
+Note: she's MQTT last will covers her own `<name>/connected` topic only; after a crash `matter/connected` keeps its `2` until she is back.
+
 ### GET /she/matter/groups
 
 she's Matter groups: one multicast command reaches every member. A group has an application group ID, a name, a key set (the shared one by default, or its own — devices hold only a few key sets, often 3 including the fabric's IPK) and members (endpoints). The derived state comes from the members' subscribed attributes — groups cannot be read. The key sets are listed without their keys (they are kept encrypted in the Matter storage, `groups.enc`, with the secrets store's key).

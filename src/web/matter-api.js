@@ -8,6 +8,9 @@
  *   POST   /she/matter/commission                       → commission a device
  *   GET    /she/matter/devices/:nodeId                  → node detail (endpoints + clusters)
  *   GET    /she/matter/devices/:nodeId/dcl              → vendor and product details from the CSA ledger
+ *   GET    /she/matter/bridge                           → the MQTT bridge's settings, devices, status
+ *   PUT    /she/matter/bridge                           → { enabled?, format?, templates? }
+ *   PUT    /she/matter/bridge/devices/:nodeId           → { name?, publish? } (the MQTT name, on/off)
  *   GET    /she/matter/groups                           → she's groups, members, derived state, key sets
  *   POST   /she/matter/groups                           → create { name, keySet? }
  *   PATCH  /she/matter/groups/:id                       → rename
@@ -123,6 +126,48 @@ router.get('/devices/:nodeId/dcl', async (req, res) => {
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ── The MQTT bridge (M19) ─────────────────────────────────────────────────────
+
+function getBridge() {
+    return require('../matter/mqtt-bridge');
+}
+
+// GET /she/matter/bridge — settings, defaults, the devices with their MQTT names, status
+router.get('/bridge', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(getBridge().getSettings());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /she/matter/bridge — { enabled?, format?, templates? }
+router.put('/bridge', (req, res) => {
+    if (!isReady()) return notReady(res);
+    const { enabled, format, templates } = req.body || {};
+    if (enabled !== undefined && typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+    try {
+        res.json(getBridge().updateSettings({ enabled, format, templates }));
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// PUT /she/matter/bridge/devices/:nodeId — { name?, publish? }
+router.put('/bridge/devices/:nodeId', (req, res) => {
+    if (!isReady()) return notReady(res);
+    const { name, publish } = req.body || {};
+    if (name !== undefined && typeof name !== 'string') return res.status(400).json({ error: 'name must be a string' });
+    if (publish !== undefined && typeof publish !== 'boolean') return res.status(400).json({ error: 'publish must be a boolean' });
+    try {
+        res.json(getBridge().setDevice(req.params.nodeId, { name, publish }));
+    } catch (err) {
+        if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
+        res.status(400).json({ error: err.message });
     }
 });
 

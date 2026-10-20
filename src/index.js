@@ -396,6 +396,14 @@ function _maybeStart() {
     }
     _started = true;
     start();
+    // the Matter ↔ MQTT bridge needs both: the controller and the retained state (M19)
+    if (config.matterStorage) {
+        try {
+            require('./matter/mqtt-bridge').start();
+        } catch (err) {
+            log.warn('matter bridge start failed:', err.message);
+        }
+    }
 }
 
 function matterGateOpen() {
@@ -652,6 +660,15 @@ if (config.url) {
 
         if (shedb.handleMqttMessage(topic, payload)) return;
 
+        // matter/set/… and matter/get/… go to the Matter bridge (M19); the message is still stored below
+        if (config.matterStorage && _started) {
+            try {
+                require('./matter/mqtt-bridge').onMessage(topic, payload);
+            } catch (err) {
+                log.warn('matter bridge:', err.message);
+            }
+        }
+
         // An empty payload deletes the topic from the state store (mqtt-smarthome
         // convention; also how a retained message is cleared per MQTT spec). The
         // retain flag cannot be used to detect this: MQTT 3.1.1 brokers clear it
@@ -774,6 +791,17 @@ if (config.matterStorage) {
         matterStoragePath = ensureStorageDir('matter');
     }
     log.info('matter controller starting, storage:', matterStoragePath);
+    require('./matter/mqtt-bridge').init({
+        publish: (topic, payload, opts) => {
+            if (!mqtt) throw new Error('MQTT is not connected');
+            mqtt.publish(topic, payload, opts || {});
+        },
+        isConnected: () => !!mqtt && connected,
+        store,
+        log,
+        storageDir: matterStoragePath,
+        broadcast,
+    });
     // Scripts wait for the controller (see _maybeStart) — but never forever:
     // a hanging start must not block the whole script engine.
     const _matterStartTimeout = setTimeout(() => {
@@ -1796,6 +1824,11 @@ async function gracefulShutdown(signal) {
     _clearSentinel();
     log.info(`got ${signal}. exiting.`);
     if (config.matterStorage) {
+        try {
+            require('./matter/mqtt-bridge').stop();
+        } catch {
+            // ignore
+        }
         try {
             await require('./matter/controller').close();
         } catch {

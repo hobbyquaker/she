@@ -29,6 +29,14 @@ function _inspect(v) {
 /** @type {((msg: object) => void) | null} */
 let _broadcast = null;
 
+/**
+ * The controller's event stream for other parts of the daemon (the MQTT bridge, M19):
+ * 'attr' { nodeId, endpointId, clusterName, attrName, value, ts } · 'event' { …, eventName } ·
+ * 'status' { nodeId, online } · 'deviceList' (after pairing, unpairing, renaming).
+ */
+const events = new (require('events').EventEmitter)();
+events.setMaxListeners(50);
+
 // ── Attribute / event listeners registered by sandbox scripts ───────────────
 // Map<scriptFile, Map<listenerId, { cancel: () => void }>>
 const _listeners = new Map();
@@ -106,6 +114,12 @@ function _clusterName(clusterId) {
     // For generic access we accept either the camelCase name directly or skip resolution.
     // The caller must pass the camelCase cluster name (e.g. "onOff", "levelControl").
     return clusterId;
+}
+
+function _emitDeviceList() {
+    const devices = listPaired();
+    events.emit('deviceList', devices);
+    _broadcast?.({ type: 'matter:deviceList', devices });
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -436,7 +450,7 @@ async function _commissionInner(options) {
     // attribute watchers now or the node stays without live updates until the
     // next daemon restart.
     _broadcastNodeAttributes(clientNode, nodeId);
-    _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
+    _emitDeviceList();
     return nodeId;
 }
 
@@ -454,7 +468,7 @@ async function unpair(nodeId) {
         _log?.warn(`matter: decommission of ${nodeId} failed (${err.message}), force-deleting`);
         await node.delete();
     }
-    _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
+    _emitDeviceList();
 }
 
 /**
@@ -581,7 +595,7 @@ async function _readAttribute(node, endpointId, clusterName, attrName, { fabricF
 async function rename(nodeId, name) {
     await setAttribute(nodeId, 0, 'basicInformation', 'nodeLabel', String(name));
     _log?.info(`matter: renamed node ${nodeId} to "${name}"`);
-    _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
+    _emitDeviceList();
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
@@ -1921,13 +1935,15 @@ function _broadcastNodeAttributes(node, nodeId) {
                     const changeEvent = clusterEvents[`${attrName}$Changed`];
                     if (!changeEvent || typeof changeEvent.on !== 'function') continue;
                     changeEvent.on((value) => {
+                        const safe = _attrValue(clusterName, attrName, value);
+                        events.emit('attr', { nodeId, endpointId, clusterName, attrName, value: safe, ts: Date.now() });
                         _broadcast?.({
                             type: 'matter:attr',
                             nodeId,
                             endpointId,
                             clusterName,
                             attrName,
-                            value: _attrValue(clusterName, attrName, value),
+                            value: safe,
                             ts: Date.now(),
                         });
                         // Device/endpoint labels feed the device list — rebroadcast it
@@ -1935,7 +1951,7 @@ function _broadcastNodeAttributes(node, nodeId) {
                         // the local mirror only learns the new nodeLabel when the
                         // device's subscription report arrives, i.e. exactly now.
                         if (attrName === 'nodeLabel' || attrName === 'productName') {
-                            _broadcast?.({ type: 'matter:deviceList', devices: listPaired() });
+                            _emitDeviceList();
                         }
                     });
                     count++;
@@ -1946,6 +1962,7 @@ function _broadcastNodeAttributes(node, nodeId) {
                     const ev = clusterEvents[eventName];
                     if (!ev || typeof ev.on !== 'function') continue;
                     ev.on((payload) => {
+                        events.emit('event', { nodeId, endpointId, clusterName, eventName, value: _jsonSafe(payload), ts: Date.now() });
                         _broadcast?.({
                             type: 'matter:event',
                             nodeId,
@@ -1983,10 +2000,12 @@ function _subscribeNodeLifecycle(node, nodeId) {
     const lc = node.lifecycle;
     if (!lc) return;
     lc.online?.on?.(() => {
+        events.emit('status', { nodeId, online: true });
         _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: true });
         _broadcastNodeAttributes(node, nodeId);
     });
     lc.offline?.on?.(() => {
+        events.emit('status', { nodeId, online: false });
         _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: false });
     });
 }
@@ -2125,6 +2144,7 @@ function isStarted() {
 module.exports = {
     // for the unit tests: the value conversion, without a running controller
     _attrValue,
+    events,
     init,
     close,
     isStarted,
