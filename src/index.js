@@ -386,6 +386,7 @@ const _SENTINEL_TIMEOUT_MS = config.sentinelTimeout; // ms to wait for sentinel 
 // she.matter.* at top level don't fail with "Matter controller not started".
 let _mqttGate = false;
 let _matterGate = !config.matterStorage; // pre-open when matter is disabled
+let _matterStoragePath = null;
 
 function _maybeStart() {
     if (_started || !_mqttGate || !_matterGate) {
@@ -402,6 +403,20 @@ function _maybeStart() {
             require('./matter/mqtt-bridge').start();
         } catch (err) {
             log.warn('matter bridge start failed:', err.message);
+        }
+        // Device health (M21): batteries, last seen, offline history — published under <name>/status/matter/health
+        try {
+            require('./matter/device-health').start({
+                publish: (topic, payload, opts) => {
+                    if (mqtt && connected) mqtt.publish(topic, payload, opts || {});
+                },
+                name: config.name,
+                log,
+                broadcast,
+                storageDir: _matterStoragePath,
+            });
+        } catch (err) {
+            log.warn('matter device health start failed:', err.message);
         }
         // Thread health alerts (M26): evaluated once a minute, published under <name>/status/thread/health
         try {
@@ -804,6 +819,7 @@ if (config.matterStorage) {
         matterStoragePath = ensureStorageDir('matter');
     }
     log.info('matter controller starting, storage:', matterStoragePath);
+    _matterStoragePath = matterStoragePath;
     require('./matter/mqtt-bridge').init({
         publish: (topic, payload, opts) => {
             if (!mqtt) throw new Error('MQTT is not connected');
@@ -1840,6 +1856,7 @@ async function gracefulShutdown(signal) {
         try {
             require('./matter/mqtt-bridge').stop();
             require('./matter/thread-health').stop();
+            require('./matter/device-health').stop();
         } catch {
             // ignore
         }

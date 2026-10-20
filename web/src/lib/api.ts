@@ -708,6 +708,33 @@ export function sendMatterGroupCommand(id: number, clusterName: string, command:
     return request('POST', `/she/matter/groups/${id}/command`, { clusterName, command, args });
 }
 
+// ---- Matter device health (M21) ----
+
+export interface MatterBattery { percent: number | null; level: string | null; state: string | null; voltageMv: number | null; ts: number | null }
+export interface MatterHealthAlert { key: string; kind: 'low_battery' | 'offline'; nodeId: string; name: string; message: string; since: number }
+export interface MatterNodeHealth {
+    nodeId: string;
+    name?: string | null;
+    lastSeen: number | null;
+    online: boolean | null;
+    since: number | null;
+    battery: MatterBattery | null;
+    offlineNow: number;
+    offlineCount7d: number;
+    offlineMs7d: number;
+    lastOffline: { from: number; to: number; ms: number } | null;
+    roles: { role: number; ts: number }[];
+    alerts: MatterHealthAlert[];
+}
+export interface MatterHealth { val: 'ok' | 'warning'; nodes: MatterNodeHealth[]; alerts: MatterHealthAlert[]; topic: string | null; thresholds: { offlineAlertMs: number; lowBatteryPercent: number } }
+
+export function getMatterHealth(): Promise<MatterHealth> {
+    return request('GET', '/she/matter/health');
+}
+export function checkMatterHealth(): Promise<MatterHealth> {
+    return request('POST', '/she/matter/health/check');
+}
+
 // ---- Matter firmware updates (M22) ----
 
 export interface MatterUpdateInfo { softwareVersion: number; softwareVersionString: string; releaseNotesUrl: string | null; vendorId: number; productId: number; source: string | null }

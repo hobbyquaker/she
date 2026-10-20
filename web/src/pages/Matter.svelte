@@ -2,7 +2,7 @@
     import { onMount, onDestroy, tick, untrack } from 'svelte';
     import jsQR from 'jsqr';
     import { subscribeWs } from '../lib/ws.js';
-    import { listMatterDevices, getMatterDevice, getMatterDeviceInfo, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, listMatterUpdates, checkMatterUpdates, startMatterUpdate, cancelMatterUpdate, type MatterDevice, type MatterNodeDetail, type MatterDeviceInfo, type MatterUpdates, type MatterNodeUpdate } from '../lib/api.js';
+    import { listMatterDevices, getMatterDevice, getMatterDeviceInfo, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, listMatterUpdates, checkMatterUpdates, startMatterUpdate, cancelMatterUpdate, getMatterHealth, type MatterDevice, type MatterNodeDetail, type MatterDeviceInfo, type MatterUpdates, type MatterNodeUpdate, type MatterHealth } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import MatterValue from '../lib/MatterValue.svelte';
@@ -459,6 +459,7 @@
 
     async function loadDevices() {
         loadUpdates();
+        loadHealth();
         try {
             devices = await listMatterDevices();
             // Pre-fetch details for all paired nodes so the event feed can show friendly names.
@@ -480,6 +481,23 @@
             devices = [];
         }
     }
+
+    // ── Device health (M21) ──────────────────────────────────────────────────
+    let health = $state<MatterHealth | null>(null);
+    let healthOf = $derived.by(() => (selected ? (health?.nodes.find((n) => n.nodeId === selected?.nodeId) ?? null) : null));
+    let healthAlerts = $derived(new Map((health?.alerts ?? []).map((a) => [a.nodeId, a])));
+    async function loadHealth() {
+        try { health = await getMatterHealth(); } catch { /* optional */ }
+    }
+    const unsubHealth = subscribeWs('matter:health', () => { loadHealth(); });
+    function fmtDur(ms: number): string {
+        const m = Math.round(ms / 60000);
+        if (m < 60) return `${m} min`;
+        const h = Math.round(m / 60);
+        if (h < 48) return `${h} h`;
+        return `${Math.round(h / 24)} d`;
+    }
+    const ROLE_NAMES: Record<number, string> = { 0: 'unspecified', 1: 'unassigned', 2: 'sleepy end device', 3: 'end device', 4: 'REED', 5: 'router', 6: 'leader' };
 
     // ── Firmware updates (M22) ───────────────────────────────────────────────
     let updates = $state<MatterUpdates | null>(null);
@@ -674,7 +692,7 @@
         }, ...feed.slice(0, FEED_MAX - 1)];
     });
 
-    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); unsubEvent(); unsubUpdate(); stopScan(); });
+    onDestroy(() => { unsubList(); unsubStatus(); unsubAttr(); unsubEvent(); unsubUpdate(); unsubHealth(); stopScan(); });
 </script>
 
 <ConfirmDialog bind:this={dialog} />
@@ -767,6 +785,7 @@
                             {/if}
                         </span>
                         {#if updatesAvailable.has(device.nodeId)}<span class="upd-badge" title="Firmware update available">⬆</span>{/if}
+                        {#if healthAlerts.has(device.nodeId)}<span class="health-badge" title={healthAlerts.get(device.nodeId)?.message}>{healthAlerts.get(device.nodeId)?.kind === 'low_battery' ? '🪫' : '⚠'}</span>{/if}
                     </button>
                     <button
                         class="unpair-btn"
@@ -861,6 +880,19 @@
                 </div>
             {/if}
             {#if updateError}<p class="err">{updateError}</p>{/if}
+            {#if healthOf}
+                {@const h = healthOf}
+                <div class="fw health-line" class:fw-avail={h.alerts.length > 0}>
+                    <span class="dcl-k">Health</span>
+                    {#if h.battery}<span class="dcl-v">battery {h.battery.percent !== null ? `${h.battery.percent} %` : h.battery.level ?? '—'}{h.battery.state && h.battery.state !== 'unknown' ? ` (${h.battery.state})` : ''}{h.battery.voltageMv !== null ? ` · ${(h.battery.voltageMv / 1000).toFixed(2)} V` : ''}</span><span class="dcl-sep">·</span>{/if}
+                    <span class="dcl-dim">last seen {h.lastSeen ? fmtTime(h.lastSeen) : 'never'}</span>
+                    <span class="dcl-sep">·</span>
+                    <span class="dcl-dim">{h.online === false ? `offline since ${h.since ? fmtTime(h.since) : '?'}` : h.online ? `online since ${h.since ? fmtTime(h.since) : '?'}` : 'state unknown'}</span>
+                    {#if h.offlineCount7d}<span class="dcl-sep">·</span><span class="dcl-dim">{h.offlineCount7d} offline period{h.offlineCount7d === 1 ? '' : 's'} in 7 days ({fmtDur(h.offlineMs7d)})</span>{/if}
+                    {#if h.roles.length > 1}<span class="dcl-sep">·</span><span class="dcl-dim">Thread role {h.roles.slice(-3).map((r) => ROLE_NAMES[r.role] ?? r.role).join(' → ')}</span>{/if}
+                    {#each h.alerts as a (a.key)}<span class="fw-err">{a.message}</span>{/each}
+                </div>
+            {/if}
             <Fabrics nodeId={selected.nodeId} online={devices.find((d) => d.nodeId === selected?.nodeId)?.online ?? false} />
             {#each selected.endpoints as ep (ep.endpointId)}
                 <details>
@@ -1329,6 +1361,7 @@
     .upd-btn:hover:not(:disabled) { color: var(--fg-brand); }
     .upd-btn:disabled { opacity: 0.5; cursor: default; }
     .upd-badge { color: #98c379; font-size: 11px; margin-left: 4px; }
+    .health-badge { font-size: 11px; margin-left: 4px; }
     details {
         margin-bottom: 8px;
         background: var(--bg-panel);

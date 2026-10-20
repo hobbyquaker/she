@@ -547,6 +547,14 @@ One multicast command to the group: `{ "clusterName": "onOff", "command": "on" }
 
 A **group binding** is `POST /she/matter/bindings` with `"target": { "group": 1 }`: the source gets the group's key set and map entry and a `{ group, cluster }` binding entry; the members already grant the group.
 
+### GET /she/matter/health · GET /she/matter/devices/:nodeId/health
+
+Device health: per node the battery from the Power Source cluster (`percent`, `level` ok/warning/critical, `state`, `voltageMv`), when it was last heard from (any attribute report or event), its online/offline history (`offlineCount7d`, `offlineMs7d`, `lastOffline`), its Thread role changes, and the alerts — `low_battery` (level warning/critical or ≤ 20 %) and `offline` (longer than an hour). Kept in `device-health.json` in the Matter storage across restarts. Alerts are logged at warn and published retained on `<name>/status/matter/health` as `{ "val": "ok" | "warning", "ts", "lc", "alerts": [ { kind, nodeId, name, message, since } ] }`; the device list marks the node, the device page shows the Health line.
+
+**Response (HTTP 200):** `{ "val": "ok", "nodes": [ { "nodeId": "4", "name": "Bulb", "lastSeen": 1760000000000, "online": true, "since": 1760000000000, "battery": null, "offlineNow": 0, "offlineCount7d": 1, "offlineMs7d": 120000, "lastOffline": { "from": …, "to": …, "ms": 120000 }, "roles": [ { "role": 5, "ts": … } ], "alerts": [] } ], "alerts": [], "topic": "she/status/matter/health", "thresholds": { "offlineAlertMs": 3600000, "lowBatteryPercent": 20 } }`
+
+`POST /she/matter/health/check` evaluates the alerts now.
+
 ### GET /she/matter/updates
 
 Firmware state of every paired node and the updates the CSA ledger offers. she runs a Matter OTA provider (matter.js's `SoftwareUpdateManager`): the ledger is asked daily and on request, the image is served to the device over BDX when the user starts the update — **never automatically**. Not available with `--matter-dcl-offline`.

@@ -11,6 +11,9 @@
  *   GET    /she/matter/thread/networks                  → Thread networks on the LAN with their border routers
  *   POST   /she/matter/thread/refresh                   → probe every border router's REST API again
  *   POST   /she/matter/thread/routers/:ext/probe        → probe one border router
+ *   GET    /she/matter/health                           → every node's battery, last seen, offline history, alerts
+ *   POST   /she/matter/health/check                     → evaluate the alerts now
+ *   GET    /she/matter/devices/:nodeId/health           → one node
  *   GET    /she/matter/thread/datasets                  → the known Thread datasets, redacted
  *   POST   /she/matter/thread/datasets                  → import { tlv, source?, note? }
  *   PUT    /she/matter/thread/datasets/:ext             → { meshcop } MeshCoP diagnostics on/off
@@ -176,6 +179,42 @@ router.post('/thread/routers/:ext/probe', async (req, res) => {
         res.json(await getThread().probeRouter(req.params.ext, { force: true }));
     } catch (err) {
         if (/not found/.test(err.message)) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Device health (M21) ───────────────────────────────────────────────────────
+
+// GET /she/matter/health — every node: battery, last seen, offline history, alerts
+router.get('/health', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        res.json(require('../matter/device-health').listHealth());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/health/check — evaluate the alerts now
+router.post('/health/check', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        const dh = require('../matter/device-health');
+        dh.check();
+        res.json(dh.listHealth());
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /she/matter/devices/:nodeId/health
+router.get('/devices/:nodeId/health', (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        const h = require('../matter/device-health').nodeHealth(req.params.nodeId);
+        if (!h) return res.status(404).json({ error: `no health record for node ${req.params.nodeId}` });
+        res.json(h);
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
