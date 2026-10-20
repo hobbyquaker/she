@@ -232,9 +232,13 @@
         if (!svgEl) return;
         const ro = new ResizeObserver(() => { const r = svgEl!.getBoundingClientRect(); if (r.width > 0) { W = r.width; H = Math.max(320, r.height); sim?.force('center', forceCenter(W / 2, H / 2)).alpha(0.3).restart(); } });
         ro.observe(svgEl);
-        fitHeight();
-        window.addEventListener('resize', fitHeight);
-        return () => { ro.disconnect(); window.removeEventListener('resize', fitHeight); };
+        // refit when the window changes or the content around the graph grows or shrinks
+        const area = scrollArea(svgEl);
+        const content = new ResizeObserver(() => requestAnimationFrame(fitHeight));
+        for (const child of area.children) content.observe(child);
+        content.observe(area);
+        requestAnimationFrame(fitHeight);
+        return () => { ro.disconnect(); content.disconnect(); };
     });
     onDestroy(() => sim?.stop());
     const unsubMesh = subscribeWs('matter:deviceStatus', () => { if (mesh) loadMesh(); });
@@ -322,13 +326,26 @@
         return force;
     }
 
-    /** the graph takes the rest of the screen below its caption — a whole screenful when scrolled to it */
-    let graphH = $state(420);
+    /**
+     * The graph takes the free space of the page: the scrolling area's height minus everything else on
+     * the page, so the page does not scroll as long as the rest fits; below the minimum it scrolls.
+     */
+    const GRAPH_MIN_H = 360;
+    let graphH = $state(GRAPH_MIN_H);
+    function scrollArea(el: Element): HTMLElement {
+        for (let e = el.parentElement; e; e = e.parentElement) {
+            const oy = getComputedStyle(e).overflowY;
+            if (oy === 'auto' || oy === 'scroll') return e;
+        }
+        return (document.scrollingElement as HTMLElement) ?? document.documentElement;
+    }
     function fitHeight() {
         if (!svgEl) return;
-        const section = svgEl.closest('section');
-        const caption = section ? svgEl.getBoundingClientRect().top - section.getBoundingClientRect().top : 80;
-        graphH = Math.max(420, Math.round(window.innerHeight - caption - 24));
+        const area = scrollArea(svgEl);
+        const rest = area.scrollHeight - svgEl.getBoundingClientRect().height;
+        const free = Math.floor(area.clientHeight - rest) - 2;
+        const next = Math.max(GRAPH_MIN_H, free);
+        if (Math.abs(next - graphH) > 1) graphH = next;
     }
 
     /** text widths for the network boxes, measured with the fonts the SVG uses */
