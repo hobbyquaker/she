@@ -290,6 +290,12 @@
             hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
         });
     }
+    /** A point in time that may be days old: the date too, unless it is today. */
+    function fmtWhen(ts: number): string {
+        const d = new Date(ts);
+        const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })} ${time}`;
+    }
 
     // ── Event feed ──────────────────────────────────────────────────────────
     const FEED_MAX   = 500;
@@ -794,7 +800,7 @@
                             ctxMenu = { x: e.clientX, y: e.clientY, nodeId: device.nodeId, name: device.name ?? null };
                         }}
                     >
-                        <span class="status-dot" class:online={device.online} class:fabric-lost={device.state === 'fabric_lost'} title={device.state === 'fabric_lost' ? `fabric lost since ${device.fabricLostSince ? fmtTime(device.fabricLostSince) : '?'}` : device.online ? 'online' : 'offline'}></span>
+                        <span class="status-dot" class:online={device.online} class:fabric-lost={device.state === 'fabric_lost'} title={device.state === 'fabric_lost' ? `fabric lost since ${device.fabricLostSince ? fmtWhen(device.fabricLostSince) : '?'}` : device.online ? 'online' : 'offline'}></span>
                         <span class="device-label">
                             {#if device.name}
                                 <span class="device-name">{device.name}</span>
@@ -910,7 +916,7 @@
                     <span class="dcl-dim">last seen {h.lastSeen ? fmtTime(h.lastSeen) : 'never'}</span>
                     <span class="dcl-sep">·</span>
                     {#if h.fabricLost && h.online !== true}
-                        <span class="fw-err">fabric lost since {fmtTime(h.fabricLost)}</span>
+                        <span class="fw-err">fabric lost since {fmtWhen(h.fabricLost)}</span>
                     {:else}
                         <span class="dcl-dim">{h.online === false ? `offline since ${h.since ? fmtTime(h.since) : '?'}` : h.online ? `online since ${h.since ? fmtTime(h.since) : '?'}` : 'state unknown'}</span>
                     {/if}
