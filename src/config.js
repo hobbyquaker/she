@@ -176,6 +176,11 @@ const config = require('yargs')
         default: 5000,
         type: 'number',
     })
+    .option('stats-interval', {
+        describe: 'seconds between <name>/maintenance/stats (memory, cpu, event loop lag), 0 disables (default: 60)',
+        default: 60,
+        type: 'number',
+    })
     .option('sentinel-timeout', {
         describe: 'ms to wait for the retained-state sentinel after connecting to MQTT (default: 5000)',
         default: 5000,

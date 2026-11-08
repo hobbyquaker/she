@@ -627,6 +627,7 @@ function broadcastBrokers() {
  * counters under each other. Sampled every 10 s, every second while a Runtime page is open; the
  * history keeps one sample per 10 s for an hour.
  */
+let _statsLagMax = 0; // the worst event-loop lag since the last maintenance/stats sample
 function sampleGauges() {
     const now = Date.now();
     const elapsed = (now - _mqttMsgTs) / 1000;
@@ -642,6 +643,7 @@ function sampleGauges() {
     const elMeanMs = Math.round(_elHisto.mean / 1e6) || 0;
     const elMaxMs = Math.round(_elHisto.max / 1e6) || 0;
     _elHisto.reset();
+    if (elMaxMs > _statsLagMax) _statsLagMax = elMaxMs;
     const mem = process.memoryUsage();
     const sample = {
         ts: now,
@@ -661,6 +663,43 @@ function sampleGauges() {
     return sample;
 }
 sampleGauges();
+
+/**
+ * The daemon's own process statistics: what every mqtt-smarthome adapter publishes
+ * as <name>/maintenance/stats — retained, every statsInterval seconds (0 disables) — so the
+ * Services page, InfluxDB and Elasticsearch keep she's memory trend like any adapter's. The last
+ * sample is also served in /she/status as `stats`.
+ */
+const _processStats = require('./lib/process-stats');
+const countSchedules = () => {
+    let n = 0;
+    for (const h of runtime.handlers.values()) if (h.kind === 'schedule' || h.kind === 'sun') n++;
+    return n;
+};
+const _procStats = _processStats.createProcessStats({
+    takeLagMax: () => {
+        const v = _statsLagMax;
+        _statsLagMax = 0;
+        return v;
+    },
+    counts: () => ({
+        scripts: Object.keys(scripts).length,
+        topics: countTopics(),
+        handlers: subscriptions.length + varSubscriptions.length + mqttEventCallbacks.length,
+        timers: runtime.pending.size,
+        schedules: countSchedules(),
+    }),
+});
+let _lastStats = null;
+const STATS_TOPIC = config.name + '/maintenance/stats';
+const _statsSeconds = Number(config.statsInterval);
+if (_statsSeconds > 0) {
+    const publishStats = () => {
+        _lastStats = _procStats.sample();
+        if (mqtt && connected) mqtt.publish(STATS_TOPIC, JSON.stringify(_lastStats), { retain: true });
+    };
+    setInterval(publishStats, _statsSeconds * 1000).unref();
+}
 
 // Register runtime stats provider for GET /she/status
 const statsSnapshot = () => {
@@ -707,7 +746,13 @@ const statsSnapshot = () => {
         elMeanMs,
         elMaxMs,
         pendingTimers: runtime.pending.size,
+        schedules: countSchedules(),
         commandsFailed: runtime.commandsFailed,
+        memory: process.memoryUsage(),
+        resources: _processStats.activeResources(),
+        statsTopic: _statsSeconds > 0 && config.url ? STATS_TOPIC : null,
+        statsInterval: _statsSeconds > 0 ? _statsSeconds : 0,
+        stats: _lastStats,
         safeMode: SAFE_MODE,
         safeModeReason: SAFE_MODE_REASON,
         brokers: brokerStatuses(),

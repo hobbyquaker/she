@@ -38,6 +38,7 @@ Usage: she [options]
 | | `--safe-mode-crash-window` | `1800` | Seconds within which those crashes must have happened. |
 | | `--script-timeout` | `5000` | Milliseconds a script's synchronous top-level code may run before it is terminated; the other scripts load anyway. `0` = no limit. |
 | | `--sentinel-timeout` | `5000` | Milliseconds to wait for the retained-state sentinel after connecting to MQTT before starting scripts anyway. |
+| | `--stats-interval` | `60` | Seconds between the retained `<name>/maintenance/stats` publishes — she's own memory, CPU and event-loop figures in the mqtt-smarthome shape (see [services.md](services.md#shes-own-topics)). `0` disables the topic. |
 | `-h` | `--help` | — | Show help. |
 | | `--version` | — | Print version. |
 | | `--secret-set <group>/<field> [--plain]` | — | Store a secret; the value is read from stdin (`printf '%s' 'pw' \| she --secret-set smtp/password`). `--plain` creates a field whose value the UI shows in clear (a user name, a host). See [Secrets](sandbox-api.md#shesecrets). |
@@ -91,6 +92,7 @@ SHE_URL=mqtt://192.168.1.10 SHE_PORT=8081 SHE_VERBOSITY=debug she
 | `--safe-mode-crash-window` | `SHE_SAFE_MODE_CRASH_WINDOW` |
 | `--script-timeout` | `SHE_SCRIPT_TIMEOUT` |
 | `--sentinel-timeout` | `SHE_SENTINEL_TIMEOUT` |
+| `--stats-interval` | `SHE_STATS_INTERVAL` |
 | `--config` | `SHE_CONFIG` |
 
 Boolean options take `true` / `false` (`SHE_DISABLE_WATCH=false` really is false — an empty value is not a way to unset an option, use the config file default instead). Nested config keys (`heartbeat.enabled`, `redis.url`) have no environment equivalent; use the config file for those.

@@ -35,6 +35,15 @@ An MQTT instance and a host instance are the same row when the instance names ma
 
 **Old units.** An adapter installed before the core — a plain `<adapter>.service` with its env file in `/etc/default/<adapter>` (or a core adapter still running under such a unit) — is recognised too (helper v5+): it appears on the Instances tab marked *old unit*, matched to the MQTT instance of the same adapter on that host, with start/stop/restart, logs and the config form (editing `/etc/default/<adapter>`), but no Files tab and no Uninstall. **Migrate** turns it into a proper instance: she runs the adapter's own `--install --name <n>` with the old settings as environment (the adapter carries its state over — alexa-remote-mqtt copies the login cookie, lgtv2mqtt the pairing key), then disables the old unit and keeps its files as `.migrated`. The instance name defaults to the MQTT topic prefix so nothing changes on the broker.
 
+## she's own topics
+
+she is not an adapter, but she reports like one so the same dashboards work. With a broker configured she publishes, retained:
+
+- `<name>/connected` — `2` while she runs, `0` from her last will (`<name>` is `--name`, default `she`)
+- `<name>/maintenance/stats` — every `--stats-interval` seconds (default 60, `0` disables): the [mqtt-smarthome](https://github.com/mqtt-smarthome/mqtt-smarthome) fields `rss`, `heapUsed`, `heapTotal` (bytes), `cpu` (% of one core over the interval), `eventLoopLag` (worst delay in ms over the interval), `uptime` (s), `ts` (ms) — and after them she's own: `external`, `arrayBuffers` (bytes), the counts `scripts`, `topics`, `handlers`, `timers`, `schedules`, and on Linux the split of the RSS from `/proc/self/smaps`: `heapArena` (the glibc `[heap]` mapping — memory the allocator keeps after a free) and `anonymous` (every anonymous page, V8's heap included). All fields are numbers, so InfluxDB and Elasticsearch keep the trend like any adapter's.
+
+The same sample is in [`GET /she/status`](http-api.md#get-shestatus) as `stats`, and the Runtime page shows the heap figures.
+
 ## The Adapters page
 
 The main-menu entry is *Adapters* (the feature and its settings keep the name *Services*).
