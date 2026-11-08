@@ -876,7 +876,7 @@ if (config.url) {
 
     mqtt.on('connect', () => {
         connected = true;
-        log.info('mqtt connected ' + config.url);
+        log.info('mqtt connected ' + require('./lib/redact-config').redactUrl(String(config.url)));
         log.debug('mqtt subscribe #');
         mqtt.subscribe('#');
         mqtt.subscribe('$SYS/#');
