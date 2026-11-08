@@ -4,6 +4,7 @@
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import Users from './broker/Users.svelte';
     import Listeners from './broker/Listeners.svelte';
+    import Bridges from './broker/Bridges.svelte';
     import BrokerConfig from './broker/BrokerConfig.svelte';
     import Certificates from './broker/Certificates.svelte';
     import SSH from './broker/SSH.svelte';
@@ -21,8 +22,8 @@
 
     let { active = false, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
-    type SubTab = 'status' | 'users' | 'brokerconfig' | 'listeners' | 'certs' | 'ssh' | 'logs' | 'advanced' | 'passwd';
-    const SUB_TABS: SubTab[] = ['status', 'users', 'brokerconfig', 'listeners', 'certs', 'ssh', 'logs', 'advanced', 'passwd'];
+    type SubTab = 'status' | 'users' | 'brokerconfig' | 'listeners' | 'bridges' | 'certs' | 'ssh' | 'logs' | 'advanced' | 'passwd';
+    const SUB_TABS: SubTab[] = ['status', 'users', 'brokerconfig', 'listeners', 'bridges', 'certs', 'ssh', 'logs', 'advanced', 'passwd'];
     const TAB_KEY = 'she-broker-tab';
     let tab = $state<SubTab>((localStorage.getItem(TAB_KEY) as SubTab) ?? 'status');
     $effect(() => { localStorage.setItem(TAB_KEY, tab); });
@@ -123,6 +124,7 @@
         <button class:active={tab === 'advanced'} onclick={() => (tab = 'advanced')}>Advanced</button>
         <button class:active={tab === 'passwd'} onclick={() => (tab = 'passwd')}>Auth Files</button>
         <button class:active={tab === 'listeners'} onclick={() => (tab = 'listeners')}>Listeners</button>
+        <button class:active={tab === 'bridges'} onclick={() => (tab = 'bridges')}>Bridges</button>
         <button class:active={tab === 'certs'} onclick={() => (tab = 'certs')}>Certificates</button>
         <button class:active={tab === 'ssh'} onclick={() => (tab = 'ssh')}>Connection</button>
         <button class:active={tab === 'logs'} onclick={() => (tab = 'logs')}>Logs</button>
@@ -226,6 +228,9 @@
 
     {:else if tab === 'listeners'}
     <Listeners />
+
+    {:else if tab === 'bridges'}
+    <Bridges />
 
     {:else if tab === 'certs'}
     <Certificates />
