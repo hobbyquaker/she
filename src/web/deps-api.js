@@ -2,6 +2,9 @@
 
 const express = require('express');
 const { execFile } = require('child_process');
+const activity = require('../lib/activity');
+/** execFile with the child recorded for the event-loop heartbeat's attribution */
+const npmExec = (args, opts, cb) => activity.track(execFile('npm', args, opts, cb), activity.commandLabel('npm', args));
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
@@ -20,7 +23,7 @@ function _checkOutdated() {
         return Promise.resolve({});
     }
     _outdatedPromise = new Promise((resolve) => {
-        execFile('npm', ['outdated', '--json'], { cwd: STORAGE_ROOT, timeout: 60_000 }, (err, stdout) => {
+        npmExec(['outdated', '--json'], { cwd: STORAGE_ROOT, timeout: 60_000 }, (err, stdout) => {
             _outdatedPromise = null;
             // npm exits with code 1 when packages are outdated — not a real error
             if (err && err.code !== 1) {
@@ -194,7 +197,7 @@ router.post('/install', (req, res) => {
 
     ensurePackageJson();
     const spec = version ? `${name}@${version}` : name;
-    execFile('npm', ['install', '--save', spec], { cwd: STORAGE_ROOT, timeout: 120000 }, (err, stdout, stderr) => {
+    npmExec(['install', '--save', spec], { cwd: STORAGE_ROOT, timeout: 120000 }, (err, stdout, stderr) => {
         if (err) return res.status(500).json({ error: stderr || err.message, stdout });
         res.json({ ok: true, stdout, stderr });
     });
@@ -207,7 +210,7 @@ router.post('/remove', (req, res) => {
     if (!isValidPkgName(name)) return res.status(400).json({ error: 'Invalid package name' });
 
     ensurePackageJson();
-    execFile('npm', ['uninstall', '--save', name], { cwd: STORAGE_ROOT, timeout: 60000 }, (err, stdout, stderr) => {
+    npmExec(['uninstall', '--save', name], { cwd: STORAGE_ROOT, timeout: 60000 }, (err, stdout, stderr) => {
         if (err) return res.status(500).json({ error: stderr || err.message, stdout });
         res.json({ ok: true, stdout, stderr });
     });
@@ -220,7 +223,7 @@ router.post('/update', (req, res) => {
     if (!isValidPkgName(name)) return res.status(400).json({ error: 'Invalid package name' });
 
     ensurePackageJson();
-    execFile('npm', ['install', '--save', `${name}@latest`], { cwd: STORAGE_ROOT, timeout: 120000 }, (err, stdout, stderr) => {
+    npmExec(['install', '--save', `${name}@latest`], { cwd: STORAGE_ROOT, timeout: 120000 }, (err, stdout, stderr) => {
         if (err) return res.status(500).json({ error: stderr || err.message, stdout });
         res.json({ ok: true, stdout, stderr });
     });

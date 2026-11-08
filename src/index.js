@@ -2562,12 +2562,14 @@ function start() {
             const prevBeat = _lastBeat;
             _lastBeat = now;
             if (lag > _hbThreshold) {
-                // Attribute to a script only if it dispatched a callback since the previous beat.
-                const label = _blockingScriptTs >= prevBeat ? (_blockingScript ?? 'unknown') : 'unknown';
+                // Attribute to a script only if it dispatched a callback since the previous beat;
+                // otherwise name the daemon's own work (HTTP requests, child processes).
+                const script = _blockingScriptTs >= prevBeat ? _blockingScript : null;
+                const who = script ? `last active script: ${script}` : `no script active; ${require('./lib/activity').describe(prevBeat, now)}`;
                 if (lag > 2000) {
-                    log.warn(`event loop blocked ${lag}ms — script: ${label}`);
+                    log.warn(`event loop blocked ${lag}ms — ${who}`);
                 } else {
-                    log.warn(`event loop lag ${lag}ms — last active script: ${label}`);
+                    log.warn(`event loop lag ${lag}ms — ${who}`);
                 }
             }
         }, _hbInterval);

@@ -3,6 +3,7 @@
 const express = require('express');
 const { execFile } = require('child_process');
 const path = require('path');
+const activity = require('../lib/activity');
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ function getRoot(req) {
  */
 function git(args, cwd, timeout = 30000) {
     return new Promise((resolve, reject) => {
-        execFile('git', args, { cwd, timeout }, (err, stdout, stderr) => {
+        const child = execFile('git', args, { cwd, timeout }, (err, stdout, stderr) => {
             if (err) {
                 const e = new Error(stderr.trim() || stdout.trim() || err.message);
                 e.stderr = stderr;
@@ -26,6 +27,7 @@ function git(args, cwd, timeout = 30000) {
                 resolve({ stdout, stderr });
             }
         });
+        activity.track(child, activity.commandLabel('git', args));
     });
 }
 
