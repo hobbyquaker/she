@@ -20,7 +20,7 @@ let brokerSockets = new Set();
 let mqtt;
 let tmpConfigFile;
 let tmpDataDir;
-// the additional brokers (roadmap M2): "shed" is a second Aedes, "late" a port nothing listens on until a test starts it
+// the additional brokers: "shed" is a second Aedes, "late" a port nothing listens on until a test starts it
 let shed;
 let shedServer;
 let shedPort;
@@ -877,7 +877,7 @@ describe('she.time in the sandbox', () => {
     }, 20000);
 });
 
-describe("additional brokers (roadmap M2): she.mqtt('<name>'), mirror rules, offline behaviour", () => {
+describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviour", () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     let httpPort;
 

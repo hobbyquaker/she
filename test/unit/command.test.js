@@ -225,7 +225,7 @@ describe('she.mqtt.command', () => {
     });
 });
 
-describe('an additional broker that is not connected (roadmap M2)', () => {
+describe('an additional broker that is not connected', () => {
     it('fails at once with reason offline and the broker in the message, before any device check', async () => {
         const h = harness({ 'hm/connected': 2 });
         let online = false;

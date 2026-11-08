@@ -18,7 +18,7 @@ module.exports = function (she, ctx = {}) {
 
     /**
      * The MQTT namespace over one broker's primitives: `she.mqtt` is built over the primary's
-     * (she.mqttsub, she.mqttpub, …), `she.mqtt('<name>')` over an additional broker's (roadmap M2).
+     * (she.mqttsub, she.mqttpub, …), `she.mqtt('<name>')` over an additional broker's.
      * @param {object} api { sub, pub, command, get, getProp, set }
      * @param {string|null} broker the broker's name, null for the primary
      */
@@ -172,7 +172,7 @@ module.exports = function (she, ctx = {}) {
 
     /**
      * Namespaced MQTT API - the primary way to interact with MQTT from scripts. `she.mqtt.*` is the
-     * primary broker; `she.mqtt('<name>')` returns the same API for an additional broker (roadmap M2):
+     * primary broker; `she.mqtt('<name>')` returns the same API for an additional broker:
      * a function object that carries the primary's methods as properties.
      * @namespace she.mqtt
      */

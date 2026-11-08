@@ -285,7 +285,7 @@ const lineOf = (file) => callerLine(file)?.line ?? null;
 const sandboxModules = [];
 const store = new StateStore();
 if (typeof config.port !== 'undefined') require('./web/broker-api').setStore(store);
-// Additional brokers (roadmap M2): name → SecondaryBroker; filled below once the primary is set up.
+// Additional brokers: name → SecondaryBroker; filled below once the primary is set up.
 // Their topics live under `mqtt@<name>::`, so everything that reads `mqtt::` keeps seeing the primary only.
 const brokers = new Map();
 const { SecondaryBroker, parseBrokers } = require('./lib/secondary-broker');
@@ -799,7 +799,7 @@ const nextOf = (job) => {
 };
 const introspect = {
     // the AI's publish tool (roadmap I20), guarded and confirmed in ai-api; here only the broker call —
-    // on the primary, or on an additional broker named by the tool's `broker` argument (roadmap M2)
+    // on the primary, or on an additional broker named by the tool's `broker` argument
     publish: (topic, payload, opts, broker) =>
         new Promise((resolve, reject) => {
             const str = typeof payload === 'object' ? JSON.stringify(payload) : String(payload);
@@ -938,7 +938,7 @@ if (config.url) {
             return; // sentinel is internal — don’t process further
         }
 
-        // Mirror rules (roadmap M2): what an `in` rule just published here comes back as this message —
+        // Mirror rules: what an `in` rule just published here comes back as this message —
         // stored like any other, never mirrored on. Everything else may leave through the `out` rules.
         if (!mirror.consumeEcho(null, topic, payload)) mirror.fromPrimary(topic, payload, msg);
 
@@ -1032,7 +1032,7 @@ if (config.url) {
 }
 
 // ---------------------------------------------------------------------------
-// Additional brokers (roadmap M2): connected in the background, never waited for. Their messages
+// Additional brokers: connected in the background, never waited for. Their messages
 // go to the state store under `mqtt@<name>::<topic>` and to the subscriptions made through
 // `she.mqtt('<name>')`; the mirror rules copy what the config says into the primary and back.
 // ---------------------------------------------------------------------------
@@ -1620,7 +1620,7 @@ function runScript(script, name, _origin, source) {
         },
     };
 
-    // ── The MQTT primitives, scoped to a broker (roadmap M2) ─────────────────────────────────────
+    // ── The MQTT primitives, scoped to a broker ─────────────────────────────────────
     // `broker` is null for the primary (she.mqtt.*, she.mqttsub, …) or the name of an additional
     // broker (she.mqtt('<name>').*). Same code, another state-store namespace and another client.
 
@@ -1925,7 +1925,7 @@ function runScript(script, name, _origin, source) {
     }
 
     /**
-     * The primitives behind she.mqtt('<name>') (roadmap M2): the stdlib builds the same namespace as
+     * The primitives behind she.mqtt('<name>'): the stdlib builds the same namespace as
      * she.mqtt from them. Throws at the call site when no such broker is configured.
      */
     function mqttScope(broker) {

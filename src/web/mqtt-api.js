@@ -36,7 +36,7 @@ let _getBroker = () => null;
  * @param {import('../lib/state-store')} store
  * @param {() => import('mqtt').MqttClient | null} getMqttClient
  * @param {(name: string) => import('../lib/secondary-broker').SecondaryBroker | null} [getBroker] an
- *   additional broker by name (roadmap M2); its topics are served with `?broker=<name>` and arrive on
+ *   additional broker by name; its topics are served with `?broker=<name>` and arrive on
  *   the WebSocket with a `broker` field — messages of the primary carry none, as before
  */
 function init(store, getMqttClient, getBroker) {

@@ -75,7 +75,7 @@ describe('search_mqtt_topics (I18)', () => {
     });
 });
 
-describe('the broker argument of the topic tools (roadmap M2)', () => {
+describe('the broker argument of the topic tools', () => {
     const shed = [
         ['tele/temp', { val: 5, ts: NOW, lc: NOW - 100 }],
         ['tele/hum', { val: 60, ts: NOW, lc: NOW - 100 }],

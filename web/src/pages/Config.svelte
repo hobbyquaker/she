@@ -32,7 +32,7 @@
     let mqttVersion    = $state('');
     let disableVars    = $state(false);
 
-    // Additional brokers (roadmap M2): config "brokers": { <name>: { url, username, …, mirror: [] } }
+    // Additional brokers: config "brokers": { <name>: { url, username, …, mirror: [] } }
     interface MirrorRule { dir: 'in' | 'out'; from: string; to: string }
     interface ExtraBroker {
         id: number; name: string; protocol: string; host: string;

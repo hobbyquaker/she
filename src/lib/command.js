@@ -130,7 +130,7 @@ function createCommander(prim) {
             if (previous) previous('superseded');
             active.set(topic, abort);
 
-            // an additional broker that is not connected fails before any device check (roadmap M2)
+            // an additional broker that is not connected fails before any device check
             const offline = (typeof prim.offline === 'function' && prim.offline()) || offlineReason(topic, prim.get);
             if (offline) {
                 fail('offline', offline);

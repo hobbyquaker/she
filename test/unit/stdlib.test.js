@@ -600,7 +600,7 @@ describe('she.mqtt.timer() argument validation', () => {
     });
 });
 
-describe('she.mqtt is callable: she.mqtt(name) returns the namespace of an additional broker (roadmap M2)', () => {
+describe('she.mqtt is callable: she.mqtt(name) returns the namespace of an additional broker', () => {
     function scopedShe() {
         const scopes = {};
         const she = {

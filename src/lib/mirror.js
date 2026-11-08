@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Mirror rules between the primary broker and an additional ("secondary") broker (roadmap M2).
+ * Mirror rules between the primary broker and an additional ("secondary") broker.
  *
  * A rule copies messages one way: `in` from the secondary to the primary, `out` from the primary to
  * the secondary. `from` is an MQTT filter on the source broker, `to` the topic on the target broker,

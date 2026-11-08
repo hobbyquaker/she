@@ -1,6 +1,6 @@
 'use strict';
 /**
- * An additional ("secondary") MQTT broker (roadmap M2): the connection, its state, and a short
+ * An additional ("secondary") MQTT broker: the connection, its state, and a short
  * offline queue for publishes. The primary broker stays what it is in index.js; a secondary never
  * blocks the start or the health of the daemon — it connects in the background, reconnects by
  * itself, and tells the daemon about every message and every change of its connection state.
