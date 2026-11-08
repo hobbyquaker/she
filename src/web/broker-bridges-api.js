@@ -109,13 +109,17 @@ function createRouter({ getBrokerConfig, confPath, log, store, lastWriteChecksum
         return probe.waitForBroker(sheConfig.url, probe.sheConnectOptions(sheConfig), { totalMs, attemptMs: Math.min(3000, totalMs) });
     }
 
-    /** The bridge list for the UI: secrets replaced by flags. */
+    /**
+     * The bridge list for the UI: a secret becomes null in its place (so a client that sends the
+     * block back unchanged keeps its line order) and `secrets` says which ones are set.
+     */
     function sanitise(bridge) {
         const options = { ...(bridge.options || {}) };
         const secrets = {};
         for (const k of bridgesLib.SECRET_KEYS) {
-            if (options[k] !== undefined && options[k] !== '') secrets[k] = true;
-            delete options[k];
+            if (options[k] === undefined) continue;
+            if (options[k] !== '') secrets[k] = true;
+            options[k] = null;
         }
         return { ...bridge, options, secrets };
     }
@@ -208,13 +212,29 @@ function createRouter({ getBrokerConfig, confPath, log, store, lastWriteChecksum
         return bridgesLib.brokerVersionFromSys(v);
     }
 
-    /** Is this address the broker she manages (so she could create the bridge user there)? */
-    function managedHere(address, bc) {
-        const host = String(address || '')
+    /**
+     * Is this address the broker she manages (so she could create the bridge user there)?
+     * The host must be this broker's host and the port, when given, one of its listeners.
+     */
+    function managedHere(address, bc, listeners = []) {
+        const raw = String(address || '');
+        const portMatch = raw.match(/^(?:\[[^\]]+\]|[^:]+):(\d+)$/);
+        const port = portMatch ? Number(portMatch[1]) : null;
+        const host = raw
             .replace(/^\[([^\]]+)\](:\d+)?$/, '$1')
             .replace(/:\d+$/, '')
             .toLowerCase();
         if (!host) return false;
+        if (port !== null) {
+            const ports = new Set(listeners.map((l) => Number(l.port)).filter(Boolean));
+            try {
+                if (sheConfig.url) ports.add(Number(new URL(sheConfig.url).port) || 1883);
+            } catch {
+                /* ignore */
+            }
+            if (ports.size === 0) ports.add(1883);
+            if (!ports.has(port)) return false;
+        }
         const candidates = new Set(['localhost', '127.0.0.1', '::1']);
         if (isRemote(bc)) candidates.add(String(bc.ssh.host).toLowerCase());
         else {
@@ -265,7 +285,7 @@ function createRouter({ getBrokerConfig, confPath, log, store, lastWriteChecksum
             const after = mosquittoConf.serialise({ ...parsed, bridges: list });
             const diff = bridgesLib.unifiedDiff(raw, after);
             const remote = {};
-            for (const b of list) remote[b.name] = { ...bridgesLib.remoteRequirements(b), managedHere: b.addresses.some((a) => managedHere(a, bc)) };
+            for (const b of list) remote[b.name] = { ...bridgesLib.remoteRequirements(b), managedHere: b.addresses.some((a) => managedHere(a, bc, parsed.listeners)) };
             res.json({ errors, warnings, diff, changed: diff !== '', checksum, remote });
         } catch (err) {
             fail(res, err);
@@ -432,8 +452,9 @@ function createRouter({ getBrokerConfig, confPath, log, store, lastWriteChecksum
             const bc = getBrokerConfig(req);
             const b = req.body.bridge || {};
             const bridge = { ...b, options: Object.fromEntries(Object.entries(b.options || {}).filter(([, v]) => v !== null && v !== undefined)) };
+            const { parsed } = await readConf(bc);
             const r = bridgesLib.remoteRequirements(bridge);
-            const here = (bridge.addresses || []).some((a) => managedHere(a, bc));
+            const here = (bridge.addresses || []).some((a) => managedHere(a, bc, parsed.listeners));
             const ds = dynsec.getStatus();
             res.json({ ...r, managedHere: here, canCreate: here && ds.configured && ds.connected });
         } catch (err) {
@@ -451,7 +472,8 @@ function createRouter({ getBrokerConfig, confPath, log, store, lastWriteChecksum
             const bc = getBrokerConfig(req);
             const b = req.body.bridge || {};
             const password = req.body.password;
-            if (!(b.addresses || []).some((a) => managedHere(a, bc))) {
+            const { parsed } = await readConf(bc);
+            if (!(b.addresses || []).some((a) => managedHere(a, bc, parsed.listeners))) {
                 return res.status(409).json({ error: 'The remote address is not the broker this she manages — create the user there yourself.' });
             }
             const r = bridgesLib.remoteRequirements(b);

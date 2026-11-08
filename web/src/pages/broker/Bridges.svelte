@@ -117,7 +117,8 @@
 
     /** The form as the API wants it. */
     function toBridge(f: Form): BrokerBridge {
-        const options: Record<string, string | string[] | null> = { ...parseOptionLines(f.advanced) };
+        // the form's fields first, the advanced lines after them — that is the order the block gets
+        const options: Record<string, string | string[] | null> = {};
         const set = (k: string, v: string) => { if (v !== '') options[k] = v; else delete options[k]; };
         set('remote_username', f.remote_username.trim());
         set('remote_clientid', f.remote_clientid.trim());
@@ -139,6 +140,7 @@
         set('notifications', f.notifications);
         set('start_type', f.start_type);
         set('bridge_protocol_version', f.bridge_protocol_version);
+        for (const [k, v] of Object.entries(parseOptionLines(f.advanced))) if (!(k in options)) options[k] = v;
         return {
             name: f.name.trim(),
             originalName: f.originalName ?? undefined,
@@ -312,7 +314,11 @@
     function saveForm() {
         if (!editing) return;
         const b = toBridge(editing);
-        openPreview([...others(editing.originalName), b], editing.originalName ? `Save bridge "${b.name}"` : `Add bridge "${b.name}"`);
+        // an edited bridge keeps its place in the file (a small diff); a new one goes to the end
+        const list = editing.originalName
+            ? (data?.bridges ?? []).map((x) => (x.name === editing!.originalName ? b : { name: x.name, originalName: x.name, addresses: x.addresses, topics: x.topics, options: withKeptSecrets(x) }))
+            : [...others(null), b];
+        openPreview(list, editing.originalName ? `Save bridge "${b.name}"` : `Add bridge "${b.name}"`);
     }
 
     async function deleteBridge(b: BrokerBridge) {
@@ -385,10 +391,10 @@
         </div>
     </div>
 
-    {#if loadError}<div class="err">{loadError}</div>{/if}
-    {#if flash}<div class="ok">{flash}</div>{/if}
+    {#if loadError}<div class="msg-err">{loadError}</div>{/if}
+    {#if flash}<div class="msg-ok">{flash}</div>{/if}
     {#if saveResult && !saveResult.ok && !preview}
-    <div class="err">
+    <div class="msg-err">
         <strong>Not applied{saveResult.rolledBack ? ' — rolled back' : ''}.</strong> {saveResult.reason}
         {#if saveResult.rolledBack}
             <div class="small">{saveResult.restarted ? 'The previous mosquitto.conf was restored and the broker restarted' : 'The previous mosquitto.conf was restored and the broker reloaded'}{saveResult.recovered === true ? ' — it answers again.' : saveResult.recovered === false ? ' — it still does not answer; check the broker host.' : '.'}
@@ -399,7 +405,7 @@
     </div>
     {/if}
     {#if saveResult?.ok && saveResult.brokerErrors?.length}
-    <div class="warn">Mosquitto logged errors on reload — check the Logs tab: {saveResult.brokerErrors.join(' · ')}</div>
+    <div class="msg-warn">Mosquitto logged errors on reload — check the Logs tab: {saveResult.brokerErrors.join(' · ')}</div>
     {/if}
 
     {#if data === null && !loadError}
@@ -614,7 +620,7 @@
         {#if remoteOpen}
         <div class="sub-section remote">
             <p class="hint-line">The bridge logs in to the remote broker as a client. she shows what that broker needs and changes nothing there. Locally no user or ACL is needed: the bridge is not a client of this broker.</p>
-            {#if remoteReqError}<div class="err">{remoteReqError}</div>
+            {#if remoteReqError}<div class="msg-err">{remoteReqError}</div>
             {:else if remoteReq}
                 <div class="remote-block">
                     <div class="remote-head"><span>Plain text</span><button onclick={() => copy(remoteReq!.plain, 'plain')}>{copied === 'plain' ? 'copied' : 'copy'}</button></div>
@@ -687,10 +693,10 @@
 <div class="dialog" role="dialog" aria-modal="true">
     <h4>{preview.title}</h4>
     {#if preview.result.errors.length}
-        <div class="err"><strong>Cannot write:</strong><ul>{#each preview.result.errors as e}<li>{e}</li>{/each}</ul></div>
+        <div class="msg-err"><strong>Cannot write:</strong><ul>{#each preview.result.errors as e}<li>{e}</li>{/each}</ul></div>
     {/if}
     {#if preview.result.warnings.length}
-        <div class="warn"><ul>{#each preview.result.warnings as w}<li>{w}</li>{/each}</ul></div>
+        <div class="msg-warn"><ul>{#each preview.result.warnings as w}<li>{w}</li>{/each}</ul></div>
     {/if}
     {#if !preview.result.changed}
         <p class="muted">The file already matches — nothing to write.</p>
@@ -700,7 +706,7 @@
 </span>{/each}</pre>
     {/if}
     {#if saveResult && !saveResult.ok}
-        <div class="err">
+        <div class="msg-err">
             <strong>Not applied{saveResult.rolledBack ? ' — rolled back' : ''}.</strong> {saveResult.reason}
             {#if saveResult.rolledBack}
                 <div class="small">{saveResult.restarted ? 'The previous mosquitto.conf was restored and the broker restarted' : 'The previous mosquitto.conf was restored and the broker reloaded'}{saveResult.recovered === true ? ' — it answers again.' : saveResult.recovered === false ? ' — it still does not answer; check the broker host.' : '.'}
@@ -732,17 +738,19 @@
     button { background: none; border: 1px solid var(--border, #444); border-radius: 4px; color: var(--text-muted, #aaa); cursor: pointer; font-size: 12px; padding: 4px 10px; }
     button:hover:not(:disabled) { color: var(--text, #ddd); border-color: var(--text-muted, #888); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-save, .btn-accent { background: var(--accent-dim, rgba(86,156,214,0.15)); border-color: rgba(86,156,214,0.35); color: var(--accent, #569cd6); }
+    .btn-accent { background: var(--accent-dim, rgba(86,156,214,0.15)); border-color: rgba(86,156,214,0.35); color: var(--accent, #569cd6); }
+    .btn-save { background: var(--accent, #569cd6); border-color: var(--accent, #569cd6); color: #fff; }
+    .btn-save:hover:not(:disabled) { color: #fff; filter: brightness(1.1); }
     .small-btn { font-size: 11px; padding: 2px 8px; }
     .small-btn.danger:hover { color: #e66; border-color: #e66; }
     .link-btn { border: none; padding: 0; font-size: 11px; text-decoration: underline; }
     .remove-btn { border: none; color: var(--text-muted, #888); font-size: 13px; padding: 2px 6px; }
     .remove-btn:hover { color: #e66; }
 
-    .err { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.3); border-radius: 4px; color: #e88; font-size: 12px; padding: 6px 10px; margin-bottom: 10px; }
-    .warn { background: rgba(200,150,0,0.1); border: 1px solid rgba(200,150,0,0.3); border-radius: 4px; color: #db5; font-size: 12px; padding: 6px 10px; margin-bottom: 10px; }
-    .ok { background: rgba(70,180,70,0.1); border: 1px solid rgba(70,180,70,0.25); border-radius: 4px; color: #8c8; font-size: 12px; padding: 6px 10px; margin-bottom: 10px; }
-    .err ul, .warn ul { margin: 4px 0 0; padding-left: 18px; }
+    .msg-err { background: rgba(220,60,60,0.12); border: 1px solid rgba(220,60,60,0.3); border-radius: 4px; color: #e88; font-size: 12px; padding: 6px 10px; margin-bottom: 10px; }
+    .msg-warn { background: rgba(200,150,0,0.1); border: 1px solid rgba(200,150,0,0.3); border-radius: 4px; color: #db5; font-size: 12px; padding: 6px 10px; margin-bottom: 10px; }
+    .msg-ok { background: rgba(70,180,70,0.1); border: 1px solid rgba(70,180,70,0.25); border-radius: 4px; color: #8c8; font-size: 12px; padding: 6px 10px; margin-bottom: 10px; }
+    .msg-err ul, .msg-warn ul { margin: 4px 0 0; padding-left: 18px; }
     .small { font-size: 11px; opacity: 0.9; margin-top: 4px; }
     .loading, .empty, .muted { color: var(--text-muted, #888); font-size: 12px; }
     .empty { padding: 20px 0; }
@@ -767,7 +775,7 @@
     .tag { font-size: 10px; color: var(--text-muted, #aaa); border: 1px solid var(--border, #444); border-radius: 3px; padding: 0 5px; }
 
     .section-title { font-size: 10px; font-weight: 600; color: var(--text-muted, #888); text-transform: uppercase; letter-spacing: 0.05em; margin: 10px 0 8px; }
-    .section-toggle { border: none; padding: 2px 0; margin-top: 8px; font-size: 11px; }
+    .section-toggle { display: block; border: none; padding: 2px 0; margin-top: 8px; font-size: 11px; }
     .sub-section { border-top: 1px solid var(--border, #333); padding-top: 10px; margin-top: 6px; }
     .field-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
     .field-row label:not(.toggle-label) { display: flex; flex-direction: column; font-size: 11px; color: var(--text-muted, #aaa); gap: 3px; flex: 1; min-width: 180px; }

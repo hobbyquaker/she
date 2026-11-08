@@ -129,7 +129,8 @@ describe('broker bridges API', () => {
         expect(r.body.bridges).toHaveLength(1);
         const b = r.body.bridges[0];
         expect(b.name).toBe('existing');
-        expect(b.options.remote_password).toBeUndefined();
+        expect(b.options.remote_password).toBeNull(); // in place, never the value
+        expect(JSON.stringify(r.body)).not.toContain('keepme');
         expect(b.secrets).toEqual({ remote_password: true });
         expect(b.options.remote_username).toBe('bridge');
         expect(r.body.states.existing).toEqual({ connected: null, ts: null, topic: null });
@@ -309,6 +310,8 @@ describe('broker bridges API', () => {
         const here = await httpRequest('POST', port, '/she/broker/bridges/remote-requirements', { bridge: { ...existing(), addresses: ['127.0.0.1:1883'] } });
         expect(here.body.managedHere).toBe(true);
         expect(here.body.canCreate).toBe(false); // no dynsec configured in this test
+        const otherPort = await httpRequest('POST', port, '/she/broker/bridges/remote-requirements', { bridge: { ...existing(), addresses: ['127.0.0.1:1884'] } });
+        expect(otherPort.body.managedHere).toBe(false); // same host, a port no listener has
         const refused = await httpRequest('POST', port, '/she/broker/bridges/remote-user', { bridge: existing(), password: 'x' });
         expect(refused.status).toBe(409);
     });

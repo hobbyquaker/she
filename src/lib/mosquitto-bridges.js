@@ -89,32 +89,6 @@ const STRUCTURAL_KEYS = new Set(['connection', 'address', 'addresses', 'topic'])
 /** Keys whose value is a secret: masked in diffs, never logged, not handed to the UI. */
 const SECRET_KEYS = Object.keys(BRIDGE_OPTIONS).filter((k) => BRIDGE_OPTIONS[k].secret);
 
-/** The order the options are written in — the ones people look for first on top. */
-const OPTION_ORDER = [
-    'remote_clientid',
-    'local_clientid',
-    'remote_username',
-    'remote_password',
-    'local_username',
-    'local_password',
-    'cleansession',
-    'local_cleansession',
-    'keepalive_interval',
-    'restart_timeout',
-    'start_type',
-    'try_private',
-    'notifications',
-    'notifications_local_only',
-    'notification_topic',
-    'bridge_protocol_version',
-    'bridge_cafile',
-    'bridge_capath',
-    'bridge_certfile',
-    'bridge_keyfile',
-    'bridge_insecure',
-    'bridge_tls_version',
-];
-
 /** Is `key` a line that belongs to a connection block? */
 function isBridgeKey(key) {
     return STRUCTURAL_KEYS.has(key) || Object.prototype.hasOwnProperty.call(BRIDGE_OPTIONS, key);
@@ -188,15 +162,9 @@ function serialiseBridge(bridge) {
     if (bridge.addresses && bridge.addresses.length > 0) lines.push(`address ${bridge.addresses.join(' ')}`);
     for (const rule of bridge.topics || []) lines.push(`topic ${serialiseTopicRule(rule)}`);
     const options = bridge.options || {};
+    // the options keep the order they were given in: a block read from the file is written
+    // back as it was, and an untouched bridge never shows up in the diff
     const keys = Object.keys(options).filter((k) => options[k] !== undefined && options[k] !== null && options[k] !== '');
-    keys.sort((a, b) => {
-        const ia = OPTION_ORDER.indexOf(a);
-        const ib = OPTION_ORDER.indexOf(b);
-        if (ia !== -1 && ib !== -1) return ia - ib;
-        if (ia !== -1) return -1;
-        if (ib !== -1) return 1;
-        return a < b ? -1 : a > b ? 1 : 0;
-    });
     for (const k of keys) {
         for (const v of [].concat(options[k])) lines.push(`${k} ${String(v).trim()}`);
     }
@@ -614,18 +582,19 @@ function unifiedDiff(before, after, { context = 3, fromName = 'mosquitto.conf', 
             i++;
         }
     }
-    // hunks
+    // hunks: changes closer than 2*context lines share one hunk; no line is shown twice
     const out = [`--- ${fromName}`, `+++ ${toName}`];
     let k = 0;
+    let prevEnd = 0;
     while (k < ops.length) {
         if (ops[k].t === ' ') {
             k++;
             continue;
         }
-        const start = Math.max(0, k - context);
-        let end = k;
+        const start = Math.max(k - context, prevEnd);
         let lastChange = k;
-        while (end < ops.length && end - lastChange <= context) {
+        let end = k + 1;
+        while (end < ops.length && (ops[end].t !== ' ' || end - lastChange <= 2 * context)) {
             if (ops[end].t !== ' ') lastChange = end;
             end++;
         }
@@ -637,6 +606,7 @@ function unifiedDiff(before, after, { context = 3, fromName = 'mosquitto.conf', 
         const bLen = hunk.filter((o) => o.t !== '-').length;
         out.push(`@@ -${aStart},${aLen} +${bStart},${bLen} @@`);
         for (const o of hunk) out.push(o.t + maskSecrets(o.line));
+        prevEnd = end;
         k = end;
     }
     return out.join('\n');

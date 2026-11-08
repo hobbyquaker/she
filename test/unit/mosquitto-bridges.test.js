@@ -38,17 +38,17 @@ describe('mosquitto-bridges: topic lines', () => {
 });
 
 describe('mosquitto-bridges: connection block', () => {
-    it('serialises in a stable order with the known options first', () => {
+    it('serialises the options in the order they were given', () => {
         const lines = bridges.serialiseBridge({ ...sample, options: { zz_unknown: '1', bridge_cafile: '/ca', remote_username: 'u', remote_password: 'p' } });
         expect(lines).toEqual([
             'connection cloud',
             'address broker.example.net:8883',
             'topic tele/# in 0 cloud/ ""',
             'topic cmnd/# out 1',
+            'zz_unknown 1',
+            'bridge_cafile /ca',
             'remote_username u',
             'remote_password p',
-            'bridge_cafile /ca',
-            'zz_unknown 1',
         ]);
     });
     it('skips empty options', () => {
@@ -306,6 +306,15 @@ describe('mosquitto-bridges: diff and rollback', () => {
         expect(d).toMatch(/^\+topic t\/# in 0$/m);
         expect(d).toMatch(/^@@ -2,5 \+2,6 @@$/m);
         expect(bridges.unifiedDiff('same\n', 'same\n')).toBe('');
+    });
+    it('merges nearby changes into one hunk and never repeats a line', () => {
+        const before = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n');
+        const after = before.replace('line 5', 'line five').replace('line 9', 'line nine');
+        const d = bridges.unifiedDiff(before, after);
+        expect(d.match(/^@@/gm)).toHaveLength(1);
+        expect(d.match(/^ line 7$/gm)).toHaveLength(1);
+        const far = bridges.unifiedDiff(before, before.replace('line 2', 'two').replace('line 17', 'seventeen'));
+        expect(far.match(/^@@/gm)).toHaveLength(2);
     });
     it('masks local_password and bridge_psk too', () => {
         expect(bridges.maskSecrets('local_password a\nbridge_psk b\nremote_username c')).toBe('local_password ********\nbridge_psk ********\nremote_username c');

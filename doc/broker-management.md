@@ -166,7 +166,7 @@ A Mosquitto *bridge* joins the managed broker to another broker permanently: the
 
 **Local authentication is not involved.** A bridge is not a client of the local broker: its messages pass without a local user and without ACL checks, whether the dynamic-security plugin is loaded or not. Only the remote side needs a user and ACLs. (`local_username`/`local_password` exist for brokers that require them in other setups; she writes them if given in *Advanced*.)
 
-The Listeners and Config pages leave the connection blocks alone; the Advanced tab shows them as text like everything else.
+The Listeners and Config pages leave the connection blocks alone; the Advanced tab shows them as text like everything else. she writes the blocks after the listeners, each option in the order it had; comments between the blocks move to the end of the file, as with listeners.
 
 ### Certificates
 
