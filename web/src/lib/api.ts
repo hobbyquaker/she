@@ -181,6 +181,9 @@ export interface DaemonStatus {
     eluPercent?: number;
     elMeanMs?: number;
     elMaxMs?: number;
+    heapMb?: number;
+    pendingTimers?: number;
+    commandsFailed?: number;
     latestVersion?: string;
     dataDir?: string;
     startedAt?: number;
@@ -2131,4 +2134,77 @@ export function getServicesCatalog(refresh = false): Promise<Catalog> {
 
 export function installServicePackage(host: string, adapter: string): Promise<{ ok: boolean; output: string }> {
     return request('POST', `${svcAdapter(host, adapter)}/install-package`);
+}
+
+// ---- Runtime model: handlers, pending timers, statistics, gauge history ----
+
+export interface RuntimePending {
+    id: string;
+    due: number;
+    start: number;
+    every: number | null;
+    /** a pending command: its topic, payload and attempt */
+    topic?: string;
+    payload?: string;
+    tries?: number;
+}
+
+export interface RuntimeHandler {
+    id: string;
+    /** sub, var, schedule, sun, interval, timer, shift, debounce, throttle, timeout, retry, command, … */
+    kind: string;
+    name: string | null;
+    detail: string | null;
+    line: number | null;
+    next: number | null;
+    actions: { run: boolean; cancel: boolean };
+    fires: number;
+    errors: number;
+    totalMs: number;
+    maxMs: number;
+    lastFire: number | null;
+    lastMs: number | null;
+    lastError: number | null;
+    recent: { fires: number; errors: number; totalMs: number };
+    pending: RuntimePending[];
+}
+
+export interface RuntimeScript {
+    file: string;
+    label: string;
+    origin: 'builtin' | 'user';
+    handlers: RuntimeHandler[];
+}
+
+export interface GaugeSample {
+    ts: number;
+    mqttMsgPerSec: number;
+    cpuPercent: number;
+    eluPercent: number;
+    elMeanMs: number;
+    elMaxMs: number;
+    memMb: number;
+    heapMb: number;
+    topics: number;
+    handlers: number;
+    pendingTimers: number;
+}
+
+export interface RuntimeSnapshot {
+    ts: number;
+    gauges: GaugeSample | null;
+    commandsFailed: number;
+    scripts: RuntimeScript[];
+}
+
+export function getRuntime(script?: string): Promise<RuntimeSnapshot> {
+    return request('GET', '/she/runtime' + (script ? '?script=' + encodeURIComponent(script) : ''));
+}
+
+export function getRuntimeHistory(): Promise<{ intervalMs: number; samples: GaugeSample[] }> {
+    return request('GET', '/she/runtime/history');
+}
+
+export function runtimeAction(id: string, action: 'cancel' | 'run'): Promise<{ ok: boolean; kind: string; name: string | null }> {
+    return request('POST', '/she/runtime/action', { id, action });
 }

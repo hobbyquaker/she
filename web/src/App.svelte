@@ -10,12 +10,13 @@
     import Security from './pages/Security.svelte';
     import Services from './pages/Services.svelte';
     import Secrets from './pages/Secrets.svelte';
+    import Runtime from './pages/Runtime.svelte';
     import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getConfig, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
     import { subscribeWs, subscribeLog, getLogBuffer, ensureConnected } from './lib/ws.js';
 
-    type Page = 'scripts' | 'mqtt' | 'matter' | 'broker' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages';
-    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'broker', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages'];
+    type Page = 'scripts' | 'mqtt' | 'matter' | 'broker' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages' | 'runtime';
+    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'broker', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages', 'runtime'];
     /** pages that were once called something else — old bookmarks keep working */
     const RENAMED: Record<string, Page> = { services: 'adapters', security: 'broker' };
 
@@ -40,7 +41,6 @@
     let page = $state<Page>(routeFromHash().page);
     let sub = $state<string | null>(routeFromHash().sub);
     let stats = $state<DaemonStatus | null>(null);
-    let statsOpen = $state(false);
     let versionOpen = $state(false);
     let checkingUpdate = $state(false);
     let updating = $state(false);
@@ -344,7 +344,7 @@
     });
 </script>
 
-<svelte:document onclick={() => { if (statsOpen) statsOpen = false; if (versionOpen) versionOpen = false; }} />
+<svelte:document onclick={() => { if (versionOpen) versionOpen = false; }} />
 
 {#if authReady && !showLogin}
 <div class="shell" style={navMin ? `min-width: ${navMin}px` : undefined}>
@@ -484,7 +484,7 @@
 
             <!-- Version button + popup -->
             <div class="version-wrap">
-                <button class="version" onclick={(e) => { e.stopPropagation(); versionOpen = !versionOpen; statsOpen = false; }}>
+                <button class="version" onclick={(e) => { e.stopPropagation(); versionOpen = !versionOpen; }}>
                     v{__APP_VERSION__}
                     {#if stats?.latestVersion && !stats?.docker}<span class="update-dot" title="Update available"></span>{/if}
                 </button>
@@ -515,62 +515,14 @@
                 {/if}
             </div>
 
-            <!-- Stats popup trigger -->
-            <div class="stats-wrap">
-                <button class="nav-icon" onclick={(e) => { e.stopPropagation(); statsOpen = !statsOpen; versionOpen = false; }} title="Daemon status">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="20" x2="18" y2="10"/>
-                        <line x1="12" y1="20" x2="12" y2="4"/>
-                        <line x1="6" y1="20" x2="6" y2="14"/>
-                    </svg>
-                </button>
-                {#if statsOpen}
-                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-                <div class="stats-popup" onclick={(e) => e.stopPropagation()}>
-                    {#if stats}
-                    <dl>
-                        {#if stats.startedAt}
-                        {@const uptimeSec = Math.floor((Date.now() - stats.startedAt) / 1000)}
-                        {@const d = Math.floor(uptimeSec / 86400)}
-                        {@const h = Math.floor((uptimeSec % 86400) / 3600)}
-                        {@const m = Math.floor((uptimeSec % 3600) / 60)}
-                        <dt>Uptime</dt><dd>{d > 0 ? d + 'd ' : ''}{h > 0 || d > 0 ? h + 'h ' : ''}{m}m</dd>
-                        {/if}
-                        <dt>Scripts</dt><dd>{stats.scripts}</dd>
-                        <dt>MQTT topics</dt><dd>{stats.topics}</dd>
-                        <dt>MQTT msg/s</dt><dd>{stats.mqttMsgPerSec ?? '—'}</dd>
-                        {#if stats.matterEnabled}
-                        <dt>Matter nodes</dt><dd>{stats.matterNodes ?? 0}</dd>
-                        <dt>Matter endpoints</dt><dd>{stats.matterEndpoints ?? 0}</dd>
-                        {/if}
-                        {#if stats.dbEnabled}
-                        <dt>DB docs</dt><dd>{stats.dbDocs ?? '—'}</dd>
-                        <dt>DB views</dt><dd>{stats.dbViews ?? '—'}</dd>
-                        {/if}
-                        <dt>Handlers</dt><dd>{stats.handlers ?? '—'}</dd>
-                        <dt>Memory</dt><dd>{stats.memMb != null ? stats.memMb + ' MB' : '—'}</dd>
-                        <dt>CPU</dt><dd>{stats.cpuPercent != null ? stats.cpuPercent + ' %' : '—'}</dd>
-                        <dt>EL util</dt><dd>{stats.eluPercent != null ? stats.eluPercent + ' %' : '—'}</dd>
-                        <dt>EL lag mean</dt><dd>{stats.elMeanMs != null ? stats.elMeanMs + ' ms' : '—'}</dd>
-                        <dt>EL lag max</dt><dd>{stats.elMaxMs != null ? stats.elMaxMs + ' ms' : '—'}</dd>
-                    </dl>
-                    {:else}
-                    <span class="stats-empty">Loading…</span>
-                    {/if}
-                    <div class="stats-actions">
-                        {#if !stats?.docker}
-                        <button onclick={() => { statsOpen = false; restart(); }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
-                                <line x1="12" y1="2" x2="12" y2="12"/>
-                            </svg>
-                            Restart daemon
-                        </button>
-                        {/if}
-                    </div>
-                </div>
-                {/if}
-            </div>
+            <!-- Runtime page: the daemon's gauges, live timers and handler statistics (replaced the stats popup) -->
+            <button class="nav-icon" class:active={page === 'runtime'} onclick={() => navigate('runtime')} title="Runtime — daemon status, timers, handler statistics">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10"/>
+                    <line x1="12" y1="20" x2="12" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+            </button>
 
             <button class="nav-settings" class:active={page === 'config'} onclick={() => navigate('config')} title="Settings">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -602,6 +554,7 @@
         <div class="page-wrap" class:hidden={page !== 'db'}><DB active={page === 'db'} sub={page === 'db' ? sub : null} onsub={(s) => setSub('db', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'config'}><Config /></div>
         <div class="page-wrap" class:hidden={page !== 'logs'}><Logs /></div>
+        <div class="page-wrap" class:hidden={page !== 'runtime'}><Runtime active={page === 'runtime'} {stats} onrestart={restart} /></div>
     </main>
 </div>
 {/if}
@@ -722,58 +675,6 @@
     nav > * { flex-shrink: 0; }
     nav button { white-space: nowrap; }
 
-    .stats-wrap {
-        position: relative;
-    }
-    .stats-popup {
-        position: absolute;
-        right: 0;
-        top: calc(100% + 4px);
-        background: var(--bg-panel);
-        border: 1px solid var(--border);
-        border-radius: 5px;
-        padding: 10px 14px 6px;
-        min-width: 190px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.35);
-        z-index: 200;
-    }
-    .stats-popup dl {
-        margin: 0 0 8px;
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 3px 12px;
-        font-size: 12px;
-    }
-    .stats-popup dt {
-        color: var(--fg-dim);
-        font-weight: normal;
-    }
-    .stats-popup dd {
-        margin: 0;
-        text-align: right;
-        color: var(--fg);
-        font-variant-numeric: tabular-nums;
-    }
-    .stats-empty {
-        font-size: 12px;
-        color: var(--fg-dim);
-        display: block;
-        margin-bottom: 8px;
-    }
-    .stats-actions {
-        border-top: 1px solid var(--border-sub);
-        padding-top: 6px;
-    }
-    .stats-actions button {
-        width: 100%;
-        justify-content: center;
-        gap: 6px;
-        font-size: 12px;
-        color: var(--fg-dim);
-        padding: 4px 8px;
-    }
-    .stats-actions button:hover { color: var(--fg); }
-
     .nav-right {
         display: flex;
         align-items: center;
@@ -879,6 +780,7 @@
         line-height: 0;
     }
     .nav-icon:hover { background: var(--bg-hover); color: var(--fg); }
+    .nav-icon.active { background: var(--bg-active); color: var(--fg-text); }
 
     .nav-settings {
         background: none;

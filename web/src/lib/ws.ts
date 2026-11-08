@@ -62,12 +62,58 @@ function wsUrl() {
     return `${proto}//${location.host}/she/ws`;
 }
 
+// ── Runtime snapshot subscription ──────────────────────────────────────────────
+// The daemon pushes its runtime model (handlers, timers, statistics) about once a second to the
+// clients that asked for it — one subscription per socket, for everything or for one script. Several
+// pages may be interested at once (the Runtime page, an editor panel): the socket asks for the one
+// script when every subscriber wants the same one, else for everything; handlers filter themselves.
+type RuntimeHandlerFn = (snapshot: Record<string, any>) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+const _runtimeSubs = new Map<RuntimeHandlerFn, string | null>();
+let _runtimeSent: string | null | undefined; // what the daemon was last asked for; undefined = nothing
+
+function runtimeWanted(): string | null | undefined {
+    if (_runtimeSubs.size === 0) return undefined;
+    let script: string | null | undefined;
+    for (const s of _runtimeSubs.values()) {
+        if (s === null) return null;
+        if (script === undefined) script = s;
+        else if (script !== s) return null;
+    }
+    return script;
+}
+
+function syncRuntimeSubscription(force = false) {
+    if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+    const wanted = runtimeWanted();
+    if (!force && wanted === _runtimeSent) return;
+    if (wanted === undefined) _ws.send(JSON.stringify({ type: 'runtime:unsubscribe' }));
+    else _ws.send(JSON.stringify({ type: 'runtime:subscribe', ...(wanted ? { script: wanted } : {}) }));
+    _runtimeSent = wanted;
+}
+
+/**
+ * Receive the runtime snapshot while subscribed; `script` narrows it to one script's label (null:
+ * everything). Returns the unsubscribe function.
+ */
+export function subscribeRuntime(script: string | null, handler: RuntimeHandlerFn) {
+    _runtimeSubs.set(handler, script);
+    const unsub = subscribeWs('runtime', handler);
+    syncRuntimeSubscription();
+    return () => {
+        _runtimeSubs.delete(handler);
+        syncRuntimeSubscription();
+        unsub();
+    };
+}
+
 function connect() {
     if (_ws) return;
     getHistoryEntries(); // start fetch in parallel with WS handshake
     const url = wsUrl();
     const ws = new WebSocket(url);
     _ws = ws;
+    _runtimeSent = undefined;
+    ws.onopen = () => syncRuntimeSubscription(true);
 
     ws.onmessage = (ev) => {
         try {
