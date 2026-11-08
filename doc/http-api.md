@@ -812,6 +812,9 @@ Returns a snapshot of runtime counters.
 | `scripts` | Number of user scripts currently loaded |
 | `topics` | Number of MQTT topics tracked in the state store |
 | `safeMode` | `true` when the daemon runs in [safe mode](script-engine.md#safe-mode) — the web UI shows a banner |
+| `mqttMsgPerSec`, `cpuPercent`, `eluPercent`, `elMeanMs`, `elMaxMs`, `memMb`, `heapMb` | The daemon's gauges from the latest sample (taken every 10 s, every second while a Runtime page is open — see [`/she/runtime/history`](#get-sheruntimehistory)) |
+| `handlers`, `pendingTimers`, `commandsFailed` | Registered handlers, timers pending right now, `she.mqtt.command` failures (timeout, offline) since start |
+| `matterEnabled`, `matterNodes`, `matterEndpoints`, `dbEnabled`, `dbDocs`, `dbViews`, `startedAt`, `dataDir`, `user`, `docker`, `latestVersion` | What the web UI's header needs |
 
 ### POST /she/restart
 
@@ -969,6 +972,7 @@ ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'mqtt') console.log(msg.topic, '->', msg.val);
     if (msg.type === 'log')  console.log('[' + msg.level + ']', msg.msg);
+    if (msg.type === 'runtime') console.log('handlers of', msg.scripts.length, 'scripts'); // after { type: 'runtime:subscribe' }
 };
 ```
 
