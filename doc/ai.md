@@ -46,8 +46,8 @@ and the token usage per request.
 The model reads the daemon through tools. Two tools change something, both behind a click:
 
 - **Script drafts** — `propose_script` writes a draft to `<data-dir>/ai/drafts/`; the chat shows the diff with
-  **Apply** (writes the file; the hot reload and the git auto-commit apply as for any save) and **Discard**. Nothing
-  reaches the scripts directory without the click.
+  **Apply** (writes the file; the hot reload and the configured commit mode apply as for any save) and **Discard**.
+  Nothing reaches the scripts directory without the click.
 - **Publishing** — `publish_mqtt` is offered only with the **Publish** checkbox in the chat bar on (off by default,
   remembered like the other two). Every publish shows a card with the topic and the payload and waits for
   **Allow**, **Always allow** (the rest of the session without asking) or **Deny** (two minutes, then it counts as
@@ -78,6 +78,18 @@ The model reads the daemon through tools. Two tools change something, both behin
 | `propose_script` | a script draft with a diff and an Apply button |
 | `run_analysis` | a short JavaScript the model writes, run in a sandbox over read-only data (state store, Influx, Elastic, log files, scripts); the chat shows the code and the result |
 | `publish_mqtt` | a command topic, behind the Publish switch |
+
+## Commit messages
+
+The same provider can write the git commit messages of the Scripts editor: the *Generate with AI* button in the
+commit dialogs, and — with `gitCommitMode: "auto"` and `gitCommitAi: true` — the message of every automatic commit.
+The model gets the staged diff only (truncated to about 12 000 characters, nothing of the house or the state store), is
+asked for one imperative summary line and a few lines of detail, and its answer is capped. Best effort: when no
+provider is configured, the model fails or does not answer in time (eight seconds for an automatic commit, twenty for
+the button), the default message is used — the changed files and the date and time — so a save never waits for the
+model. The button is disabled with a hint until a provider is configured. The default provider is used; a model
+chosen in the chat window does not change it. See [getting-started.md](getting-started.md#commits-of-script-changes)
+for the keys.
 
 ## Prompt profiles
 
