@@ -9,6 +9,7 @@
  *
  * Managed keys handled via structured API:
  *   - listener blocks (each keyed by port)
+ *   - connection (bridge) blocks — see mosquitto-bridges.js for their shape
  *   - plugin (dynsec)
  *   - log_dest / log_type
  *   - persistence / persistence_location
@@ -24,6 +25,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
+const bridges = require('./mosquitto-bridges');
 
 // Keys that she manages — all others are treated as passthrough
 // NOTE: 'plugin_opt_dynsec_config_file' is kept here only for migration —
@@ -62,14 +64,16 @@ const MANAGED_SINGLE_KEYS = new Set([
  * Parse mosquitto.conf text into a structured object.
  *
  * @param {string} raw - raw mosquitto.conf content
- * @returns {{ listeners: object[], managed: object, passthrough: string[], raw: string }}
+ * @returns {{ listeners: object[], bridges: object[], managed: object, passthrough: string[], raw: string }}
  */
 function parseText(raw) {
     const lines = raw.split('\n');
     const managed = {};
     const listeners = [];
+    const bridgeList = [];
     const passthrough = [];
     let currentListener = null;
+    let currentBridge = null;
 
     for (const line of lines) {
         const trimmed = line.trim();
@@ -97,6 +101,14 @@ function parseText(raw) {
                 tls: {},
             };
             listeners.push(currentListener);
+            currentBridge = null;
+        } else if (key === 'connection') {
+            // a bridge block: every bridge key up to the next block or global key belongs to it
+            currentBridge = bridges.newBridge(value.split(/\s+/)[0]);
+            bridgeList.push(currentBridge);
+            currentListener = null;
+        } else if (currentBridge && bridges.looksLikeBridgeKey(key)) {
+            bridges.applyBridgeLine(currentBridge, key, value);
         } else if (currentListener && isListenerSubkey(key)) {
             applyListenerKey(currentListener, key, value);
         } else if (MANAGED_SINGLE_KEYS.has(key)) {
@@ -112,20 +124,22 @@ function parseText(raw) {
                 managed[managedKey] = value;
             }
             currentListener = null;
+            currentBridge = null;
         } else {
             passthrough.push(line);
             currentListener = null;
+            currentBridge = null;
         }
     }
 
-    return { listeners, managed, passthrough, raw };
+    return { listeners, bridges: bridgeList, managed, passthrough, raw };
 }
 
 /**
  * Parse a mosquitto.conf file into a structured object.
  *
  * @param {string} filePath
- * @returns {{ listeners: object[], managed: object, passthrough: string[], raw: string }}
+ * @returns {{ listeners: object[], bridges: object[], managed: object, passthrough: string[], raw: string }}
  */
 function parse(filePath) {
     let raw = '';
@@ -133,7 +147,7 @@ function parse(filePath) {
         raw = fs.readFileSync(filePath, 'utf8');
     } catch (err) {
         if (err.code !== 'ENOENT') throw err;
-        return { listeners: [], managed: {}, passthrough: [], raw: '' };
+        return { listeners: [], bridges: [], managed: {}, passthrough: [], raw: '' };
     }
     return parseText(raw);
 }
@@ -210,14 +224,14 @@ function applyListenerKey(listener, key, value) {
 /**
  * Serialise the structured config back to mosquitto.conf text.
  *
- * @param {{ listeners: object[], managed: object, passthrough: string[] }} conf
+ * @param {{ listeners: object[], bridges?: object[], managed: object, passthrough: string[] }} conf
  * @returns {string}
  */
 function serialise(conf) {
     const lines = [];
 
     // Managed single-key entries first
-    const { managed = {}, listeners = [], passthrough = [] } = conf;
+    const { managed = {}, listeners = [], bridges: bridgeList = [], passthrough = [] } = conf;
 
     const keyOrder = [
         'per_listener_settings',
@@ -285,6 +299,12 @@ function serialise(conf) {
         }
         if (l.password_file) lines.push(`password_file ${l.password_file}`);
         if (l.acl_file) lines.push(`acl_file ${l.acl_file}`);
+        lines.push('');
+    }
+
+    // Bridge (connection) blocks
+    for (const b of bridgeList) {
+        lines.push(...bridges.serialiseBridge(b));
         lines.push('');
     }
 
