@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 /**
  * Unit tests for src/matter/controller.js
  *
@@ -213,7 +217,7 @@ describe('matter controller', () => {
         await controller.init('/tmp/matter', fakeLog);
 
         const list = controller.listPaired();
-        expect(list).toEqual([{ nodeId: '12345678901234', online: true, name: null }]);
+        expect(list).toEqual([{ nodeId: '12345678901234', online: true, name: null, state: 'online', fabricLostSince: null }]);
     });
 
     // ── commission ────────────────────────────────────────────────────────────
@@ -1504,5 +1508,218 @@ describe('matter controller: groups', () => {
         expect(r.problems).toEqual([expect.stringContaining('Bulb 5/1: offline')]);
         expect(bulb.agent.groups.removeGroup).toHaveBeenCalled();
         expect(controller.listGroups()).toMatchObject({ groups: [], keySets: [] });
+    });
+});
+
+describe('matter controller: nodes that lost the fabric', () => {
+    let controller;
+    let ServerNode;
+    let dir;
+    const fakeLog = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+
+    // the hook the controller installs on matter.js's PeerSet, and the peers it may attribute to
+    let handleError;
+    let peers;
+
+    function makePeerSet() {
+        return {
+            filter: (pred) => peers.filter(pred),
+            set handleError(h) {
+                handleError = h;
+            },
+        };
+    }
+
+    /** A connecting peer that just received a message — what a NoSharedTrustRoots answer looks like. */
+    function makePeer(nodeId, { connecting = true, receivedAgoMs = 100, fabricIndex = 1 } = {}) {
+        return { address: { fabricIndex, nodeId }, service: { status: { isConnecting: connecting, lastReceiptAt: Date.now() - receivedAgoMs } } };
+    }
+
+    function makeNode(nodeId, { online = false, fabricIndex = 1 } = {}) {
+        const node = makeFakeClientNode(nodeId, { online });
+        node.peerAddress = { nodeId, fabricIndex };
+        node.state = { network: { isDisabled: false } };
+        node.disable = jest.fn(async () => {
+            node.state.network.isDisabled = true;
+        });
+        node.enable = jest.fn(async () => {
+            node.state.network.isDisabled = false;
+        });
+        return node;
+    }
+
+    function noSharedTrustRoots() {
+        const e = new Error('(Failure (1) / NoSharedTrustRoots (1)) Received general error status for protocol 0 (Sigma2(Resume))');
+        e.protocolStatusCode = 1;
+        return e;
+    }
+
+    beforeEach(() => {
+        jest.resetModules();
+        handleError = undefined;
+        peers = [];
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-ctl-fl-'));
+        jest.doMock('@matter/main', () => ({
+            Environment: { default: { vars: { set: jest.fn() } } },
+            ServerNode: { create: jest.fn() },
+            Logger: { destinations: { default: {} } },
+            LogLevel: { DEBUG: 0, INFO: 1, NOTICE: 2, WARN: 3, ERROR: 4, FATAL: 5 },
+            LogFormat: { PLAIN: 'plain' },
+        }));
+        jest.doMock('@matter/protocol', () => ({
+            PeerSet: class PeerSet {},
+            FabricManager: class FabricManager {},
+            // the real one finds a ChannelStatusResponseError in the cause chain; the fake is the error itself
+            ChannelStatusResponseError: { of: (e) => (e && e.protocolStatusCode !== undefined ? e : undefined) },
+        }));
+        jest.doMock('@matter/types', () => ({ SecureChannelStatusCode: { NoSharedTrustRoots: 1, Busy: 4 } }));
+        jest.doMock('../../src/matter/thread', () => ({ start: jest.fn().mockResolvedValue(undefined), stop: jest.fn().mockResolvedValue(undefined) }));
+        jest.doMock('../../src/matter/dcl', () => ({
+            start: jest.fn().mockResolvedValue(undefined),
+            close: jest.fn().mockResolvedValue(undefined),
+            deviceInfo: jest.fn(),
+            vendorName: () => null,
+        }));
+        controller = require('../../src/matter/controller');
+        ({ ServerNode } = require('@matter/main'));
+    });
+
+    afterEach(async () => {
+        await controller.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+        jest.clearAllMocks();
+    });
+
+    async function start(nodes) {
+        const peerSet = makePeerSet();
+        const server = makeFakeServer(nodes);
+        server.env = { get: jest.fn(() => peerSet) };
+        ServerNode.create.mockResolvedValue(server);
+        await controller.init(dir, fakeLog);
+        expect(typeof handleError).toBe('function');
+        return server;
+    }
+
+    test('three NoSharedTrustRoots answers mark the node fabric_lost since the first one, pause it, emit and return an hour', async () => {
+        const node = makeNode(42n);
+        await start([node]);
+        peers = [makePeer(42n)];
+        const fabricEvents = [];
+        controller.events.on('fabric', (e) => fabricEvents.push(e));
+
+        // the first two answers: matter.js keeps its own delay, nothing is reported
+        expect(handleError(noSharedTrustRoots())).toBeUndefined();
+        expect(handleError(noSharedTrustRoots())).toBeUndefined();
+        expect(controller.listPaired()[0]).toMatchObject({ nodeId: '42', online: false, state: 'offline', fabricLostSince: null });
+        expect(node.disable).not.toHaveBeenCalled();
+
+        // the third: fabric lost
+        const before = Date.now();
+        expect(handleError(noSharedTrustRoots())).toBe(3600000);
+        await Promise.resolve();
+        const dev = controller.listPaired()[0];
+        expect(dev.state).toBe('fabric_lost');
+        expect(dev.fabricLostSince).toBeGreaterThanOrEqual(before - 1000);
+        expect(node.disable).toHaveBeenCalledTimes(1);
+        expect(fabricEvents).toEqual([{ nodeId: '42', lost: true, since: dev.fabricLostSince }]);
+        expect(fakeLog.warn).toHaveBeenCalledWith(expect.stringMatching(/node 42 .* has lost she's fabric — 3 NoSharedTrustRoots answers since .*forget the node/));
+        expect(controller.listFabricLost()).toEqual([expect.objectContaining({ nodeId: '42', count: 3, paused: true })]);
+
+        // a further answer (a probe): paused again, no second warning, no second event
+        fakeLog.warn.mockClear();
+        expect(handleError(noSharedTrustRoots())).toBe(3600000);
+        expect(fakeLog.warn).not.toHaveBeenCalled();
+        expect(fabricEvents.length).toBe(1);
+
+        // persisted for the next start
+        expect(JSON.parse(fs.readFileSync(path.join(dir, 'fabric-lost.json'), 'utf8')).nodes['42']).toMatchObject({ count: 4, paused: true });
+    });
+
+    test('other errors and answers that cannot be attributed to one peer are left to matter.js', async () => {
+        const node = makeNode(42n);
+        const other = makeNode(43n);
+        await start([node, other]);
+        // a plain network error: not ours
+        peers = [makePeer(42n)];
+        expect(handleError(new Error('timeout'))).toBeUndefined();
+        // two peers connecting, both silent for a while: ambiguous → not attributed
+        peers = [makePeer(42n, { receivedAgoMs: 60000 }), makePeer(43n, { receivedAgoMs: 60000 })];
+        for (let i = 0; i < 3; i++) expect(handleError(noSharedTrustRoots())).toBeUndefined();
+        expect(controller.listFabricLost()).toEqual([]);
+        // two peers connecting, one received a message just now: that one
+        peers = [makePeer(42n, { receivedAgoMs: 60000 }), makePeer(43n, { receivedAgoMs: 50 })];
+        for (let i = 0; i < 3; i++) handleError(noSharedTrustRoots());
+        await new Promise((r) => setImmediate(r)); // the disable runs off the hook's synchronous path
+        expect(controller.listFabricLost().map((l) => l.nodeId)).toEqual(['43']);
+        expect(other.disable).toHaveBeenCalled();
+        expect(node.disable).not.toHaveBeenCalled();
+    });
+
+    test("the node coming online restores it; matter.js's warnings about a paused node are demoted to debug", async () => {
+        const node = makeNode(42n);
+        await start([node]);
+        peers = [makePeer(42n)];
+        for (let i = 0; i < 3; i++) handleError(noSharedTrustRoots());
+        expect(controller.listPaired()[0].state).toBe('fabric_lost');
+
+        const { Logger, LogLevel } = require('@matter/main');
+        const write = Logger.destinations.default.write;
+        write('2026-10-23 10:00:00.000 WARN PeerConnection @1:2a udp://[fe80::1]:5540 Peer error (retry in 5m): [channel-status-response] (Failure (1) / NoSharedTrustRoots (1))', {
+            level: LogLevel.WARN,
+            facility: 'PeerConnection',
+            values: [],
+        });
+        expect(fakeLog.warn).not.toHaveBeenCalledWith('matter.js:', expect.stringContaining('Peer error'));
+        expect(fakeLog.debug).toHaveBeenCalledWith('matter.js:', expect.stringContaining('Peer error'));
+        // another node's warning (and @1:2a0 is not @1:2a) stays a warning
+        write('2026-10-23 10:00:01.000 WARN PeerConnection @1:2a0 udp://[fe80::2]:5540 Peer error (retry in 5m): x', {
+            level: LogLevel.WARN,
+            facility: 'PeerConnection',
+            values: [],
+        });
+        expect(fakeLog.warn).toHaveBeenCalledWith('matter.js:', expect.stringContaining('@1:2a0'));
+
+        const fabricEvents = [];
+        controller.events.on('fabric', (e) => fabricEvents.push(e));
+        node.lifecycle.isOnline = true;
+        node.lifecycle.online.on.mock.calls[0][0]();
+        expect(fabricEvents).toEqual([{ nodeId: '42', lost: false, since: null }]);
+        expect(controller.listPaired()[0]).toMatchObject({ state: 'online', fabricLostSince: null });
+        expect(controller.listFabricLost()).toEqual([]);
+        expect(fakeLog.info).toHaveBeenCalledWith("matter: node 42 is back in she's fabric");
+    });
+
+    test('a lost node is remembered across a restart and paused again', async () => {
+        const node = makeNode(42n);
+        await start([node]);
+        peers = [makePeer(42n)];
+        for (let i = 0; i < 3; i++) handleError(noSharedTrustRoots());
+        const since = controller.listPaired()[0].fabricLostSince;
+        await controller.close();
+
+        const node2 = makeNode(42n);
+        node2.state.network.isDisabled = true; // matter.js persisted the disable
+        await start([node2]);
+        expect(controller.listPaired()[0]).toMatchObject({ state: 'fabric_lost', fabricLostSince: since });
+        expect(node2.disable).not.toHaveBeenCalled(); // already disabled
+        expect(fakeLog.info).toHaveBeenCalledWith(expect.stringContaining('still paused'));
+    });
+
+    test('unpair of a lost node and forget skip decommissioning and delete locally', async () => {
+        const node = makeNode(42n);
+        const healthy = makeNode(7n);
+        await start([node, healthy]);
+        peers = [makePeer(42n)];
+        for (let i = 0; i < 3; i++) handleError(noSharedTrustRoots());
+
+        await controller.unpair('42');
+        expect(node.decommission).not.toHaveBeenCalled();
+        expect(node.delete).toHaveBeenCalled();
+        expect(controller.listFabricLost()).toEqual([]);
+
+        await controller.forget('7');
+        expect(healthy.decommission).not.toHaveBeenCalled();
+        expect(healthy.delete).toHaveBeenCalled();
+        await expect(controller.forget('999')).rejects.toThrow('not found');
     });
 });

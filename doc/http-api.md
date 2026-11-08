@@ -360,9 +360,12 @@ List all paired Matter nodes.
 
 ```json
 [
-  { "nodeId": "1", "name": "Bulb A" }
+  { "nodeId": "1", "name": "Bulb A", "online": true, "state": "online", "fabricLostSince": null },
+  { "nodeId": "2", "name": "Plug", "online": false, "state": "fabric_lost", "fabricLostSince": 1761155601000 }
 ]
 ```
+
+`state` is `online`, `offline` or `fabric_lost`. A node is **fabric_lost** when it answers she's connection attempts with the status `NoSharedTrustRoots`: it does not carry she's fabric any more — it was factory-reset, or another administrator removed she's fabric — and cannot come back without re-commissioning. `fabricLostSince` is the time of the first such answer. she pauses such a node after three consecutive answers (no connection attempts, no log noise), probes it once an hour for two minutes, and clears the state when it comes online again. The state is kept in `fabric-lost.json` in the Matter storage across restarts; the pause itself is matter.js's node state. The health alert `fabric_lost` (see `/she/matter/health`) replaces the `offline` alert for the node.
 
 ### POST /she/matter/commission
 
@@ -394,9 +397,15 @@ Get details for a paired node.
 
 ### DELETE /she/matter/devices/:nodeId
 
-Unpair a Matter device.
+Unpair a Matter device: she's fabric is removed from the device (decommissioning), then the node from she. A device that cannot be reached is force-deleted locally after the connection timeout (about 90 s); a node in state `fabric_lost` is forgotten locally right away, without a decommissioning attempt.
 
 **Response (HTTP 200):** `{ "ok": true }`
+
+### POST /she/matter/devices/:nodeId/forget
+
+Forget a node locally: remove it from she's controller storage without decommissioning the device. For a node that has lost she's fabric or cannot be reached any more. A device that still carries she's fabric keeps it until it is factory-reset or another administrator removes the fabric.
+
+**Response (HTTP 200):** `{ "ok": true }` · HTTP 404 when the node is unknown.
 
 ### POST /she/matter/devices/:nodeId/rename
 
@@ -593,9 +602,9 @@ A **group binding** is `POST /she/matter/bindings` with `"target": { "group": 1 
 
 ### GET /she/matter/health · GET /she/matter/devices/:nodeId/health
 
-Device health: per node the battery from the Power Source cluster (`percent`, `level` ok/warning/critical, `state`, `voltageMv`), when it was last heard from (any attribute report or event), its online/offline history (`offlineCount7d`, `offlineMs7d`, `lastOffline`), its Thread role changes, and the alerts — `low_battery` (level warning/critical or ≤ 20 %) and `offline` (longer than an hour). Kept in `device-health.json` in the Matter storage across restarts. Alerts are logged at warn and published retained on `<name>/status/matter/health` as `{ "val": "ok" | "warning", "ts", "lc", "alerts": [ { kind, nodeId, name, message, since } ] }`; the device list marks the node, the device page shows the Health line.
+Device health: per node the battery from the Power Source cluster (`percent`, `level` ok/warning/critical, `state`, `voltageMv`), when it was last heard from (any attribute report or event), its online/offline history (`offlineCount7d`, `offlineMs7d`, `lastOffline`), its Thread role changes, whether it lost she's fabric (`fabricLost`: the time of the first `NoSharedTrustRoots` answer, else `null`), and the alerts — `low_battery` (level warning/critical or ≤ 20 %), `offline` (longer than an hour) and `fabric_lost` (the device does not carry she's fabric any more; replaces `offline` for that node, with the hint to re-commission the device or forget the node). Kept in `device-health.json` in the Matter storage across restarts. Alerts are logged at warn and published retained on `<name>/status/matter/health` as `{ "val": "ok" | "warning", "ts", "lc", "alerts": [ { kind, nodeId, name, message, since } ] }`; the device list marks the node, the device page shows the Health line.
 
-**Response (HTTP 200):** `{ "val": "ok", "nodes": [ { "nodeId": "4", "name": "Bulb", "lastSeen": 1760000000000, "online": true, "since": 1760000000000, "battery": null, "offlineNow": 0, "offlineCount7d": 1, "offlineMs7d": 120000, "lastOffline": { "from": …, "to": …, "ms": 120000 }, "roles": [ { "role": 5, "ts": … } ], "alerts": [] } ], "alerts": [], "topic": "she/status/matter/health", "thresholds": { "offlineAlertMs": 3600000, "lowBatteryPercent": 20 } }`
+**Response (HTTP 200):** `{ "val": "ok", "nodes": [ { "nodeId": "4", "name": "Bulb", "lastSeen": 1760000000000, "online": true, "since": 1760000000000, "battery": null, "fabricLost": null, "offlineNow": 0, "offlineCount7d": 1, "offlineMs7d": 120000, "lastOffline": { "from": …, "to": …, "ms": 120000 }, "roles": [ { "role": 5, "ts": … } ], "alerts": [] } ], "alerts": [], "topic": "she/status/matter/health", "thresholds": { "offlineAlertMs": 3600000, "lowBatteryPercent": 20 } }`
 
 `POST /she/matter/health/check` evaluates the alerts now.
 
