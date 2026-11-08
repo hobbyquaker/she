@@ -61,6 +61,20 @@
     let gitAutoCommit  = $state(false);
     let gitAutoPush    = $state(false);
     let timezone       = $state('');
+    let locale         = $state('');
+    let holidays       = $state('');
+    let holidaysExtra  = $state('');   // one per line: MM-DD or YYYY-MM-DD, optionally followed by a name
+    let updateChannel  = $state<'stable' | 'beta'>('stable');
+
+    // Holiday regions of the daemon's table (src/lib/holidays.js) — a unit test keeps the two in step
+    const HOLIDAY_REGIONS: [string, string][] = [
+        ['DE', 'Deutschland (bundesweite Feiertage)'],
+        ['DE-BW', 'Baden-Württemberg'], ['DE-BY', 'Bayern'], ['DE-BE', 'Berlin'], ['DE-BB', 'Brandenburg'],
+        ['DE-HB', 'Bremen'], ['DE-HH', 'Hamburg'], ['DE-HE', 'Hessen'], ['DE-MV', 'Mecklenburg-Vorpommern'],
+        ['DE-NI', 'Niedersachsen'], ['DE-NW', 'Nordrhein-Westfalen'], ['DE-RP', 'Rheinland-Pfalz'], ['DE-SL', 'Saarland'],
+        ['DE-SN', 'Sachsen'], ['DE-ST', 'Sachsen-Anhalt'], ['DE-SH', 'Schleswig-Holstein'], ['DE-TH', 'Thüringen'],
+        ['AT', 'Österreich'],
+    ];
 
     // Solar events
     let latitude       = $state<number | ''>(48.7408);
@@ -167,7 +181,8 @@
         'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey', 'mqttVersion',
         'port', 'bindAddress', 'auth', 'password', 'proxyHeader', 'proxyLogoutUrl',
         'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush',
-        'latitude', 'longitude', 'timezone',
+        'latitude', 'longitude', 'timezone', 'locale', 'holidays', 'holidaysExtra',
+        'updateChannel',
         'verbosity',
         'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
         'redis',
@@ -244,9 +259,10 @@
         { id: 'services', label: 'Adapters',        terms: ['adapters','adapter management','services','xyz2mqtt','2mqtt','interfaces','instances','systemd','fleet'] },
         { id: 'matter',  label: 'Matter controller', terms: ['matter','thread','zigbee','iot','devices','smart home controller'] },
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
+        { id: 'updates',    label: 'Updates',      terms: ['update','channel','stable','beta','pre-release','release','version','github'] },
         { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
         { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository'] },
-        { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule'] },
+        { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule','locale','holidays','holiday','feiertag','she.time'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
         { id: 'influx',     label: 'InfluxDB',     terms: ['influx','influxdb','time series','history','token','org','bucket','database','flux','influxql'] },
@@ -304,6 +320,14 @@
             if (typeof cfg.latitude         === 'number')  latitude     = cfg.latitude;
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.timezone         === 'string')  timezone     = cfg.timezone;
+            if (typeof cfg.locale           === 'string')  locale       = cfg.locale;
+            if (typeof cfg.holidays         === 'string')  holidays     = cfg.holidays;
+            if (Array.isArray(cfg.holidaysExtra)) {
+                holidaysExtra = (cfg.holidaysExtra as unknown[])
+                    .map(x => typeof x === 'string' ? x : (x && typeof x === 'object' && 'date' in x) ? `${(x as { date: string; name?: string }).date}${(x as { name?: string }).name ? ' ' + (x as { name?: string }).name : ''}` : '')
+                    .filter(Boolean).join('\n');
+            }
+            if (cfg.updateChannel === 'beta' || cfg.updateChannel === 'stable') updateChannel = cfg.updateChannel;
             if (typeof cfg.verbosity        === 'string')  verbosity    = cfg.verbosity;
             if (typeof cfg.heartbeat === 'object' && cfg.heartbeat !== null) {
                 const hb = cfg.heartbeat as Record<string, unknown>;
@@ -502,6 +526,11 @@
         if (latitude  !== '') cfg.latitude  = Number(latitude);
         if (longitude !== '') cfg.longitude = Number(longitude);
         if (timezone)         cfg.timezone  = timezone;
+        if (locale)           cfg.locale    = locale;
+        if (holidays)         cfg.holidays  = holidays;
+        const extraLines = holidaysExtra.split('\n').map(l => l.trim()).filter(Boolean);
+        if (extraLines.length) cfg.holidaysExtra = extraLines;
+        if (updateChannel !== 'stable') cfg.updateChannel = updateChannel;
 
         cfg.verbosity = verbosity;
         cfg.heartbeat = {
@@ -917,6 +946,23 @@
                 </section>
                 {/if}
 
+                <!-- ── Updates ───────────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'updates')}
+                <section id="sec-updates">
+                    <h3>Updates</h3>
+                    <div class="field">
+                        <label>
+                            Channel
+                            {@render tip('Which GitHub releases the update check offers. Stable: the latest release. Beta: the latest pre-release as well — the higher of the two, never a downgrade. Takes effect at the next check, no restart needed.')}
+                        </label>
+                        <select bind:value={updateChannel}>
+                            <option value="stable">Stable — releases only</option>
+                            <option value="beta">Beta — pre-releases too</option>
+                        </select>
+                    </div>
+                </section>
+                {/if}
+
                 <!-- ── Scripts ───────────────────────────────────── -->
                 {#if visibleSections.some(s => s.id === 'scripts')}
                 <section id="sec-scripts">
@@ -987,6 +1033,32 @@
                                 <option value={tz}>{tz}</option>
                             {/each}
                         </datalist>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Locale
+                            {@render tip('Language of the weekday and month names she.time.format writes and of the long form of she.time.humanize (e.g. en-US, de-DE). Default: de-DE. Requires daemon restart.')}
+                        </label>
+                        <input type="text" bind:value={locale} placeholder="de-DE (default)" autocomplete="off" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Holidays
+                            {@render tip('Public-holiday region for she.time.isHoliday() and isWorkday(): a country, or a German state for its own days (Fronleichnam, Reformationstag, …). Leave empty when scripts do not use holidays. Requires daemon restart.')}
+                        </label>
+                        <select bind:value={holidays}>
+                            <option value="">(none)</option>
+                            {#each HOLIDAY_REGIONS as [code, name]}
+                                <option value={code}>{code} — {name}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>
+                            Extra holidays
+                            {@render tip('Additional days she.time treats as holidays, one per line: MM-DD for every year or YYYY-MM-DD for one date, optionally followed by a name — e.g. "08-15 Mariä Himmelfahrt" or "2026-12-24 Heiligabend". Requires daemon restart.')}
+                        </label>
+                        <textarea bind:value={holidaysExtra} rows="3" placeholder="08-15 Mariä Himmelfahrt&#10;2026-12-24 Heiligabend" spellcheck="false"></textarea>
                     </div>
                     <div class="field">
                         <label>

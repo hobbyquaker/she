@@ -237,6 +237,7 @@ if (typeof config.port !== 'undefined') {
             bindAddress: config.bindAddress,
             configPath: config.config,
             scriptDir: config.dir || null,
+            updateChannel: config.updateChannel,
         })
         .then((actualPort) => log.info('http server listening on :' + actualPort))
         .catch((err) => {

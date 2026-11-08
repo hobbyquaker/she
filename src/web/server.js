@@ -3,9 +3,9 @@
 const express = require('express');
 const path = require('path');
 const { spawn } = require('child_process');
-const semverCompare = require('semantic-compare');
 const pkg = require('../../package.json');
-const { router: configRouter } = require('./config-api');
+const { router: configRouter, DEFAULT_CONFIG_PATH } = require('./config-api');
+const updateChannel = require('../lib/update-channel');
 const { router: scriptsRouter } = require('./scripts-api');
 const { router: shedbRouter } = require('./shedb-api');
 const { router: matterRouter } = require('./matter-api');
@@ -93,33 +93,61 @@ app.post('/she/restart', (req, res) => {
     setTimeout(_systemdRestart, 200);
 });
 
-// npm version check — poll once on startup and every 24 hours
-let _latestNpmVersion = null;
-async function _checkNpmVersion() {
+// Update check — the GitHub releases of she, by channel: `stable` offers the newest release,
+// `beta` also the pre-releases. Polled once at start and every 24 hours, and on the UI's button.
+const _isDocker = require('fs').existsSync('/.dockerenv');
+let _update = null; // the last check's result (update-channel.checkUpdate)
+let _startupChannel = 'stable';
+
+// The channel is read from the config file at every check, so a change on the Config page
+// takes effect without a restart; the CLI/env value is the fallback when the file has none.
+function currentChannel() {
     try {
-        const res = await fetch('https://registry.npmjs.org/smart-home-engine/latest');
-        const data = await res.json();
-        _latestNpmVersion = data.version && semverCompare(pkg.version, data.version) < 0 ? data.version : null;
+        const file = JSON.parse(require('fs').readFileSync(app.locals.configPath || DEFAULT_CONFIG_PATH, 'utf8'));
+        if (updateChannel.CHANNELS.includes(file.updateChannel)) return file.updateChannel;
     } catch {
-        /* best-effort */
+        /* no file, or not ours to parse */
     }
+    return _startupChannel;
 }
-_checkNpmVersion();
-setInterval(_checkNpmVersion, 24 * 60 * 60 * 1000);
+
+async function _checkUpdate() {
+    _update = await updateChannel.checkUpdate({ installed: pkg.version, channel: currentChannel(), docker: _isDocker });
+    return _update;
+}
+
+function _updateFields() {
+    const f = { updateChannel: _update ? _update.channel : currentChannel() };
+    if (_update && _update.latest) {
+        f.latestVersion = _update.latest;
+        if (_update.latestIsPrerelease) f.latestPrerelease = true;
+    }
+    if (_update && _update.stable) f.latestStable = _update.stable;
+    if (_update && _update.prerelease) f.latestBeta = _update.prerelease;
+    if (_update && _update.error) f.updateError = _update.error;
+    return f;
+}
 
 // Trigger an immediate version check (called by the UI refresh button)
 app.post('/she/check-update', async (req, res) => {
-    await _checkNpmVersion();
-    res.json({ latestVersion: _latestNpmVersion });
+    const r = await _checkUpdate();
+    res.json({ latestVersion: r.latest, ..._updateFields() });
 });
 
-// Update — install latest npm package, then restart
+// Update — install the offered version exactly, then restart. Without a known version there is
+// nothing to install: `npm install -g smart-home-engine` would take npm's `latest`, which can be
+// older than a running pre-release.
 app.post('/she/update', (req, res) => {
-    res.json({ ok: true });
+    const version = _update && _update.latest;
+    if (!version || _isDocker) {
+        res.status(409).json({ ok: false, error: _isDocker ? 'a Docker container is updated by pulling a new image' : 'no update known — check for updates first' });
+        return;
+    }
+    res.json({ ok: true, version });
     setTimeout(() => {
         // Use async spawn so the HTTP server (and event loop) remain responsive
         // while npm runs. spawnSync would block all HTTP polling from the UI.
-        const child = spawn('sudo', ['npm', 'install', '-g', 'smart-home-engine'], { stdio: 'inherit' });
+        const child = spawn('sudo', ['npm', 'install', '-g', `${updateChannel.PACKAGE}@${version}`], { stdio: 'inherit' });
         child.on('close', () => _systemdRestart());
     }, 200);
 });
@@ -158,10 +186,8 @@ app.get('/she/health', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.status(ok ? 200 : 503).json(body);
 });
-const _isDocker = require('fs').existsSync('/.dockerenv');
 app.get('/she/status', (req, res) => {
-    const s = _getStats ? _getStats() : { scripts: 0, topics: 0 };
-    if (_latestNpmVersion) s.latestVersion = _latestNpmVersion;
+    const s = Object.assign(_getStats ? _getStats() : { scripts: 0, topics: 0 }, _updateFields());
     s.dataDir = require('../lib/storage').STORAGE_ROOT;
     s.user = require('os').userInfo().username; // the OS user the daemon runs as (default SSH user for managed hosts)
     s.startedAt = SERVER_START_TIME;
@@ -297,6 +323,9 @@ function startServer(port, options = {}) {
     if (options.scriptDir) {
         app.locals.scriptDir = options.scriptDir;
     }
+    _startupChannel = updateChannel.normalizeChannel(options.updateChannel);
+    _checkUpdate();
+    setInterval(_checkUpdate, 24 * 60 * 60 * 1000).unref();
     const host = options.bindAddress || '0.0.0.0';
     return new Promise((resolve, reject) => {
         httpServer = app.listen(port, host, () => {

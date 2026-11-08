@@ -182,6 +182,15 @@ export interface DaemonStatus {
     elMeanMs?: number;
     elMaxMs?: number;
     latestVersion?: string;
+    /** the update channel the check uses: 'stable' (releases) or 'beta' (pre-releases too) */
+    updateChannel?: 'stable' | 'beta';
+    /** latestVersion is a pre-release */
+    latestPrerelease?: boolean;
+    /** the newest stable release and the newest pre-release known, whatever the channel */
+    latestStable?: string;
+    latestBeta?: string;
+    /** why the last check found nothing to offer (network, a release missing on npm) */
+    updateError?: string;
     dataDir?: string;
     startedAt?: number;
     docker?: boolean;
@@ -235,11 +244,19 @@ export function restartDaemon(): Promise<{ ok: boolean }> {
     return request('POST', '/she/restart');
 }
 
-export function updateDaemon(): Promise<{ ok: boolean }> {
+export function updateDaemon(): Promise<{ ok: boolean; version?: string }> {
     return request('POST', '/she/update');
 }
 
-export function checkForUpdate(): Promise<{ latestVersion: string | null }> {
+export interface UpdateCheck {
+    latestVersion: string | null;
+    updateChannel: 'stable' | 'beta';
+    latestPrerelease?: boolean;
+    latestStable?: string;
+    latestBeta?: string;
+    updateError?: string;
+}
+export function checkForUpdate(): Promise<UpdateCheck> {
     return request('POST', '/she/check-update');
 }
 

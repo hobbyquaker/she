@@ -135,14 +135,14 @@
         checkingUpdate = true;
         try {
             const res = await checkForUpdate();
-            if (stats) stats = { ...stats, latestVersion: res.latestVersion ?? undefined };
+            if (stats) stats = { ...stats, latestVersion: res.latestVersion ?? undefined, updateChannel: res.updateChannel, latestPrerelease: res.latestPrerelease, latestStable: res.latestStable, latestBeta: res.latestBeta, updateError: res.updateError };
         } catch { /* best-effort */ } finally {
             checkingUpdate = false;
         }
     }
 
     async function update() {
-        if (!(await dialog.show(`Update to v${stats?.latestVersion}? The daemon will restart after the update completes.`, { confirm: 'Update' }))) return;
+        if (!(await dialog.show(`Update to v${stats?.latestVersion}${stats?.latestPrerelease ? ' (pre-release)' : ''}? The daemon will restart after the update completes.`, { confirm: 'Update' }))) return;
         versionOpen = false;
         updating = true;
         const prevStartedAt: number | undefined = stats?.startedAt;
@@ -488,19 +488,28 @@
                     v{__APP_VERSION__}
                     {#if stats?.latestVersion && !stats?.docker}<span class="update-dot" title="Update available"></span>{/if}
                 </button>
-                {#if versionOpen && !stats?.docker}
+                {#if versionOpen}
                 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
                 <div class="version-popup" onclick={(e) => e.stopPropagation()}>
                     <dl>
                         <dt>Installed</dt><dd>v{__APP_VERSION__}</dd>
+                        <dt>Channel</dt><dd title="Config → Updates">{stats?.updateChannel === 'beta' ? 'beta (pre-releases too)' : 'stable'}</dd>
                         {#if stats?.latestVersion}
-                        <dt>Latest</dt><dd style="color: #f90">v{stats.latestVersion}</dd>
+                        <dt>Latest</dt><dd style="color: #f90">v{stats.latestVersion}{#if stats.latestPrerelease} <span class="version-pre">pre-release</span>{/if}</dd>
+                        {:else if stats?.updateError}
+                        <dt>Latest</dt><dd title={stats.updateError}>unknown</dd>
                         {:else}
                         <dt>Latest</dt><dd>up to date</dd>
                         {/if}
+                        {#if stats?.updateChannel === 'beta' && stats?.latestStable}
+                        <dt>Stable</dt><dd>v{stats.latestStable}</dd>
+                        {/if}
+                        {#if stats?.docker}
+                        <dt>Docker</dt><dd>pull a new image to update</dd>
+                        {/if}
                     </dl>
                     <div class="version-actions">
-                        {#if stats?.latestVersion}
+                        {#if stats?.latestVersion && !stats?.docker}
                         <button onclick={update}>
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 4 4 10 10 10"/><path d="M4 10A9 9 0 1 0 6.5 5"/></svg>
                             Update to v{stats.latestVersion}
@@ -847,6 +856,7 @@
     }
     .version-popup dt { color: var(--fg-dim); font-weight: normal; }
     .version-popup dd { margin: 0; text-align: right; }
+    .version-pre { font-size: 0.75em; color: var(--fg-dim); border: 1px solid var(--fg-dim); border-radius: 3px; padding: 0 3px; margin-left: 2px; }
     .version-actions {
         border-top: 1px solid var(--border-sub);
         padding-top: 6px;
