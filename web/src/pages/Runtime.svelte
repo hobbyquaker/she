@@ -110,6 +110,9 @@
         window.dispatchEvent(new CustomEvent('she:open-script', { detail: { path: script, line } }));
     }
     const n = (v: number | null | undefined, unit = '') => (v === null || v === undefined ? '—' : `${v}${unit}`);
+    /** the additional brokers (M2): from the live snapshot, else from the polled status */
+    const brokers = $derived(snapshot?.brokers ?? stats?.brokers ?? []);
+    const brokersDown = $derived(brokers.filter((b) => !b.connected));
 </script>
 
 <div class="page">
@@ -210,6 +213,17 @@
                 <div class="value" class:err={(snapshot?.commandsFailed ?? 0) > 0}>{n(snapshot?.commandsFailed ?? stats?.commandsFailed ?? 0)}</div>
                 <div class="hint">she.mqtt.command since start</div>
             </div>
+            {#if brokers.length > 0}
+            <div class="tile" title={brokers.map((b) => `${b.name}: ${b.connected ? 'connected' : 'not connected' + (b.error ? ' — ' + b.error : '')}`).join('\n')}>
+                <div class="label">Additional brokers</div>
+                <div class="value" class:warn={brokersDown.length > 0}>{brokers.length - brokersDown.length}<span class="unit"> / {brokers.length} connected</span></div>
+                {#if brokersDown.length > 0}
+                    <div class="hint warn">not connected: {brokersDown.map((b) => b.name).join(', ')}</div>
+                {:else}
+                    <div class="hint">{brokers.reduce((a, b) => a + b.mirror.in + b.mirror.out, 0)} mirrored since start</div>
+                {/if}
+            </div>
+            {/if}
         </section>
 
         <section class="handlers">
@@ -262,6 +276,7 @@
     .value { font-size: 20px; font-weight: 600; color: var(--fg-text); font-variant-numeric: tabular-nums; line-height: 1.3; margin: 2px 0 4px; }
     .value .unit { font-size: 11px; font-weight: normal; color: var(--fg-muted); }
     .value.err { color: var(--fg-err); }
+    .value.warn { color: var(--fg-warn); }
     .hint { font-size: 11px; color: var(--fg-muted); margin-top: auto; }
     .hint.warn { color: var(--fg-warn); }
     .spark { margin-top: auto; height: 28px; }

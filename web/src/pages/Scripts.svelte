@@ -491,6 +491,50 @@
 
     // Monaco sandbox type stubs for she API autocomplete
     const she_dts = `
+/** the MQTT API of one broker: she.mqtt is the primary, she.mqtt('<name>') an additional broker */
+interface SheMqtt {
+    /** null on the primary, the broker's name on she.mqtt('<name>') */
+    readonly broker: string | null;
+    /** opts: change, retain, shift, random, condition — and debounce / maxWait / throttle (SECONDS), perTopic, name, flushOnUnload */
+    sub(
+        topic: string | string[],
+        opts?: { change?: boolean; retain?: boolean; shift?: number; random?: number; condition?: string | ((...args: any[]) => any); debounce?: number; maxWait?: number; throttle?: number; perTopic?: boolean; name?: string; flushOnUnload?: boolean } | string | ((...args: any[]) => any),
+        cb?: (topic: string, val: any, obj: any, prev: any, msg: any) => void,
+    ): void;
+    /** opts.changed: publish only when the payload differs from this script's last publish to the topic */
+    pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean; changed?: boolean }): void;
+    get(topic: string): any;
+    getProp(topic: string, ...prop: string[]): any;
+    link(source: string | string[], target: string | string[], value?: any): void;
+    age(topic: string): number;
+    or(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
+    and(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
+    max(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
+    min(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
+    timer(src: string | string[], ms: number, target: string | ((topic: string | null, val: 0 | 1) => void)): void;
+    /**
+     * Publish a command and wait for the device's status to confirm it.
+     * Resolves with { val, ms, tries } (already: true when the status was at the target before);
+     * rejects with an Error { reason: 'timeout' | 'offline' | 'superseded' | 'unloaded' | 'cancelled', topic, payload, tries }.
+     * The confirm topic is derived: <inst>/set/<path> → <inst>/status/<path>, zigbee2mqtt <base>/<dev>/set → <base>/<dev>; else pass opts.confirm.
+     */
+    command(topic: string, payload: string | number | boolean | object, opts?: {
+        /** the status topic that shows the effect (derived when omitted) */
+        confirm?: string;
+        /** the field of a JSON status payload to look at */
+        path?: string;
+        /** the value to expect (default: the payload), or a function */
+        expect?: any | ((val: any) => boolean);
+        /** for numbers */
+        tolerance?: number;
+        /** seconds per attempt (default 5) */
+        timeout?: number;
+        /** further attempts after a timeout (default 0) */
+        retries?: number;
+        /** no warning in the log when the command fails */
+        quiet?: boolean;
+    }): Promise<{ val: any; ms: number; tries: number; already?: boolean }>;
+}
 declare const she: {
     log(...args: any[]): void;
     info(...args: any[]): void;
@@ -551,47 +595,11 @@ declare const she: {
         /** '2 h 40 min'; long: '2 Stunden 40 Minuten'; parts: how many units. */
         humanize(ms: number, opts?: { parts?: number; long?: boolean }): string;
     };
-    mqtt: {
-        /** opts: change, retain, shift, random, condition — and debounce / maxWait / throttle (SECONDS), perTopic, name, flushOnUnload */
-        sub(
-            topic: string | string[],
-            opts?: { change?: boolean; retain?: boolean; shift?: number; random?: number; condition?: string | ((...args: any[]) => any); debounce?: number; maxWait?: number; throttle?: number; perTopic?: boolean; name?: string; flushOnUnload?: boolean } | string | ((...args: any[]) => any),
-            cb?: (topic: string, val: any, obj: any, prev: any, msg: any) => void,
-        ): void;
-        /** opts.changed: publish only when the payload differs from this script's last publish to the topic */
-        pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean; changed?: boolean }): void;
-        get(topic: string): any;
-        getProp(topic: string, ...prop: string[]): any;
-        link(source: string | string[], target: string | string[], value?: any): void;
-        age(topic: string): number;
-        or(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
-        and(srcs: string[], target: string | ((topic: string | null, val: 0 | 1) => void)): void;
-        max(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
-        min(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
-        timer(src: string | string[], ms: number, target: string | ((topic: string | null, val: 0 | 1) => void)): void;
-        /**
-         * Publish a command and wait for the device's status to confirm it.
-         * Resolves with { val, ms, tries } (already: true when the status was at the target before);
-         * rejects with an Error { reason: 'timeout' | 'offline' | 'superseded' | 'unloaded' | 'cancelled', topic, payload, tries }.
-         * The confirm topic is derived: <inst>/set/<path> → <inst>/status/<path>, zigbee2mqtt <base>/<dev>/set → <base>/<dev>; else pass opts.confirm.
-         */
-        command(topic: string, payload: string | number | boolean | object, opts?: {
-            /** the status topic that shows the effect (derived when omitted) */
-            confirm?: string;
-            /** the field of a JSON status payload to look at */
-            path?: string;
-            /** the value to expect (default: the payload), or a function */
-            expect?: any | ((val: any) => boolean);
-            /** for numbers */
-            tolerance?: number;
-            /** seconds per attempt (default 5) */
-            timeout?: number;
-            /** further attempts after a timeout (default 0) */
-            retries?: number;
-            /** no warning in the log when the command fails */
-            quiet?: boolean;
-        }): Promise<{ val: any; ms: number; tries: number; already?: boolean }>;
-    };
+    /**
+     * The primary broker's MQTT API — and, called with a name, the same API for an additional broker
+     * configured under "brokers": she.mqtt('shed').sub('tele/#', cb). An unknown name throws at load.
+     */
+    mqtt: SheMqtt & { (broker: string): SheMqtt };
     http: {
         fetch(url: string, opts?: RequestInit): Promise<any>;
         sub(path: string, callback: (body: any, req: { params: any; query: any; headers: any }) => any): void;
