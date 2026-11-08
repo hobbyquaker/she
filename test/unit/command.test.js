@@ -224,3 +224,29 @@ describe('she.mqtt.command', () => {
         expect(() => h.command('hm/set/x/y', 1, { retries: 1.5 })).toThrow(/opts\.retries/);
     });
 });
+
+describe('an additional broker that is not connected (roadmap M2)', () => {
+    it('fails at once with reason offline and the broker in the message, before any device check', async () => {
+        const h = harness({ 'hm/connected': 2 });
+        let online = false;
+        const command = createCommander({
+            publish: (topic, payload) => h.published.push([topic, payload]),
+            get: (t) => h.state[t],
+            has: (t) => t in h.state,
+            offline: () => (online ? null : 'broker "shed" not connected'),
+            watch: () => () => {},
+            setTimeout: (fn, ms) => h.clock.setTimeout(fn, ms),
+            clearTimeout: (id) => h.clock.clearTimeout(id),
+            warn: (m) => h.warnings.push(m),
+        });
+        const p = command('hm/set/lamp/STATE', 1);
+        await expect(p).rejects.toMatchObject({ reason: 'offline', topic: 'hm/set/lamp/STATE' });
+        expect(h.published).toEqual([]);
+        expect(h.warnings[0]).toBe('she.mqtt.command hm/set/lamp/STATE ← 1: broker "shed" not connected');
+        online = true;
+        const p2 = command('hm/set/lamp/STATE', 1);
+        expect(h.published).toEqual([['hm/set/lamp/STATE', '1']]);
+        h.clock.tick(6000);
+        await expect(p2).rejects.toMatchObject({ reason: 'timeout' });
+    });
+});

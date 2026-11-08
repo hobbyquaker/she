@@ -17,6 +17,7 @@ const net = require('net');
 const readline = require('readline');
 const { getLogBuffer } = require('./log-ws');
 const mqttWildcard = require('../lib/mqtt-wildcards');
+const StateStore = require('../lib/state-store');
 const { LOGS_DIR } = require('../lib/storage');
 const { unifiedDiff } = require('../lib/text-diff');
 
@@ -65,6 +66,10 @@ const TOOL_DEFINITIONS = [
                     limit: {
                         type: 'integer',
                         description: 'Maximum number of topics to return (1-500, default 50). The result says how many matched in total.',
+                    },
+                    broker: {
+                        type: 'string',
+                        description: 'The name of an additional broker (she.mqtt("<name>")) to search instead of the primary broker; omit for the primary.',
                     },
                 },
                 required: [],
@@ -158,6 +163,10 @@ const TOOL_DEFINITIONS = [
                         type: 'array',
                         items: { type: 'string' },
                         description: 'Several topics in one call, or one MQTT filter ("var/status/presence/#", up to 20 resolved); use this instead of one call per topic.',
+                    },
+                    broker: {
+                        type: 'string',
+                        description: 'The name of an additional broker (she.mqtt("<name>")) whose state store to read; omit for the primary broker.',
                     },
                 },
                 required: [],
@@ -580,6 +589,7 @@ const TOOL_DEFINITIONS = [
                     topic: { type: 'string', description: 'The command topic.' },
                     payload: { type: 'string', description: 'The payload as a string (JSON for objects).' },
                     retain: { type: 'boolean', description: 'Retain the message (only for state, never for commands; default false).' },
+                    broker: { type: 'string', description: 'The name of an additional broker to publish on; omit for the primary broker.' },
                 },
                 required: ['topic', 'payload'],
             },
@@ -777,8 +787,9 @@ function toolSearchMqttTopicsMulti(args, store) {
     return out.join('\n\n');
 }
 
-function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, limit = 50 }, store) {
+function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, limit = 50, broker }, store) {
     if (!store) return 'MQTT state store not available.';
+    const on = brokerName(broker);
     const pattern = String(query).trim();
     const isFilter = /[+#]/.test(pattern);
     const q = pattern.toLowerCase();
@@ -787,7 +798,7 @@ function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, l
     if (changed_within && Number.isNaN(withinMs)) return `changed_within "${changed_within}" is not a duration; use e.g. "30m", "2h" or "1d".`;
     const now = Date.now();
     const hits = [];
-    for (const [topic, obj] of store.mqttEntries()) {
+    for (const [topic, obj] of store.mqttEntries(on)) {
         if (isFilter ? !mqttWildcard(topic, pattern) : q && !topic.toLowerCase().includes(q)) continue;
         if (matchValue && !matchValue(obj.val)) continue;
         const lc = obj.lc ?? obj.ts;
@@ -795,9 +806,10 @@ function toolSearchMqttTopics({ query = '', value, changed_within, offset = 0, l
         hits.push(`${topic}: ${JSON.stringify(obj.val)}${lc ? ` (changed ${ago(now - lc)} ago)` : ''}`);
     }
     if (hits.length === 0) {
+        const where = on ? ` on broker "${on}"` : '';
         return pattern
-            ? `No MQTT topics found matching "${query}"${matchValue ? ` with value ${value}` : ''}${changed_within ? ` changed within ${changed_within}` : ''}.`
-            : 'No MQTT topics tracked yet.';
+            ? `No MQTT topics found matching "${query}"${matchValue ? ` with value ${value}` : ''}${changed_within ? ` changed within ${changed_within}` : ''}${where}.`
+            : `No MQTT topics tracked yet${where}.`;
     }
     const { page, note } = pageOf(hits, offset, limit, 500, 50);
     const lines = [`${page.length} of ${hits.length} matching topic(s)${note}:`, ...page];
@@ -967,7 +979,7 @@ function thinSeries(rows, limit) {
  * The topics a tool call names (roadmap I32): `topics` (a list, or one MQTT filter resolved against the known
  * topics), else `topic`; a filter needs the store. Capped; the note says when the cap cut the list.
  */
-function resolveTopics({ topic, topics }, store, cap = 20) {
+function resolveTopics({ topic, topics, broker }, store, cap = 20) {
     const raw = [];
     if (Array.isArray(topics)) raw.push(...topics);
     else if (typeof topics === 'string' && topics.trim()) raw.push(topics);
@@ -978,7 +990,7 @@ function resolveTopics({ topic, topics }, store, cap = 20) {
         if (/[+#]/.test(t)) {
             if (!store) return { topics: [], error: `"${t}" is a filter, but the MQTT state store is not available to resolve it; name the topics.` };
             const matches = [];
-            for (const [name] of store.mqttEntries()) if (mqttWildcard(name, t)) matches.push(name);
+            for (const [name] of store.mqttEntries(brokerName(broker))) if (mqttWildcard(name, t)) matches.push(name);
             if (matches.length === 0) return { topics: [], error: `No known topic matches "${t}".` };
             matches.sort();
             if (matches.length > cap) note = `${matches.length} topics match "${t}", the first ${cap} are shown; narrow the filter for the rest.`;
@@ -1594,24 +1606,26 @@ function publishRefusal(topic, allow) {
     return null;
 }
 
-async function toolPublishMqtt({ topic, payload, retain = false } = {}, ctx = {}) {
+async function toolPublishMqtt({ topic, payload, retain = false, broker } = {}, ctx = {}) {
     const pub = ctx.publish;
     if (!pub || pub.mode === 'off' || !pub.send) return 'Publishing is switched off in the chat.';
     const why = publishRefusal(topic, pub.allow);
     if (why) return `Refused: ${why}.`;
     const value = payload === undefined || payload === null ? '' : String(payload);
     const doRetain = retain === true;
+    const on = typeof broker === 'string' && broker ? broker : null;
     if (pub.mode === 'confirm') {
-        const decision = await pub.confirm({ topic: String(topic), payload: value, retain: doRetain });
+        const decision = await pub.confirm({ topic: String(topic), payload: value, retain: doRetain, ...(on ? { broker: on } : {}) });
         if (decision === 'timeout') return 'The user did not answer the confirmation; nothing was published.';
         if (!decision) return 'The user declined; nothing was published.';
     }
     try {
-        await pub.send(String(topic), value, { retain: doRetain });
+        if (on) await pub.send(String(topic), value, { retain: doRetain }, on);
+        else await pub.send(String(topic), value, { retain: doRetain });
     } catch (e) {
         return `Publish failed: ${e.message}`;
     }
-    return `Published ${JSON.stringify(value)} to ${topic}${doRetain ? ' (retained)' : ''}.`;
+    return `Published ${JSON.stringify(value)} to ${topic}${on ? ` on broker ${on}` : ''}${doRetain ? ' (retained)' : ''}.`;
 }
 
 function toolRemember({ text } = {}, ctx = {}) {
@@ -1707,22 +1721,28 @@ async function toolSheFetch({ url }, ctx = {}) {
 
 /** get_mqtt_topic with "topics" (roadmap I39): a list or one filter, one line per topic */
 function toolGetMqttTopics(args, store) {
-    const { topics, topic } = args || {};
+    const { topics, topic, broker } = args || {};
     const hasList = Array.isArray(topics) ? topics.length > 0 : typeof topics === 'string' && topics.trim() !== '';
-    if (!hasList) return toolGetMqttTopic({ topic }, store);
+    if (!hasList) return toolGetMqttTopic({ topic, broker }, store);
     if (!store) return 'MQTT state store not available.';
-    const resolved = resolveTopics({ topics }, store);
+    const resolved = resolveTopics({ topics, broker }, store);
     if (resolved.error) return resolved.error;
-    const out = resolved.topics.map((t) => toolGetMqttTopic({ topic: t }, store));
+    const out = resolved.topics.map((t) => toolGetMqttTopic({ topic: t, broker }, store));
     if (resolved.note) out.push(resolved.note);
     return out.join('\n');
 }
 
-function toolGetMqttTopic({ topic }, store) {
+/** the `broker` argument of a tool call: an additional broker's name, or null for the primary */
+function brokerName(broker) {
+    return typeof broker === 'string' && broker.trim() ? broker.trim() : null;
+}
+
+function toolGetMqttTopic({ topic, broker }, store) {
     if (!store) return 'MQTT state store not available.';
     if (!topic || typeof topic !== 'string') return 'topic argument is required.';
-    const obj = store.getObject('mqtt::' + topic);
-    if (!obj) return `Topic "${topic}" not found in state store. Use search_mqtt_topics to discover topics.`;
+    const on = brokerName(broker);
+    const obj = store.getObject(StateStore.mqttNamespace(on) + topic);
+    if (!obj) return `Topic "${topic}" not found in state store${on ? ` of broker "${on}"` : ''}. Use search_mqtt_topics to discover topics.`;
     const ts = new Date(obj.ts).toISOString();
     const lc = new Date(obj.lc ?? obj.ts).toISOString();
     return `${topic}: ${JSON.stringify(obj.val)}\n  last updated: ${ts}\n  last changed: ${lc}`;
