@@ -9,18 +9,6 @@ module.exports = function (she, ctx = {}) {
         return new Date().getTime();
     };
 
-    // Route a computed value to a topic string (setValue) or a callback (called as fn(topic, val)).
-    function sink(target, topic, val) {
-        if (typeof target === 'function') {
-            target(topic, val);
-        } else {
-            she.setValue(target, val);
-        }
-    }
-
-    // Timeout handles indexed by target (string key or function reference).
-    const timerHandles = new Map();
-
     // Treat common MQTT string payloads as falsy: "off" (any case) matches
     // devices (Zigbee, Tasmota, etc.) that publish "off"/"OFF" instead of 0.
     function isTruthy(v) {
@@ -29,137 +17,189 @@ module.exports = function (she, ctx = {}) {
     }
 
     /**
-     * Namespaced MQTT API - the primary way to interact with MQTT from scripts.
-     * @namespace she.mqtt
+     * The MQTT namespace over one broker's primitives: `she.mqtt` is built over the primary's
+     * (she.mqttsub, she.mqttpub, …), `she.mqtt('<name>')` over an additional broker's (roadmap M2).
+     * @param {object} api { sub, pub, command, get, getProp, set }
+     * @param {string|null} broker the broker's name, null for the primary
      */
-    she.mqtt = {
-        /** Subscribe to one or more MQTT topics. Same signature as she.mqttsub(). */
-        sub: (...args) => she.mqttsub(...args),
-        /** Publish an MQTT message. Same signature as she.mqttpub(). */
-        pub: (...args) => she.mqttpub(...args),
-        /**
-         * Publish a command and wait for the device's status to confirm it. Resolves with
-         * { val, ms, tries }; rejects with an Error carrying reason timeout | offline | superseded | unloaded.
-         */
-        command: (...args) => she.mqttcommand(...args),
-        /** Get the last-known value for a topic. */
-        get: (topic) => she.getValue(topic),
-        /** Get a specific property from a topic's state object. */
-        getProp: (...args) => she.getProp(...args),
-        /** Forward value changes from source topic(s) to target topic(s). */
-        link: function Sandbox_mqtt_link(source, target, /* optional */ value) {
-            she.mqttsub(source, (topic, val) => {
-                if (typeof value === 'function') {
-                    val = value(val);
-                } else if (typeof value !== 'undefined') {
-                    val = value;
-                }
-                she.setValue(target, val);
-            });
-        },
-        /**
-         * Seconds since the topic's value last changed.
-         * Pass 'message' (or 'ts') as second argument to get the seconds since
-         * the last received message instead — repeated identical values reset
-         * that clock, useful for sensor heartbeat checks.
-         */
-        age: function Sandbox_mqtt_age(topic, mode) {
-            const prop = mode === 'message' || mode === 'ts' ? 'ts' : 'lc';
-            return Math.round((new Date().getTime() - she.getProp(topic, prop)) / 1000);
-        },
-        /**
-         * Publish 1 to target when any source is truthy, 0 otherwise.
-         * target may be a topic string or a callback(topic, val).
-         */
-        or: function Sandbox_mqtt_or(srcs, target) {
-            function combine(topic) {
-                const result = srcs.some((src) => isTruthy(she.getValue(src))) ? 1 : 0;
-                sink(target, topic ?? null, result);
+    function mqttNamespace(api, broker) {
+        // Route a computed value to a topic string (set) or a callback (called as fn(topic, val)).
+        function sink(target, topic, val) {
+            if (typeof target === 'function') {
+                target(topic, val);
+            } else {
+                api.set(target, val);
             }
-            combine(null);
-            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
-        },
-        /**
-         * Publish 1 to target when all sources are truthy, 0 otherwise.
-         * target may be a topic string or a callback(topic, val).
-         */
-        and: function Sandbox_mqtt_and(srcs, target) {
-            function combine(topic) {
-                const result = srcs.every((src) => isTruthy(she.getValue(src))) ? 1 : 0;
-                sink(target, topic ?? null, result);
-            }
-            combine(null);
-            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
-        },
-        /**
-         * Publish the maximum of all source values to target.
-         * target may be a topic string or a callback(topic, val).
-         */
-        max: function Sandbox_mqtt_max(srcs, target) {
-            function combine(topic) {
-                let result = 0;
-                srcs.forEach((src) => {
-                    const v = she.getValue(src);
-                    if (v > result) result = v;
+        }
+
+        // Timeout handles indexed by target (string key or function reference).
+        const timerHandles = new Map();
+
+        return {
+            /** the broker this namespace talks to: null for the primary, else the additional broker's name */
+            broker,
+            /** Subscribe to one or more MQTT topics. Same signature as she.mqttsub(). */
+            sub: (...args) => api.sub(...args),
+            /** Publish an MQTT message. Same signature as she.mqttpub(). */
+            pub: (...args) => api.pub(...args),
+            /**
+             * Publish a command and wait for the device's status to confirm it. Resolves with
+             * { val, ms, tries }; rejects with an Error carrying reason timeout | offline | superseded | unloaded.
+             */
+            command: (...args) => api.command(...args),
+            /** Get the last-known value for a topic. */
+            get: (topic) => api.get(topic),
+            /** Get a specific property from a topic's state object. */
+            getProp: (...args) => api.getProp(...args),
+            /** Forward value changes from source topic(s) to target topic(s). */
+            link: function Sandbox_mqtt_link(source, target, /* optional */ value) {
+                api.sub(source, (topic, val) => {
+                    if (typeof value === 'function') {
+                        val = value(val);
+                    } else if (typeof value !== 'undefined') {
+                        val = value;
+                    }
+                    api.set(target, val);
                 });
-                sink(target, topic ?? null, result);
-            }
-            combine(null);
-            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
-        },
-        /**
-         * Publish the minimum of all source values to target.
-         * target may be a topic string or a callback(topic, val).
-         */
-        min: function Sandbox_mqtt_min(srcs, target) {
-            function combine(topic) {
-                const values = srcs.map((src) => she.getValue(src)).filter((v) => v !== undefined && v !== null);
-                const result = values.length ? Math.min(...values) : 0;
-                sink(target, topic ?? null, result);
-            }
-            combine(null);
-            she.mqttsub(srcs, { retain: true }, (topic) => combine(topic));
-        },
-        /**
-         * Pulse target to 1 for ms after src goes truthy, then reset to 0.
-         * Signature: timer(src, ms, target)
-         * target may be a topic string or a callback(topic, val).
-         * When target is a topic string, any lingering 1 from a previous run is
-         * cleared by an initial timeout on startup.
-         */
-        timer: function Sandbox_mqtt_timer(src, ms, target) {
-            // Swapped arguments used to become a 1 ms timer and a variable named like the number —
-            // silently, apart from Node's anonymous TimeoutNaNWarning. Fail at load instead.
-            const signature = 'she.mqtt.timer(src, ms, target)';
-            if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
-                throw new TypeError(`${signature}: ms must be a number of milliseconds (got ${typeof ms === 'string' ? JSON.stringify(ms) : String(ms)})`);
-            }
-            if (typeof target !== 'string' && typeof target !== 'function') {
-                throw new TypeError(`${signature}: target must be a topic string or a callback (got ${typeof target})`);
-            }
-            const key = target;
-            she.mqttsub(src, { retain: false }, (topic, val) => {
-                if (isTruthy(val)) {
-                    she.clearTimeout(timerHandles.get(key));
-                    sink(target, topic, 1);
+            },
+            /**
+             * Seconds since the topic's value last changed.
+             * Pass 'message' (or 'ts') as second argument to get the seconds since
+             * the last received message instead — repeated identical values reset
+             * that clock, useful for sensor heartbeat checks.
+             */
+            age: function Sandbox_mqtt_age(topic, mode) {
+                const prop = mode === 'message' || mode === 'ts' ? 'ts' : 'lc';
+                return Math.round((new Date().getTime() - api.getProp(topic, prop)) / 1000);
+            },
+            /**
+             * Publish 1 to target when any source is truthy, 0 otherwise.
+             * target may be a topic string or a callback(topic, val).
+             */
+            or: function Sandbox_mqtt_or(srcs, target) {
+                function combine(topic) {
+                    const result = srcs.some((src) => isTruthy(api.get(src))) ? 1 : 0;
+                    sink(target, topic ?? null, result);
+                }
+                combine(null);
+                api.sub(srcs, { retain: true }, (topic) => combine(topic));
+            },
+            /**
+             * Publish 1 to target when all sources are truthy, 0 otherwise.
+             * target may be a topic string or a callback(topic, val).
+             */
+            and: function Sandbox_mqtt_and(srcs, target) {
+                function combine(topic) {
+                    const result = srcs.every((src) => isTruthy(api.get(src))) ? 1 : 0;
+                    sink(target, topic ?? null, result);
+                }
+                combine(null);
+                api.sub(srcs, { retain: true }, (topic) => combine(topic));
+            },
+            /**
+             * Publish the maximum of all source values to target.
+             * target may be a topic string or a callback(topic, val).
+             */
+            max: function Sandbox_mqtt_max(srcs, target) {
+                function combine(topic) {
+                    let result = 0;
+                    srcs.forEach((src) => {
+                        const v = api.get(src);
+                        if (v > result) result = v;
+                    });
+                    sink(target, topic ?? null, result);
+                }
+                combine(null);
+                api.sub(srcs, { retain: true }, (topic) => combine(topic));
+            },
+            /**
+             * Publish the minimum of all source values to target.
+             * target may be a topic string or a callback(topic, val).
+             */
+            min: function Sandbox_mqtt_min(srcs, target) {
+                function combine(topic) {
+                    const values = srcs.map((src) => api.get(src)).filter((v) => v !== undefined && v !== null);
+                    const result = values.length ? Math.min(...values) : 0;
+                    sink(target, topic ?? null, result);
+                }
+                combine(null);
+                api.sub(srcs, { retain: true }, (topic) => combine(topic));
+            },
+            /**
+             * Pulse target to 1 for ms after src goes truthy, then reset to 0.
+             * Signature: timer(src, ms, target)
+             * target may be a topic string or a callback(topic, val).
+             * When target is a topic string, any lingering 1 from a previous run is
+             * cleared by an initial timeout on startup.
+             */
+            timer: function Sandbox_mqtt_timer(src, ms, target) {
+                // Swapped arguments used to become a 1 ms timer and a variable named like the number —
+                // silently, apart from Node's anonymous TimeoutNaNWarning. Fail at load instead.
+                const signature = 'she.mqtt.timer(src, ms, target)';
+                if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
+                    throw new TypeError(`${signature}: ms must be a number of milliseconds (got ${typeof ms === 'string' ? JSON.stringify(ms) : String(ms)})`);
+                }
+                if (typeof target !== 'string' && typeof target !== 'function') {
+                    throw new TypeError(`${signature}: target must be a topic string or a callback (got ${typeof target})`);
+                }
+                const key = target;
+                api.sub(src, { retain: false }, (topic, val) => {
+                    if (isTruthy(val)) {
+                        she.clearTimeout(timerHandles.get(key));
+                        sink(target, topic, 1);
+                        timerHandles.set(
+                            key,
+                            she.setTimeout(() => {
+                                sink(target, null, 0);
+                            }, ms),
+                        );
+                    }
+                });
+                if (typeof target !== 'function') {
                     timerHandles.set(
                         key,
                         she.setTimeout(() => {
-                            sink(target, null, 0);
+                            if (api.get(target)) api.set(target, 0);
                         }, ms),
                     );
                 }
-            });
-            if (typeof target !== 'function') {
-                timerHandles.set(
-                    key,
-                    she.setTimeout(() => {
-                        if (she.getValue(target)) she.setValue(target, 0);
-                    }, ms),
-                );
+            },
+        };
+    }
+
+    // the namespaces of the additional brokers this script has asked for, built once per name
+    const scopes = new Map();
+
+    /**
+     * Namespaced MQTT API - the primary way to interact with MQTT from scripts. `she.mqtt.*` is the
+     * primary broker; `she.mqtt('<name>')` returns the same API for an additional broker (roadmap M2):
+     * a function object that carries the primary's methods as properties.
+     * @namespace she.mqtt
+     */
+    she.mqtt = Object.assign(
+        function Sandbox_mqtt(broker) {
+            if (broker === undefined || broker === null || broker === '') return she.mqtt;
+            if (typeof broker !== 'string') throw new TypeError(`she.mqtt(name): name must be a broker name (got ${typeof broker})`);
+            let ns = scopes.get(broker);
+            if (!ns) {
+                if (typeof ctx.mqttScope !== 'function') throw new TypeError(`she.mqtt("${broker}"): no additional brokers are configured`);
+                ns = mqttNamespace(ctx.mqttScope(broker), broker);
+                scopes.set(broker, ns);
             }
+            return ns;
         },
-    };
+        mqttNamespace(
+            {
+                sub: (...args) => she.mqttsub(...args),
+                pub: (...args) => she.mqttpub(...args),
+                command: (...args) => she.mqttcommand(...args),
+                get: (topic) => she.getValue(topic),
+                getProp: (...args) => she.getProp(...args),
+                set: (topic, val) => she.setValue(topic, val),
+            },
+            null,
+        ),
+    );
 
     /**
      * HTTP helpers — fetch and webhook receiver.

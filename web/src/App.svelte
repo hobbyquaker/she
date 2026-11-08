@@ -83,6 +83,7 @@
     let mqttConnecting = $state(false); // true while waiting for retained-state sentinel
     let mqttConnected  = $state(false); // true once broker is fully ready
     let mqttError      = $state(false); // true when broker configured but not connected
+    let brokersDown    = $state<string[]>([]); // additional brokers (M2) that are not connected — a yellow note, never red
 
     // packages dot
     let pinnedPackages = $state<string[]>([]);
@@ -329,6 +330,12 @@
             }
         });
 
+        // Additional brokers (M2): a disconnected one is a warning on the MQTT tab, the primary alone turns it red
+        const unsubBrokers = subscribeWs('mqtt:brokers', (msg) => {
+            const list = (msg as { brokers?: { name: string; connected: boolean }[] }).brokers;
+            if (Array.isArray(list)) brokersDown = list.filter((b) => !b.connected).map((b) => b.name);
+        });
+
         // Matter device list and status — drives the Matter tab dot
         const unsubMatterList = subscribeWs('matter:deviceList', (msg) => {
             if (!Array.isArray(msg.devices)) return;
@@ -355,6 +362,7 @@
             document.removeEventListener('visibilitychange', onVisible);
             clearInterval(statusInterval);
             unsubMqttStatus();
+            unsubBrokers();
             unsubMatterList();
             unsubMatterStatus();
             unsubLog();
@@ -405,6 +413,7 @@
             MQTT
             {#if mqttError}<span class="nav-dot nav-dot--err" title="MQTT broker not connected"></span>
             {:else if mqttConnecting}<span class="nav-dot nav-dot--warn nav-dot--blink" title="Waiting for retained MQTT state"></span>
+            {:else if brokersDown.length > 0}<span class="nav-dot nav-dot--warn" title="Additional broker{brokersDown.length === 1 ? '' : 's'} not connected: {brokersDown.join(', ')}"></span>
             {:else if mqttConnected}<span class="nav-dot nav-dot--ok" title="MQTT connected"></span>
             {/if}
         </button>

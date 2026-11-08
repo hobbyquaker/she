@@ -148,7 +148,7 @@ Rename or move a script file within the script directory.
 
 ### GET /she/mqtt/state
 
-Returns all known MQTT topic states, sorted alphabetically.
+Returns all known MQTT topic states, sorted alphabetically. `?broker=<name>` returns the topics of an [additional broker](brokers.md) instead of the primary's (**404** for an unknown name).
 
 **Response (HTTP 200):**
 
@@ -169,7 +169,7 @@ Publish a message to the MQTT broker.
 { "topic": "home/light/hall", "payload": "1", "retain": false, "qos": 0 }
 ```
 
-`retain` and `qos` are optional (default `false` and `0`).
+`retain` and `qos` are optional (default `false` and `0`). `"broker": "<name>"` publishes on an [additional broker](brokers.md) instead of the primary (**404** for an unknown name, **503** while it is not connected).
 
 **Response (HTTP 200):** `{ "ok": true }`
 
@@ -814,6 +814,7 @@ Returns a snapshot of runtime counters.
 | `safeMode` | `true` when the daemon runs in [safe mode](script-engine.md#safe-mode) — the web UI shows a banner |
 | `mqttMsgPerSec`, `cpuPercent`, `eluPercent`, `elMeanMs`, `elMaxMs`, `memMb`, `heapMb` | The daemon's gauges from the latest sample (taken every 10 s, every second while a Runtime page is open — see [`/she/runtime/history`](#get-sheruntimehistory)) |
 | `handlers`, `pendingTimers`, `commandsFailed` | Registered handlers, timers pending right now, `she.mqtt.command` failures (timeout, offline) since start |
+| `brokers` | The [additional brokers](brokers.md): `{ name, url, connected, everConnected, since, error, queued, messages, rules, topics, mirror: { in, out } }` each; empty when none is configured |
 | `matterEnabled`, `matterNodes`, `matterEndpoints`, `dbEnabled`, `dbDocs`, `dbViews`, `startedAt`, `dataDir`, `user` | What the web UI's header needs |
 | `updateChannel` | The update channel in use: `stable` or `beta` (config key `updateChannel`) |
 | `latestVersion` | The version the channel offers — newer than the running one and published on npm; absent when there is none. `latestPrerelease: true` marks a pre-release |

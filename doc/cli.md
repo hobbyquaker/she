@@ -50,6 +50,7 @@ The following integrations are activated only when configured:
 
 | Config key | Description |
 |---|---|
+| `brokers` | Additional MQTT brokers next to the primary `url`: `{ "<name>": { url, username, password, ca, cert, key, mqttVersion, mirror } }`. Scripts reach them with `she.mqtt('<name>')`; `mirror` rules copy topics into the primary and back. See [brokers.md](brokers.md) |
 | `redis.url` | Redis URL — enables write-through cache for the state store |
 | `influx` | InfluxDB connection config — enables time-series write-through. 2.x: `url`, `token`, `org`, `bucket`. 1.x: `url`, `database`, optional `username`, `password`, `retentionPolicy`, `timeout` (ms, default 10000; version inferred from the keys, or forced with `version: 1`) |
 | `elastic` | Elasticsearch connection config — enables search index write-through |
@@ -116,9 +117,14 @@ The config file is plain JSON. Keys match long option names in camelCase:
   "bindAddress": "0.0.0.0",
   "auth": "none",
   "dbPath": "/opt/she/db.json",
-  "matterStorage": "/opt/she/matter"
+  "matterStorage": "/opt/she/matter",
+  "brokers": {
+    "shed": { "url": "mqtt://192.168.2.10", "mirror": [{ "dir": "in", "from": "tele/#", "to": "shed/tele/#" }] }
+  }
 }
 ```
+
+`brokers` holds additional MQTT brokers next to the primary `url` — see [brokers.md](brokers.md).
 
 **Default config path:** `~/.she/config.json`
 

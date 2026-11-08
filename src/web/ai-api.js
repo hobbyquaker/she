@@ -863,9 +863,9 @@ function publishContext(ai, context, send) {
         mode,
         allow: Array.isArray(ai?.publishAllow) ? ai.publishAllow : [],
         send: sendFn
-            ? async (topic, payload, opts) => {
-                  await sendFn(topic, payload, opts);
-                  _log.info(`ai chat: published ${JSON.stringify(payload)} to ${topic}${opts?.retain ? ' (retained)' : ''}`);
+            ? async (topic, payload, opts, broker) => {
+                  await sendFn(topic, payload, opts, broker);
+                  _log.info(`ai chat: published ${JSON.stringify(payload)} to ${topic}${broker ? ` on broker ${broker}` : ''}${opts?.retain ? ' (retained)' : ''}`);
               }
             : null,
         confirm: (req) =>

@@ -75,6 +75,49 @@ describe('search_mqtt_topics (I18)', () => {
     });
 });
 
+describe('the broker argument of the topic tools (roadmap M2)', () => {
+    const shed = [
+        ['tele/temp', { val: 5, ts: NOW, lc: NOW - 100 }],
+        ['tele/hum', { val: 60, ts: NOW, lc: NOW - 100 }],
+    ];
+    const StateStore = require('../../src/lib/state-store');
+    const twoBrokers = {
+        mqttEntries: (broker) => (broker === 'shed' ? shed[Symbol.iterator]() : broker ? [][Symbol.iterator]() : entries[Symbol.iterator]()),
+        getObject: (key) => {
+            const k = StateStore.parseMqttKey(key);
+            const list = k.broker === 'shed' ? shed : k.broker ? [] : entries;
+            return (list.find((e) => e[0] === k.topic) || [])[1];
+        },
+    };
+
+    it('search_mqtt_topics and get_mqtt_topic read the primary by default and a named broker on request', async () => {
+        expect(await executeTool('search_mqtt_topics', { query: 'tele/#' }, { store: twoBrokers })).toMatch(/^No MQTT topics found matching "tele\/#"\.$/);
+        expect(await executeTool('search_mqtt_topics', { query: 'tele/#', broker: 'shed' }, { store: twoBrokers })).toMatch(/^2 of 2/);
+        expect(await executeTool('search_mqtt_topics', { query: 'tele/#', broker: 'nope' }, { store: twoBrokers })).toMatch(/on broker "nope"\.$/);
+        expect(await executeTool('get_mqtt_topic', { topic: 'tele/temp' }, { store: twoBrokers })).toMatch(/not found in state store\. Use/);
+        expect(await executeTool('get_mqtt_topic', { topic: 'tele/temp', broker: 'shed' }, { store: twoBrokers })).toMatch(/^tele\/temp: 5/);
+        expect(await executeTool('get_mqtt_topic', { topics: 'tele/#', broker: 'shed' }, { store: twoBrokers })).toMatch(/tele\/hum: 60[\s\S]*tele\/temp: 5/);
+        expect(await executeTool('get_mqtt_topic', { topic: 'home/status/bath/light' }, { store: twoBrokers })).toMatch(/^home\/status\/bath\/light: 0\.7/);
+    });
+
+    it('publish_mqtt hands the broker to the daemon and names it in the answer', async () => {
+        const sent = [];
+        const base = { allow: [], mode: 'all', send: async (...a) => sent.push(a) };
+        expect(await executeTool('publish_mqtt', { topic: 'hm/set/x/STATE', payload: '1', broker: 'shed' }, { publish: base })).toBe(
+            'Published "1" to hm/set/x/STATE on broker shed.',
+        );
+        expect(await executeTool('publish_mqtt', { topic: 'hm/set/x/STATE', payload: '1' }, { publish: base })).toBe('Published "1" to hm/set/x/STATE.');
+        expect(sent).toEqual([
+            ['hm/set/x/STATE', '1', { retain: false }, 'shed'],
+            ['hm/set/x/STATE', '1', { retain: false }],
+        ]);
+        const asked = [];
+        const confirm = { ...base, mode: 'confirm', confirm: async (req) => (asked.push(req), true) };
+        await executeTool('publish_mqtt', { topic: 'hm/set/x/STATE', payload: '1', broker: 'shed' }, { publish: confirm });
+        expect(asked).toEqual([{ topic: 'hm/set/x/STATE', payload: '1', retain: false, broker: 'shed' }]);
+    });
+});
+
 describe('helpers', () => {
     it('parseDuration and valueMatcher', () => {
         expect(parseDuration('30m')).toBe(1800000);

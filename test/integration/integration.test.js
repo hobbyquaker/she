@@ -20,6 +20,16 @@ let brokerSockets = new Set();
 let mqtt;
 let tmpConfigFile;
 let tmpDataDir;
+// the additional brokers (roadmap M2): "shed" is a second Aedes, "late" a port nothing listens on until a test starts it
+let shed;
+let shedServer;
+let shedPort;
+let shedMqtt;
+const shedSubscriptions = {};
+let latePort;
+let late = null;
+let lateServer = null;
+let lateMqtt = null;
 
 const msSubscriptions = {};
 const msBuffer = [];
@@ -78,6 +88,26 @@ function mqttSubscribe(topic, callback) {
     }
 }
 
+function shedSubscribe(topic, callback) {
+    if (shedSubscriptions[topic]) {
+        shedSubscriptions[topic].push(callback);
+    } else {
+        shedSubscriptions[topic] = [callback];
+        shedMqtt.subscribe(topic);
+    }
+}
+
+/** a TCP port nothing listens on right now */
+function freePort() {
+    return new Promise((resolve) => {
+        const srv = net.createServer();
+        srv.listen(0, '127.0.0.1', () => {
+            const { port } = srv.address();
+            srv.close(() => resolve(port));
+        });
+    });
+}
+
 function startMs() {
     ms = cp.spawn(process.execPath, [msCmd, ...msArgs]);
     const rlOut = readline.createInterface({ input: ms.stdout, crlfDelay: Infinity });
@@ -105,10 +135,44 @@ beforeAll((done) => {
         brokerSockets.add(socket);
         socket.on('close', () => brokerSockets.delete(socket));
     });
-    brokerServer.listen(0, () => {
+    brokerServer.listen(0, async () => {
         brokerPort = brokerServer.address().port;
+        // the second broker, with a retained value the daemon finds when it connects
+        shed = new Aedes();
+        shedServer = net.createServer(shed.handle);
+        await new Promise((resolve) => shedServer.listen(0, resolve));
+        shedPort = shedServer.address().port;
+        latePort = await freePort();
+        shedMqtt = Mqtt.connect(`mqtt://127.0.0.1:${shedPort}`);
+        shedMqtt.on('message', (topic, payload, packet) => {
+            if (shedSubscriptions[topic]) {
+                shedSubscriptions[topic].forEach((callback) => callback(payload.toString(), packet));
+            }
+        });
+        await new Promise((resolve) => shedMqtt.on('connect', resolve));
+        await new Promise((resolve) => shedMqtt.publish('tele/preset', '42', { retain: true }, resolve));
         tmpConfigFile = path.join(os.tmpdir(), `she-integration-test-${Date.now()}-${process.pid}.json`);
-        fs.writeFileSync(tmpConfigFile, JSON.stringify({ url: `mqtt://127.0.0.1:${brokerPort}`, verbosity: 'debug', port: 0 }));
+        fs.writeFileSync(
+            tmpConfigFile,
+            JSON.stringify({
+                url: `mqtt://127.0.0.1:${brokerPort}`,
+                verbosity: 'debug',
+                port: 0,
+                brokers: {
+                    shed: {
+                        url: `mqtt://127.0.0.1:${shedPort}`,
+                        mirror: [
+                            { dir: 'in', from: 'tele/#', to: 'shed/tele/#' },
+                            { dir: 'out', from: 'shed/set/#', to: 'set/#' },
+                            // a cycle on purpose: what comes in must never go back out
+                            { dir: 'in', from: 'loop/#' },
+                            { dir: 'out', from: 'loop/#' },
+                        ],
+                    },
+                    late: { url: `mqtt://127.0.0.1:${latePort}` },
+                },
+            }),
+        );
         // Own data dir: the spawned daemon must not write logs, db or the safe-mode
         // marker into the developer's real ~/.she.
         tmpDataDir = path.join(os.tmpdir(), `she-integration-test-data-${Date.now()}-${process.pid}`);
@@ -125,6 +189,10 @@ beforeAll((done) => {
 
 afterAll((done) => {
     if (ms) ms.kill();
+    if (shedMqtt) shedMqtt.end(true);
+    if (shedServer) shedServer.close(() => shed.close());
+    if (lateMqtt) lateMqtt.end(true);
+    if (lateServer) lateServer.close(() => late.close());
     mqtt.end(true, {}, () => {
         brokerServer.close(() => {
             broker.close(() => {
@@ -806,5 +874,181 @@ describe('she.time in the sandbox', () => {
             done();
         });
         mqtt.publish('time/holiday', '1');
+    }, 20000);
+});
+
+describe("additional brokers (roadmap M2): she.mqtt('<name>'), mirror rules, offline behaviour", () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    let httpPort;
+
+    it('the daemon started with the shed connected and the late broker not — healthy, scripts running', async () => {
+        await new Promise((resolve) => subscribe('ms', /brokers: 2 additional broker\(s\): shed, late/, () => resolve()));
+        await new Promise((resolve) => subscribe('ms', /mqtt@shed connected mqtt:\/\/127\.0\.0\.1:\d+/, () => resolve()));
+        await new Promise((resolve) => subscribe('ms', /mqtt@late not connected \(.*ECONNREFUSED.*\) — retrying in the background/, () => resolve()));
+        httpPort = await new Promise((resolve) => subscribe('ms', /http server listening on :(\d+)/, (line, m) => resolve(Number(m[1]))));
+        const health = await fetch(`http://127.0.0.1:${httpPort}/she/health`);
+        expect(health.status).toBe(200);
+        expect(await health.json()).toMatchObject({ status: 'ok', mqtt: 'connected' });
+        const status = await (await fetch(`http://127.0.0.1:${httpPort}/she/status`)).json();
+        expect(status.brokers.map((b) => [b.name, b.connected])).toEqual([
+            ['shed', true],
+            ['late', false],
+        ]);
+        expect(status.brokers[1].error).toMatch(/ECONNREFUSED/);
+        expect(status.brokers[0].rules).toBe(4);
+    }, 20000);
+
+    it('she.mqtt is callable and keeps its methods; an unknown name is a TypeError at load', async () => {
+        await new Promise((resolve) => subscribe('ms', /test-brokers\.js: brokers typeof function function shed null true true/, () => resolve()));
+        await new Promise((resolve) => subscribe('ms', /test-brokers-unknown\.js: TypeError: she\.mqtt\("nope"\): no such broker — configured: shed, late/, () => resolve()));
+    }, 20000);
+
+    it('a retained value of the shed reaches the subscription and she.on with the mqtt@shed:: key', async () => {
+        await new Promise((resolve) => subscribe('ms', /test-brokers\.js: shed retained tele\/preset 42/, () => resolve()));
+        await new Promise((resolve) => subscribe('ms', /test-brokers\.js: shed on 42/, () => resolve()));
+    }, 20000);
+
+    it('sub, pub and get work on the shed and do not touch the primary', async () => {
+        const pong = new Promise((resolve) => shedSubscribe('pong', (payload) => resolve(payload)));
+        let primaryPong = 0;
+        mqttSubscribe('pong', () => primaryPong++);
+        shedMqtt.publish('ping', '1');
+        expect(await pong).toBe('2');
+        const got = new Promise((resolve) => subscribe('ms', /test-brokers\.js: shed get 1 primary get undefined age true/, () => resolve()));
+        mqtt.publish('brokers/trigger/get', '1');
+        await got;
+        await wait(200);
+        expect(primaryPong).toBe(0);
+    }, 20000);
+
+    it("the brokers' subscriptions are separate: only/# on each side", async () => {
+        const lines = [];
+        subscribe('ms', /test-brokers\.js: (primary|shed) only only\/a (\d)/, (line, m) => lines.push(m[1] + ':' + m[2]));
+        subscribe('ms', /test-brokers\.js: (primary|shed) only only\/b (\d)/, (line, m) => lines.push(m[1] + ':' + m[2]));
+        mqtt.publish('only/a', '1');
+        shedMqtt.publish('only/b', '2');
+        await wait(500);
+        expect(lines.sort()).toEqual(['primary:1', 'shed:2']);
+    }, 20000);
+
+    it('a helper works within its broker: shed.link publishes on the shed', async () => {
+        const dst = new Promise((resolve) => shedSubscribe('link/dst', (payload) => resolve(payload)));
+        shedMqtt.publish('link/src', '7');
+        expect(await dst).toBe('7');
+    }, 20000);
+
+    /** one delivery of a topic on the primary test client, with its retain flag */
+    const onceOnPrimary = (topic) =>
+        new Promise((resolve) => {
+            const handler = (t, payload, packet) => {
+                if (t === topic) {
+                    mqtt.removeListener('message', handler);
+                    mqtt.unsubscribe(topic);
+                    resolve([payload.toString(), packet.retain]);
+                }
+            };
+            mqtt.on('message', handler);
+            mqtt.subscribe(topic);
+        });
+
+    it('mirror in: tele/# of the shed appears as shed/tele/# on the primary; the retained burst stays retained', async () => {
+        // tele/preset was retained on the shed before the daemon started: it arrived in the retained burst and was
+        // mirrored retained — a fresh subscriber on the primary gets it as a retained message
+        expect(await onceOnPrimary('shed/tele/preset')).toEqual(['42', true]);
+        // a live publish arrives at the daemon without the retain flag (MQTT 3.1.1 clears it for established
+        // subscriptions), so it is mirrored as a live message; the broker's retained copy comes with the next burst
+        const seen = onceOnPrimary('shed/tele/temp');
+        shedMqtt.publish('tele/temp', '21.5', { retain: true });
+        expect(await seen).toEqual(['21.5', false]);
+        // the primary's state store has it like any other topic
+        const state = await (await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state`)).json();
+        expect(state.find((e) => e.topic === 'shed/tele/temp')).toMatchObject({ val: 21.5 });
+        // and the shed's own view is served by ?broker=
+        const shedState = await (await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state?broker=shed`)).json();
+        expect(shedState.find((e) => e.topic === 'tele/temp')).toMatchObject({ val: 21.5 });
+        expect(shedState.find((e) => e.topic === 'shed/tele/temp')).toBeUndefined();
+        expect((await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state?broker=nope`)).status).toBe(404);
+    }, 20000);
+
+    it('mirror out: shed/set/# of the primary reaches the shed as set/#', async () => {
+        const seen = new Promise((resolve) => shedSubscribe('set/lamp', (payload) => resolve(payload)));
+        mqtt.publish('shed/set/lamp', '1');
+        expect(await seen).toBe('1');
+    }, 20000);
+
+    it('loop protection: two rules that form a cycle deliver a message once on each side', async () => {
+        let onShed = 0;
+        let onPrimary = 0;
+        shedSubscribe('loop/x', () => onShed++);
+        mqttSubscribe('loop/x', () => onPrimary++);
+        await wait(200);
+        mqtt.publish('loop/x', 'once');
+        await wait(1500);
+        expect(onPrimary).toBe(1); // the test client's own publish
+        expect(onShed).toBe(1); // mirrored out once, its echo not mirrored back in
+        shedMqtt.publish('loop/x', 'twice');
+        await wait(1500);
+        expect(onShed).toBe(2);
+        expect(onPrimary).toBe(2); // mirrored in once, its echo not mirrored back out
+    }, 20000);
+
+    it('command on the shed confirms through the shed; on the late broker it fails at once with offline', async () => {
+        const sent = new Promise((resolve) => shedSubscribe('dev/set/lamp/STATE', (payload) => resolve(payload)));
+        const ok = new Promise((resolve) => subscribe('ms', /test-brokers\.js: shed command ok (\{.*\})/, (line, m) => resolve(JSON.parse(m[1]))));
+        mqtt.publish('brokers/trigger/shed-command', '1');
+        expect(await sent).toBe('1');
+        shedMqtt.publish('dev/status/lamp/STATE', JSON.stringify({ val: true }), { retain: true });
+        expect(await ok).toMatchObject({ val: true, tries: 1 });
+
+        const failed = new Promise((resolve) =>
+            subscribe('ms', /test-brokers\.js: late command failed offline she\.mqtt\.command dev\/set\/lamp\/STATE ← 1: broker "late" not connected/, () => resolve()),
+        );
+        mqtt.publish('brokers/trigger/late-command', '1');
+        await failed;
+    }, 20000);
+
+    it('a publish to the late broker is queued; when the broker comes up it is delivered and the retained values arrive', async () => {
+        const queued = new Promise((resolve) => subscribe('ms', /test-brokers\.js: late pub queued/, () => resolve()));
+        mqtt.publish('brokers/trigger/late-pub', '1');
+        await queued;
+        // the broker appears on the late port, with a retained value waiting
+        late = new Aedes();
+        lateServer = net.createServer(late.handle);
+        await new Promise((resolve) => lateServer.listen(latePort, '127.0.0.1', resolve));
+        lateMqtt = Mqtt.connect(`mqtt://127.0.0.1:${latePort}`);
+        await new Promise((resolve) => lateMqtt.on('connect', resolve));
+        const fromShe = new Promise((resolve) => {
+            lateMqtt.on('message', (topic, payload) => {
+                if (topic === 'from/she') resolve(payload.toString());
+            });
+            lateMqtt.subscribe('from/she');
+        });
+        await new Promise((resolve) => lateMqtt.publish('tele/late', '7', { retain: true }, resolve));
+        const connected = new Promise((resolve) => subscribe('ms', /mqtt@late connected/, () => resolve()));
+        const flushed = new Promise((resolve) => subscribe('ms', /mqtt@late: sent 1 message\(s\) queued while offline/, () => resolve()));
+        const retained = new Promise((resolve) => subscribe('ms', /test-brokers\.js: late retained 7/, () => resolve()));
+        await connected;
+        await flushed;
+        expect(await fromShe).toBe('queued');
+        await retained;
+        const status = await (await fetch(`http://127.0.0.1:${httpPort}/she/status`)).json();
+        expect(status.brokers.find((b) => b.name === 'late')).toMatchObject({ connected: true, error: null, queued: 0 });
+    }, 30000);
+
+    it('POST /she/mqtt/publish with "broker" publishes on that broker', async () => {
+        const seen = new Promise((resolve) => shedSubscribe('api/pub', (payload) => resolve(payload)));
+        const res = await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/publish`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ topic: 'api/pub', payload: 'hi', broker: 'shed' }),
+        });
+        expect(res.status).toBe(200);
+        expect(await seen).toBe('hi');
+        const bad = await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/publish`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ topic: 'api/pub', payload: 'hi', broker: 'nope' }),
+        });
+        expect(bad.status).toBe(404);
     }, 20000);
 });

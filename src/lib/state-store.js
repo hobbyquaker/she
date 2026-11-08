@@ -98,15 +98,40 @@ class StateStore extends EventEmitter {
     /**
      * Iterate [rawTopic, obj] pairs for all mqtt:: keys, stripping the prefix.
      * Used for wildcard retain-replay in subscribe().
+     * @param {string|null} [broker] an additional broker's name: its `mqtt@<name>::` keys instead
      * @yields {[string, {val:*, ts:number, lc:number}]}
      */
-    *mqttEntries() {
-        const prefix = 'mqtt::';
+    *mqttEntries(broker) {
+        const prefix = StateStore.mqttNamespace(broker);
         for (const [key, obj] of this._map) {
             if (key.startsWith(prefix)) {
                 yield [key.slice(prefix.length), obj];
             }
         }
+    }
+
+    /**
+     * The key prefix of a broker's topics: `mqtt::` for the primary, `mqtt@<name>::` for an additional
+     * broker. A broker name has no colon, so the prefix can never be mistaken for a primary key with a
+     * topic that happens to start with `@`.
+     * @param {string|null} [broker]
+     */
+    static mqttNamespace(broker) {
+        return broker ? `mqtt@${broker}::` : 'mqtt::';
+    }
+
+    /**
+     * Split a store key of either MQTT namespace.
+     * @param {string} key
+     * @returns {{ broker: string|null, topic: string } | null} null for a key of another namespace
+     */
+    static parseMqttKey(key) {
+        if (key.startsWith('mqtt::')) return { broker: null, topic: key.slice(6) };
+        if (key.startsWith('mqtt@')) {
+            const i = key.indexOf('::', 5);
+            if (i > 5) return { broker: key.slice(5, i), topic: key.slice(i + 2) };
+        }
+        return null;
     }
 }
 

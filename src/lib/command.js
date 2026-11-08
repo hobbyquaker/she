@@ -23,7 +23,8 @@ class CommandError extends Error {
     constructor(reason, info) {
         const why = {
             timeout: `no confirmation within ${info.timeoutS} s${info.tries > 1 ? ` (${info.tries} attempts)` : ''}`,
-            offline: `device offline (${info.detail})`,
+            // the device's own offline signal, or the broker the command would go to
+            offline: info.detail && info.detail.startsWith('broker ') ? info.detail : `device offline (${info.detail})`,
             superseded: 'superseded by a newer command to the same topic',
             unloaded: 'script unloaded',
             cancelled: 'cancelled from the editor',
@@ -43,6 +44,7 @@ class CommandError extends Error {
  * @param {(topic: string, payload: string) => void} prim.publish
  * @param {(topic: string) => *} prim.get the state store's value of a topic
  * @param {(topic: string) => boolean} prim.has
+ * @param {() => string|null} [prim.offline] why the broker itself is unreachable (`broker "x" not connected`), or null
  * @param {(topic: string, cb: (val: *) => void) => () => void} prim.watch called with every new value
  *   stored for the topic, until the returned function is called
  * @param {(fn: Function, ms: number, meta: object) => *} prim.setTimeout the script's tracked timer;
@@ -128,7 +130,8 @@ function createCommander(prim) {
             if (previous) previous('superseded');
             active.set(topic, abort);
 
-            const offline = offlineReason(topic, prim.get);
+            // an additional broker that is not connected fails before any device check (roadmap M2)
+            const offline = (typeof prim.offline === 'function' && prim.offline()) || offlineReason(topic, prim.get);
             if (offline) {
                 fail('offline', offline);
                 return;

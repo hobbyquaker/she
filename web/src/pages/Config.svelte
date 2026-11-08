@@ -1,7 +1,9 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, type AuthMode } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, type AuthMode, type BrokerStatus } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
+    import InputDialog from '../lib/InputDialog.svelte';
+    import { subscribeWs } from '../lib/ws.js';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
     import 'leaflet/dist/leaflet.css';
@@ -29,6 +31,94 @@
     let varPrefix      = $state('var');
     let mqttVersion    = $state('');
     let disableVars    = $state(false);
+
+    // Additional brokers (roadmap M2): config "brokers": { <name>: { url, username, …, mirror: [] } }
+    interface MirrorRule { dir: 'in' | 'out'; from: string; to: string }
+    interface ExtraBroker {
+        id: number; name: string; protocol: string; host: string;
+        username: string; password: string; ca: string; cert: string; key: string; mqttVersion: string;
+        mirror: MirrorRule[];
+    }
+    let extraBrokers = $state<ExtraBroker[]>([]);
+    let brokerStatus = $state<Record<string, BrokerStatus>>({});
+    let _brokerSeq = 0;
+    const BROKER_NAME_RE = /^[A-Za-z0-9_-]+$/;
+    function newBroker(): ExtraBroker {
+        return { id: ++_brokerSeq, name: '', protocol: 'mqtt', host: '', username: '', password: '', ca: '', cert: '', key: '', mqttVersion: '', mirror: [] };
+    }
+    function brokerFromConfig(name: string, def: Record<string, unknown>): ExtraBroker {
+        const b = newBroker();
+        b.name = name;
+        const url = typeof def.url === 'string' ? def.url : '';
+        try {
+            const u = new URL(url);
+            b.protocol = u.protocol.replace(':', '');
+            b.host = u.host;
+        } catch {
+            b.host = url;
+        }
+        for (const k of ['username', 'password', 'ca', 'cert', 'key'] as const) if (typeof def[k] === 'string') b[k] = def[k] as string;
+        if (def.mqttVersion !== undefined && def.mqttVersion !== null) b.mqttVersion = String(def.mqttVersion);
+        if (Array.isArray(def.mirror)) {
+            b.mirror = (def.mirror as Record<string, unknown>[])
+                .filter((r) => r && typeof r === 'object')
+                .map((r) => ({ dir: r.dir === 'out' ? 'out' : 'in', from: typeof r.from === 'string' ? r.from : '', to: typeof r.to === 'string' ? r.to : '' }));
+        }
+        return b;
+    }
+    function brokerToConfig(b: ExtraBroker): Record<string, unknown> {
+        const def: Record<string, unknown> = { url: `${b.protocol}://${b.host}` };
+        if (b.username) def.username = b.username;
+        if (b.password) def.password = b.password;
+        if (b.ca) def.ca = b.ca;
+        if (b.cert) def.cert = b.cert;
+        if (b.key) def.key = b.key;
+        if (b.mqttVersion) def.mqttVersion = b.mqttVersion;
+        const rules = b.mirror.filter((r) => r.from.trim()).map((r) => (r.to.trim() && r.to.trim() !== r.from.trim() ? { dir: r.dir, from: r.from.trim(), to: r.to.trim() } : { dir: r.dir, from: r.from.trim() }));
+        if (rules.length) def.mirror = rules;
+        return def;
+    }
+    /** a problem in a card that stops the save, or null */
+    function brokerProblem(b: ExtraBroker): string | null {
+        if (!b.name.trim()) return 'A broker needs a name — it is what scripts call: she.mqtt(\'name\').';
+        if (!BROKER_NAME_RE.test(b.name)) return `Broker name "${b.name}": letters, digits, - and _ only.`;
+        if (extraBrokers.filter((o) => o.name === b.name).length > 1) return `Two additional brokers are named "${b.name}".`;
+        if (!b.host.trim()) return `Broker "${b.name}": the host is missing.`;
+        for (const r of b.mirror) if (!r.from.trim()) return `Broker "${b.name}": a mirror rule has no source filter.`;
+        return null;
+    }
+    function addBroker() { extraBrokers = [...extraBrokers, newBroker()]; }
+    async function removeBroker(b: ExtraBroker) {
+        const ok = await dialog.show(
+            `Remove the additional broker "${b.name || '(unnamed)'}"? Scripts calling she.mqtt('${b.name}') will fail to load after the restart${b.mirror.length ? `, and its ${b.mirror.length} mirror rule${b.mirror.length === 1 ? '' : 's'} stop` : ''}.`,
+            { confirm: 'Remove', danger: true },
+        );
+        if (ok) extraBrokers = extraBrokers.filter((o) => o.id !== b.id);
+    }
+    function addRule(b: ExtraBroker, rule?: MirrorRule) { b.mirror = [...b.mirror, rule ?? { dir: 'in', from: '', to: '' }]; }
+    function removeRule(b: ExtraBroker, i: number) { b.mirror = b.mirror.filter((_, k) => k !== i); }
+    /** the preset "everything in under <name>/" */
+    function presetEverything(b: ExtraBroker) {
+        const name = b.name.trim() || 'broker';
+        addRule(b, { dir: 'in', from: '#', to: `${name}/#` });
+    }
+    /** the preset "mqtt-smarthome adapter": its status and connected topics in, its set topics out */
+    async function presetAdapter(b: ExtraBroker) {
+        const inst = await inputDialog.show('The adapter instance name on the additional broker (the first topic segment, e.g. "hm" or "zigbee"):', { placeholder: 'instance', confirm: 'Add rules' });
+        if (!inst) return;
+        const i = inst.trim().replace(/\/.*$/, '');
+        addRule(b, { dir: 'in', from: `${i}/status/#`, to: '' });
+        addRule(b, { dir: 'in', from: `${i}/connected`, to: '' });
+        addRule(b, { dir: 'out', from: `${i}/set/#`, to: '' });
+    }
+    function applyBrokerStatus(list: BrokerStatus[] | undefined) {
+        if (!Array.isArray(list)) return;
+        const next: Record<string, BrokerStatus> = {};
+        for (const st of list) next[st.name] = st;
+        brokerStatus = next;
+    }
+    let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
+    onMount(() => subscribeWs('mqtt:brokers', (msg) => applyBrokerStatus((msg as { brokers?: BrokerStatus[] }).brokers)));
 
     // Mosquitto management
     let brokerEnabled  = $state(false);
@@ -179,6 +269,7 @@
     const KNOWN = new Set([
         'url', 'name', 'variablePrefix', 'disableVariables',
         'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey', 'mqttVersion',
+        'brokers',
         'port', 'bindAddress', 'auth', 'password', 'proxyHeader', 'proxyLogoutUrl',
         'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush',
         'latitude', 'longitude', 'timezone', 'locale', 'holidays', 'holidaysExtra',
@@ -254,7 +345,7 @@
     const SECTIONS = [
         { id: 'appearance', label: 'Appearance',    terms: ['theme','color','dark','light'] },
         { id: 'auth',       label: 'Authentication', terms: ['auth','password','login','proxy','header','nginx','authentik','secure'] },
-        { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5'] },
+        { id: 'mqtt',       label: 'MQTT',         terms: ['broker','url','client','name','variable','prefix','protocol','version','mqtt5','additional','secondary','mirror','brokers'] },
         { id: 'broker',  label: 'Mosquitto',        terms: ['mosquitto','broker','mqtt broker','management','dynsec'] },
         { id: 'services', label: 'Adapters',        terms: ['adapters','adapter management','services','xyz2mqtt','2mqtt','interfaces','instances','systemd','fleet'] },
         { id: 'matter',  label: 'Matter controller', terms: ['matter','thread','zigbee','iot','devices','smart home controller'] },
@@ -287,6 +378,7 @@
         try {
             const st = await getDaemonStatus();
             if (st.dataDir) dataDir = st.dataDir;
+            applyBrokerStatus(st.brokers);
         } catch { /* best-effort */ }
         try {
             const cfg = await getConfig();
@@ -305,6 +397,9 @@
             if (typeof cfg.mqttCert === 'string') mqttCert = cfg.mqttCert;
             if (typeof cfg.mqttKey  === 'string') mqttKey  = cfg.mqttKey;
             if (typeof cfg.mqttVersion === 'string') mqttVersion = cfg.mqttVersion;
+            if (cfg.brokers && typeof cfg.brokers === 'object' && !Array.isArray(cfg.brokers)) {
+                extraBrokers = Object.entries(cfg.brokers as Record<string, Record<string, unknown>>).filter(([, d]) => d && typeof d === 'object').map(([n, d]) => brokerFromConfig(n, d));
+            }
             if (typeof cfg.name             === 'string')  mqttName     = cfg.name;
             if (typeof cfg.variablePrefix   === 'string')  varPrefix    = cfg.variablePrefix;
             if (typeof cfg.disableVariables === 'boolean') disableVars  = cfg.disableVariables;
@@ -514,6 +609,12 @@
         if (mqttCa)         cfg.mqttCa         = mqttCa;
         if (mqttCert)       cfg.mqttCert       = mqttCert;
         if (mqttKey)        cfg.mqttKey        = mqttKey;
+        for (const b of extraBrokers) {
+            const problem = brokerProblem(b);
+            if (problem) { errMsg = problem; return; }
+        }
+        if (extraBrokers.length) cfg.brokers = Object.fromEntries(extraBrokers.map((b) => [b.name.trim(), brokerToConfig(b)]));
+        else delete cfg.brokers;
 
         if (port !== '')    cfg.port        = Number(port);
         if (bindAddress)    cfg.bindAddress = bindAddress;
@@ -627,6 +728,7 @@
 
 <!-- ── tooltip helper ─────────────────────────────────────────────────── -->
 <ConfirmDialog bind:this={dialog} />
+<InputDialog bind:this={inputDialog} />
 {#snippet tip(text: string)}
     <span class="tip">
         <span class="tip-icon">ℹ</span>
@@ -843,6 +945,112 @@
                             {@render tip('When enabled, var/set/… messages are not processed and no var/status/… retained messages are published.')}
                         </label>
                     </div>
+
+                    <!-- ── Additional brokers (M2) ─────────────────── -->
+                    <h4 class="sub-heading">
+                        Additional brokers
+                        {@render tip('Further MQTT brokers next to the primary one above: scripts reach them with she.mqtt(\'name\'), and mirror rules copy topics into the primary broker (in) or out of it (out). They never block the start: an offline broker is a warning, not an error. Changes need a daemon restart.')}
+                    </h4>
+                    {#if extraBrokers.length === 0}
+                        <p class="hint">None. The primary broker above is all there is — add one to connect a second broker (a shed, a cloud broker, a neighbour's installation).</p>
+                    {/if}
+                    {#each extraBrokers as b (b.id)}
+                        {@const st = brokerStatus[b.name]}
+                        <div class="broker-card">
+                            <div class="broker-head">
+                                {#if st?.connected}<span class="nav-dot nav-dot--ok" title="connected"></span>
+                                {:else if st}<span class="nav-dot nav-dot--err" title={st.error ? `not connected: ${st.error}` : 'not connected'}></span>
+                                {:else}<span class="nav-dot nav-dot--none" title="not running yet — save and restart"></span>{/if}
+                                <input class="broker-name" type="text" bind:value={b.name} placeholder="name — she.mqtt('name')" spellcheck="false" autocomplete="off" />
+                                <span class="broker-state">
+                                    {#if st?.connected}connected · {st.topics} topic{st.topics === 1 ? '' : 's'}{#if st.mirror.in || st.mirror.out}{` · mirrored ${st.mirror.in} in / ${st.mirror.out} out`}{/if}
+                                    {:else if st}not connected{#if st.error}{` — ${st.error}`}{/if}{#if st.queued}{` · ${st.queued} queued`}{/if}
+                                    {:else}not running — save and restart the daemon{/if}
+                                </span>
+                                <button type="button" class="ai-remove" onclick={() => removeBroker(b)} title="Remove this broker">✕</button>
+                            </div>
+                            <div class="field">
+                                <label for="b{b.id}-protocol">Protocol</label>
+                                <select id="b{b.id}-protocol" bind:value={b.protocol}>
+                                    <option value="mqtt">mqtt (plain TCP)</option>
+                                    <option value="mqtts">mqtts (TLS)</option>
+                                    <option value="ws">ws (WebSocket)</option>
+                                    <option value="wss">wss (WebSocket, TLS)</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="b{b.id}-host">Host</label>
+                                <input id="b{b.id}-host" type="text" bind:value={b.host} placeholder="broker.example:1883" spellcheck="false" />
+                            </div>
+                            <div class="field">
+                                <label for="b{b.id}-user">Username</label>
+                                <input id="b{b.id}-user" type="text" bind:value={b.username} placeholder="(optional)" autocomplete="off" />
+                            </div>
+                            <div class="field">
+                                <label for="b{b.id}-pass">Password</label>
+                                <input id="b{b.id}-pass" type="password" bind:value={b.password} placeholder="(optional)" autocomplete="new-password" />
+                            </div>
+                            {#if b.protocol === 'mqtts' || b.protocol === 'wss'}
+                            <div class="field">
+                                <label for="b{b.id}-ca">CA certificate</label>
+                                <textarea id="b{b.id}-ca" bind:value={b.ca} rows="3" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>
+                            </div>
+                            <div class="field">
+                                <label for="b{b.id}-cert">Client certificate</label>
+                                <textarea id="b{b.id}-cert" bind:value={b.cert} rows="3" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----" spellcheck="false"></textarea>
+                            </div>
+                            <div class="field">
+                                <label for="b{b.id}-key">Client key</label>
+                                <textarea id="b{b.id}-key" bind:value={b.key} rows="3" placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----" spellcheck="false"></textarea>
+                            </div>
+                            {/if}
+                            <div class="field">
+                                <label for="b{b.id}-ver">MQTT protocol version</label>
+                                <select id="b{b.id}-ver" bind:value={b.mqttVersion}>
+                                    <option value="">default (3.1.1)</option>
+                                    <option value="3">3.1</option>
+                                    <option value="4">3.1.1</option>
+                                    <option value="5">5.0</option>
+                                </select>
+                            </div>
+                            <div class="rules">
+                                <div class="rules-head">
+                                    <span>Mirror rules
+                                        {@render tip('in: a topic filter on this broker and the topic it appears under on the primary broker; out: a filter on the primary broker and the topic it is published to here. The wildcards of the source are carried over (tele/# → shed/tele/#); an empty target keeps the topic. Retain and QoS are kept; what came in by a rule is never sent back out.')}
+                                    </span>
+                                    <span class="rules-presets">
+                                        <button type="button" class="ai-add" onclick={() => presetEverything(b)} title="Everything on this broker appears on the primary under <name>/">everything in under {b.name.trim() || 'name'}/</button>
+                                        <button type="button" class="ai-add" onclick={() => presetAdapter(b)} title="An mqtt-smarthome adapter on this broker: <inst>/status/# and <inst>/connected in, <inst>/set/# out">mqtt-smarthome adapter…</button>
+                                        <button type="button" class="ai-add" onclick={() => addRule(b)}>+ rule</button>
+                                    </span>
+                                </div>
+                                {#if b.mirror.length === 0}
+                                    <div class="rules-empty">No mirror rules — scripts still reach the broker through she.mqtt('{b.name.trim() || 'name'}').</div>
+                                {:else}
+                                    <table class="rules-table">
+                                        <thead><tr><th></th><th>from</th><th></th><th>to</th><th></th></tr></thead>
+                                        <tbody>
+                                        {#each b.mirror as r, i}
+                                            <tr>
+                                                <td>
+                                                    <select bind:value={r.dir} title="in: this broker → primary; out: primary → this broker">
+                                                        <option value="in">in</option>
+                                                        <option value="out">out</option>
+                                                    </select>
+                                                </td>
+                                                <td><input type="text" bind:value={r.from} placeholder={r.dir === 'in' ? 'tele/#  (on this broker)' : `${b.name.trim() || 'name'}/set/#  (on the primary)`} spellcheck="false" /></td>
+                                                <td class="arrow">→</td>
+                                                <td><input type="text" bind:value={r.to} placeholder={r.dir === 'in' ? `${b.name.trim() || 'name'}/tele/#  (on the primary; empty: same topic)` : 'set/#  (on this broker; empty: same topic)'} spellcheck="false" /></td>
+                                                <td><button type="button" class="ai-remove" onclick={() => removeRule(b, i)} title="Remove this rule">✕</button></td>
+                                            </tr>
+                                        {/each}
+                                        </tbody>
+                                    </table>
+                                {/if}
+                            </div>
+                        </div>
+                    {/each}
+                    <button type="button" class="ai-add" onclick={addBroker}>+ Add broker</button>
                 </section>
                 {/if}
 
@@ -1796,4 +2004,29 @@
         cursor: pointer;
     }
     .ai-add:hover { background: var(--bg-hover); }
+    /* ── Additional brokers (M2) ─────────────────────────────────── */
+    .sub-heading { font-size: 12px; font-weight: 600; color: var(--fg-text); margin: 1.2rem 0 0.4rem; padding-top: 0.8rem; border-top: 1px solid var(--border-sub); }
+    .broker-card { border: 1px solid var(--border, #444); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 0.8rem; }
+    .broker-card .field + .field { margin-top: 8px; }
+    .broker-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+    .broker-head .broker-name { width: 160px; font-weight: 600; }
+    .broker-state { flex: 1; font-size: 11px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nav-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .nav-dot--ok { background: var(--fg-ok); }
+    .nav-dot--err { background: var(--fg-err); }
+    .nav-dot--none { background: var(--border); }
+    .rules { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border-sub); }
+    .rules-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-text); }
+    .rules-head > span:first-child { flex: 1; }
+    .rules-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+    .rules-presets .ai-add { margin-top: 0; padding: 2px 8px; font-size: 11px; }
+    .rules-empty { font-size: 11px; color: var(--fg-muted); margin-top: 6px; }
+    .rules-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+    .rules-table th { text-align: left; font-weight: normal; font-size: 11px; color: var(--fg-muted); padding: 0 4px 2px; }
+    .rules-table td { padding: 2px 4px; vertical-align: middle; }
+    .rules-table td:first-child { width: 70px; }
+    .rules-table td:nth-child(2), .rules-table td:nth-child(4) { width: 42%; }
+    .rules-table input { width: 100%; box-sizing: border-box; }
+    .rules-table select { width: 66px; box-sizing: border-box; }
+    .rules-table .arrow { color: var(--fg-muted); text-align: center; }
 </style>

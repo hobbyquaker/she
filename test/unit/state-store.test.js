@@ -197,3 +197,29 @@ describe('StateStore — mqttEntries()', () => {
         expect([...store.mqttEntries()]).toHaveLength(0);
     });
 });
+
+describe('StateStore — the namespaces of additional brokers', () => {
+    it('mqttNamespace() and parseMqttKey() round-trip, and a primary topic starting with @ is not a broker', () => {
+        expect(StateStore.mqttNamespace(null)).toBe('mqtt::');
+        expect(StateStore.mqttNamespace(undefined)).toBe('mqtt::');
+        expect(StateStore.mqttNamespace('shed')).toBe('mqtt@shed::');
+        expect(StateStore.parseMqttKey('mqtt::a/b')).toEqual({ broker: null, topic: 'a/b' });
+        expect(StateStore.parseMqttKey('mqtt@shed::a/b')).toEqual({ broker: 'shed', topic: 'a/b' });
+        expect(StateStore.parseMqttKey('mqtt@shed::a::b')).toEqual({ broker: 'shed', topic: 'a::b' });
+        expect(StateStore.parseMqttKey('mqtt::@shed::x')).toEqual({ broker: null, topic: '@shed::x' });
+        expect(StateStore.parseMqttKey('var::x')).toBeNull();
+        expect(StateStore.parseMqttKey('mqtt@::x')).toBeNull();
+    });
+
+    it("mqttEntries(broker) yields only that broker's topics, mqttEntries() only the primary's", () => {
+        const store = new StateStore();
+        store.set('mqtt::home/temp', 22);
+        store.set('mqtt@shed::home/temp', 5);
+        store.set('mqtt@shed::tele/x', 1);
+        store.set('mqtt@other::tele/x', 2);
+        expect([...store.mqttEntries()].map((e) => e[0])).toEqual(['home/temp']);
+        expect([...store.mqttEntries('shed')].map((e) => e[0]).sort()).toEqual(['home/temp', 'tele/x']);
+        expect([...store.mqttEntries('shed')].find((e) => e[0] === 'home/temp')[1].val).toBe(5);
+        expect([...store.mqttEntries('other')].map((e) => e[0])).toEqual(['tele/x']);
+    });
+});

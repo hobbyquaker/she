@@ -599,3 +599,83 @@ describe('she.mqtt.timer() argument validation', () => {
         expect(() => she.mqtt.timer('home/motion', 1000, () => {})).not.toThrow();
     });
 });
+
+describe('she.mqtt is callable: she.mqtt(name) returns the namespace of an additional broker (roadmap M2)', () => {
+    function scopedShe() {
+        const scopes = {};
+        const she = {
+            getValue: jest.fn(() => 'primary'),
+            setValue: jest.fn(),
+            getProp: jest.fn(),
+            mqttsub: jest.fn(),
+            mqttpub: jest.fn(),
+            mqttcommand: jest.fn(),
+            setTimeout: jest.fn((fn, ms) => setTimeout(fn, ms)),
+            clearTimeout: jest.fn((id) => clearTimeout(id)),
+        };
+        const mqttScope = jest.fn((name) => {
+            if (name !== 'shed') throw new TypeError(`she.mqtt("${name}"): no such broker — configured: shed`);
+            if (!scopes[name]) {
+                scopes[name] = {
+                    broker: name,
+                    sub: jest.fn(),
+                    pub: jest.fn(),
+                    command: jest.fn(() => Promise.resolve({ val: 1 })),
+                    get: jest.fn(() => 'secondary'),
+                    getProp: jest.fn((t, p) => (p === 'lc' ? Date.now() - 10_000 : undefined)),
+                    set: jest.fn(),
+                };
+            }
+            return scopes[name];
+        });
+        installStdlib(she, { mqttScope });
+        return { she, scopes, mqttScope };
+    }
+
+    it('she.mqtt keeps every method of the primary namespace and is a function', () => {
+        const { she } = scopedShe();
+        expect(typeof she.mqtt).toBe('function');
+        for (const m of ['sub', 'pub', 'command', 'get', 'getProp', 'link', 'age', 'or', 'and', 'max', 'min', 'timer']) expect(typeof she.mqtt[m]).toBe('function');
+        expect(she.mqtt.broker).toBeNull();
+        she.mqtt.sub('a', () => {});
+        she.mqtt.pub('a', 1);
+        expect(she.mqtt.get('a')).toBe('primary');
+        expect(she.mqttsub).toHaveBeenCalledTimes(1);
+        expect(she.mqttpub).toHaveBeenCalledWith('a', 1);
+        expect(she.mqtt()).toBe(she.mqtt);
+    });
+
+    it('she.mqtt("shed") is the same API over the broker\'s primitives, built once per name', () => {
+        const { she, scopes, mqttScope } = scopedShe();
+        const shed = she.mqtt('shed');
+        expect(shed).toBe(she.mqtt('shed'));
+        expect(mqttScope).toHaveBeenCalledTimes(1);
+        expect(shed.broker).toBe('shed');
+        expect(shed.get('t')).toBe('secondary');
+        expect(she.getValue).not.toHaveBeenCalled();
+        shed.sub('t', { change: true }, () => {});
+        shed.pub('t', 1, { retain: true });
+        expect(scopes.shed.sub).toHaveBeenCalledWith('t', { change: true }, expect.any(Function));
+        expect(scopes.shed.pub).toHaveBeenCalledWith('t', 1, { retain: true });
+        expect(she.mqttsub).not.toHaveBeenCalled();
+        expect(she.mqttpub).not.toHaveBeenCalled();
+        expect(shed.age('t')).toBe(10);
+        // the helpers compute from and publish to the same broker
+        shed.link('src', 'dst');
+        const linkCb = scopes.shed.sub.mock.calls[1][1];
+        linkCb('src', 7);
+        expect(scopes.shed.set).toHaveBeenCalledWith('dst', 7);
+        shed.or(['a', 'b'], 'out');
+        expect(scopes.shed.set).toHaveBeenCalledWith('out', 1); // 'secondary' is truthy
+        expect(she.setValue).not.toHaveBeenCalled();
+        return shed.command('x/set/y', 1).then((r) => expect(r).toEqual({ val: 1 }));
+    });
+
+    it('an unknown name throws at the call site; without additional brokers every name does', () => {
+        const { she } = scopedShe();
+        expect(() => she.mqtt('nope')).toThrow(/she\.mqtt\("nope"\): no such broker — configured: shed/);
+        expect(() => she.mqtt(42)).toThrow(/name must be a broker name/);
+        const plain = makeShe();
+        expect(() => plain.mqtt('shed')).toThrow(/no additional brokers are configured/);
+    });
+});

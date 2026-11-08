@@ -3,9 +3,9 @@
     import { subscribeWs } from '../lib/ws.js';
     import HaDiscovery from './mqtt/HaDiscovery.svelte';
     import {
-        fetchMqttState, publishMqtt,
+        fetchMqttState, publishMqtt, getDaemonStatus,
         getBrokerStatus, listBrokerRoles, checkBrokerAcl,
-        type DynsecRole, type AclCheckResult,
+        type DynsecRole, type AclCheckResult, type BrokerStatus,
     } from '../lib/api.js';
 
     let { active = false, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
@@ -185,6 +185,28 @@
         return filteredFeed.slice(0, max);
     });
 
+    /* ── Additional brokers (M2): the chip switcher shows the topics of one broker at a time ── */
+    let brokers = $state<BrokerStatus[]>([]);
+    let currentBroker = $state<string | null>(null); // null: the primary
+    const unsubBrokers = subscribeWs('mqtt:brokers', (msg) => {
+        const list = (msg as { brokers?: BrokerStatus[] }).brokers;
+        if (Array.isArray(list)) brokers = list;
+    });
+    function switchBroker(name: string | null) {
+        if (name === currentBroker) return;
+        currentBroker = name;
+        topicMap.clear();
+        liveTopics.clear();
+        pending.clear();
+        roots.clear();
+        streamFeed = [];
+        filteredFeed = [];
+        expanded = new Set();
+        aclMode = false;
+        version++;
+        load();
+    }
+
     /* ── Initial load ─────────────────────────────────────────────────────── */
     let loading   = $state(true);
     let loadError: string | null = $state(null);
@@ -192,8 +214,10 @@
     async function load() {
         loading = true;
         loadError = null;
+        const broker = currentBroker;
         try {
-            const entries = await fetchMqttState();
+            const entries = await fetchMqttState(broker);
+            if (broker !== currentBroker) return; // switched while loading
             for (const e of entries) {
                 topicMap.set(e.topic, { val: e.val, ts: e.ts });
                 ensureNode(e.topic);
@@ -207,8 +231,10 @@
     }
 
     /* Live updates — write directly into the Map, queue topic for ensureNode,
-     * then schedule a batched rAF flush that bumps `version` once. */
+     * then schedule a batched rAF flush that bumps `version` once. Messages of the
+     * additional brokers carry a `broker` field; the primary's carry none. */
     const unsubWs = subscribeWs('mqtt', (msg) => {
+        if (((msg as { broker?: string }).broker ?? null) !== currentBroker) return;
         const { topic, val, ts } = msg as { topic: string; val: unknown; ts: number; deleted?: boolean };
         if ((msg as { deleted?: boolean }).deleted) {
             // Retained message cleared — drop the topic everywhere
@@ -249,7 +275,7 @@
             }
         }
         for (const t of topics) {
-            await publishMqtt(t, '', true, 0);
+            await publishMqtt(t, '', true, 0, currentBroker);
         }
     }
 
@@ -269,7 +295,7 @@
         if (!pubTopic) return;
         pubBusy = true; pubError = null; pubOk = false;
         try {
-            await publishMqtt(pubTopic, pubPayload, pubRetain, pubQos);
+            await publishMqtt(pubTopic, pubPayload, pubRetain, pubQos, currentBroker);
             pubOk = true;
             setTimeout(() => { pubOk = false; }, 2000);
         } catch (e: unknown) {
@@ -416,8 +442,12 @@
             const status = await getBrokerStatus();
             dynsecAvail = Boolean(status.dynsec?.dynsecReady);
         } catch { dynsecAvail = false; }
+        try {
+            const st = await getDaemonStatus();
+            if (Array.isArray(st.brokers)) brokers = st.brokers;
+        } catch { /* the WebSocket welcome message carries the list too */ }
     });
-    onDestroy(() => { unsubWs(); unsubStatus(); if (rafId !== null) cancelAnimationFrame(rafId); });
+    onDestroy(() => { unsubWs(); unsubStatus(); unsubBrokers(); if (rafId !== null) cancelAnimationFrame(rafId); });
 </script>
 
 <!--
@@ -498,8 +528,18 @@
     <!-- Toolbar -->
     <div class="toolbar">
         <button class="vt" class:active={!haMode} onclick={() => (haMode = false)}>Topics</button>
-        <button class="vt" class:active={haMode} onclick={() => (haMode = true)} title="Home Assistant MQTT discovery: list announced devices, delete stale announcements">HA Discovery</button>
-        {#if dynsecAvail && !haMode}
+        <button class="vt" class:active={haMode} onclick={() => { haMode = true; switchBroker(null); }} title="Home Assistant MQTT discovery: list announced devices, delete stale announcements">HA Discovery</button>
+        {#if brokers.length > 0 && !haMode}
+        <span class="chips" title="Which broker's topics are shown">
+            <button class="chip" class:active={currentBroker === null} onclick={() => switchBroker(null)}>primary</button>
+            {#each brokers as b (b.name)}
+                <button class="chip" class:active={currentBroker === b.name} onclick={() => switchBroker(b.name)} title={b.connected ? `${b.url} — connected` : `${b.url} — not connected${b.error ? ': ' + b.error : ''}`}>
+                    <span class="chip-dot" class:ok={b.connected} class:err={!b.connected}></span>{b.name}
+                </button>
+            {/each}
+        </span>
+        {/if}
+        {#if dynsecAvail && !haMode && currentBroker === null}
         <button class="acl-btn" class:active={aclMode} onclick={toggleAclMode} disabled={aclLoading} title="Show ACL coverage for topics">
             <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
             ACL{#if aclLoading}…{/if}
@@ -1128,6 +1168,20 @@
         color: var(--fg-text);
         border-bottom-color: var(--fg-brand);
     }
+
+    /* the broker chips (M2): only when additional brokers exist */
+    .chips { display: inline-flex; align-items: center; gap: 4px; margin-left: 14px; margin-bottom: 3px; }
+    .chip {
+        display: inline-flex; align-items: center; gap: 5px;
+        background: var(--bg-input); color: var(--fg-muted);
+        border: 1px solid var(--border); border-radius: 10px;
+        padding: 1px 9px; font-size: 11px; cursor: pointer;
+    }
+    .chip:hover { color: var(--fg); }
+    .chip.active { color: var(--fg-text); border-color: var(--fg-brand); background: var(--bg-active); }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+    .chip-dot.ok { background: var(--fg-ok); }
+    .chip-dot.err { background: var(--fg-err); }
 
     .acl-btn {
         background: none;

@@ -38,6 +38,7 @@ Your home, your rules - written in plain JavaScript.
 ### Operations & integration
 - [Security](doc/security.md) — trust model, auth modes, reverse proxy, Mosquitto ACLs, network segmentation
 - [Broker management](doc/broker-management.md) — Mosquitto, dynsec, TLS, certificates, SSH deploy
+- [Primary and additional brokers](doc/brokers.md) — more than one MQTT broker: `she.mqtt('<name>')`, mirror rules, when a Mosquitto bridge is the better tool
 - [AI assistant](doc/ai.md) — providers, tools, prompt profiles
 - [Services](doc/services.md) — managing xyz2mqtt adapter instances: MQTT inventory, systemd, config forms, the `she-servicectl` helper
 - [HTTP API](doc/http-api.md) — REST API reference

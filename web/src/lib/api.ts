@@ -163,10 +163,32 @@ export function gitStatus(): Promise<GitStatus> {
 
 // ---- Daemon status + restart ----
 
+/** an additional MQTT broker (she.mqtt('<name>')) as the daemon reports it */
+export interface BrokerStatus {
+    name: string;
+    /** the URL without credentials */
+    url: string;
+    connected: boolean;
+    everConnected: boolean;
+    /** when the connection state last changed */
+    since: number | null;
+    /** the last connection error while disconnected */
+    error: string | null;
+    /** publishes waiting for the connection */
+    queued: number;
+    messages: number;
+    /** mirror rules configured */
+    rules: number;
+    topics: number;
+    mirror: { in: number; out: number };
+}
+
 export interface DaemonStatus {
     scripts: number;
     runningScripts?: string[];
     topics: number;
+    /** the additional brokers (empty when none is configured) */
+    brokers?: BrokerStatus[];
     mqttMsgPerSec?: number;
     safeModeReason?: string | null;
     matterEnabled?: boolean;
@@ -914,12 +936,13 @@ export interface MqttEntry {
     ts: number;
 }
 
-export function fetchMqttState(): Promise<MqttEntry[]> {
-    return request('GET', '/she/mqtt/state');
+/** the topics of the primary broker, or of an additional broker named by `broker` */
+export function fetchMqttState(broker?: string | null): Promise<MqttEntry[]> {
+    return request('GET', '/she/mqtt/state' + (broker ? '?broker=' + encodeURIComponent(broker) : ''));
 }
 
-export function publishMqtt(topic: string, payload: string, retain = false, qos: 0 | 1 | 2 = 0): Promise<{ ok: boolean }> {
-    return request('POST', '/she/mqtt/publish', { topic, payload, retain, qos });
+export function publishMqtt(topic: string, payload: string, retain = false, qos: 0 | 1 | 2 = 0, broker?: string | null): Promise<{ ok: boolean }> {
+    return request('POST', '/she/mqtt/publish', broker ? { topic, payload, retain, qos, broker } : { topic, payload, retain, qos });
 }
 
 // ---- Home Assistant discovery (M10) ----
@@ -2214,6 +2237,8 @@ export interface RuntimeSnapshot {
     gauges: GaugeSample | null;
     commandsFailed: number;
     scripts: RuntimeScript[];
+    /** the additional brokers' state, when any is configured (the WebSocket snapshot only) */
+    brokers?: BrokerStatus[];
 }
 
 export function getRuntime(script?: string): Promise<RuntimeSnapshot> {

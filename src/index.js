@@ -285,6 +285,26 @@ const lineOf = (file) => callerLine(file)?.line ?? null;
 const sandboxModules = [];
 const store = new StateStore();
 if (typeof config.port !== 'undefined') require('./web/broker-api').setStore(store);
+// Additional brokers (roadmap M2): name → SecondaryBroker; filled below once the primary is set up.
+// Their topics live under `mqtt@<name>::`, so everything that reads `mqtt::` keeps seeing the primary only.
+const brokers = new Map();
+const { SecondaryBroker, parseBrokers } = require('./lib/secondary-broker');
+const { createMirror } = require('./lib/mirror');
+// The mirror rules' engine: `in` rules publish on the primary, `out` rules on a secondary (the
+// clients are looked up at publish time — both exist only once the connections below are set up).
+const mirror = createMirror({
+    publishPrimary: (topic, payload, opts) => {
+        if (!mqtt || !connected) return false;
+        mqtt.publish(topic, payload, opts);
+        return true;
+    },
+    publishSecondary: (name, topic, payload, opts) => {
+        const b = brokers.get(name);
+        if (!b) return false;
+        return b.publish(topic, payload, opts) !== 'dropped';
+    },
+    log,
+});
 const scripts = {};
 const scriptOrigins = new Map(); // file â†’ 'builtin' | 'user'
 const subscriptions = [];
@@ -309,24 +329,25 @@ store.on('change', (changedKey, val, obj, prevObj) => {
     }
 });
 
-// she.mqtt.command waits for the device's status: one store listener serves every pending command
-const commandWatchers = new Map(); // topic → Set<cb(val)>
+// she.mqtt.command waits for the device's status: one store listener serves every pending command.
+// Keyed by the store key (`mqtt::<topic>`, or `mqtt@<broker>::<topic>` on an additional broker).
+const commandWatchers = new Map(); // store key → Set<cb(val)>
 store.on('change', (changedKey, val) => {
-    if (commandWatchers.size === 0 || !changedKey.startsWith('mqtt::')) return;
-    const set = commandWatchers.get(changedKey.slice(6));
+    if (commandWatchers.size === 0) return;
+    const set = commandWatchers.get(changedKey);
     if (!set) return;
     for (const cb of [...set]) cb(val);
 });
-function watchTopic(topic, cb) {
-    let set = commandWatchers.get(topic);
+function watchKey(key, cb) {
+    let set = commandWatchers.get(key);
     if (!set) {
         set = new Set();
-        commandWatchers.set(topic, set);
+        commandWatchers.set(key, set);
     }
     set.add(cb);
     return () => {
         set.delete(cb);
-        if (set.size === 0) commandWatchers.delete(topic);
+        if (set.size === 0) commandWatchers.delete(key);
     };
 }
 
@@ -551,7 +572,11 @@ function startOnce(reason) {
 
 // Wire up the MQTT API: pass the state store and a getter for the live MQTT client.
 // The getter always returns the current value of `mqtt` (null until connected).
-require('./web/mqtt-api').init(store, () => mqtt);
+require('./web/mqtt-api').init(
+    store,
+    () => mqtt,
+    (name) => brokers.get(name) || null,
+);
 require('./web/services-api').init(store, () => mqtt, {
     getMqttConfig: () => ({ url: config.url, username: config.mqttUsername, password: config.mqttPassword }),
 });
@@ -578,11 +603,21 @@ new PerformanceObserver((list) => {
     }
 }).observe({ type: 'gc', buffered: false });
 
-function countTopics() {
+function countTopics(broker) {
     let topics = 0;
     // eslint-disable-next-line no-unused-vars
-    for (const _ of store.mqttEntries()) topics++;
+    for (const _ of store.mqttEntries(broker)) topics++;
     return topics;
+}
+
+/** the additional brokers' state for the status payload, the Runtime page and the WebSocket */
+function brokerStatuses() {
+    const out = [];
+    for (const b of brokers.values()) out.push({ ...b.status(), topics: countTopics(b.name), mirror: mirror.stats(b.name) });
+    return out;
+}
+function broadcastBrokers() {
+    if (brokers.size > 0) broadcast({ type: 'mqtt:brokers', brokers: brokerStatuses() });
 }
 
 /**
@@ -675,6 +710,7 @@ const statsSnapshot = () => {
         commandsFailed: runtime.commandsFailed,
         safeMode: SAFE_MODE,
         safeModeReason: SAFE_MODE_REASON,
+        brokers: brokerStatuses(),
     };
 };
 require('./web/server').setStatsProvider(statsSnapshot);
@@ -692,11 +728,12 @@ function runtimeSnapshot(file) {
 function pushRuntime() {
     if (_runtimeSubs.size === 0) return;
     let full = null;
+    const brokerList = brokers.size > 0 ? brokerStatuses() : undefined;
     for (const [ws, file] of _runtimeSubs) {
         let snap;
         if (file === null) snap = full || (full = runtimeSnapshot());
         else snap = runtimeSnapshot(file);
-        sendWs(ws, { type: 'runtime', ...snap });
+        sendWs(ws, { type: 'runtime', ...snap, brokers: brokerList });
     }
 }
 let _sampleTimer = null;
@@ -761,12 +798,22 @@ const nextOf = (job) => {
     }
 };
 const introspect = {
-    // the AI's publish tool (roadmap I20), guarded and confirmed in ai-api; here only the broker call
-    publish: (topic, payload, opts) =>
+    // the AI's publish tool (roadmap I20), guarded and confirmed in ai-api; here only the broker call —
+    // on the primary, or on an additional broker named by the tool's `broker` argument (roadmap M2)
+    publish: (topic, payload, opts, broker) =>
         new Promise((resolve, reject) => {
+            const str = typeof payload === 'object' ? JSON.stringify(payload) : String(payload);
+            if (broker) {
+                const b = brokers.get(broker);
+                if (!b) return reject(new Error(`no additional broker "${broker}" is configured`));
+                if (!b.connected) return reject(new Error(`broker "${broker}" is not connected`));
+                b.client.publish(String(topic), str, opts || {}, (err) => (err ? reject(err) : resolve()));
+                return;
+            }
             if (!mqtt || !connected) return reject(new Error('MQTT is not connected'));
-            mqtt.publish(String(topic), typeof payload === 'object' ? JSON.stringify(payload) : String(payload), opts || {}, (err) => (err ? reject(err) : resolve()));
+            mqtt.publish(String(topic), str, opts || {}, (err) => (err ? reject(err) : resolve()));
         }),
+    brokers: () => brokerStatuses(),
     config: () => ({
         name: config.name,
         variablePrefix: config.variablePrefix || 'var',
@@ -891,6 +938,10 @@ if (config.url) {
             return; // sentinel is internal — don’t process further
         }
 
+        // Mirror rules (roadmap M2): what an `in` rule just published here comes back as this message —
+        // stored like any other, never mirrored on. Everything else may leave through the `out` rules.
+        if (!mirror.consumeEcho(null, topic, payload)) mirror.fromPrimary(topic, payload, msg);
+
         if (shedb.handleMqttMessage(topic, payload)) return;
 
         // matter/set/… and matter/get/… go to the Matter bridge (M19); the message is still stored below
@@ -978,6 +1029,54 @@ if (config.url) {
             stateChange(topic, state, oldState, msg);
         }
     });
+}
+
+// ---------------------------------------------------------------------------
+// Additional brokers (roadmap M2): connected in the background, never waited for. Their messages
+// go to the state store under `mqtt@<name>::<topic>` and to the subscriptions made through
+// `she.mqtt('<name>')`; the mirror rules copy what the config says into the primary and back.
+// ---------------------------------------------------------------------------
+{
+    const parsed = parseBrokers(config.brokers);
+    for (const e of parsed.errors) log.warn('config: ' + e);
+    if (parsed.brokers.length > 0 && !config.url) log.warn('brokers: additional brokers are configured but no primary broker (url) — the mirror rules have nowhere to publish');
+    for (const def of parsed.brokers) {
+        const b = new SecondaryBroker(def, { connect: modules.mqtt.connect, log });
+        brokers.set(def.name, b);
+        mirror.setRules(def.name, def.rules);
+        b.on('connect', () => broadcastBrokers());
+        b.on('close', () => broadcastBrokers());
+        b.on('error', () => {
+            /* logged by the broker itself; the status carries the message */
+        });
+        b.on('message', (topic, payload, msg) => handleSecondaryMessage(def.name, topic, payload, msg));
+    }
+    if (brokers.size > 0) {
+        log.info(`brokers: ${brokers.size} additional broker(s): ${[...brokers.keys()].join(', ')}`);
+        setWelcomeProvider(() => ({ type: 'mqtt:brokers', brokers: brokerStatuses() }));
+        for (const b of brokers.values()) b.start();
+    }
+}
+
+/** a message from an additional broker: stored under its namespace, dispatched to its subscriptions, mirrored in */
+function handleSecondaryMessage(name, topic, payload, msg) {
+    _mqttMsgCount++;
+    const ns = StateStore.mqttNamespace(name);
+    const echo = mirror.consumeEcho(name, topic, payload);
+    if (payload.length === 0) {
+        const emptyOld = store.getObject(ns + topic) || {};
+        store.delete(ns + topic);
+        const ts = Date.now();
+        stateChange(topic, { val: '', ts, lc: ts }, emptyOld, msg, name);
+    } else {
+        const state = require('./lib/parse-payload')(payload);
+        if (!state.ts) state.ts = Date.now();
+        const oldState = store.getObject(ns + topic) || {};
+        if (state.lc === undefined) state.lc = oldState.val !== state.val ? state.ts : (oldState.lc ?? state.ts);
+        store.setObject(ns + topic, state);
+        stateChange(topic, state, oldState, msg, name);
+    }
+    if (!echo) mirror.fromSecondary(name, topic, payload, msg);
 }
 
 // sheDB â€” only init when --db-path is given
@@ -1075,8 +1174,13 @@ if (config.url) {
     _maybeStart();
 }
 
-function stateChange(topic, state, oldState, msg) {
+/**
+ * Dispatch a stored state change to the matching subscriptions of its broker.
+ * @param {string|null} [broker] null: the primary; a name: the additional broker the message came from
+ */
+function stateChange(topic, state, oldState, msg, broker = null) {
     subscriptions.forEach((subs) => {
+        if ((subs.broker || null) !== broker) return;
         const options = subs.options || {};
         let delay;
 
@@ -1210,7 +1314,6 @@ function runScript(script, name, _origin, source) {
     const _myTimers = scriptTimers.get(name);
     const _myHooks = new Set();
     scriptUnloadHooks.set(name, _myHooks);
-    const _myLastPayload = new Map(); // topic → last payload, for pub({ changed: true })
     let _unloaded = false;
     let _subCount = 0;
     _myHooks.add(() => {
@@ -1292,33 +1395,65 @@ function runScript(script, name, _origin, source) {
         line: () => lineOf(name),
     });
     const _lintWarned = new Set(); // topics already warned about (load-time scan and runtime)
-    function lintPublish(topic, api, line) {
-        if (_lintWarned.has(topic)) return;
-        const why = statusTopicWarning(topic, (t) => store.has('mqtt::' + t));
+    function lintPublish(topic, api, line, broker = null) {
+        const key = (broker || '') + '\0' + topic;
+        if (_lintWarned.has(key)) return;
+        const ns = StateStore.mqttNamespace(broker);
+        const why = statusTopicWarning(topic, (t) => store.has(ns + t));
         if (!why) return;
-        _lintWarned.add(topic);
+        _lintWarned.add(key);
         log.warn(logLabel, `${api}${line ? ` (line ${line})` : ''}: ${why}`);
     }
-    const _command = createCommander({
-        publish: (topic, payload) => {
-            recordPublish(name, topic);
-            if (mqtt && connected) mqtt.publish(topic, payload, {});
-        },
-        get: (topic) => store.get('mqtt::' + topic),
-        has: (topic) => store.has('mqtt::' + topic),
-        watch: watchTopic,
-        setTimeout: (fn, ms, meta) => _timeout(fn, ms, meta, 'she.mqtt.command'),
-        clearTimeout: _clearTimeout,
-        onUnload: (fn) => {
-            _myHooks.add(fn);
-            return () => _myHooks.delete(fn);
-        },
-        warn: (msg) => log.warn(logLabel, msg),
-        onFail: () => {
-            runtime.commandsFailed++;
-        },
-        line: () => lineOf(name),
-    });
+    // one commander per broker the script talks to: the primary's, and one for each she.mqtt('<name>')
+    const _commanders = new Map();
+    function commanderFor(broker) {
+        const k = broker || '';
+        if (_commanders.has(k)) return _commanders.get(k);
+        const ns = StateStore.mqttNamespace(broker);
+        const cmd = createCommander({
+            publish: (topic, payload) => {
+                if (broker) {
+                    brokers.get(broker).publish(topic, payload, {});
+                    return;
+                }
+                recordPublish(name, topic);
+                if (mqtt && connected) mqtt.publish(topic, payload, {});
+            },
+            get: (topic) => store.get(ns + topic),
+            has: (topic) => store.has(ns + topic),
+            offline: broker ? () => (brokers.get(broker).connected ? null : `broker "${broker}" not connected`) : null,
+            watch: (topic, cb) => watchKey(ns + topic, cb),
+            setTimeout: (fn, ms, meta) => _timeout(fn, ms, meta, 'she.mqtt.command'),
+            clearTimeout: _clearTimeout,
+            onUnload: (fn) => {
+                _myHooks.add(fn);
+                return () => _myHooks.delete(fn);
+            },
+            warn: (msg) => log.warn(logLabel, msg),
+            onFail: () => {
+                runtime.commandsFailed++;
+            },
+            line: () => lineOf(name),
+        });
+        _commanders.set(k, cmd);
+        return cmd;
+    }
+    /** the last payload per topic for pub({ changed: true }), per broker */
+    const _lastPayloads = new Map();
+    function lastPayloadsOf(broker) {
+        const k = broker || '';
+        if (!_lastPayloads.has(k)) _lastPayloads.set(k, new Map());
+        return _lastPayloads.get(k);
+    }
+    /** the additional broker behind a she.mqtt('<name>') call, or a TypeError at the call site */
+    function brokerOf(broker) {
+        const b = brokers.get(broker);
+        if (!b) {
+            const known = [...brokers.keys()];
+            throw new TypeError(`she.mqtt("${broker}"): no such broker — ${known.length ? 'configured: ' + known.join(', ') : 'no additional brokers are configured'}`);
+        }
+        return b;
+    }
 
     const she = {
         global: _global,
@@ -1369,6 +1504,141 @@ function runScript(script, name, _origin, source) {
          * @param {subscribeCallback} callback
          */
         mqttsub: function Sandbox_mqttsub(topic, ...rest) {
+            return _mqttsub(null, topic, ...rest);
+        },
+
+        /**
+         * Schedule recurring and one-shot callbacks, including solar events.
+         * Pass a suncalc event name (e.g. 'sunrise', 'sunset') as pattern to schedule
+         * relative to a solar event; cron strings, Date objects, and node-schedule
+         * literals are also accepted.
+         * @method schedule
+         * @param {string|Date|Object|Array} pattern - Cron string, suncalc event name, Date, node-schedule literal, or an array of any mix.
+         * @param {Object} [options]
+         * @param {number} [options.random] - random delay in seconds
+         * @param {number} [options.shift]  - offset in seconds for solar events (-86400â€¦86400)
+         * @param {function} callback - is called with no arguments
+         */
+        schedule: function Sandbox_schedule(pattern, ...rest) {
+            return _schedule(pattern, ...rest);
+        },
+
+        /**
+         * Publish a MQTT message
+         * @method mqttpub
+         * @param {(string|string[])} topic - topic or array of topics to publish to
+         * @param {(string|Object)} payload - the payload string. If an object is given it will be JSON.stringified
+         * @param {Object} [options] - the options to publish with
+         * @param {number} [options.qos=0] - QoS Level
+         * @param {boolean} [options.retain=false] - retain flag
+         * @param {boolean} [options.changed=false] - publish only when the payload differs from the last one this
+         *   script published to the topic (before the first one: from the topic's current value in the state store)
+         */
+        mqttpub: function Sandbox_mqttpub(topic, payload, options) {
+            return _mqttpub(null, topic, payload, options);
+        },
+
+        /**
+         * Publish a command and wait for the device's status to confirm it. she.mqtt.command.
+         * @method mqttcommand
+         * @param {string} topic
+         * @param {*} payload
+         * @param {Object} [options] confirm, path, expect, tolerance, timeout (s), retries, quiet
+         * @returns {Promise<{val, ms, tries, already?}>}
+         */
+        mqttcommand: function Sandbox_mqttcommand(topic, payload, options) {
+            return _mqttcommand(null, topic, payload, options);
+        },
+
+        /**
+         * Set a value on one or more topics
+         * @method setValue
+         * @param {(string|string[])} topic - topic or array of topics to set value on
+         * @param {mixed} val
+         */
+        setValue: function Sandbox_setValue(topic, val) {
+            return _setValue(null, topic, val);
+        },
+
+        /**
+         * @method getValue
+         * @param {string} topic
+         * @returns {mixed} the topics value
+         */
+        getValue: function Sandbox_getValue(topic) {
+            return store.get('mqtt::' + topic);
+        },
+
+        /**
+         * Get a specific property of a topic
+         * @method getProp
+         * @param {string} topic
+         * @param {...string} [property] - the property to retrieve. May be repeated for nested properties. If omitted the whole topic object is returned.
+         * @returns {mixed} the topics properties value
+         * @example // returns the timestamp of a given topic
+         * she.getProp('hm//Bewegungsmelder Keller/MOTION', 'ts');
+         */
+        getProp: function Sandbox_getProp(topic, ...props) {
+            return _getProp(null, topic, ...props);
+        },
+
+        /**
+         * Universal subscribe by namespaced key.
+         * Callback receives (val, obj, prevObj).
+         * @method on
+         * @param {string} key  Namespaced key: 'mqtt::topic', 'mqtt@broker::topic', 'var::name', 'matter::nodeId/ep/Cluster/attr'
+         * @param {function} callback
+         */
+        on: function Sandbox_she_on(key, callback) {
+            if (typeof key !== 'string') throw new TypeError('she.on: key must be a string');
+            if (typeof callback !== 'function') throw new TypeError('she.on: callback must be a function');
+
+            const mqttKey = StateStore.parseMqttKey(key);
+            if (mqttKey) {
+                if (mqttKey.broker) brokerOf(mqttKey.broker);
+                _mqttsub(mqttKey.broker, mqttKey.topic, { retain: true }, (_topic, val, obj, prevObj) => {
+                    callback(val, obj, prevObj);
+                });
+            } else if (key.startsWith('var::')) {
+                const varStoreKey = 'var::' + key.slice(5);
+                const boundCb = scriptDomain.bind(callback);
+                const handler = runtime.handler(name, { kind: 'var', name: key, line: lineOf(name) });
+                // served by the one store listener at module level
+                varSubscriptions.push({ key: varStoreKey, callback: boundCb, _script: name, _rt: handler });
+                // Fire immediately if var already has a value (retain semantics)
+                const currentVarObj = store.getObject(varStoreKey);
+                if (currentVarObj !== undefined) _dispatch(name, () => boundCb(currentVarObj.val, currentVarObj, undefined), handler);
+            } else if (key.startsWith('matter::')) {
+                const parts = key.slice(8).split('/');
+                if (parts.length !== 4) throw new TypeError('she.on: invalid matter key (expected matter::nodeId/ep/Cluster/attr)');
+                const [nodeId, endpointId, clusterName, attrName] = parts;
+                if (!she.matter) throw new Error('she.on: Matter not configured');
+                she.matter.sub(Number(nodeId), Number(endpointId), clusterName, attrName, callback);
+            } else {
+                throw new TypeError('she.on: unknown namespace in key: ' + key);
+            }
+        },
+    };
+
+    // ── The MQTT primitives, scoped to a broker (roadmap M2) ─────────────────────────────────────
+    // `broker` is null for the primary (she.mqtt.*, she.mqttsub, …) or the name of an additional
+    // broker (she.mqtt('<name>').*). Same code, another state-store namespace and another client.
+
+    /**
+     * Subscribe to MQTT topic(s)
+     * @param {string|null} broker
+     * @param {(string|string[])} topic - topic or array of topics to subscribe
+     * @param {Object|string|function} [options] - Options object or as shorthand to options.condition a function or string
+     * @param {number} [options.shift] - delay execution in seconds. Has to be positive
+     * @param {number} [options.random] - random delay execution in seconds. Has to be positive
+     * @param {boolean} [options.change] - if set to true callback is only called if val changed
+     * @param {boolean} [options.retain] - if set to true callback is also called on retained messages
+     * @param {(string|function)} [options.condition] - conditional function or condition string
+     * @param {subscribeCallback} callback
+     */
+    function _mqttsub(broker, topic, ...rest) {
+        {
+            const ns = StateStore.mqttNamespace(broker);
             if (typeof topic === 'undefined') {
                 throw new TypeError('argument topic missing');
             }
@@ -1419,7 +1689,9 @@ function runScript(script, name, _origin, source) {
             const optNames = ['change', 'retain', 'shift', 'random', 'condition', 'debounce', 'throttle', 'maxWait', 'perTopic'].filter(
                 (k) => options[k] !== undefined && options[k] !== false,
             );
-            const detail = [topics.length > 1 ? topics.join(', ') : null, optNames.length ? optNames.join(', ') : null].filter(Boolean).join(' · ') || null;
+            const detail =
+                [broker ? `broker ${broker}` : null, topics.length > 1 ? topics.join(', ') : null, optNames.length ? optNames.join(', ') : null].filter(Boolean).join(' · ') ||
+                null;
             const handler = runtime.handler(name, { kind: 'sub', name: label, detail, line: lineOf(name) });
             // what runs the callback for one event; with opts.debounce or opts.throttle the events of
             // this call are bundled — across the topics of an array, per topic with opts.perTopic
@@ -1428,7 +1700,7 @@ function runScript(script, name, _origin, source) {
             if (limited) deliver = limited;
 
             for (const tp of topics) {
-                subscriptions.push({ topic: tp, options, callback: boundCallback, deliver, _script: name, _rt: handler });
+                subscriptions.push({ topic: tp, options, callback: boundCallback, deliver, broker, _script: name, _rt: handler });
                 _subCount++;
                 if (_subCount === 1000) {
                     log.warn(
@@ -1438,30 +1710,21 @@ function runScript(script, name, _origin, source) {
                 }
 
                 if (options.retain && boundCallback) {
-                    if (store.has('mqtt::' + tp)) {
-                        deliver(tp, store.get('mqtt::' + tp), store.getObject('mqtt::' + tp));
+                    if (store.has(ns + tp)) {
+                        deliver(tp, store.get(ns + tp), store.getObject(ns + tp));
                     } else if (tp.includes('+') || tp.endsWith('#')) {
-                        for (const [t, obj] of store.mqttEntries()) {
+                        for (const [t, obj] of store.mqttEntries(broker)) {
                             if (mqttWildcards(t, tp)) deliver(t, obj.val, obj);
                         }
                     }
                 }
             }
-        },
+        }
+    }
 
-        /**
-         * Schedule recurring and one-shot callbacks, including solar events.
-         * Pass a suncalc event name (e.g. 'sunrise', 'sunset') as pattern to schedule
-         * relative to a solar event; cron strings, Date objects, and node-schedule
-         * literals are also accepted.
-         * @method schedule
-         * @param {string|Date|Object|Array} pattern - Cron string, suncalc event name, Date, node-schedule literal, or an array of any mix.
-         * @param {Object} [options]
-         * @param {number} [options.random] - random delay in seconds
-         * @param {number} [options.shift]  - offset in seconds for solar events (-86400â€¦86400)
-         * @param {function} callback - is called with no arguments
-         */
-        schedule: function Sandbox_schedule(pattern, ...rest) {
+    /** she.schedule — see the sandbox method above */
+    function _schedule(pattern, ...rest) {
+        {
             let options, callback;
             if (rest.length === 1) {
                 if (typeof rest[0] !== 'function') {
@@ -1558,163 +1821,126 @@ function runScript(script, name, _origin, source) {
                 next: () => nextOf(job),
                 run: runNow,
             });
-        },
+        }
+    }
 
-        /**
-         * Publish a MQTT message
-         * @method mqttpub
-         * @param {(string|string[])} topic - topic or array of topics to publish to
-         * @param {(string|Object)} payload - the payload string. If an object is given it will be JSON.stringified
-         * @param {Object} [options] - the options to publish with
-         * @param {number} [options.qos=0] - QoS Level
-         * @param {boolean} [options.retain=false] - retain flag
-         * @param {boolean} [options.changed=false] - publish only when the payload differs from the last one this
-         *   script published to the topic (before the first one: from the topic's current value in the state store)
-         */
-        mqttpub: function Sandbox_mqttpub(topic, payload, options) {
-            if (typeof topic === 'object' && topic.length > 0) {
-                topic = Array.prototype.slice.call(topic);
-                topic.forEach((tp) => {
-                    she.mqttpub(tp, payload, options);
-                });
-                return;
-            }
+    /**
+     * Publish a MQTT message — she.mqtt.pub on the primary, she.mqtt('<name>').pub on an additional broker
+     * (there the message is queued briefly while the broker is offline; the primary drops it).
+     * @param {string|null} broker
+     */
+    function _mqttpub(broker, topic, payload, options) {
+        if (typeof topic === 'object' && topic.length > 0) {
+            topic = Array.prototype.slice.call(topic);
+            topic.forEach((tp) => {
+                _mqttpub(broker, tp, payload, options);
+            });
+            return;
+        }
 
-            topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
-            recordPublish(name, topic);
-            lintPublish(topic, 'she.mqtt.pub');
+        const ns = StateStore.mqttNamespace(broker);
+        topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
+        if (!broker) recordPublish(name, topic);
+        lintPublish(topic, 'she.mqtt.pub', undefined, broker);
 
-            if (typeof payload === 'object') {
-                payload = JSON.stringify(payload);
-            } else {
-                payload = String(payload);
-            }
-            let changed = false;
-            if (options && typeof options === 'object' && 'changed' in options) {
-                ({ changed, ...options } = options);
-            }
-            if (changed && publishChanged.isRepeat(_myLastPayload, topic, payload, (t) => store.getObject('mqtt::' + t))) return;
-            if (!mqtt || !connected) return; // silently drop when MQTT is not connected
-            publishChanged.remember(_myLastPayload, topic, payload);
-            mqtt.publish(topic, payload, options);
-        },
+        if (typeof payload === 'object') {
+            payload = JSON.stringify(payload);
+        } else {
+            payload = String(payload);
+        }
+        let changed = false;
+        if (options && typeof options === 'object' && 'changed' in options) {
+            ({ changed, ...options } = options);
+        }
+        const lastPayload = lastPayloadsOf(broker);
+        if (changed && publishChanged.isRepeat(lastPayload, topic, payload, (t) => store.getObject(ns + t))) return;
+        if (broker) {
+            publishChanged.remember(lastPayload, topic, payload);
+            brokers.get(broker).publish(topic, payload, options || {});
+            return;
+        }
+        if (!mqtt || !connected) return; // silently drop when MQTT is not connected
+        publishChanged.remember(lastPayload, topic, payload);
+        mqtt.publish(topic, payload, options);
+    }
 
-        /**
-         * Publish a command and wait for the device's status to confirm it. she.mqtt.command.
-         * @method mqttcommand
-         * @param {string} topic
-         * @param {*} payload
-         * @param {Object} [options] confirm, path, expect, tolerance, timeout (s), retries, quiet
-         * @returns {Promise<{val, ms, tries, already?}>}
-         */
-        mqttcommand: function Sandbox_mqttcommand(topic, payload, options) {
-            if (typeof topic === 'string') lintPublish(topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2'), 'she.mqtt.command');
-            return _command(topic, payload, options);
-        },
+    /** she.mqtt.command, scoped to a broker */
+    function _mqttcommand(broker, topic, payload, options) {
+        if (typeof topic === 'string') lintPublish(topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2'), 'she.mqtt.command', undefined, broker);
+        return commanderFor(broker)(topic, payload, options);
+    }
 
-        /**
-         * Set a value on one or more topics
-         * @method setValue
-         * @param {(string|string[])} topic - topic or array of topics to set value on
-         * @param {mixed} val
-         */
-        setValue: function Sandbox_setValue(topic, val) {
-            if (typeof topic === 'object' && topic.length > 0) {
-                topic = Array.prototype.slice.call(topic);
-                topic.forEach((tp) => {
-                    she.setValue(tp, val);
-                });
-                return;
-            }
+    /** she.setValue: on the primary with the variable system, on an additional broker a plain publish */
+    function _setValue(broker, topic, val) {
+        if (typeof topic === 'object' && topic.length > 0) {
+            topic = Array.prototype.slice.call(topic);
+            topic.forEach((tp) => {
+                _setValue(broker, tp, val);
+            });
+            return;
+        }
+        if (broker) {
+            _mqttpub(broker, topic, val, { retain: false });
+            return;
+        }
 
-            const tmp = topic.split('/');
-            if (tmp[0] === config.variablePrefix && !config.disableVariables) {
-                // Variable â€” delegate to setVariable (handles var:: store + MQTT publish)
-                const varName = tmp.slice(2).join('/');
-                setVariable(varName, val);
-            } else if (tmp[0] === config.variablePrefix && config.disableVariables) {
-                tmp[1] = 'status';
+        const tmp = topic.split('/');
+        if (tmp[0] === config.variablePrefix && !config.disableVariables) {
+            // Variable â€” delegate to setVariable (handles var:: store + MQTT publish)
+            const varName = tmp.slice(2).join('/');
+            setVariable(varName, val);
+        } else if (tmp[0] === config.variablePrefix && config.disableVariables) {
+            tmp[1] = 'status';
+            topic = tmp.join('/');
+            if (!store.has('mqtt::' + topic) || store.get('mqtt::' + topic) !== val) {
+                tmp[1] = 'set';
                 topic = tmp.join('/');
-                if (!store.has('mqtt::' + topic) || store.get('mqtt::' + topic) !== val) {
-                    tmp[1] = 'set';
-                    topic = tmp.join('/');
-                    she.mqttpub(topic, val, { retain: false });
-                }
-            } else {
-                she.mqttpub(topic, val, { retain: false });
+                _mqttpub(null, topic, val, { retain: false });
             }
-        },
+        } else {
+            _mqttpub(null, topic, val, { retain: false });
+        }
+    }
 
-        /**
-         * @method getValue
-         * @param {string} topic
-         * @returns {mixed} the topics value
-         */
-        getValue: function Sandbox_getValue(topic) {
-            return store.get('mqtt::' + topic);
-        },
+    function _getValue(broker, topic) {
+        return store.get(StateStore.mqttNamespace(broker) + topic);
+    }
 
-        /**
-         * Get a specific property of a topic
-         * @method getProp
-         * @param {string} topic
-         * @param {...string} [property] - the property to retrieve. May be repeated for nested properties. If omitted the whole topic object is returned.
-         * @returns {mixed} the topics properties value
-         * @example // returns the timestamp of a given topic
-         * she.getProp('hm//Bewegungsmelder Keller/MOTION', 'ts');
-         */
-        getProp: function Sandbox_getProp(topic, ...props) {
-            if (props.length > 0) {
-                let tmp = store.getObject('mqtt::' + topic);
-                if (typeof tmp === 'undefined') {
+    function _getProp(broker, topic, ...props) {
+        const ns = StateStore.mqttNamespace(broker);
+        if (props.length > 0) {
+            let tmp = store.getObject(ns + topic);
+            if (typeof tmp === 'undefined') {
+                return;
+            }
+            for (const prop of props) {
+                if (typeof tmp[prop] === 'undefined') {
                     return;
                 }
-                for (const prop of props) {
-                    if (typeof tmp[prop] === 'undefined') {
-                        return;
-                    }
-                    tmp = tmp[prop];
-                }
-                return tmp;
+                tmp = tmp[prop];
             }
-            return store.getObject('mqtt::' + topic);
-        },
+            return tmp;
+        }
+        return store.getObject(ns + topic);
+    }
 
-        /**
-         * Universal subscribe by namespaced key.
-         * Callback receives (val, obj, prevObj).
-         * @method on
-         * @param {string} key  Namespaced key: 'mqtt::topic', 'var::name', 'matter::nodeId/ep/Cluster/attr'
-         * @param {function} callback
-         */
-        on: function Sandbox_she_on(key, callback) {
-            if (typeof key !== 'string') throw new TypeError('she.on: key must be a string');
-            if (typeof callback !== 'function') throw new TypeError('she.on: callback must be a function');
-
-            if (key.startsWith('mqtt::')) {
-                she.mqttsub(key.slice(6), { retain: true }, (_topic, val, obj, prevObj) => {
-                    callback(val, obj, prevObj);
-                });
-            } else if (key.startsWith('var::')) {
-                const varStoreKey = 'var::' + key.slice(5);
-                const boundCb = scriptDomain.bind(callback);
-                const handler = runtime.handler(name, { kind: 'var', name: key, line: lineOf(name) });
-                // served by the one store listener at module level
-                varSubscriptions.push({ key: varStoreKey, callback: boundCb, _script: name, _rt: handler });
-                // Fire immediately if var already has a value (retain semantics)
-                const currentVarObj = store.getObject(varStoreKey);
-                if (currentVarObj !== undefined) _dispatch(name, () => boundCb(currentVarObj.val, currentVarObj, undefined), handler);
-            } else if (key.startsWith('matter::')) {
-                const parts = key.slice(8).split('/');
-                if (parts.length !== 4) throw new TypeError('she.on: invalid matter key (expected matter::nodeId/ep/Cluster/attr)');
-                const [nodeId, endpointId, clusterName, attrName] = parts;
-                if (!she.matter) throw new Error('she.on: Matter not configured');
-                she.matter.sub(Number(nodeId), Number(endpointId), clusterName, attrName, callback);
-            } else {
-                throw new TypeError('she.on: unknown namespace in key: ' + key);
-            }
-        },
-    };
+    /**
+     * The primitives behind she.mqtt('<name>') (roadmap M2): the stdlib builds the same namespace as
+     * she.mqtt from them. Throws at the call site when no such broker is configured.
+     */
+    function mqttScope(broker) {
+        if (typeof broker !== 'string' || !broker) throw new TypeError(`she.mqtt(name): name must be a broker name (got ${typeof broker})`);
+        brokerOf(broker);
+        return {
+            broker,
+            sub: (...args) => _mqttsub(broker, ...args),
+            pub: (topic, payload, options) => _mqttpub(broker, topic, payload, options),
+            command: (topic, payload, options) => _mqttcommand(broker, topic, payload, options),
+            get: (topic) => _getValue(broker, topic),
+            getProp: (...args) => _getProp(broker, ...args),
+            set: (topic, val) => _setValue(broker, topic, val),
+        };
+    }
 
     // she.log is an alias for she.info
     she.log = she.info;
@@ -1853,7 +2079,7 @@ function runScript(script, name, _origin, source) {
         warn: (msg) => log.warn(logLabel, msg),
     });
     sandboxModules.forEach((md) => {
-        md(she, { scriptDomain, scriptName, scriptFile: name });
+        md(she, { scriptDomain, scriptName, scriptFile: name, mqttScope });
     });
 
     // Lint before the script runs: a literal topic that an adapter writes as status is a command
