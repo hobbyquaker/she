@@ -146,7 +146,17 @@
         versionOpen = false;
         updating = true;
         const prevStartedAt: number | undefined = stats?.startedAt;
-        try { await updateDaemon(); } catch { /* ok — daemon will restart */ }
+        try {
+            await updateDaemon();
+        } catch (e) {
+            // 409: the daemon started nothing — no version known, Docker, or the host's helper is too old for an exact-version install
+            updating = false;
+            const msg = e instanceof Error ? e.message : String(e);
+            if (stats) stats = { ...stats, updateError: msg };
+            versionOpen = true;
+            await dialog.show(`Update not started: ${msg}`, { alert: true });
+            return;
+        }
         // Poll until startedAt changes (new daemon instance) — mirrors restart() logic.
         // When the daemon goes down, switch the overlay to 'Restarting…'.
         const deadline = Date.now() + 180_000;
@@ -156,6 +166,14 @@
                 const s = await getDaemonStatus();
                 if (prevStartedAt === undefined || s.startedAt !== prevStartedAt) {
                     location.reload(); return;
+                }
+                // npm finished and the daemon did not restart: the install failed and the status says why
+                if (!s.updating && s.updateError) {
+                    updating = false;
+                    stats = { ...stats, ...s };
+                    versionOpen = true;
+                    await dialog.show(`Update failed: ${s.updateError}`, { alert: true });
+                    return;
                 }
             } catch {
                 // Daemon is down — npm has finished and systemd is restarting the service.
@@ -504,6 +522,9 @@
                         {#if stats?.updateChannel === 'beta' && stats?.latestStable}
                         <dt>Stable</dt><dd>v{stats.latestStable}</dd>
                         {/if}
+                        {#if stats?.latestVersion && stats?.updateError}
+                        <dt class="version-error">Update</dt><dd class="version-error">{stats.updateError}</dd>
+                        {/if}
                         {#if stats?.docker}
                         <dt>Docker</dt><dd>pull a new image to update</dd>
                         {/if}
@@ -758,6 +779,9 @@
     .version-popup dt { color: var(--fg-dim); font-weight: normal; }
     .version-popup dd { margin: 0; text-align: right; }
     .version-pre { font-size: 0.75em; color: var(--fg-dim); border: 1px solid var(--fg-dim); border-radius: 3px; padding: 0 3px; margin-left: 2px; }
+    /* the last update attempt failed: what npm or the daemon said, in full */
+    .version-popup .version-error { color: #e55; }
+    .version-popup dd.version-error { text-align: left; max-width: 280px; line-height: 1.35; overflow-wrap: anywhere; }
     .version-actions {
         border-top: 1px solid var(--border-sub);
         padding-top: 6px;

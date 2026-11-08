@@ -98,6 +98,21 @@ async function existsOnNpm(version) {
 }
 
 /**
+ * npm's `latest` dist-tag of the package, or null when the registry does not answer. Only the
+ * self-update's fallback asks (the literal `npm install -g smart-home-engine` installs exactly this).
+ */
+async function npmLatest() {
+    try {
+        const res = await _fetch(`${NPM_REGISTRY}/${PACKAGE}/latest`, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data && VERSION_RX.test(String(data.version)) ? data.version : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Check for an update on a channel.
  * @param {object} opts
  * @param {string} opts.installed the running version
@@ -149,4 +164,4 @@ async function checkUpdate(opts) {
     return result;
 }
 
-module.exports = { CHANNELS, PACKAGE, checkUpdate, newestOf, offeredVersion, versionOfTag, isPrerelease, normalizeChannel, setFetch };
+module.exports = { CHANNELS, PACKAGE, checkUpdate, npmLatest, newestOf, offeredVersion, versionOfTag, isPrerelease, normalizeChannel, setFetch };

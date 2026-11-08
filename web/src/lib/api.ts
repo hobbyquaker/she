@@ -192,8 +192,10 @@ export interface DaemonStatus {
     /** the newest stable release and the newest pre-release known, whatever the channel */
     latestStable?: string;
     latestBeta?: string;
-    /** why the last check found nothing to offer (network, a release missing on npm) */
+    /** why the last check found nothing to offer (network, a release missing on npm), or why the last update attempt failed */
     updateError?: string;
+    /** an update is being installed right now */
+    updating?: boolean;
     dataDir?: string;
     startedAt?: number;
     docker?: boolean;
@@ -247,7 +249,7 @@ export function restartDaemon(): Promise<{ ok: boolean }> {
     return request('POST', '/she/restart');
 }
 
-export function updateDaemon(): Promise<{ ok: boolean; version?: string }> {
+export function updateDaemon(): Promise<{ ok: boolean; version?: string; via?: 'helper' | 'npm-latest' }> {
     return request('POST', '/she/update');
 }
 

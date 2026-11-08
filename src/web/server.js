@@ -6,6 +6,8 @@ const { spawn } = require('child_process');
 const pkg = require('../../package.json');
 const { router: configRouter, DEFAULT_CONFIG_PATH } = require('./config-api');
 const updateChannel = require('../lib/update-channel');
+const selfUpdate = require('../lib/self-update');
+const servicesHost = require('../lib/services-host');
 const { router: scriptsRouter } = require('./scripts-api');
 const { router: shedbRouter } = require('./shedb-api');
 const { router: matterRouter } = require('./matter-api');
@@ -127,7 +129,9 @@ function _updateFields() {
     }
     if (_update && _update.stable) f.latestStable = _update.stable;
     if (_update && _update.prerelease) f.latestBeta = _update.prerelease;
-    if (_update && _update.error) f.updateError = _update.error;
+    if (_updateFailed) f.updateError = _updateFailed;
+    else if (_update && _update.error) f.updateError = _update.error;
+    if (_updating) f.updating = true;
     return f;
 }
 
@@ -137,21 +141,51 @@ app.post('/she/check-update', async (req, res) => {
     res.json({ latestVersion: r.latest, ..._updateFields() });
 });
 
-// Update — install the offered version exactly, then restart. Without a known version there is
-// nothing to install: `npm install -g smart-home-engine` would take npm's `latest`, which can be
-// older than a running pre-release.
-app.post('/she/update', (req, res) => {
+// Update — install the offered version exactly, then restart — but only after npm succeeded.
+// The install runs through the helper (`she-servicectl she-update <version>`, v16) when the host
+// has it; a host with an older helper falls back to the literal `sudo npm install -g
+// smart-home-engine` of the old sudoers rule when the offered version is npm's `latest`, and is
+// asked to update the helper otherwise. Without a known version there is nothing to install.
+let _updating = false; // an install is running
+let _updateFailed = null; // the last failed install's message, until the next attempt
+
+function _log(level, msg) {
+    if (_logger) _logger[level](msg);
+    else (level === 'error' || level === 'warn' ? console.error : console.log)(msg);
+}
+
+async function _planUpdate(version) {
+    const helperVersion = await selfUpdate.helperVersionOf(servicesHost.createLocalDriver());
+    // npm's `latest` matters only for the fallback, so it is fetched only when the helper is too old
+    const helperOk = Number.isInteger(helperVersion) && helperVersion >= selfUpdate.HELPER_SHE_UPDATE_VERSION;
+    return selfUpdate.planUpdate({ version, helperVersion, npmLatest: helperOk ? null : await updateChannel.npmLatest() });
+}
+
+app.post('/she/update', async (req, res) => {
     const version = _update && _update.latest;
     if (!version || _isDocker) {
         res.status(409).json({ ok: false, error: _isDocker ? 'a Docker container is updated by pulling a new image' : 'no update known — check for updates first' });
         return;
     }
-    res.json({ ok: true, version });
-    setTimeout(() => {
-        // Use async spawn so the HTTP server (and event loop) remain responsive
-        // while npm runs. spawnSync would block all HTTP polling from the UI.
-        const child = spawn('sudo', ['npm', 'install', '-g', `${updateChannel.PACKAGE}@${version}`], { stdio: 'inherit' });
-        child.on('close', () => _systemdRestart());
+    if (_updating) {
+        res.status(409).json({ ok: false, error: 'an update is already running' });
+        return;
+    }
+    const plan = await _planUpdate(version);
+    if (plan.error) {
+        _updateFailed = plan.error;
+        _log('warn', `update to ${version} not possible: ${plan.error}`);
+        res.status(409).json({ ok: false, error: plan.error });
+        return;
+    }
+    _updating = true;
+    _updateFailed = null;
+    res.json({ ok: true, version, via: plan.mode });
+    // async spawn, so the HTTP server (and the UI's polling) stays responsive while npm runs
+    setTimeout(async () => {
+        const r = await selfUpdate.performUpdate({ plan, version, spawn, onRestart: _systemdRestart, log: _log });
+        _updating = false;
+        if (!r.ok) _updateFailed = r.error;
     }, 200);
 });
 
@@ -356,4 +390,10 @@ function stopServer() {
     });
 }
 
-module.exports = { app, registerRoute, unregisterRoutesByScript, setStatsProvider, setHealthProvider, startServer, stopServer };
+let _logger = null;
+/** The daemon's logger; without one the update path writes to the console. */
+function setLogger(log) {
+    _logger = log;
+}
+
+module.exports = { app, registerRoute, unregisterRoutesByScript, setStatsProvider, setHealthProvider, setLogger, startServer, stopServer };

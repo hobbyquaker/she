@@ -245,6 +245,7 @@ if (typeof config.port !== 'undefined') {
             process.exit(1);
         });
     require('./web/broker-api').setLogger(log);
+    require('./web/server').setLogger(log);
 }
 
 const chokidar = require('chokidar');
