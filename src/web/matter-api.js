@@ -585,11 +585,23 @@ router.delete('/devices/:nodeId/fabrics/:fabricIndex', async (req, res) => {
     }
 });
 
-// DELETE /she/matter/devices/:nodeId — unpair
+// DELETE /she/matter/devices/:nodeId — unpair (decommission; a node that lost she's fabric is forgotten locally)
 router.delete('/devices/:nodeId', async (req, res) => {
     if (!isReady()) return notReady(res);
     try {
         await getController().unpair(req.params.nodeId);
+        res.json({ ok: true });
+    } catch (err) {
+        if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /she/matter/devices/:nodeId/forget — remove the node locally without decommissioning it
+router.post('/devices/:nodeId/forget', async (req, res) => {
+    if (!isReady()) return notReady(res);
+    try {
+        await getController().forget(req.params.nodeId);
         res.json({ ok: true });
     } catch (err) {
         if (err.message.includes('not found')) return res.status(404).json({ error: err.message });

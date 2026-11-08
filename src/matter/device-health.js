@@ -6,6 +6,8 @@
  * role changes — kept in `device-health.json` in the Matter storage across restarts; alerts for a
  * low battery and for a long offline period, logged at warn, published retained on
  * `<name>/status/matter/health` as `{ val: 'ok' | 'warning', ts, lc, alerts }`, shown on the device page.
+ * A node that lost she's fabric (the controller's `fabric` event) gets a `fabric_lost` alert
+ * instead of the `offline` one: it never comes back without re-commissioning.
  */
 
 const fs = require('fs');
@@ -26,7 +28,7 @@ let _timer = null;
 let _listening = false;
 let _lastVal = null;
 let _lc = null;
-/** nodeId → { lastSeen, online, since, offlineHistory: [{ online, ts }], battery, roles: [{ role, ts }] } */
+/** nodeId → { lastSeen, online, since, offlineHistory: [{ online, ts }], battery, roles: [{ role, ts }], fabricLost: ts | null } */
 let _nodes = new Map();
 const _active = new Map();
 
@@ -63,7 +65,7 @@ function _save() {
 function _entry(nodeId) {
     let e = _nodes.get(String(nodeId));
     if (!e) {
-        e = { lastSeen: null, online: null, since: null, offlineHistory: [], battery: null, roles: [] };
+        e = { lastSeen: null, online: null, since: null, offlineHistory: [], battery: null, roles: [], fabricLost: null };
         _nodes.set(String(nodeId), e);
     }
     return e;
@@ -134,9 +136,20 @@ function _onStatus({ nodeId, online }) {
         e.offlineHistory.push({ online, ts: now });
         if (e.offlineHistory.length > HISTORY_MAX) e.offlineHistory.splice(0, e.offlineHistory.length - HISTORY_MAX);
         if (online) e.lastSeen = now;
+        if (online) e.fabricLost = null;
         _save();
         _broadcast?.({ type: 'matter:health', nodeId });
     }
+}
+
+/** The controller's verdict on she's fabric on the node: lost since `since`, or restored. */
+function _onFabric({ nodeId, lost, since }) {
+    const e = _entry(nodeId);
+    const next = lost ? (since ?? Date.now()) : null;
+    if (e.fabricLost === next) return;
+    e.fabricLost = next;
+    _save();
+    _broadcast?.({ type: 'matter:health', nodeId });
 }
 
 /** Read what the cached state already knows (battery, role) for every paired node. */
@@ -148,6 +161,8 @@ function _scan() {
             e.online = dev.online;
             e.since = Date.now();
         }
+        // the controller knows across restarts whether the node lost the fabric; the file follows it
+        if (dev.fabricLostSince !== undefined) e.fabricLost = dev.fabricLostSince ?? null;
         let endpoints;
         try {
             endpoints = ctrl.getEndpoints(dev.nodeId);
@@ -189,6 +204,7 @@ function nodeHealth(nodeId, { now = Date.now() } = {}) {
         online: e.online,
         since: e.since,
         battery: e.battery,
+        fabricLost: e.fabricLost ?? null,
         offlineNow: e.online === false ? now - (e.since ?? now) : 0,
         offlineCount7d: offlineWeek.length + (e.online === false && start !== null && start >= week ? 1 : 0),
         offlineMs7d: offlineWeek.reduce((a, p) => a + p.ms, 0) + (e.online === false && start !== null ? now - Math.max(start, week) : 0),
@@ -231,7 +247,19 @@ function check({ now = Date.now() } = {}) {
                 since: now,
             });
         }
-        if (e.online === false && e.since && now - e.since > OFFLINE_ALERT_MS) {
+        if (e.fabricLost && e.online !== true) {
+            // the device answers with NoSharedTrustRoots: it does not carry she's fabric any more and
+            // will not come back by itself — this replaces the offline alert for the node
+            const since = new Date(e.fabricLost);
+            wanted.set(`fabric:${dev.nodeId}`, {
+                key: `fabric:${dev.nodeId}`,
+                kind: 'fabric_lost',
+                nodeId: dev.nodeId,
+                name,
+                message: `${name}: fabric lost since ${since.toISOString().slice(0, 16).replace('T', ' ')} UTC — re-commission the device or forget the node`,
+                since: e.fabricLost,
+            });
+        } else if (e.online === false && e.since && now - e.since > OFFLINE_ALERT_MS) {
             wanted.set(`offline:${dev.nodeId}`, {
                 key: `offline:${dev.nodeId}`,
                 kind: 'offline',
@@ -293,6 +321,7 @@ function start({ publish, name, log, broadcast, controller, storageDir } = {}) {
             ev.on('attr', _onAttr);
             ev.on('event', _onEvent);
             ev.on('status', _onStatus);
+            ev.on('fabric', _onFabric);
             _listening = true;
         }
     }
@@ -334,4 +363,4 @@ function _reset() {
     _file = null;
 }
 
-module.exports = { start, stop, check, listHealth, nodeHealth, applyBatteryAttr, _onAttr, _onEvent, _onStatus, _reset, OFFLINE_ALERT_MS, LOW_BATTERY_PERCENT };
+module.exports = { start, stop, check, listHealth, nodeHealth, applyBatteryAttr, _onAttr, _onEvent, _onStatus, _onFabric, _reset, OFFLINE_ALERT_MS, LOW_BATTERY_PERCENT };

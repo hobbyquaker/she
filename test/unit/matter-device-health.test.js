@@ -102,6 +102,43 @@ describe('matter device health', () => {
         expect(published[published.length - 1].payload.val).toBe('ok');
     });
 
+    test("a node that lost she's fabric gets the fabric_lost alert instead of offline, until it is back", () => {
+        const now = Date.now();
+        const since = now - 3 * 3600000;
+        // the controller's verdict arrives as an event …
+        controller.events.emit('fabric', { nodeId: '7', lost: true, since });
+        expect(dh.nodeHealth('7').fabricLost).toBe(since);
+        let r = dh.check({ now: now + dh.OFFLINE_ALERT_MS + 1000 });
+        const fabric = r.raised.find((a) => a.kind === 'fabric_lost');
+        expect(fabric).toMatchObject({
+            key: 'fabric:7',
+            nodeId: '7',
+            since,
+            message: expect.stringMatching(/^Button: fabric lost since \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC — re-commission the device or forget the node$/),
+        });
+        expect(r.raised.find((a) => a.kind === 'offline')).toBeUndefined();
+        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('fabric lost since'));
+        expect(published[published.length - 1].payload.alerts).toEqual([expect.objectContaining({ kind: 'fabric_lost', nodeId: '7', since })]);
+        // … and is cleared when the node is back
+        controller.events.emit('fabric', { nodeId: '7', lost: false, since: null });
+        controller.events.emit('status', { nodeId: '7', online: true });
+        r = dh.check({ now: now + dh.OFFLINE_ALERT_MS + 2000 });
+        expect(r.cleared.map((a) => a.kind)).toEqual(['fabric_lost']);
+        expect(dh.nodeHealth('7').fabricLost).toBeNull();
+    });
+
+    test('the initial scan takes the fabric-lost time from the device list (after a restart)', () => {
+        jest.resetModules();
+        const again = require('../../src/matter/device-health');
+        again._reset();
+        const ctrl = makeController();
+        ctrl.listPaired = () => [{ nodeId: '7', online: false, name: 'Button', state: 'fabric_lost', fabricLostSince: 12345 }];
+        again.start({ log, controller: ctrl, storageDir: dir });
+        expect(again.nodeHealth('7').fabricLost).toBe(12345);
+        expect(again.check().raised).toEqual([expect.objectContaining({ kind: 'fabric_lost', since: 12345 })]);
+        again.stop();
+    });
+
     test('the record survives a restart', async () => {
         controller.events.emit('attr', { nodeId: '7', clusterName: 'powerSource', attrName: 'batPercentRemaining', value: 30, ts: 5 });
         await new Promise((r) => setTimeout(r, 2200)); // the debounced save

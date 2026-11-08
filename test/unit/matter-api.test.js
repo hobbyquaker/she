@@ -411,3 +411,39 @@ describe('matter-api: groups (M23)', () => {
         expect(mock.addBinding).toHaveBeenCalledWith({ source: { nodeId: '2', endpointId: 1 }, target: { group: 1 }, clusters: ['onOff'] });
     });
 });
+
+describe('POST /she/matter/devices/:nodeId/forget', () => {
+    let srv, port;
+
+    const mockController = {
+        isStarted: jest.fn(() => true),
+        listPaired: jest.fn(() => []),
+        forget: jest.fn().mockResolvedValue(undefined),
+    };
+
+    beforeEach(async () => {
+        jest.resetModules();
+        jest.doMock('../../src/matter/controller', () => mockController);
+        const { router } = require('../../src/web/matter-api');
+        const app = express();
+        app.use(express.json());
+        app.use('/she/matter', router);
+        srv = await startApp(app);
+        port = srv.address().port;
+    });
+
+    afterEach(() => new Promise((resolve) => srv.close(resolve)));
+
+    test('forgets the node locally and answers ok', async () => {
+        const res = await httpRequest('POST', port, '/she/matter/devices/42/forget');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ ok: true });
+        expect(mockController.forget).toHaveBeenCalledWith('42');
+    });
+
+    test('returns 404 when the node is not found', async () => {
+        mockController.forget.mockRejectedValueOnce(new Error('Matter node not found: 999'));
+        const res = await httpRequest('POST', port, '/she/matter/devices/999/forget');
+        expect(res.status).toBe(404);
+    });
+});

@@ -11,6 +11,7 @@
 
 const { Environment, ServerNode, ControllerBehavior, Logger, LogLevel, LogFormat } = require('@matter/main');
 const dcl = require('./dcl');
+const fabricLost = require('./fabric-lost');
 
 // Upper bound for a commissioning attempt — matter.js has internal retries that
 // can keep an HTTP request (and the pairing wizard) hanging for a very long time.
@@ -21,6 +22,13 @@ let _server = null;
 let _log = null;
 // Rate-limit state for repeating matter.js error lines (B6)
 let _lastMatterErr = { line: '', ts: 0, suppressed: 0 };
+// Nodes that lost she's fabric: the tracker, the probe timer, the running probes and the
+// matter.js "via" strings (@<fabric>:<node>) whose WARN lines are demoted while the node is paused.
+/** @type {ReturnType<typeof fabricLost.createTracker> | null} */
+let _fabricLost = null;
+let _probeTimer = null;
+const _probes = new Map();
+const _quietVias = new Map();
 
 /** Depth-limited, cycle-safe rendering of arbitrary throwables/objects. */
 function _inspect(v) {
@@ -171,7 +179,10 @@ async function init(storagePath, log, broadcastFn, options = {}) {
             _lastMatterErr = { line, ts: now, suppressed: 0 };
             _log.error('matter.js:', line);
         } else if (message.level === LogLevel.WARN) {
-            _log.warn('matter.js:', line);
+            // A node that lost she's fabric is paused and probed once an hour; the probe's per-attempt
+            // warnings ("Peer error (retry in 5m): … NoSharedTrustRoots …") say nothing new.
+            if (_quietVias.size && _isQuietLine(line)) _log.debug('matter.js:', line);
+            else _log.warn('matter.js:', line);
         } else {
             _log.debug('matter.js:', line);
         }
@@ -235,6 +246,13 @@ async function init(storagePath, log, broadcastFn, options = {}) {
     await _server.start();
     _log.info('matter controller started, storage:', storagePath);
 
+    // Nodes that lost she's fabric: detect NoSharedTrustRoots, pause, probe hourly
+    try {
+        _installFabricLostDetection(storagePath);
+    } catch (err) {
+        _log?.warn(`matter: fabric-lost detection not installed: ${err.message}`);
+    }
+
     // she's Matter groups (M23): the key sets and the group → key set map into she's own fabric
     try {
         _loadGroups(storagePath);
@@ -272,6 +290,12 @@ async function init(storagePath, log, broadcastFn, options = {}) {
 async function close() {
     if (!_server) return;
     _ota = null;
+    if (_probeTimer) clearInterval(_probeTimer);
+    _probeTimer = null;
+    for (const t of _probes.values()) clearTimeout(t);
+    _probes.clear();
+    _quietVias.clear();
+    _fabricLost = null;
     require('./thread-mesh').stop();
     await require('./thread').stop();
     await dcl.close();
@@ -352,7 +376,10 @@ function _getDeviceSubtitle(node) {
 
 /**
  * List all paired nodes.
- * @returns {{ nodeId: string, online: boolean, name: string|null }[]}
+ * `state` is `online`, `offline` or `fabric_lost` — the last when the device answers she with
+ * NoSharedTrustRoots (factory-reset or she's fabric removed; it needs re-commissioning), with
+ * `fabricLostSince` the time of the first such answer.
+ * @returns {{ nodeId: string, online: boolean, name: string|null, state: 'online'|'offline'|'fabric_lost', fabricLostSince: number|null }[]}
  */
 function listPaired() {
     if (!_server) return [];
@@ -360,10 +387,15 @@ function listPaired() {
     for (const node of _server.peers) {
         const addr = node.peerAddress;
         if (!addr) continue; // not commissioned yet (in discovery)
+        const nodeId = _nodeIdStr(addr.nodeId);
+        const online = node.lifecycle?.isOnline ?? false;
+        const lostSince = online ? null : (_fabricLost?.since(nodeId) ?? null);
         result.push({
-            nodeId: _nodeIdStr(addr.nodeId),
-            online: node.lifecycle?.isOnline ?? false,
+            nodeId,
+            online,
             name: _getDeviceName(node),
+            state: online ? 'online' : lostSince !== null ? 'fabric_lost' : 'offline',
+            fabricLostSince: lostSince,
         });
     }
     return result;
@@ -477,12 +509,37 @@ async function _commissionInner(options) {
  */
 async function unpair(nodeId) {
     const node = _findClientNode(nodeId);
-    try {
-        await node.decommission();
-    } catch (err) {
-        _log?.warn(`matter: decommission of ${nodeId} failed (${err.message}), force-deleting`);
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    if (_fabricLost?.isLost(id)) {
+        // The device does not know she's fabric any more: decommissioning would only wait for the
+        // connection timeout and fail — forget the node locally right away.
+        _log?.info(`matter: node ${id} has lost she's fabric — forgetting it locally instead of decommissioning`);
         await node.delete();
+    } else {
+        try {
+            await node.decommission();
+        } catch (err) {
+            _log?.warn(`matter: decommission of ${nodeId} failed (${err.message}), force-deleting`);
+            await node.delete();
+        }
     }
+    _forgetFabricLost(id);
+    _emitDeviceList();
+}
+
+/**
+ * Forget a paired node locally — remove it from the controller's storage without decommissioning
+ * it. For a node that is unreachable or has lost she's fabric; a device that still carries
+ * the fabric keeps it until it is factory-reset or another administrator removes it.
+ *
+ * @param {string} nodeId
+ */
+async function forget(nodeId) {
+    const node = _findClientNode(nodeId);
+    const id = _nodeIdStr(node.peerAddress.nodeId);
+    _log?.info(`matter: forgetting node ${id} (${_getDeviceName(node) ?? 'unnamed'}) locally, without decommissioning`);
+    await node.delete();
+    _forgetFabricLost(id);
     _emitDeviceList();
 }
 
@@ -2015,6 +2072,7 @@ function _subscribeNodeLifecycle(node, nodeId) {
     const lc = node.lifecycle;
     if (!lc) return;
     lc.online?.on?.(() => {
+        _fabricRestored(nodeId);
         events.emit('status', { nodeId, online: true });
         _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: true });
         _broadcastNodeAttributes(node, nodeId);
@@ -2023,6 +2081,198 @@ function _subscribeNodeLifecycle(node, nodeId) {
         events.emit('status', { nodeId, online: false });
         _broadcast?.({ type: 'matter:deviceStatus', nodeId, online: false });
     });
+}
+
+// ── Nodes that lost she's fabric ────────────────────────────────────────
+//
+// matter.js answers a NoSharedTrustRoots status from a peer by clearing the resumption record and
+// retrying every 5 minutes on every address, for ever. The hook it offers is PeerSet.handleError:
+// called with the error of every failed connection attempt that is about to be retried, it may
+// return another delay or throw to give up the connection. The error does not carry the peer; the
+// peer is the one whose connection is running and which just *received* a message (a dead node
+// receives nothing)
+
+/** Install the hook, load the state and start the hourly probe. */
+function _installFabricLostDetection(storagePath) {
+    _fabricLost = fabricLost.createTracker({ file: require('path').join(storagePath, 'fabric-lost.json'), log: _log });
+    const { PeerSet } = require('@matter/protocol');
+    const peers = _server.env.get(PeerSet);
+    peers.handleError = (error) => _onPeerError(error, peers);
+    _syncQuietVias();
+    for (const lost of _fabricLost.list()) {
+        const node = _clientNodeById(lost.nodeId);
+        if (!node) {
+            _fabricLost.clear(lost.nodeId);
+            continue;
+        }
+        _log?.info(
+            `matter: node ${lost.nodeId} (${_getDeviceName(node) ?? 'unnamed'}) lost she's fabric on ${new Date(lost.since).toISOString()} — still paused, probed once an hour`,
+        );
+        _pauseNode(node, lost.nodeId);
+    }
+    _probeTimer = setInterval(_probeDue, 60 * 1000);
+    if (typeof _probeTimer.unref === 'function') _probeTimer.unref();
+}
+
+/** Classify a connection error: the NoSharedTrustRoots status in the CASE handshake. */
+function _isNoSharedTrustRoots(error) {
+    try {
+        const { ChannelStatusResponseError } = require('@matter/protocol');
+        const { SecureChannelStatusCode } = require('@matter/types');
+        const csre = ChannelStatusResponseError.of(error);
+        return !!csre && csre.protocolStatusCode === SecureChannelStatusCode.NoSharedTrustRoots;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The peer a connection error belongs to: among the peers whose connection is running, the one
+ * that received a message within the last seconds — unambiguous when it is the only one.
+ */
+function _peerForError(peers, now = Date.now()) {
+    const connecting = peers.filter((p) => p.service?.status?.isConnecting === true);
+    if (connecting.length === 1) return connecting[0];
+    const byReceipt = connecting.map((p) => ({ p, at: Number(p.service.status.lastReceiptAt ?? 0) })).sort((a, b) => b.at - a.at);
+    const best = byReceipt[0];
+    if (!best || now - best.at >= 15000) return null;
+    return byReceipt.length > 1 && byReceipt[1].at === best.at ? null : best.p;
+}
+
+function _clientNodeById(nodeId) {
+    for (const node of _server?.peers ?? []) {
+        if (node.peerAddress && _nodeIdStr(node.peerAddress.nodeId) === String(nodeId)) return node;
+    }
+    return null;
+}
+
+function _clientNodeForPeer(peer) {
+    const addr = peer.address;
+    if (!addr) return null;
+    for (const node of _server.peers) {
+        const a = node.peerAddress;
+        if (a && _nodeIdStr(a.nodeId) === _nodeIdStr(addr.nodeId) && Number(a.fabricIndex) === Number(addr.fabricIndex)) return node;
+    }
+    return null;
+}
+
+/** PeerSet.handleError: returns the delay before the next attempt, or undefined for matter.js's own. */
+function _onPeerError(error, peers) {
+    if (!_fabricLost || !_isNoSharedTrustRoots(error)) return undefined;
+    const peer = _peerForError(peers);
+    if (!peer) {
+        _log?.debug('matter: NoSharedTrustRoots from a peer that cannot be told apart from the other connecting peers');
+        return undefined;
+    }
+    const node = _clientNodeForPeer(peer);
+    if (!node) return undefined;
+    const nodeId = _nodeIdStr(node.peerAddress.nodeId);
+    const r = _fabricLost.record(nodeId);
+    if (r.justLost) {
+        _log?.warn(
+            `matter: node ${nodeId} (${_getDeviceName(node) ?? 'unnamed'}) has lost she's fabric — ${r.count} NoSharedTrustRoots answers since ${new Date(r.since).toISOString()} (factory-reset, or she's fabric removed by another admin); pausing it, probing once an hour. Re-commission the device or forget the node.`,
+        );
+        _pauseNode(node, nodeId);
+        _emitFabric(nodeId, true, r.since);
+    } else if (r.lost) {
+        // a further answer — during a probe the proof that the node is still dead: pause again
+        _pauseNode(node, nodeId);
+    }
+    // the node is being disabled; should an attempt slip through, make matter.js wait an hour
+    return r.lost ? fabricLost.PROBE_INTERVAL_MS : undefined;
+}
+
+/** Disable the ClientNode: no connection attempts until the next probe. Idempotent. */
+function _pauseNode(node, nodeId) {
+    _fabricLost?.markPaused(nodeId);
+    _syncQuietVias();
+    let disabled = false;
+    try {
+        disabled = node.state?.network?.isDisabled === true;
+    } catch {
+        /* state not readable — try to disable anyway */
+    }
+    if (disabled || typeof node.disable !== 'function') return;
+    Promise.resolve()
+        .then(() => node.disable())
+        .catch((err) => _log?.warn(`matter: could not pause node ${nodeId}: ${err.message}`));
+}
+
+/** Enable every paused node whose hourly probe is due, for one probe window each. */
+function _probeDue() {
+    if (!_fabricLost || !_server) return;
+    for (const nodeId of _fabricLost.dueProbes()) {
+        const node = _clientNodeById(nodeId);
+        if (!node) {
+            _fabricLost.clear(nodeId);
+            continue;
+        }
+        const lost = _fabricLost.get(nodeId);
+        _fabricLost.startProbe(nodeId);
+        _log?.info(`matter: probing node ${nodeId} (${_getDeviceName(node) ?? 'unnamed'}) — fabric lost since ${new Date(lost.since).toISOString()}, probe #${lost.probes + 1}`);
+        Promise.resolve()
+            .then(() => node.enable?.())
+            .catch((err) => _log?.debug(`matter: probe of node ${nodeId}: ${err.message}`));
+        const t = setTimeout(() => {
+            _probes.delete(nodeId);
+            if (!_fabricLost?.isLost(nodeId)) return; // came online: restored meanwhile
+            if (node.lifecycle?.isOnline) {
+                _fabricRestored(nodeId);
+                return;
+            }
+            _pauseNode(node, nodeId);
+        }, fabricLost.PROBE_WINDOW_MS);
+        if (typeof t.unref === 'function') t.unref();
+        _probes.set(nodeId, t);
+    }
+}
+
+/** The node is online again: it carries the fabric after all (or was re-commissioned under the same id). */
+function _fabricRestored(nodeId) {
+    if (!_fabricLost?.clear(nodeId)) return;
+    const t = _probes.get(nodeId);
+    if (t) clearTimeout(t);
+    _probes.delete(nodeId);
+    _syncQuietVias();
+    _log?.info(`matter: node ${nodeId} is back in she's fabric`);
+    _emitFabric(nodeId, false, null);
+}
+
+function _forgetFabricLost(nodeId) {
+    const t = _probes.get(nodeId);
+    if (t) clearTimeout(t);
+    _probes.delete(nodeId);
+    _fabricLost?.clear(nodeId);
+    _syncQuietVias();
+}
+
+function _emitFabric(nodeId, lost, since) {
+    events.emit('fabric', { nodeId, lost, since });
+    _broadcast?.({ type: 'matter:fabric', nodeId, lost, since });
+    _emitDeviceList();
+}
+
+/** The matter.js "via" (@<fabricIndex>:<nodeId hex>) of every paused node, for the log filter. */
+function _syncQuietVias() {
+    _quietVias.clear();
+    if (!_fabricLost || !_server) return;
+    for (const lost of _fabricLost.list()) {
+        const node = _clientNodeById(lost.nodeId);
+        const a = node?.peerAddress;
+        if (!a) continue;
+        const via = `@${Number(a.fabricIndex)}:${BigInt(a.nodeId).toString(16)}`;
+        _quietVias.set(via, new RegExp(via.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![0-9a-f])'));
+    }
+}
+
+function _isQuietLine(line) {
+    for (const re of _quietVias.values()) if (re.test(line)) return true;
+    return false;
+}
+
+/** The nodes that lost she's fabric, for the API and the health module. */
+function listFabricLost() {
+    return _fabricLost?.list() ?? [];
 }
 
 // ── Subscriptions (for sandbox) ───────────────────────────────────────────────
@@ -2169,6 +2419,8 @@ module.exports = {
     listPaired,
     commission,
     unpair,
+    forget,
+    listFabricLost,
     getEndpoints,
     getDeviceSubtitle,
     getDeviceInfo,
