@@ -10,7 +10,7 @@
  */
 
 /**
- * A delay a script passed to a timer API: a finite number of milliseconds, not negative (roadmap S9).
+ * A delay a script passed to a timer API: a finite number of milliseconds, not negative.
  * Node coerces anything else to NaN, warns once per process without naming the caller and fires
  * after 1 ms — a swapped argument order or an undefined config field became a silent 1 ms timer.
  * @param {*} delay

@@ -284,11 +284,11 @@ const varSubscriptions = []; // store-based var:: subscriptions { key, handler, 
 const scriptJobs = new Map(); // scriptFile â†’ node-schedule Job[]
 const scriptPublishes = new Map(); // scriptFile → Set<topic> a script published to (roadmap I19; capped)
 const scriptTimers = new Map(); // scriptFile â†’ Set<timer id>
-const scriptUnloadHooks = new Map(); // scriptFile → Set<fn> run first when the script is unloaded (roadmap S10)
+const scriptUnloadHooks = new Map(); // scriptFile → Set<fn> run first when the script is unloaded
 
 const _global = {};
 
-// One store listener serves every she.on('var::…') of every script (roadmap S8). Before, each call
+// One store listener serves every she.on('var::…') of every script. Before, each call
 // added a listener of its own, so Node warned about MaxListeners from the eleventh on; now a
 // registration is an entry in varSubscriptions, which unloadScript removes.
 store.on('change', (changedKey, val, obj, prevObj) => {
@@ -948,7 +948,7 @@ function stateChange(topic, state, oldState, msg) {
 
             delay = Math.floor(delay);
 
-            // The delay timer is tracked like a script's own setTimeout (roadmap S8), so a reload of
+            // The delay timer is tracked like a script's own setTimeout, so a reload of
             // the script between the message and the shifted callback cancels the callback instead
             // of running the unloaded script's code.
             trackTimeout(
@@ -1045,7 +1045,7 @@ function runScript(script, name, _origin) {
 
     /**
      * The script's one-shot timer: the delay is validated and a bad one is logged with the script's
-     * name (roadmap S9), the callback runs in the script's domain, the id is tracked for the unload
+     * name, the callback runs in the script's domain, the id is tracked for the unload
      * and carries kind and name for the timer list. Every timer API of the sandbox goes through here.
      */
     function _timeout(fn, delay, meta = {}, api = 'setTimeout') {
@@ -1269,7 +1269,7 @@ function runScript(script, name, _origin) {
             let job = null;
             job = scheduler.scheduleJob(pattern, () => {
                 // A one-shot job (a Date) is done after this run: forget it, so that a script
-                // scheduling a Date per event does not keep every fired job (roadmap S8).
+                // scheduling a Date per event does not keep every fired job.
                 if (job && job.nextInvocation() === null) {
                     const i = _myJobs.indexOf(job);
                     if (i !== -1) _myJobs.splice(i, 1);
@@ -1409,7 +1409,7 @@ function runScript(script, name, _origin) {
             } else if (key.startsWith('var::')) {
                 const varStoreKey = 'var::' + key.slice(5);
                 const boundCb = scriptDomain.bind(callback);
-                // served by the one store listener at module level (roadmap S8)
+                // served by the one store listener at module level
                 varSubscriptions.push({ key: varStoreKey, callback: boundCb, _script: name });
                 // Fire immediately if var already has a value (retain semantics)
                 const currentVarObj = store.getObject(varStoreKey);
@@ -1431,7 +1431,7 @@ function runScript(script, name, _origin) {
 
     const Sandbox = {
         // setTimeout(fn) without a delay is Node's "next tick"; a delay that is given but is not a
-        // number is a mistake and logged with the script's name (roadmap S9)
+        // number is a mistake and logged with the script's name
         setTimeout: (fn, ...rest) => {
             const [delay, ...args] = rest;
             const wrapped = args.length ? () => fn(...args) : fn;
@@ -1464,7 +1464,7 @@ function runScript(script, name, _origin) {
         require(md) {
             // A relative path is cached by Node under its resolved file; caching it here under the bare
             // specifier made two scripts requiring './util' from different directories share the first
-            // one's module (roadmap S8). The cache here is for the daemon's own modules and packages.
+            // one's module. The cache here is for the daemon's own modules and packages.
             const relative = /^\.\.?\//.test(md);
             if (!relative && modules[md]) {
                 return modules[md];
@@ -1529,7 +1529,7 @@ function runScript(script, name, _origin) {
     // documented aliases of the globals, and what stdlib and the sandbox modules use.
     she.setTimeout = Sandbox.setTimeout;
     she.clearTimeout = Sandbox.clearTimeout;
-    // Timing helpers (roadmap S10): their timers are the script's, so a reload clears them and
+    // Timing helpers: their timers are the script's, so a reload clears them and
     // the timer list shows them with kind and name.
     she.debounce = _timing.debounce;
     she.throttle = _timing.throttle;
@@ -1633,7 +1633,7 @@ function unloadScript(file) {
     let removedCallbacks = 0;
     let removedTimers = 0;
 
-    // The script's unload hooks run first (roadmap S10): the sandbox marks itself unloaded, a debounce
+    // The script's unload hooks run first: the sandbox marks itself unloaded, a debounce
     // with flushOnUnload runs its pending call, a retry stops. Then the timers below are cleared.
     const hooks = scriptUnloadHooks.get(file);
     if (hooks) {

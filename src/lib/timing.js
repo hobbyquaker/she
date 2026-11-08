@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Timing helpers for scripts (roadmap S10): debounce, throttle, a restartable timeout, retry with
+ * Timing helpers for scripts: debounce, throttle, a restartable timeout, retry with
  * backoff, and the debounce/throttle of a subscription.
  *
  * The helpers do not touch Node's timers. They take the script's tracked timer primitives, so every

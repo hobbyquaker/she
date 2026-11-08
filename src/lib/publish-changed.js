@@ -1,6 +1,6 @@
 'use strict';
 /**
- * `she.mqtt.pub(topic, payload, { changed: true })` (roadmap S10): publish only when the payload
+ * `she.mqtt.pub(topic, payload, { changed: true })`: publish only when the payload
  * differs from what this script last sent to the topic. Before the first publish of a run, the
  * comparison falls back to the topic's current value in the state store — for a command topic
  * (`<prefix>/set/<name>`) to its `status` sibling, which is where a variable's or an adapter's
