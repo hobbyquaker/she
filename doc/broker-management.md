@@ -70,6 +70,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
     "reloadCmd": "sudo systemctl reload mosquitto",
     "restartCmd": "sudo systemctl restart mosquitto",
     "apiTimeout": 5000,
+    "probeTimeout": 8000,
     "dynsec": {
       "adminUsername": "she-admin",
       "adminPassword": "..."
@@ -92,6 +93,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
 | `reloadCmd` | `sudo systemctl reload mosquitto` | Command to send SIGHUP / reload |
 | `restartCmd` | `sudo systemctl restart mosquitto` | Command for a full restart |
 | `apiTimeout` | `5000` | Timeout in ms for dynsec requests |
+| `probeTimeout` | `8000` | How long (ms) she waits for the broker to answer after a bridge change was reloaded before rolling back |
 | `dynsec.adminUsername` | — | Username of the dynsec admin account |
 | `dynsec.adminPassword` | — | Password of the dynsec admin account |
 | `caDir` | `~/.she/broker/ca` | Directory for CA keypair and issued certs |
@@ -105,7 +107,7 @@ Then restart she. Use the **Test dynsec connection** button on the Status tab to
 
 ## Web UI
 
-The **Broker** tab has five sub-tabs:
+The **Broker** tab has these sub-tabs:
 
 ### Status
 
@@ -141,7 +143,30 @@ Card-per-listener editor for `mosquitto.conf` listener blocks. Each card exposes
 
 Click **Save** then **Apply & Reload** to write the config and send a SIGHUP.
 
-Before every write a timestamped backup is created (e.g. `mosquitto.conf.bak-2026-06-18T14-30-00`). The **Advanced** sub-tab (planned) will expose the raw config editor and backup restore.
+Before every write a timestamped backup is created (e.g. `mosquitto.conf.bak-2026-06-18T14-30-00`). The **Advanced** sub-tab exposes the raw config editor and backup restore.
+
+### Bridges
+
+A Mosquitto *bridge* joins the managed broker to another broker permanently: the broker itself keeps the connection, independent of she, and forwards topics in one or both directions. In `mosquitto.conf` a bridge is a `connection` block; the **Bridges** sub-tab edits those blocks as cards and forms, so nobody has to remember the `topic pattern [in|out|both] qos local-prefix remote-prefix` syntax.
+
+**When a bridge, when she's own mirror rules?** A Mosquitto bridge when the two brokers belong together permanently and should stay joined whether she runs or not (a second site, a broker in the garage, a hub broker). she's *additional brokers* with mirror rules (Config page) when she owns the connection: a cloud broker with credentials she keeps, a neighbour's broker, topics that need renaming or filtering by script logic — mirroring happens inside she and stops with it.
+
+**Cards.** One card per bridge with a live status dot. The state comes from the broker's own notification topic `$SYS/broker/connection/<remote client id>/state` (`1` connected, `0` not), which Mosquitto publishes retained when `notifications` is on (the default). she sees it through its MQTT connection and the she-admin connection; a bridge with `notifications false` shows "state unknown".
+
+**The form.**
+
+- *Remote broker*: name (the `connection` name), one or more addresses (`host` or `host:port`, several for failover), remote client id (default `<broker hostname>.<name>`), remote username and password, TLS (`bridge_cafile` / `bridge_capath`, TLS version, a client certificate, `bridge_insecure` off by default). The paths are read by Mosquitto on the **broker host**.
+- *Test connection* connects once from the she host to the first address with the TLS files and credentials from the form and reports success or the reason (refused port, host not found, "not authorised", a TLS file that cannot be read). It says what the remote broker and the credentials do, not whether the broker host itself has a route there.
+- *Topic rules* as a table: pattern, direction (`in` = remote → here, `out` = here → remote, `both`), QoS, local prefix, remote prefix — with a live preview under every row ("remote `site/tele/kitchen/temp` → local `cloud/tele/kitchen/temp`"). Presets: *Mirror everything under a prefix*, *mqtt-smarthome adapter on the remote* (`<name>/status/#` and `<name>/connected` in, `<name>/set/#` out), *Publish a branch to the remote*. A pattern bridged both ways with the same prefixes is flagged (it echoes unless the remote is a Mosquitto with `try_private`); a rule that maps back onto itself through another rule is an error.
+- *Connection*: `cleansession`, `keepalive_interval`, `restart_timeout`, `start_type`, `try_private`, `notifications`, `bridge_protocol_version`.
+- *Advanced*: any further bridge option as `key value` lines. They are checked against she's list of Mosquitto's bridge options (type, allowed values, the ones that need Mosquitto 2.1); an unknown option is a warning you have to confirm — a Mosquitto that does not know it refuses the config on reload, and she would roll back.
+- *What the remote broker needs*: the user and the ACLs the bridge needs **on the remote side** — as plain text and as `mosquitto_ctrl dynsec` commands, both copyable. she changes nothing on a remote broker. The one exception: when the address is the broker she manages herself, *Create the bridge user here* creates user, role and ACLs through dynsec after a confirmation.
+
+**Saving** shows the `mosquitto.conf` diff first (secrets masked), together with the validation result: duplicate names, loops, bad values are errors and block the write; warnings need your go. *Write & reload* then writes the file (a timestamped backup first; over SSH in remote mode, with the previous file uploaded as the backup), runs the reload command, and **probes the broker**: she connects to it over MQTT with her own connection settings (`url`) for up to 8 seconds (`broker.probeTimeout` changes that). If the reload command fails or the broker does not answer, the previous `mosquitto.conf` is restored and the broker reloaded or — when it is gone — restarted; the dialog says so and whether the broker answers again. Mosquitto 2.1 ends the process on an unknown option during a reload, so the probe matters. When `log_dest topic` is set, `Error:` lines Mosquitto logged during the reload are shown as well.
+
+**Local authentication is not involved.** A bridge is not a client of the local broker: its messages pass without a local user and without ACL checks, whether the dynamic-security plugin is loaded or not. Only the remote side needs a user and ACLs. (`local_username`/`local_password` exist for brokers that require them in other setups; she writes them if given in *Advanced*.)
+
+The Listeners and Config pages leave the connection blocks alone; the Advanced tab shows them as text like everything else. she writes the blocks after the listeners, each option in the order it had; comments between the blocks move to the end of the file, as with listeners.
 
 ### Certificates
 
@@ -367,6 +392,19 @@ All endpoints are mounted at `/she/broker/*` and require Bearer token authentica
 | `POST` | `/she/broker/config/restore` | Restore a backup `{ backup: filename }` |
 | `POST` | `/she/broker/reload` | Send SIGHUP / `systemctl reload` |
 | `POST` | `/she/broker/restart` | `systemctl restart` |
+
+`PUT /she/broker/config` without a `bridges` array keeps the file's connection blocks.
+
+### Bridges
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/she/broker/bridges` | The `connection` blocks (secrets replaced by flags), their live state, the broker version, the presets and the option catalogue |
+| `POST` | `/she/broker/bridges/preview` | Validate `{ bridges }` and return `errors`, `warnings`, the masked `diff`, what each remote needs |
+| `PUT` | `/she/broker/bridges` | Write `{ bridges, checksum }`, reload, probe; `rolledBack: true` with the reason when the previous file had to be restored. A secret sent as `null` keeps the stored value; `originalName` lets a renamed bridge keep its secrets. 400 with `errors` when invalid, 409 when the file changed since it was read |
+| `POST` | `/she/broker/bridges/test` | One MQTT connection from the she host with `{ addresses, options }` |
+| `POST` | `/she/broker/bridges/remote-requirements` | User, ACLs, `dynsec` commands and plain text for `{ bridge }`; `managedHere` when the address is this broker |
+| `POST` | `/she/broker/bridges/remote-user` | Create that user and role through dynsec — only when `managedHere` |
 
 ### dynsec — Users
 

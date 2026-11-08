@@ -2252,3 +2252,143 @@ export function getRuntimeHistory(): Promise<{ intervalMs: number; samples: Gaug
 export function runtimeAction(id: string, action: 'cancel' | 'run'): Promise<{ ok: boolean; kind: string; name: string | null }> {
     return request('POST', '/she/runtime/action', { id, action });
 }
+
+// ---- Broker bridges (Mosquitto connection blocks) ----
+
+export type BridgeDirection = 'in' | 'out' | 'both';
+
+export interface BridgeTopicRule {
+    pattern: string;
+    direction: BridgeDirection;
+    qos: 0 | 1 | 2;
+    localPrefix: string;
+    remotePrefix: string;
+}
+
+/** A bridge as the API hands it out: secrets are stripped, `secrets` says which ones are set. */
+export interface BrokerBridge {
+    name: string;
+    /** the name the block has in the file now — set by the UI when renaming, so stored secrets follow */
+    originalName?: string;
+    addresses: string[];
+    topics: BridgeTopicRule[];
+    /** every other `key value` line of the block; a secret sent as null keeps the stored value */
+    options: Record<string, string | string[] | null>;
+    secrets?: Record<string, boolean>;
+}
+
+export interface BridgeState {
+    connected: boolean | null;
+    ts: number | null;
+    topic: string | null;
+}
+
+export interface BridgeOptionSpec {
+    type: 'bool' | 'int' | 'string' | 'enum';
+    values?: string[];
+    min?: number;
+    since?: string;
+    secret?: boolean;
+}
+
+export interface BridgePreset {
+    id: string;
+    title: string;
+    description: string;
+    params: { key: string; label: string; default: string }[];
+}
+
+export interface BrokerBridgesResponse {
+    bridges: BrokerBridge[];
+    states: Record<string, BridgeState>;
+    checksum: string | null;
+    brokerVersion: string | null;
+    mode: 'local' | 'remote';
+    probeUrl: string | null;
+    presets: BridgePreset[];
+    options: Record<string, BridgeOptionSpec>;
+}
+
+export interface BridgeRemoteRequirements {
+    username: string | null;
+    clientid: string | null;
+    role: string;
+    acls: { acltype: string; topic: string; why: string }[];
+    dynsec: string[];
+    plain: string;
+    managedHere: boolean;
+    canCreate?: boolean;
+}
+
+export interface BridgePreview {
+    errors: string[];
+    warnings: string[];
+    diff: string;
+    changed: boolean;
+    checksum: string | null;
+    remote: Record<string, BridgeRemoteRequirements>;
+}
+
+export interface BridgeProbeResult {
+    ok: boolean;
+    attempts?: number;
+    durationMs: number;
+    error?: string;
+}
+
+export interface BridgeSaveResult {
+    ok: boolean;
+    unchanged?: boolean;
+    rolledBack?: boolean;
+    restarted?: boolean;
+    recovered?: boolean | null;
+    reason?: string | null;
+    reloadError?: string | null;
+    rollbackError?: string | null;
+    probe?: BridgeProbeResult | null;
+    warnings?: string[];
+    brokerErrors?: string[];
+    backupPath?: string | null;
+    checksum?: string | null;
+}
+
+export interface BridgeTestResult {
+    ok: boolean;
+    url?: string;
+    from?: string;
+    stage?: 'files' | 'connect';
+    error?: string;
+    durationMs?: number;
+}
+
+export function getBrokerBridges(): Promise<BrokerBridgesResponse> {
+    return request('GET', '/she/broker/bridges');
+}
+
+export function previewBrokerBridges(bridges: BrokerBridge[]): Promise<BridgePreview> {
+    return request('POST', '/she/broker/bridges/preview', { bridges });
+}
+
+export async function putBrokerBridges(bridges: BrokerBridge[], checksum: string | null): Promise<BridgeSaveResult & { status: number; errors?: string[] }> {
+    // 400 (invalid) and 409 (modified elsewhere) carry a body worth showing — handled here, not thrown
+    const res = await fetch('/she/broker/bridges', { method: 'PUT', headers: headers(), body: JSON.stringify({ bridges, checksum }) });
+    if (res.status === 401) {
+        if (_onUnauthorized) _onUnauthorized();
+        throw new Error('Unauthorized');
+    }
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    if (!res.ok && res.status !== 400 && res.status !== 409) throw new Error(body.error ?? res.statusText);
+    return { ...body, status: res.status };
+}
+
+export function testBrokerBridge(body: { name?: string; originalName?: string; addresses: string[]; options: Record<string, string | string[] | null> }): Promise<BridgeTestResult> {
+    return request('POST', '/she/broker/bridges/test', body);
+}
+
+export function brokerBridgeRemoteRequirements(bridge: BrokerBridge): Promise<BridgeRemoteRequirements> {
+    return request('POST', '/she/broker/bridges/remote-requirements', { bridge });
+}
+
+export function createBrokerBridgeRemoteUser(bridge: BrokerBridge, password: string): Promise<{ ok: boolean; done: string[]; skipped: string[] }> {
+    return request('POST', '/she/broker/bridges/remote-user', { bridge, password });
+}

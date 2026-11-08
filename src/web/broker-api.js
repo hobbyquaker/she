@@ -146,8 +146,10 @@ router.get('/config', async (req, res) => {
 
 /**
  * PUT /she/broker/config
- * Write structured config (body: { listeners, managed, passthrough, checksum? }).
+ * Write structured config (body: { listeners, bridges?, managed, passthrough, checksum? }).
  * body.checksum is the client's last-known checksum for external-modify detection.
+ * A body without `bridges` keeps the connection blocks the file has (the Listeners and
+ * Config pages do not edit them; the Bridges page has its own routes).
  * In remote mode, uploads directly to the broker host via SCP — no local fs access.
  */
 router.put('/config', async (req, res) => {
@@ -155,12 +157,24 @@ router.put('/config', async (req, res) => {
         const bc = getBrokerConfig(req);
         const fp = confPath(bc);
         const { listeners, managed, passthrough, checksum: clientChecksum } = req.body;
-        const content = mosquittoConf.serialise({ listeners, managed, passthrough });
+        let { bridges } = req.body;
         if (bc.ssh && bc.ssh.host) {
+            if (!Array.isArray(bridges)) {
+                let raw = '';
+                try {
+                    raw = await sshDeploy.readRemoteFile(bc.ssh, fp);
+                } catch {
+                    raw = '';
+                }
+                bridges = mosquittoConf.parseText(raw).bridges;
+            }
+            const content = mosquittoConf.serialise({ listeners, bridges, managed, passthrough });
             _log?.info(`broker: uploading config to remote ${bc.ssh.host}:${fp}`);
             await sshDeploy.uploadContent(bc.ssh, content, fp);
             return res.json({ ok: true, backupPath: null });
         }
+        if (!Array.isArray(bridges)) bridges = mosquittoConf.parse(fp).bridges;
+        const content = mosquittoConf.serialise({ listeners, bridges, managed, passthrough });
         _log?.info(`broker: writing config to local ${fp}`);
         const result = mosquittoConf.write(fp, content, clientChecksum ?? null);
         if (!result.ok) {
@@ -1097,6 +1111,17 @@ router.put('/acl', async (req, res) => {
         handleError(res, err);
     }
 });
+
+// Bridges (Mosquitto connection blocks): /she/broker/bridges* — see broker-bridges-api.js
+router.use(
+    require('./broker-bridges-api').createRouter({
+        getBrokerConfig,
+        confPath,
+        log: () => _log,
+        store: () => _store,
+        lastWriteChecksum: _lastWriteChecksum,
+    }),
+);
 
 module.exports = { router, setLogger, setStore };
 
