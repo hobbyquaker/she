@@ -148,7 +148,7 @@ afterAll((done) => {
 
 describe('start daemon', () => {
     it('should start without error', (done) => {
-        subscribe('ms', /she [0-9.]+ starting/, () => done());
+        subscribe('ms', /she \d+\.\d+\.\d+\S* starting/, () => done());
         startMs();
     }, 20000);
     it('should connect to the mqtt broker', (done) => {
