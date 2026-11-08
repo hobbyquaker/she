@@ -87,8 +87,10 @@ The model gets the staged diff only (truncated to about 12 000 characters, nothi
 asked for one imperative summary line and a few lines of detail, and its answer is capped. Best effort: when no
 provider is configured, the model fails or does not answer in time (eight seconds for an automatic commit, twenty for
 the button), the default message is used — the changed files and the date and time — so a save never waits for the
-model. The button is disabled with a hint until a provider is configured. The default provider is used; a model
-chosen in the chat window does not change it. See [getting-started.md](getting-started.md#commits-of-script-changes)
+model. The button is disabled with a hint until a provider is configured. By default the assistant's default provider
+and its model write the messages; `gitCommitAiProvider` picks another provider entry and `gitCommitAiModel` another
+model (a small, fast model is enough) — both on the Config page under *Git*. A model chosen in the chat window does not
+change them. See [getting-started.md](getting-started.md#commits-of-script-changes)
 for the keys.
 
 ## Prompt profiles

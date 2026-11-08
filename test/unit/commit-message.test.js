@@ -228,3 +228,57 @@ describe('aiMessageOrFallback()', () => {
         expect((await aiMessageOrFallback(cfg, 'diff', 'fallback')).message).toBe('From the new provider');
     });
 });
+
+describe('readAiConfig() for commit messages', () => {
+    const { readAiConfig } = require('../../src/web/commit-message');
+    let dir;
+    beforeEach(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-commit-ai-'));
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    const ai = {
+        default: 'big',
+        providers: [
+            { id: 'big', provider: 'anthropic', model: 'model-large', apiKey: 'k1' },
+            { id: 'local', provider: 'openai', baseUrl: 'http://localhost:11434/v1', model: 'small-coder' },
+        ],
+    };
+    function write(extra) {
+        const file = path.join(dir, 'config.json');
+        fs.writeFileSync(file, JSON.stringify({ ai, ...extra }));
+        return file;
+    }
+
+    it('uses the assistant default without the keys', () => {
+        const c = readAiConfig(write({}));
+        expect(c.id).toBe('big');
+        expect(c.model).toBe('model-large');
+    });
+
+    it('uses the chosen provider entry and its model', () => {
+        const c = readAiConfig(write({ gitCommitAiProvider: 'local' }));
+        expect(c.id).toBe('local');
+        expect(c.provider).toBe('openai');
+        expect(c.model).toBe('small-coder');
+    });
+
+    it('replaces the model when gitCommitAiModel is set, with the default provider too', () => {
+        expect(readAiConfig(write({ gitCommitAiProvider: 'local', gitCommitAiModel: 'tiny' })).model).toBe('tiny');
+        const c = readAiConfig(write({ gitCommitAiModel: ' tiny ' }));
+        expect(c.id).toBe('big');
+        expect(c.model).toBe('tiny');
+    });
+
+    it('falls back to the default when the chosen entry no longer exists', () => {
+        expect(readAiConfig(write({ gitCommitAiProvider: 'gone' })).id).toBe('big');
+    });
+
+    it('is null without an ai section or a config file', () => {
+        const file = path.join(dir, 'config.json');
+        fs.writeFileSync(file, JSON.stringify({ gitCommitAiProvider: 'local' }));
+        expect(readAiConfig(file)).toBeNull();
+        expect(readAiConfig(null)).toBeNull();
+        expect(readAiConfig(path.join(dir, 'missing.json'))).toBeNull();
+    });
+});

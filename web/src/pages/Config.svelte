@@ -153,6 +153,10 @@
     let gitCommitMode  = $state<CommitMode>('off');
     /** auto mode: the AI writes the message, the default when it fails or is not configured — gitCommitAi */
     let gitCommitAi    = $state(false);
+    /** the AI for commit messages: a provider entry id ('' = the assistant's default) — gitCommitAiProvider */
+    let gitCommitAiProvider = $state('');
+    /** a model for commit messages ('' = the entry's model) — gitCommitAiModel */
+    let gitCommitAiModel    = $state('');
     let gitAutoPush    = $state(false);
     let timezone       = $state('');
     let locale         = $state('');
@@ -275,7 +279,7 @@
         'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey', 'mqttVersion',
         'brokers',
         'port', 'bindAddress', 'auth', 'password', 'proxyHeader', 'proxyLogoutUrl',
-        'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush', 'gitCommitMode', 'gitCommitAi',
+        'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush', 'gitCommitMode', 'gitCommitAi', 'gitCommitAiProvider', 'gitCommitAiModel',
         'latitude', 'longitude', 'timezone', 'locale', 'holidays', 'holidaysExtra',
         'updateChannel',
         'verbosity',
@@ -418,6 +422,8 @@
             gitCommitMode = commit.mode;
             gitCommitAi   = commit.ai;
             gitAutoPush   = commit.autoPush;
+            gitCommitAiProvider = typeof cfg.gitCommitAiProvider === 'string' ? cfg.gitCommitAiProvider : '';
+            gitCommitAiModel    = typeof cfg.gitCommitAiModel    === 'string' ? cfg.gitCommitAiModel    : '';
             if (typeof cfg.latitude         === 'number')  latitude     = cfg.latitude;
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.timezone         === 'string')  timezone     = cfg.timezone;
@@ -630,6 +636,9 @@
         // gitCommitMode replaces gitAutoCommit: the old key is not written back (the daemon still reads it as auto)
         if (gitCommitMode !== 'off') cfg.gitCommitMode = gitCommitMode;
         if (gitCommitMode === 'auto' && gitCommitAi) cfg.gitCommitAi = true;
+        // only an entry that still exists is written; a removed one means the default again
+        if (gitCommitAiProvider && aiEntries.some(e => e.id === gitCommitAiProvider)) cfg.gitCommitAiProvider = gitCommitAiProvider;
+        if (gitCommitAiModel.trim()) cfg.gitCommitAiModel = gitCommitAiModel.trim();
         if (gitAutoPush)    cfg.gitAutoPush   = true;
 
         if (latitude  !== '') cfg.latitude  = Number(latitude);
@@ -1233,6 +1242,28 @@
                         <p class="hint">No AI provider is configured (section AI Assistant) — commits use the default message until one is.</p>
                     </div>
                     {/if}
+                    {/if}
+                    {#if aiEntries.length > 0}
+                    <div class="field">
+                        <label for="git-commit-ai-provider">
+                            AI for commit messages
+                            {@render tip('The provider that writes commit messages — in Auto mode and behind the Generate with AI buttons. Default uses the provider the AI assistant uses.')}
+                        </label>
+                        <select id="git-commit-ai-provider" bind:value={gitCommitAiProvider}>
+                            <option value="">Default — as the assistant ({aiEntries.find(e => e.id === aiDefault)?.label || aiEntries[0].label})</option>
+                            {#each aiEntries as e (e.id)}
+                            <option value={e.id}>{e.label || e.id}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="git-commit-ai-model">
+                            Model for commit messages
+                            {@render tip('Empty: the model of the chosen provider. A small, fast model is enough for commit messages.')}
+                        </label>
+                        <input id="git-commit-ai-model" type="text" bind:value={gitCommitAiModel}
+                            placeholder={(aiEntries.find(e => e.id === (gitCommitAiProvider || aiDefault)) ?? aiEntries[0]).model || 'the provider\'s model'} />
+                    </div>
                     {/if}
                     <div class="field field--check">
                         <span></span>

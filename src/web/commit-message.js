@@ -14,6 +14,7 @@
  * message, so a commit never fails because of the AI.
  */
 
+const fs = require('fs');
 const { _internal: ai } = require('./ai-api');
 
 const COMMIT_MODES = ['off', 'ask', 'auto'];
@@ -148,7 +149,7 @@ function withCode(err, code) {
  */
 async function aiMessageOrFallback(configPath, diff, fallback, opts = {}) {
     try {
-        const { message } = await generateCommitMessage(ai.readAiConfig(configPath), diff, { timeoutMs: opts.timeoutMs || AUTO_TIMEOUT_MS });
+        const { message } = await generateCommitMessage(readAiConfig(configPath), diff, { timeoutMs: opts.timeoutMs || AUTO_TIMEOUT_MS });
         return { message, source: 'ai' };
     } catch (e) {
         opts.log?.warn?.(`git: AI commit message failed (${e.code || 'error'}): ${e.message} — using the default`);
@@ -156,9 +157,34 @@ async function aiMessageOrFallback(configPath, diff, fallback, opts = {}) {
     }
 }
 
-/** the resolved AI config of the config file, or null when none is configured */
+/**
+ * The AI config used for commit messages: the provider entry named by `gitCommitAiProvider` (empty or missing = the
+ * assistant's default entry; an entry that no longer exists also falls back to the default), with the model replaced
+ * by `gitCommitAiModel` when that is set. null when no AI is configured.
+ * @param {string|null} configPath
+ */
 function readAiConfig(configPath) {
-    return ai.readAiConfig(configPath);
+    if (!configPath) return null;
+    let cfg = {};
+    try {
+        cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')) || {};
+    } catch {
+        return null;
+    }
+    return resolveCommitAi(cfg, (id) => ai.readAiConfig(configPath, id));
+}
+
+/**
+ * @param {object} cfg  — the parsed config file
+ * @param {(providerId?: string) => object|null} resolve  — the assistant's resolver (entry by id, default without one)
+ */
+function resolveCommitAi(cfg, resolve) {
+    const providerId = typeof cfg.gitCommitAiProvider === 'string' ? cfg.gitCommitAiProvider.trim() : '';
+    const model = typeof cfg.gitCommitAiModel === 'string' ? cfg.gitCommitAiModel.trim() : '';
+    let entry = providerId ? resolve(providerId) : resolve();
+    if (entry && entry.unknown) entry = resolve();
+    if (!entry || entry.unknown) return null;
+    return model ? { ...entry, model } : entry;
 }
 
 module.exports = {
@@ -173,4 +199,5 @@ module.exports = {
     generateCommitMessage,
     aiMessageOrFallback,
     readAiConfig,
+    resolveCommitAi,
 };

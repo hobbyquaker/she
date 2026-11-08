@@ -127,6 +127,8 @@ or with these keys in `config.json`; they take effect at the next save, no daemo
 | --- | --- | --- |
 | `gitCommitMode` | `off` (default), `ask`, `auto` | `off`: nothing is committed, use the editor's commit buttons. `ask`: a commit dialog opens with a pre-filled message — the changed files and the date and time — that you commit as it is, edit, or replace with one the AI writes from the staged diff; *Cancel* leaves the change uncommitted. `auto`: a commit without asking. |
 | `gitCommitAi` | `true` / `false` | In `auto` mode: let the configured [AI assistant](ai.md) write the commit message from the staged diff. Best effort — the message is the generic one (`update <file>`) when no AI is configured, the model fails or does not answer within eight seconds, so saving never waits longer than that. |
+| `gitCommitAiProvider` | provider entry id | The provider entry of the `ai` section that writes commit messages (automatic commits and the *Generate with AI* buttons). Empty or missing: the assistant's default entry; an entry that no longer exists also means the default. |
+| `gitCommitAiModel` | model name | The model for commit messages. Empty or missing: the model of the chosen entry. |
 | `gitAutoPush` | `true` / `false` | Push to `origin` after every commit, manual or automatic. |
 | `gitAutoCommit` | `true` | The key before `gitCommitMode` existed. `true` still means `auto` with the generic message when `gitCommitMode` is not set; the Config page writes `gitCommitMode` instead. |
 

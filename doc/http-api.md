@@ -775,7 +775,7 @@ when the model fails (`ai_error`), returns nothing (`ai_empty`) or does not answ
 `fallback` is the default message, the changed files and the date and time.
 
 The daemon's own commits after a rename or delete in `auto` mode are announced to WebSocket clients as
-`{ "type": "git:changed" }`. The config keys (`gitCommitMode`, `gitCommitAi`, `gitAutoPush`) are described in
+`{ "type": "git:changed" }`. The config keys (`gitCommitMode`, `gitCommitAi`, `gitCommitAiProvider`, `gitCommitAiModel`, `gitAutoPush`) are described in
 [getting-started.md](getting-started.md#commits-of-script-changes).
 
 ---
