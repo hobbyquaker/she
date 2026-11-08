@@ -524,7 +524,7 @@ describe('prompt profiles and the house section (I25)', () => {
                 { name: 'a.md', content: big },
                 { name: 'b.md', content: big },
             ],
-            { profile: 'compact', budgetChars: 9500 },
+            { profile: 'compact', budgetChars: 10000 }, // the static part (~4.6k) plus one attachment fits, two do not
         );
         expect(r.dropped).toEqual(['file:b.md']); // the newest attachment goes first and that already fits; the script stays
         expect(r.dynamicText).toContain('## Attached file: a.md');

@@ -427,6 +427,37 @@ declare const she: {
      *  or a suncalc event name ('sunrise', 'sunset', 'dawn', 'dusk', …) for solar scheduling.
      *  opts.shift (seconds) offsets solar events; opts.random adds a random delay. */
     schedule(pattern: string | Date | object | (string | Date | object)[], opts?: { shift?: number; random?: number }, cb?: () => void): void;
+    /** Time windows, wall-clock instants, holidays and formatting in the daemon's zone, DST-safe. ts: ms, Date or ISO string, default now. */
+    time: {
+        /** The IANA zone, the locale and the holiday region in use. */
+        zone: string;
+        locale: string;
+        holidays: string | null;
+        now(): number;
+        /** Is ts in the window? from/to: 'HH:mm' or a sun event with offset ('sunset-30m', 'dawn+1h'); from inclusive, to exclusive; a 'to' before 'from' crosses midnight. */
+        between(from: string | number | Date, to: string | number | Date, ts?: number | Date | string): boolean;
+        /** The instant (ms) of 'HH:mm' or a sun event ('sunset-30m') on the day of ts; NaN when the sun event does not occur that day. */
+        at(time: string | number | Date, ts?: number | Date | string): number;
+        startOfDay(ts?: number | Date | string): number;
+        endOfDay(ts?: number | Date | string): number;
+        /** The same wall-clock time n days later — 23, 24 or 25 hours on the DST days. */
+        addDays(ts: number | Date | string, days: number): number;
+        /** The wall clock of the zone: month 1–12, weekday 0 = Sunday, offset in minutes. */
+        parts(ts?: number | Date | string): { year: number; month: number; day: number; hour: number; minute: number; second: number; millisecond: number; weekday: number; offset: number; zone: string };
+        isWeekend(ts?: number | Date | string): boolean;
+        /** A public holiday of the configured region (config: holidays, holidaysExtra); false, with one warning, when none is configured. */
+        isHoliday(ts?: number | Date | string): boolean;
+        holiday(ts?: number | Date | string): string | null;
+        isWorkday(ts?: number | Date | string): boolean;
+        /** Tokens: YYYY YY M MM MMM MMMM D DD H HH m mm s ss SSS dd ddd Z, [literal]. Default 'YYYY-MM-DD HH:mm:ss'. */
+        format(ts: number | Date | string, pattern?: string): string;
+        /** ISO 8601 with the zone's offset: '2026-10-25T02:41:00+02:00'. */
+        iso(ts?: number | Date | string): string;
+        /** b - a in milliseconds, the real difference. */
+        duration(a: number | Date | string, b: number | Date | string): number;
+        /** '2 h 40 min'; long: '2 Stunden 40 Minuten'; parts: how many units. */
+        humanize(ms: number, opts?: { parts?: number; long?: boolean }): string;
+    };
     mqtt: {
         /** opts: change, retain, shift, random, condition — and debounce / maxWait / throttle (SECONDS), perTopic, name, flushOnUnload */
         sub(

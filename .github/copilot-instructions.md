@@ -51,6 +51,13 @@ Scripts run in a VM sandbox and receive a `she` object:
 - `she.retry(fn, [{ tries, delay, backoff, onFail, name }])` → Promise
 - `she.setTimeout` / `she.clearTimeout` — the sandbox's tracked timers under `she` (official aliases); a non-number delay is logged with the script name
 
+### Time (`she.time` — the configured zone, DST-safe; `ts` = ms, Date or ISO string, default now)
+- `she.time.between(from, to, [ts])` → boolean — `'HH:mm'` or a sun event with offset (`'sunset-30m'`); `to` before `from` crosses midnight
+- `she.time.at(time, [ts])` → ms of that time on the day of `ts`; `startOfDay`/`endOfDay([ts])`; `addDays(ts, n)`; `parts([ts])`
+- `she.time.isWeekend` / `isHoliday` / `holiday` / `isWorkday([ts])` — holidays from the config (`holidays`, `holidaysExtra`)
+- `she.time.format(ts, pattern)`, `she.time.iso([ts])` (with offset), `she.time.duration(a, b)`, `she.time.humanize(ms)`
+- Config keys: `timezone`, `locale`, `holidays`, `holidaysExtra`; the update check's `updateChannel` (`stable` | `beta`)
+
 ### sheDB (document store)
 - `she.db.get(id)` → document or undefined
 - `she.db.set(id, doc)` — create/overwrite
@@ -80,7 +87,7 @@ Scripts run in a VM sandbox and receive a `she` object:
 - `she.global` — shared mutable object across all scripts
 - `she.http.fetch(url, [opts])` → Promise — HTTP/HTTPS fetch; auto-parses JSON by Content-Type; throws on non-OK status
 - `she.http.sub(path, callback)` — register a POST webhook at `/api/<scriptName><path>`; `callback(body, { params, query, headers })`
-- `she.config.latitude` / `she.config.longitude` — read-only geographic coordinates from daemon config (frozen object)
+- `she.config.latitude` / `she.config.longitude` — read-only geographic coordinates from daemon config (frozen object); also `timezone`, `locale`, `holidays`
 
 ### Variable system
 Topics prefixed with `config.variablePrefix` (default `var`) are tracked in the `var::` store namespace and published retained.
