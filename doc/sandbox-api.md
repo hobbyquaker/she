@@ -8,6 +8,7 @@ Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox m
 
 - [Logging](#logging)
 - [she.mqtt — MQTT access](#shemqtt----mqtt-access)
+- [she.mqtt('name') — additional brokers](#shemqttname----additional-brokers)
 - [she.now()](#shenow)
 - [Timing helpers](#timing-helpers) — `she.timeout`, `she.debounce`, `she.throttle`, `she.retry`, `she.setTimeout`
 - [she.schedule()](#sheschedulepattern-options-callback)
@@ -400,6 +401,41 @@ she.mqtt.pub('hm/set/lamp/STATE', true);
 ```
 
 **Lint.** When a script is loaded, its literal publish topics are checked: a `she.mqtt.pub` (or `setValue`, `command`) to `<inst>/status/…`, or to a topic zigbee2mqtt publishes as a device's state, is logged as a warning with the script name and line — the command would never reach the device. The same check runs once per topic at runtime for topics built dynamically.
+
+---
+
+## she.mqtt('name') -- additional brokers
+
+`she.mqtt` is the **primary** broker (the `url` of the config). When further brokers are configured under `brokers` (see [Primary and additional brokers](brokers.md)), `she.mqtt('<name>')` returns the **same API scoped to that broker**: `sub`, `pub`, `get`, `getProp`, `age`, `link`, `or`, `and`, `max`, `min`, `timer` and `command`, with the options described above. `she.mqtt` itself is a function object: `she.mqtt.sub(…)` and `she.mqtt('shed').sub(…)` are both valid, and `she.mqtt()` without a name is the primary.
+
+```js
+const shed = she.mqtt('shed');
+
+shed.sub('tele/temp', { change: true }, (topic, val) => {
+    if (val < 3) she.mqtt.pub('home/set/alarm/frost', 1); // on the primary broker
+});
+shed.pub('set/heater', 1, { retain: false });
+she.log(shed.get('tele/temp'), shed.getProp('tele/temp', 'lc'), shed.age('tele/temp'));
+shed.link('tele/door', 'set/light'); // both topics on the shed
+
+she.mqtt.sub('home/status/away', { change: true }, async (topic, away) => {
+    try {
+        await shed.command('dev/set/heater/STATE', away ? 0 : 1, { timeout: 10 });
+    } catch (e) {
+        she.warn(e.message); // reason 'offline' when the shed is not reachable
+    }
+});
+```
+
+| | |
+|---|---|
+| `she.mqtt('<name>').broker` | The broker's name; `she.mqtt.broker` is `null`. |
+| Unknown name | Throws a `TypeError` at the call — usually at load — naming the configured brokers (`she.mqtt("x"): no such broker — configured: shed, cloud`). |
+| Helpers | `link`, `or`, `and`, `max`, `min`, `timer` read and publish on the one broker they were called on. Between brokers, use the mirror rules or a `sub` on one side and a `pub` on the other. |
+| Variables | `var/set/…` is the primary's variable system; on an additional broker `set`/`pub` of such a topic is a plain publish. |
+| `she.on` | `she.on('mqtt@shed::tele/temp', cb)` is the same as `she.mqtt('shed').sub('tele/temp', { retain: true }, …)` — the key namespace the state store uses for an additional broker. |
+| Offline | `pub` is queued briefly (up to 1000 messages, at most a minute) while the broker is down and sent when it is back; `command` rejects at once with `reason: 'offline'` and `broker "<name>" not connected` in the message; `get` returns the last value seen. `sub` with `{ retain: true }` gets the retained values whenever the broker connects. |
+| Lint | The status-topic check runs for the additional broker's topics like for the primary's. |
 
 ---
 

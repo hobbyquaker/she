@@ -154,6 +154,8 @@ The mechanism:
 3. When the sentinel arrives, all retained messages have been delivered and stored in the state store. Scripts start.
 4. **Fallback**: if the broker never connects within 10 seconds, scripts start anyway (without retained state). If the sentinel never arrives after connecting (within the configured `sentinelTimeout`), scripts also start with a warning.
 
+Only the **primary** broker is waited for. [Additional brokers](brokers.md) connect in parallel and are never part of this gate: scripts start without them, and a subscription made through `she.mqtt('<name>')` with `{ retain: true }` gets the broker's retained values whenever it connects.
+
 ---
 
 ## Safe mode

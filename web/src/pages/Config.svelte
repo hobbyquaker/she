@@ -963,8 +963,8 @@
                                 {:else}<span class="nav-dot nav-dot--none" title="not running yet — save and restart"></span>{/if}
                                 <input class="broker-name" type="text" bind:value={b.name} placeholder="name — she.mqtt('name')" spellcheck="false" autocomplete="off" />
                                 <span class="broker-state">
-                                    {#if st?.connected}connected · {st.topics} topic{st.topics === 1 ? '' : 's'}{#if st.mirror.in || st.mirror.out} · mirrored {st.mirror.in} in / {st.mirror.out} out{/if}
-                                    {:else if st}not connected{#if st.error} — {st.error}{/if}{#if st.queued} · {st.queued} queued{/if}
+                                    {#if st?.connected}connected · {st.topics} topic{st.topics === 1 ? '' : 's'}{#if st.mirror.in || st.mirror.out}{` · mirrored ${st.mirror.in} in / ${st.mirror.out} out`}{/if}
+                                    {:else if st}not connected{#if st.error}{` — ${st.error}`}{/if}{#if st.queued}{` · ${st.queued} queued`}{/if}
                                     {:else}not running — save and restart the daemon{/if}
                                 </span>
                                 <button type="button" class="ai-remove" onclick={() => removeBroker(b)} title="Remove this broker">✕</button>
@@ -2024,7 +2024,9 @@
     .rules-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
     .rules-table th { text-align: left; font-weight: normal; font-size: 11px; color: var(--fg-muted); padding: 0 4px 2px; }
     .rules-table td { padding: 2px 4px; vertical-align: middle; }
+    .rules-table td:first-child { width: 70px; }
     .rules-table td:nth-child(2), .rules-table td:nth-child(4) { width: 42%; }
-    .rules-table input, .rules-table select { width: 100%; box-sizing: border-box; }
+    .rules-table input { width: 100%; box-sizing: border-box; }
+    .rules-table select { width: 66px; box-sizing: border-box; }
     .rules-table .arrow { color: var(--fg-muted); text-align: center; }
 </style>

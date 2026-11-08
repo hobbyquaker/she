@@ -30,6 +30,11 @@ she.mqtt.command(topic, payload, [opts])  → Promise<{ val, ms, tries, already?
     and counted in get_health; a rejection nobody catches is NOT an unhandled rejection. A new command to the same topic supersedes the running one. Pending commands are listed by list_timers.
     Use it for commands whose effect matters (heating, gates, switching off); she.mqtt.pub stays fire-and-forget. Callbacks that await it become async: wrap in try/catch.
     Lint: a pub/command to <inst>/status/… or to a zigbee2mqtt device topic is warned about at load (with the line) — commands go to the set topic.
+she.mqtt('<name>')                     The same API (sub, pub, get, getProp, age, link, or/and/max/min, timer, command) on an additional broker configured under "brokers" (3.0)
+    she.mqtt stays the primary broker; she.mqtt('shed').sub('tele/#', cb), she.mqtt('shed').pub('set/x', 1); .broker is the name (null on the primary)
+    an unknown name throws at load; helpers work within one broker — across brokers use the mirror rules of the config, or sub on one side and pub on the other
+    offline: pub is queued briefly, command rejects at once with reason 'offline' ("broker \"shed\" not connected"), sub { retain: true } gets the retained values when it connects
+    the tools search_mqtt_topics / get_mqtt_topic / publish_mqtt take a "broker" argument for an additional broker's topics
 ```
 
 ### Timing helpers (MILLISECONDS, like setTimeout; cleared on unload/reload; pending runs listed by list_timers with kind and name)

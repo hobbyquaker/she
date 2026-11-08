@@ -5,7 +5,9 @@
  * A rule copies messages one way: `in` from the secondary to the primary, `out` from the primary to
  * the secondary. `from` is an MQTT filter on the source broker, `to` the topic on the target broker,
  * written with the same wildcards so the matched segments are carried over (`tele/#` → `shed/tele/#`,
- * `+/status/#` → `remote/+/status/#`); without `to` the topic stays the same. Retain and QoS are kept.
+ * `+/status/#` → `remote/+/status/#`); without `to` the topic stays the same. QoS and retain are kept as
+ * delivered: the retained burst at (re)connect is mirrored retained, a live publish arrives without the
+ * flag (MQTT 3.1.1 clears it for established subscriptions) and goes out as a live message.
  *
  * Loop protection: the daemon subscribes to `#` on every broker, so each mirrored publish comes back
  * as a message on the target broker. Every publish the mirror makes is remembered (target, topic,
