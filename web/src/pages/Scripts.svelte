@@ -31,6 +31,9 @@
     import { splitLogMessage, scriptResolver, collectScriptPaths } from '../lib/log-links.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
+    import CommitDialog from '../lib/CommitDialog.svelte';
+    import { resolveCommitMode, defaultCommitMessage, type CommitMode } from '../lib/git-commit.js';
+    import { generateCommitMessage, getAiConfig } from '../lib/api.js';
     import Chat from './Chat.svelte';
     import { registerCompletionProviders } from '../lib/completions.js';
     import { createDock, type Dock, type DockOpenOptions } from '../lib/dock.js';
@@ -71,8 +74,15 @@
     let runtimeOpen = $state(false);
     let filesOpen = $state(true);
     let gitInfo = $state<GitStatus | null>(null);
-    let gitAutoCommit = $state(false);
+    /** what happens after a save, rename or delete: nothing, the commit dialog, or an automatic commit */
+    let gitCommitMode = $state<CommitMode>('off');
+    /** auto mode: the AI writes the message (the daemon falls back to the default) */
+    let gitCommitAi   = $state(false);
     let gitAutoPush   = $state(false);
+    /** an AI provider is configured — the "Generate with AI" buttons are enabled */
+    let aiConfigured  = $state(false);
+    const AI_HINT = 'No AI provider configured — add one on the Config page';
+    let unsubGit: (() => void) | null = null;
 
     // Git history panel
     let historyEntry = $state<TreeEntry | null>(null);
@@ -408,7 +418,25 @@
     let commitAllMsg     = $state('');
     let commitAllBusy    = $state(false);
     let commitAllErr     = $state('');
+    let commitAllAiBusy  = $state(false);
     let checkedFiles     = $state<Set<string>>(new Set());
+
+    /** the ✨ button of the uncommitted-changes popup: the AI writes the message for the checked files */
+    async function generateCommitAllMsg() {
+        if (!gitInfo || checkedFiles.size === 0 || commitAllAiBusy) return;
+        commitAllAiBusy = true;
+        commitAllErr = '';
+        try {
+            const selected = gitInfo.changes.filter(c => checkedFiles.has(c.file)).map(c => c.file);
+            const all = selected.length === gitInfo.changes.length;
+            const r = await generateCommitMessage(all ? [] : selected);
+            commitAllMsg = r.message.split('\n')[0]; // the popup's single-line field takes the summary line
+        } catch (e: any) {
+            commitAllErr = e.message;
+        } finally {
+            commitAllAiBusy = false;
+        }
+    }
 
     async function commitAllChanges() {
         if (!commitAllMsg.trim() || checkedFiles.size === 0) return;
@@ -438,6 +466,9 @@
 
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
     let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
+    let commitDialog: {
+        show(opts: { title?: string; files?: string[]; initial: string; confirm?: string; aiAvailable: boolean; aiHint?: string; generate?: () => Promise<string> }): Promise<string | null>;
+    };
 
     let currentTab = $derived(tabs.find(t => t.path === activeTab) ?? null);
 
@@ -740,14 +771,19 @@ declare const she: {
         // a file written from outside this tab — an applied AI draft, another browser tab, an editor on disk —
         // is re-read into its open tab (U12); a tab with unsaved edits keeps them and gets a marker instead
         unsubChanged = subscribeWs('script:changed', (msg) => { void reloadTabFromDisk(msg.path as string, false); });
+        // the daemon committed a rename or delete by itself (auto mode)
+        unsubGit = subscribeWs('git:changed', () => { void loadGitStatus(); });
 
         await loadTree();
         loadGitStatus();
         try {
             const cfg = await getConfig() as Record<string, unknown>;
-            if (typeof cfg.gitAutoCommit === 'boolean') gitAutoCommit = cfg.gitAutoCommit;
-            if (typeof cfg.gitAutoPush   === 'boolean') gitAutoPush   = cfg.gitAutoPush;
+            const commit = resolveCommitMode(cfg);
+            gitCommitMode = commit.mode;
+            gitCommitAi   = commit.ai;
+            gitAutoPush   = commit.autoPush;
         } catch { /* best effort */ }
+        try { aiConfigured = (await getAiConfig()).configured; } catch { /* best effort */ }
 
         try {
             const status = await getDaemonStatus();
@@ -799,6 +835,7 @@ declare const she: {
         unsubLog?.();
         unsubRunning?.();
         unsubChanged?.();
+        unsubGit?.();
         for (const tab of tabs) tab.model?.dispose();
         emptyModel?.dispose();
         editor?.dispose();
@@ -836,10 +873,12 @@ declare const she: {
 
     async function toggleLib(dirPath: string, makeLib: boolean) {
         try {
-            if (makeLib) await writeScript(`${dirPath}/.shelib`, '');
-            else await deleteScript(`${dirPath}/.shelib`);
+            const marker = `${dirPath}/.shelib`;
+            if (makeLib) await writeScript(marker, '');
+            else await deleteScript(marker);
             await loadTree();
-            await gitAutoAction('all', makeLib ? `lib ${dirPath}` : `unlib ${dirPath}`);
+            // a deleted marker is committed by the daemon in auto mode, a written one by the editor
+            await afterScriptChange([marker], makeLib ? `lib ${dirPath}` : `unlib ${dirPath}`, !makeLib);
         } catch (e: any) { error = e.message; }
     }
 
@@ -851,7 +890,7 @@ declare const she: {
             if (makeDisabled) await writeScript(marker, '');
             else await deleteScript(marker);
             await loadTree();
-            await gitAutoAction('all', makeDisabled ? `disable ${entryPath}` : `enable ${entryPath}`);
+            await afterScriptChange([marker], makeDisabled ? `disable ${entryPath}` : `enable ${entryPath}`, !makeDisabled);
         } catch (e: any) { error = e.message; }
     }
 
@@ -1023,17 +1062,58 @@ declare const she: {
     }
 
     /** Commit files (or entire scriptDir when paths==='all') and optionally push. Silent on error. */
-    async function gitAutoAction(paths: string[] | 'all', message: string) {
+    async function gitAutoAction(paths: string[] | 'all', message: string, ai = false) {
         if (!gitInfo) return;
         try {
-            if (paths === 'all') await commitAll(message);
-            else await commitFiles(paths, message);
+            if (paths === 'all') await commitAll(message, ai);
+            else await commitFiles(paths, message, ai);
             if (gitAutoPush) try { await gitPush(); } catch { /* ignore push errors */ }
             await loadGitStatus();
         } catch { /* ignore — e.g. nothing to commit */ }
     }
 
-    async function save() {
+    /**
+     * After a save, rename or delete: what the commit mode says. auto — commit now (the daemon commits renames and
+     * deletes itself and announces it, so `serverCommits` skips the editor's commit); ask — the commit dialog;
+     * off — just refresh the status.
+     */
+    async function afterScriptChange(files: string[], message: string, serverCommits = false) {
+        if (!gitInfo) return;
+        if (gitCommitMode === 'auto') {
+            if (!serverCommits) await gitAutoAction(files, message, gitCommitAi);
+            return;
+        }
+        if (gitCommitMode === 'ask') { await askCommit(files); return; }
+        loadGitStatus();
+    }
+
+    /**
+     * The commit dialog for the uncommitted changes under the given paths (a path covers the files below it, so a
+     * deleted or renamed folder works): the default message pre-filled, the AI on a button, Cancel leaves the
+     * change uncommitted.
+     */
+    async function askCommit(paths: string[]) {
+        await loadGitStatus();
+        const changed = gitInfo?.changes.map(c => c.file).filter(f => paths.some(p => f === p || f.startsWith(p + '/'))) ?? [];
+        if (!changed.length) return;
+        const msg = await commitDialog.show({
+            title: 'Commit changes',
+            files: changed,
+            initial: defaultCommitMessage(changed),
+            aiAvailable: aiConfigured,
+            aiHint: AI_HINT,
+            generate: () => generateCommitMessage(changed).then(r => r.message),
+        });
+        if (!msg) return;
+        try {
+            await commitFiles(changed, msg);
+            if (gitAutoPush) try { await gitPush(); } catch { /* ignore */ }
+            await loadGitStatus();
+        } catch (e: any) { error = 'Git: ' + (e as Error).message; }
+    }
+
+    /** Save the active tab; then the commit mode applies, unless the caller commits itself (`skipCommit`). */
+    async function save(skipCommit = false) {
         if (!activeTab) return;
         const tab = tabs.find(t => t.path === activeTab);
         if (!tab || tab.loading) return; // the editor still holds the empty placeholder buffer
@@ -1044,23 +1124,28 @@ declare const she: {
             tab.savedContent = value;
             tab.dirty = false;
             error = '';
-            if (gitAutoCommit) {
-                await gitAutoAction([activeTab], `update ${activeTab}`);
-            } else {
-                loadGitStatus();
-            }
+            saving = false; // the save is done; a commit (and the AI's message) must not hold the button
+            if (skipCommit) loadGitStatus();
+            else await afterScriptChange([activeTab], `update ${activeTab}`);
         } catch (e: any) { error = (e as Error).message; }
         finally { saving = false; }
     }
 
     async function saveAndCommit() {
         if (!activeTab) return;
-        await save();
+        const path = activeTab;
+        await save(true);
         if (error) return;
-        const msg = await inputDialog.show('Commit message:', { initial: `update ${activeTab}`, placeholder: 'Update script', confirm: 'Commit' });
+        const msg = await commitDialog.show({
+            title: `Commit ${path}`,
+            initial: defaultCommitMessage([path]),
+            aiAvailable: aiConfigured,
+            aiHint: AI_HINT,
+            generate: () => generateCommitMessage([path]).then(r => r.message),
+        });
         if (!msg) return;
         try {
-            await commitFile(activeTab, msg);
+            await commitFile(path, msg);
             if (gitAutoPush) try { await gitPush(); } catch { /* ignore */ }
             loadGitStatus();
         } catch (e: any) { error = 'Git: ' + (e as Error).message; }
@@ -1247,7 +1332,7 @@ declare const she: {
                 if (activeTab === entry.path) activeTab = target;
             }
             await loadTree();
-            await gitAutoAction('all', `rename ${entry.path} → ${target}`);
+            await afterScriptChange([entry.path, target], `rename ${entry.path} → ${target}`, true);
         } catch (e: any) { error = e.message; }
     }
 
@@ -1278,7 +1363,7 @@ declare const she: {
         }
         await deleteScript(entry.path);
         await loadTree();
-        await gitAutoAction('all', `delete ${entry.path}`);
+        await afterScriptChange([entry.path], `delete ${entry.path}`, true);
     }
 
     async function ctxAddToAiContext(entry: TreeEntry) {
@@ -1345,7 +1430,7 @@ declare const she: {
                 }
             }
             await loadTree();
-            await gitAutoAction('all', `rename ${src} → ${target}`);
+            await afterScriptChange([src, target], `rename ${src} → ${target}`, true);
         } catch (e: any) { error = e.message; }
     }
 
@@ -1400,7 +1485,7 @@ declare const she: {
         await closeTab(toDelete);
         await deleteScript(toDelete);
         await loadTree();
-        await gitAutoAction('all', `delete ${toDelete}`);
+        await afterScriptChange([toDelete], `delete ${toDelete}`, true);
     }
 
     function clearLog() { if (currentTab) currentTab.logEntries = []; }
@@ -1559,11 +1644,7 @@ declare const she: {
         try {
             await writeScript(activeTab, code);
             error = '';
-            if (gitAutoCommit) {
-                await gitAutoAction([activeTab], `update ${activeTab}`);
-            } else {
-                loadGitStatus();
-            }
+            await afterScriptChange([activeTab], `update ${activeTab}`);
         } catch (e: any) { error = (e as Error).message; }
 
         cleanupDiffEditor();
@@ -1587,6 +1668,7 @@ declare const she: {
 <svelte:window onkeydown={handleKeydown} onmousemove={onGlobalMouseMove} onmouseup={onGlobalMouseUp} />
 <ConfirmDialog bind:this={dialog} />
 <InputDialog bind:this={inputDialog} />
+<CommitDialog bind:this={commitDialog} />
 
 <!-- context menu -->
 {#if ctxMenu}
@@ -1934,6 +2016,13 @@ declare const she: {
                                         onkeydown={(e) => e.key === 'Enter' && commitAllChanges()}
                                     />
                                     <button
+                                        class="changes-ai-btn"
+                                        onclick={generateCommitAllMsg}
+                                        disabled={!aiConfigured || commitAllAiBusy || commitAllBusy || checkedFiles.size === 0}
+                                        title={aiConfigured ? 'Generate the message with AI from the selected changes' : AI_HINT}
+                                        aria-label="Generate the commit message with AI"
+                                    >{commitAllAiBusy ? '…' : 'AI'}</button>
+                                    <button
                                         class="changes-commit-btn"
                                         onclick={commitAllChanges}
                                         disabled={!commitAllMsg.trim() || commitAllBusy || checkedFiles.size === 0}
@@ -1969,7 +2058,7 @@ declare const she: {
             {/if}
             <div class="split-wrap">
                 <div class="split-btn">
-                    <button class="split-main" onclick={save} disabled={!currentTab?.dirty || saving}>
+                    <button class="split-main" onclick={() => save()} disabled={!currentTab?.dirty || saving}>
                         {saving ? 'Saving…' : 'Save'}
                     </button>
                     <button class="split-arrow" onclick={() => dropdownOpen = !dropdownOpen} disabled={!activeTab} aria-label="Save options">▾</button>
@@ -2664,6 +2753,12 @@ declare const she: {
         padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; flex-shrink: 0;
     }
     .changes-commit-btn:disabled { opacity: 0.4; cursor: default; }
+    .changes-ai-btn {
+        background: var(--bg-input); color: var(--fg); border: 1px solid var(--border-sub);
+        padding: 3px 6px; border-radius: 3px; cursor: pointer; font-size: 11px; flex-shrink: 0;
+    }
+    .changes-ai-btn:disabled { opacity: 0.4; cursor: default; }
+    .changes-ai-btn:not(:disabled):hover { background: var(--bg-hover); }
     .changes-commit-btn:not(:disabled):hover { background: var(--accent-hov); }
     .changes-err { padding: 4px 10px 6px; font-size: 11px; color: var(--fg-err); }
     .git-ahead {

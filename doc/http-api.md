@@ -723,6 +723,63 @@ Remove a binding (same body as `POST`). The entries leave the source's Binding l
 
 ---
 
+## Git — `/she/git`
+
+The scripts directory's git repository, when it is one (every route answers **404** `{ "error": "Not a git repository" }`
+otherwise). File paths are relative to the scripts directory.
+
+| Method | Path | Body / query | Response |
+| --- | --- | --- | --- |
+| GET | `/she/git/status` | — | `{ branch, changes: [{ status, file }], ahead, behind }` |
+| GET | `/she/git/remotes` | — | `[{ name, fetch, push }]` |
+| POST | `/she/git/commit` | `{ path?, files?, message, ai? }` | stage and commit, see below |
+| POST | `/she/git/commit-message` | `{ path?, files? }` | the AI's commit message for the staged diff, see below |
+| POST | `/she/git/push` | `{ remote? }` (default `origin`) | `{ ok, stdout, stderr }` |
+| GET | `/she/git/log` | `?path=<file>&limit=<n>` | `[{ hash, subject, author, date }]` |
+| GET | `/she/git/show` | `?hash=<hash>&path=<file>` | `{ content, binary }` — the file at that commit, renames followed |
+
+### POST /she/git/commit
+
+Stages `path` (one file), `files` (several) or — with neither — the whole scripts directory, and commits. A deleted
+file is staged as its removal.
+
+**Request body:**
+
+```json
+{ "files": ["lights.js"], "message": "update lights.js", "ai": true }
+```
+
+With `"ai": true` the configured [AI assistant](ai.md) writes the message from the staged diff — best effort with an
+eight second timeout; `message` is the fallback and is used as it is when no AI is configured, the model fails or is
+late. The commit never fails because of the AI.
+
+**Response (HTTP 200):** `{ "ok": true, "message": "Add a five second off timer to the hallway light", "source": "ai" }` —
+`source` is `"ai"` or `"default"`.
+
+### POST /she/git/commit-message
+
+Stages the given files like `/commit` does and asks the configured AI for a commit message for the staged diff.
+Nothing is committed. The model sees the diff only, truncated to about 12 000 characters; the answer is capped.
+
+**Request body:** `{ "files": ["lights.js"] }` (or `path`, or `{}` for everything uncommitted)
+
+**Response (HTTP 200):**
+
+```json
+{ "message": "Add a five second off timer to the hallway light", "source": "ai", "model": "claude-opus-5-5", "truncated": false }
+```
+
+**503** `{ "error": "No AI provider configured", "code": "ai_not_configured", "fallback": "update lights.js (2026-11-08 17:29)" }`
+when no provider is configured — the UI disables its *Generate with AI* buttons then. **502** `{ "error", "code", "fallback" }`
+when the model fails (`ai_error`), returns nothing (`ai_empty`) or does not answer within twenty seconds (`ai_timeout`);
+`fallback` is the default message, the changed files and the date and time.
+
+The daemon's own commits after a rename or delete in `auto` mode are announced to WebSocket clients as
+`{ "type": "git:changed" }`. The config keys (`gitCommitMode`, `gitCommitAi`, `gitAutoPush`) are described in
+[getting-started.md](getting-started.md#commits-of-script-changes).
+
+---
+
 ## Config — `/she/config`
 
 ### GET /she/config

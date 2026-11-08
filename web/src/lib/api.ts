@@ -291,17 +291,59 @@ export function gitRemotes(): Promise<GitRemote[]> {
     return request('GET', '/she/git/remotes');
 }
 
-export function commitFile(filePath: string, message: string): Promise<{ ok: boolean }> {
-    return request('POST', '/she/git/commit', { path: filePath, message });
+/** the daemon's answer to a commit: the message it used and whether the AI or the default wrote it */
+export interface GitCommitResult {
+    ok: boolean;
+    message: string;
+    source: 'ai' | 'default';
 }
 
-export function commitFiles(files: string[], message: string): Promise<{ ok: boolean }> {
-    return request('POST', '/she/git/commit', { files, message });
+/** `ai: true` lets the configured AI write the message from the staged diff; `message` is the fallback */
+export function commitFile(filePath: string, message: string, ai = false): Promise<GitCommitResult> {
+    return request('POST', '/she/git/commit', { path: filePath, message, ai });
+}
+
+export function commitFiles(files: string[], message: string, ai = false): Promise<GitCommitResult> {
+    return request('POST', '/she/git/commit', { files, message, ai });
 }
 
 /** Stage the entire script directory and commit. */
-export function commitAll(message: string): Promise<{ ok: boolean }> {
-    return request('POST', '/she/git/commit', { message });
+export function commitAll(message: string, ai = false): Promise<GitCommitResult> {
+    return request('POST', '/she/git/commit', { message, ai });
+}
+
+export interface GitCommitMessage {
+    message: string;
+    source: 'ai';
+    model: string;
+    /** the diff was cut before it went to the model */
+    truncated: boolean;
+}
+
+/** thrown by generateCommitMessage: `code` says why, `fallback` is the default message the daemon suggests */
+export class CommitMessageError extends Error {
+    code: string;
+    fallback?: string;
+    constructor(message: string, code: string, fallback?: string) {
+        super(message);
+        this.code = code;
+        this.fallback = fallback;
+    }
+}
+
+/**
+ * Ask the configured AI for a commit message for the given files (all uncommitted changes when empty).
+ * Stages them like a commit would; nothing is committed.
+ */
+export async function generateCommitMessage(files: string[] = []): Promise<GitCommitMessage> {
+    const res = await fetch('/she/git/commit-message', { method: 'POST', headers: headers(), body: JSON.stringify(files.length ? { files } : {}) });
+    if (res.status === 401) {
+        if (_onUnauthorized) _onUnauthorized();
+        throw new CommitMessageError('Unauthorized', 'unauthorized');
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new CommitMessageError(body.error ?? res.statusText, body.code ?? String(res.status), body.fallback);
+    return body as GitCommitMessage;
 }
 
 export function gitPush(remote?: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {

@@ -118,6 +118,22 @@ git -C /var/lib/she config user.name "Your Name"
 
 Git runs as root inside the container. Place SSH keys in the volume at `/var/lib/she/.ssh/` (mode `700` for the directory, `600` for key files).
 
+### Commits of script changes
+
+What happens after a script is saved, renamed or deleted in the editor is set on the **Config** page (section *Git*)
+or with these keys in `config.json`; they take effect at the next save, no daemon restart needed:
+
+| Key | Values | Meaning |
+| --- | --- | --- |
+| `gitCommitMode` | `off` (default), `ask`, `auto` | `off`: nothing is committed, use the editor's commit buttons. `ask`: a commit dialog opens with a pre-filled message — the changed files and the date and time — that you commit as it is, edit, or replace with one the AI writes from the staged diff; *Cancel* leaves the change uncommitted. `auto`: a commit without asking. |
+| `gitCommitAi` | `true` / `false` | In `auto` mode: let the configured [AI assistant](ai.md) write the commit message from the staged diff. Best effort — the message is the generic one (`update <file>`) when no AI is configured, the model fails or does not answer within eight seconds, so saving never waits longer than that. |
+| `gitAutoPush` | `true` / `false` | Push to `origin` after every commit, manual or automatic. |
+| `gitAutoCommit` | `true` | The key before `gitCommitMode` existed. `true` still means `auto` with the generic message when `gitCommitMode` is not set; the Config page writes `gitCommitMode` instead. |
+
+The *Generate with AI* button in the commit dialogs (also in *Save & Commit* and in the uncommitted-changes popup
+of the Scripts page) is disabled with a hint until an AI provider is configured. The model sees the staged diff only,
+truncated to about 12 000 characters; nothing else of the installation goes into that request.
+
 ## Next steps
 
 - [sandbox-api.md](sandbox-api.md) — complete script API reference

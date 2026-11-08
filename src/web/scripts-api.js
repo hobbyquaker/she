@@ -3,40 +3,50 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { git, getGitRoot } = require('./git-api');
+const { git, getGitRoot, stagedDiff } = require('./git-api');
+const { broadcast } = require('./log-ws');
+const commitMessage = require('./commit-message');
 
 const router = express.Router();
 
 /**
- * Read gitAutoCommit / gitAutoPush from the live config file.
- * Returns defaults when the file cannot be read.
+ * The commit settings from the live config file: the mode (off / ask / auto), whether auto mode asks the AI for
+ * the message, and whether to push. Defaults (off) when the file cannot be read.
+ * @returns {{ mode: 'off'|'ask'|'auto', ai: boolean, autoPush: boolean }}
  */
 function readGitConfig(req) {
     const configPath = req.app.locals.configPath;
-    if (!configPath) return { autoCommit: false, autoPush: false };
+    if (!configPath) return commitMessage.resolveCommitMode(null);
     try {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        return { autoCommit: !!cfg.gitAutoCommit, autoPush: !!cfg.gitAutoPush };
+        return commitMessage.resolveCommitMode(JSON.parse(fs.readFileSync(configPath, 'utf8')));
     } catch {
-        return { autoCommit: false, autoPush: false };
+        return commitMessage.resolveCommitMode(null);
     }
 }
 
 /**
- * Auto-commit all changes in scriptDir if gitAutoCommit is enabled.
- * Optionally pushes. Silent on errors (e.g. nothing to commit).
+ * Commit all changes in scriptDir when the commit mode is auto (in ask mode the editor opens its dialog, in off
+ * mode nothing happens). With gitCommitAi the configured AI writes the message from the staged diff, best effort
+ * with a short timeout; `message` is the default and the fallback. Optionally pushes. Silent on errors (e.g.
+ * nothing to commit). Tells the web clients when a commit was made so they refresh their git status.
  */
 async function maybeAutoCommit(req, message) {
-    const { autoCommit, autoPush } = readGitConfig(req);
-    if (!autoCommit) return;
+    const { mode, ai, autoPush } = readGitConfig(req);
+    if (mode !== 'auto') return;
     const scriptDir = getRoot(req);
     if (!scriptDir) return;
     const gitRoot = await getGitRoot(scriptDir);
     if (!gitRoot) return;
     try {
         const scriptDirRel = path.relative(gitRoot, scriptDir).replace(/\\/g, '/');
-        await git(['add', scriptDirRel + '/'], gitRoot);
-        await git(['commit', '-m', message], gitRoot);
+        await git(['add', scriptDirRel ? scriptDirRel + '/' : '.'], gitRoot);
+        let msg = message;
+        if (ai) {
+            const diff = await stagedDiff(gitRoot, scriptDirRel ? [scriptDirRel] : []);
+            ({ message: msg } = await commitMessage.aiMessageOrFallback(req.app.locals.configPath, diff, message));
+        }
+        await git(['commit', '-m', msg], gitRoot);
+        broadcast({ type: 'git:changed' });
         if (autoPush) {
             try {
                 await git(['push', 'origin'], gitRoot, 60000);
@@ -317,4 +327,4 @@ router.use((req, res) => {
     res.status(405).json({ error: 'Method not allowed' });
 });
 
-module.exports = { router, safePath };
+module.exports = { router, safePath, readGitConfig, maybeAutoCommit };
