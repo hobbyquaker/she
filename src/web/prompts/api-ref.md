@@ -22,6 +22,14 @@ she.mqtt.link(src, target, [fn])       Forward src changes to target, optionally
 she.mqtt.or / and / max / min(srcs[], topicOrCb)   Combine sources; publish 1/0 or the extreme value; re-evaluated on every change
 she.mqtt.timer(src, ms, topicOrCb)     Publish 1 when src turns truthy, 0 after ms (a number — swapped arguments throw at load); restarted when src fires again
                                         topicOrCb: a topic string or cb(topic, val)
+she.mqtt.command(topic, payload, [opts])  → Promise<{ val, ms, tries, already? }>: publish a command and wait for the device's status to confirm it (3.0.0-beta.0)
+    confirm topic derived: <inst>/set/<path> → <inst>/status/<path> (val); zigbee2mqtt <base>/<dev>/set → <base>/<dev> (field = the payload's key, or opts.path); else opts.confirm is required (TypeError)
+    opts { confirm, path, expect (value or fn(val); default the payload), tolerance (numbers), timeout = 5 SECONDS per attempt, retries = 0, quiet }
+    status already at the target → sent anyway, resolves at once with already: true; device offline (<inst>/connected < 2, <dev>/availability offline) → rejects at once
+    rejects with Error { reason: 'timeout' | 'offline' | 'superseded' | 'unloaded', topic, payload, tries }; timeout/offline are logged as a warning with the script name (unless quiet)
+    and counted in get_health; a rejection nobody catches is NOT an unhandled rejection. A new command to the same topic supersedes the running one. Pending commands are listed by list_timers.
+    Use it for commands whose effect matters (heating, gates, switching off); she.mqtt.pub stays fire-and-forget. Callbacks that await it become async: wrap in try/catch.
+    Lint: a pub/command to <inst>/status/… or to a zigbee2mqtt device topic is warned about at load (with the line) — commands go to the set topic.
 ```
 
 ### Timing helpers (MILLISECONDS, like setTimeout; cleared on unload/reload; pending runs listed by list_timers with kind and name)

@@ -273,6 +273,8 @@ const timing = require('./lib/timing');
 const publishChanged = require('./lib/publish-changed');
 const { Runtime } = require('./lib/runtime');
 const { callerLine } = require('./lib/call-site');
+const { createCommander } = require('./lib/command');
+const { statusTopicWarning, scanPublishTopics } = require('./lib/command-topics');
 // What every script has registered, with statistics — the Runtime page and the editor's panel
 const runtime = new Runtime();
 /** the script line a registration came from, or null */
@@ -303,6 +305,27 @@ store.on('change', (changedKey, val, obj, prevObj) => {
         if (sub.key === changedKey) _dispatch(sub._script, () => sub.callback(val, obj, prevObj), sub._rt);
     }
 });
+
+// she.mqtt.command waits for the device's status: one store listener serves every pending command
+const commandWatchers = new Map(); // topic → Set<cb(val)>
+store.on('change', (changedKey, val) => {
+    if (commandWatchers.size === 0 || !changedKey.startsWith('mqtt::')) return;
+    const set = commandWatchers.get(changedKey.slice(6));
+    if (!set) return;
+    for (const cb of [...set]) cb(val);
+});
+function watchTopic(topic, cb) {
+    let set = commandWatchers.get(topic);
+    if (!set) {
+        set = new Set();
+        commandWatchers.set(topic, set);
+    }
+    set.add(cb);
+    return () => {
+        set.delete(cb);
+        if (set.size === 0) commandWatchers.delete(topic);
+    };
+}
 
 // ── Event-loop heartbeat ─────────────────────────────────────────────────────
 let _blockingScript = null;
@@ -569,8 +592,9 @@ function sampleGauges() {
     const cpuPercent = elapsed > 0 ? Math.round(((cpuDelta.user + cpuDelta.system) / 1000 / (elapsed * 1000)) * 1000) / 10 : 0;
     const eluDelta = performance.eventLoopUtilization(_prevElu);
     _prevElu = performance.eventLoopUtilization();
-    const elMeanMs = Math.round(_elHisto.mean / 1e6);
-    const elMaxMs = Math.round(_elHisto.max / 1e6);
+    // the histogram is NaN before the first measurement of an interval — that is 0 lag, not null
+    const elMeanMs = Math.round(_elHisto.mean / 1e6) || 0;
+    const elMaxMs = Math.round(_elHisto.max / 1e6) || 0;
     _elHisto.reset();
     const mem = process.memoryUsage();
     const sample = {
@@ -1157,7 +1181,7 @@ function createScript(source, name) {
     }
 }
 
-function runScript(script, name, _origin) {
+function runScript(script, name, _origin, source) {
     const scriptDir = path.dirname(path.resolve(name));
     const logLabel = makeLabel(name);
 
@@ -1219,11 +1243,18 @@ function runScript(script, name, _origin) {
         pending = runtime.addPending(group, {
             due: id.due,
             start: id.start,
-            fire: () => {
+            fire:
+                meta.actions && meta.actions.run === false
+                    ? null
+                    : () => {
+                          _clearTimeout(id);
+                          run();
+                      },
+            cancel: () => {
                 _clearTimeout(id);
-                run();
+                if (typeof meta.onCancel === 'function') meta.onCancel();
             },
-            cancel: () => _clearTimeout(id),
+            extra: meta.extra,
         });
         id.rt = pending;
         return id;
@@ -1239,6 +1270,34 @@ function runScript(script, name, _origin) {
         onUnload: (fn) => {
             _myHooks.add(fn);
             return () => _myHooks.delete(fn);
+        },
+        line: () => lineOf(name),
+    });
+    const _lintWarned = new Set(); // topics already warned about (load-time scan and runtime)
+    function lintPublish(topic, api, line) {
+        if (_lintWarned.has(topic)) return;
+        const why = statusTopicWarning(topic, (t) => store.has('mqtt::' + t));
+        if (!why) return;
+        _lintWarned.add(topic);
+        log.warn(logLabel, `${api}${line ? ` (line ${line})` : ''}: ${why}`);
+    }
+    const _command = createCommander({
+        publish: (topic, payload) => {
+            recordPublish(name, topic);
+            if (mqtt && connected) mqtt.publish(topic, payload, {});
+        },
+        get: (topic) => store.get('mqtt::' + topic),
+        has: (topic) => store.has('mqtt::' + topic),
+        watch: watchTopic,
+        setTimeout: (fn, ms, meta) => _timeout(fn, ms, meta, 'she.mqtt.command'),
+        clearTimeout: _clearTimeout,
+        onUnload: (fn) => {
+            _myHooks.add(fn);
+            return () => _myHooks.delete(fn);
+        },
+        warn: (msg) => log.warn(logLabel, msg),
+        onFail: () => {
+            runtime.commandsFailed++;
         },
         line: () => lineOf(name),
     });
@@ -1505,6 +1564,7 @@ function runScript(script, name, _origin) {
 
             topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
             recordPublish(name, topic);
+            lintPublish(topic, 'she.mqtt.pub');
 
             if (typeof payload === 'object') {
                 payload = JSON.stringify(payload);
@@ -1519,6 +1579,19 @@ function runScript(script, name, _origin) {
             if (!mqtt || !connected) return; // silently drop when MQTT is not connected
             publishChanged.remember(_myLastPayload, topic, payload);
             mqtt.publish(topic, payload, options);
+        },
+
+        /**
+         * Publish a command and wait for the device's status to confirm it. she.mqtt.command.
+         * @method mqttcommand
+         * @param {string} topic
+         * @param {*} payload
+         * @param {Object} [options] confirm, path, expect, tolerance, timeout (s), retries, quiet
+         * @returns {Promise<{val, ms, tries, already?}>}
+         */
+        mqttcommand: function Sandbox_mqttcommand(topic, payload, options) {
+            if (typeof topic === 'string') lintPublish(topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2'), 'she.mqtt.command');
+            return _command(topic, payload, options);
         },
 
         /**
@@ -1755,6 +1828,12 @@ function runScript(script, name, _origin) {
         md(she, { scriptDomain, scriptName, scriptFile: name });
     });
 
+    // Lint before the script runs: a literal topic that an adapter writes as status is a command
+    // that will never arrive (<inst>/status/… instead of <inst>/set/…)
+    if (source !== undefined) {
+        for (const hit of scanPublishTopics(source)) lintPublish(hit.topic, hit.api, hit.line);
+    }
+
     log.debug(logLabel, 'contextifying sandbox');
     const context = vm.createContext(Sandbox);
 
@@ -1832,7 +1911,7 @@ function loadScript(file, origin) {
             }
             if (scripts[file]) {
                 scriptOrigins.set(file, origin);
-                runScript(scripts[file], file, origin);
+                runScript(scripts[file], file, origin, src.toString());
                 broadcast({ type: 'script:running', path: makeLabel(file).slice(0, -1), running: true });
             }
         }

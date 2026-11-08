@@ -445,6 +445,28 @@ declare const she: {
         max(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
         min(srcs: string[], target: string | ((topic: string | null, val: number) => void)): void;
         timer(src: string | string[], ms: number, target: string | ((topic: string | null, val: 0 | 1) => void)): void;
+        /**
+         * Publish a command and wait for the device's status to confirm it.
+         * Resolves with { val, ms, tries } (already: true when the status was at the target before);
+         * rejects with an Error { reason: 'timeout' | 'offline' | 'superseded' | 'unloaded' | 'cancelled', topic, payload, tries }.
+         * The confirm topic is derived: <inst>/set/<path> → <inst>/status/<path>, zigbee2mqtt <base>/<dev>/set → <base>/<dev>; else pass opts.confirm.
+         */
+        command(topic: string, payload: string | number | boolean | object, opts?: {
+            /** the status topic that shows the effect (derived when omitted) */
+            confirm?: string;
+            /** the field of a JSON status payload to look at */
+            path?: string;
+            /** the value to expect (default: the payload), or a function */
+            expect?: any | ((val: any) => boolean);
+            /** for numbers */
+            tolerance?: number;
+            /** seconds per attempt (default 5) */
+            timeout?: number;
+            /** further attempts after a timeout (default 0) */
+            retries?: number;
+            /** no warning in the log when the command fails */
+            quiet?: boolean;
+        }): Promise<{ val: any; ms: number; tries: number; already?: boolean }>;
     };
     http: {
         fetch(url: string, opts?: RequestInit): Promise<any>;

@@ -695,3 +695,79 @@ describe('timing helpers (debounce, throttle, timeout) and the sub/pub options',
         }
     }, 20000);
 });
+
+describe('she.mqtt.command — confirmation, timeout, offline, zigbee2mqtt echo, lint', () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    it('warns at load about a literal publish to a status topic', (done) => {
+        subscribe(
+            'ms',
+            /test-command\.js: she\.mqtt\.pub \(line 8\): "lint\/status\/lamp\/STATE" is a status topic — adapters publish there; a command goes to "lint\/set\/lamp\/STATE"/,
+            () => done(),
+        );
+    }, 20000);
+
+    it('resolves when the status topic echoes the value', async () => {
+        const seen = new Promise((resolve) => subscribe('ms', /test-command\.js: command echo ok (\{.*\})/, (line, m) => resolve(JSON.parse(m[1]))));
+        const sent = new Promise((resolve) => mqttSubscribe('cmd/set/lamp/STATE', (payload) => resolve(payload)));
+        mqtt.publish('cmdtest/trigger/echo', '1');
+        expect(await sent).toBe('1');
+        mqtt.publish('cmd/status/lamp/STATE', JSON.stringify({ val: true }), { retain: true });
+        const r = await seen;
+        expect(r).toMatchObject({ val: true, tries: 1 });
+        expect(r.ms).toBeGreaterThanOrEqual(0);
+    }, 20000);
+
+    it('a command whose status is already at the target resolves at once with already: true', async () => {
+        const seen = new Promise((resolve) => subscribe('ms', /test-command\.js: command already ok (\{.*\})/, (line, m) => resolve(JSON.parse(m[1]))));
+        mqtt.publish('cmdtest/trigger/already', '1');
+        expect(await seen).toMatchObject({ val: true, ms: 0, tries: 1, already: true });
+    }, 20000);
+
+    it('fails with reason timeout after the retries and warns with the script name, topic and payload', async () => {
+        const warned = new Promise((resolve) =>
+            subscribe('ms', /test-command\.js: she\.mqtt\.command cmd\/set\/lamp\/LEVEL ← 0\.5: no confirmation within 1 s \(2 attempts\)/, () => resolve()),
+        );
+        const failed = new Promise((resolve) => subscribe('ms', /test-command\.js: command timeout failed timeout cmd\/set\/lamp\/LEVEL 0\.5 2/, () => resolve()));
+        let sent = 0;
+        mqttSubscribe('cmd/set/lamp/LEVEL', () => sent++);
+        mqtt.publish('cmdtest/trigger/timeout', '1');
+        await warned;
+        await failed;
+        expect(sent).toBe(2);
+    }, 20000);
+
+    it('fails fast with reason offline when <inst>/connected is below 2', async () => {
+        mqtt.publish('offline/connected', '1', { retain: true });
+        await wait(300);
+        const failed = new Promise((resolve) => subscribe('ms', /test-command\.js: command offline failed offline offline\/set\/lamp\/STATE 1 1/, () => resolve()));
+        const warned = new Promise((resolve) =>
+            subscribe('ms', /test-command\.js: she\.mqtt\.command offline\/set\/lamp\/STATE ← 1: device offline \(offline\/connected = 1\)/, () => resolve()),
+        );
+        mqtt.publish('cmdtest/trigger/offline', '1');
+        await failed;
+        await warned;
+    }, 20000);
+
+    it('zigbee2mqtt: the device state object confirms the field', async () => {
+        const seen = new Promise((resolve) => subscribe('ms', /test-command\.js: command z2m ok (\{.*\})/, (line, m) => resolve(JSON.parse(m[1]))));
+        const sent = new Promise((resolve) => mqttSubscribe('z2m/lamp/set', (payload) => resolve(payload)));
+        mqtt.publish('cmdtest/trigger/z2m', '1');
+        expect(await sent).toBe('{"state":"ON"}');
+        mqtt.publish('z2m/lamp', JSON.stringify({ state: 'ON', brightness: 120, linkquality: 60 }), { retain: true });
+        expect(await seen).toMatchObject({ val: 'ON', tries: 1 });
+    }, 20000);
+
+    it('a pending command is listed as a timer and a hot reload rejects it with reason unloaded', async () => {
+        const started = new Promise((resolve) => mqttSubscribe('cmd/set/lamp/LONG', () => resolve()));
+        mqtt.publish('cmdtest/trigger/pending', '1');
+        await started;
+        const unloaded = new Promise((resolve) => subscribe('ms', /test-command\.js: command pending failed unloaded cmd\/set\/lamp\/LONG 1 1/, () => resolve()));
+        const reloaded = new Promise((resolve) => subscribe('ms', /test-command\.js: registered/, () => resolve()));
+        const file = require('path').join(__dirname, '../testscripts/test-command.js');
+        const src = fs.readFileSync(file, 'utf8');
+        fs.writeFileSync(file, src + '\n');
+        await unloaded;
+        await reloaded;
+        fs.writeFileSync(file, src);
+    }, 20000);
+});

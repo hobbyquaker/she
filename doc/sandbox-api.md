@@ -339,6 +339,67 @@ she.mqtt.timer('home/motion/hall', 30_000, (topic, val) => {
 });
 ```
 
+### she.mqtt.command(topic, payload, [options])
+
+Publishes a command and waits for the device's status to confirm it. Returns a Promise that resolves with `{ val, ms, tries }` — the confirming value, how long it took, how many attempts it needed — or rejects with an `Error` whose `reason` says why. `she.mqtt.pub` stays fire-and-forget; use `command` where it matters that the command took effect: heating, gates, switching things off.
+
+| Param | Type | Description |
+|---|---|---|
+| `topic` | `string` | The command topic (`inst//path` is `inst/set/path`). |
+| `payload` | `string \| number \| boolean \| object` | What to send; objects are JSON-stringified. |
+| `options.confirm` | `string` | The status topic that shows the effect. Derived when omitted (see below). |
+| `options.path` | `string` | The field of a JSON status payload to look at (`'state'`, `'POWER'`). |
+| `options.expect` | `any \| (val) => boolean` | The value to expect, or a function. Default: the payload (its `val` for `{ val }` objects, its single field for one-key objects). |
+| `options.tolerance` | `number` | For numbers: `|status − expect| ≤ tolerance` confirms. Default `0`. |
+| `options.timeout` | `number` | Seconds per attempt. Default `5`. |
+| `options.retries` | `number` | Further attempts after a timeout (the payload is sent again). Default `0`. |
+| `options.quiet` | `boolean` | No warning in the log when the command fails; the Promise still rejects. |
+
+**Where the confirmation is read** — a small table of conventions, not script code:
+
+| Command topic | Status topic | Value |
+|---|---|---|
+| `<inst>/set/<path>` (mqtt-smarthome) | `<inst>/status/<path>` | the `val` of the status payload |
+| `<base>/<device>/set` (zigbee2mqtt) | `<base>/<device>` | the field named by the payload's single key or `options.path`; `state` for a bare `"ON"` |
+| `<base>/<device>/set/<attribute>` (zigbee2mqtt, when `<base>/<device>` is known and no status topic is) | `<base>/<device>` | the attribute |
+| anything else | `options.confirm` required | `options.path`, or the whole value |
+
+Values are compared loosely: `true`, `1`, `"ON"` and `"on"` confirm each other, `false`, `0`, `"OFF"` likewise; numbers by value within `tolerance`; strings case-insensitively. An object payload with several fields expects every field.
+
+**What happens:**
+
+- **The status already shows the target** — the command is sent anyway (the device may be out of sync with its last report) and the Promise resolves at once with `{ val, ms: 0, tries: 1, already: true }`; many devices send no echo for an unchanged value.
+- **The device is known to be offline** — `<inst>/connected` below 2, or zigbee2mqtt's `<base>/<device>/availability` `offline` — nothing is sent and the Promise rejects at once with `reason: 'offline'`.
+- **No confirmation within `timeout`** — the payload is sent again while `retries` are left, then the Promise rejects with `reason: 'timeout'`.
+- **A newer `command` to the same topic** from the same script replaces a running one, which rejects with `reason: 'superseded'` (no warning).
+- **The script is unloaded or reloaded** while a command is pending — it rejects with `reason: 'unloaded'` (no warning).
+- **Cancelled from the editor's Runtime panel** — `reason: 'cancelled'`.
+
+The error carries `reason`, `topic`, `payload` (as sent), `tries` and `confirm` (the status topic). A timeout or an offline device is logged as a warning with the script's name, topic and payload — unless `quiet` — and counted in the daemon's status (`commandsFailed`, shown on the Runtime page and by the assistant's health tool). A rejection the script does not handle is **not** an unhandled rejection: the warning is the report. A pending command is a timer of the script: it shows in the Runtime page and the editor's Runtime panel with its topic and attempt, and the assistant's timer list prints it as `command "<topic>" in 4s`.
+
+```js
+// heating: insist on the setpoint, give up after three attempts
+she.mqtt.sub('var/status/heatingTarget', { change: true }, async (topic, val) => {
+    try {
+        const r = await she.mqtt.command('hm/set/thermostat/SET_TEMPERATURE', val, { tolerance: 0.1, timeout: 10, retries: 2 });
+        she.info('setpoint confirmed after', r.ms, 'ms');
+    } catch (e) {
+        she.error('setpoint not confirmed:', e.reason);   // the warning is already in the log
+    }
+});
+
+// zigbee2mqtt: the state object confirms the field
+await she.mqtt.command('zigbee2mqtt/kitchen/set', { state: 'OFF' });
+
+// a device with its own convention: say where the effect shows
+await she.mqtt.command('tasmota/cmnd/POWER', 'ON', { confirm: 'tasmota/tele/STATE', path: 'POWER' });
+
+// fire and forget stays fire and forget
+she.mqtt.pub('hm/set/lamp/STATE', true);
+```
+
+**Lint.** When a script is loaded, its literal publish topics are checked: a `she.mqtt.pub` (or `setValue`, `command`) to `<inst>/status/…`, or to a topic zigbee2mqtt publishes as a device's state, is logged as a warning with the script name and line — the command would never reach the device. The same check runs once per topic at runtime for topics built dynamically.
+
 ---
 
 ## she.now()

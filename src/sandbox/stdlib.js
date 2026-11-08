@@ -37,6 +37,11 @@ module.exports = function (she, ctx = {}) {
         sub: (...args) => she.mqttsub(...args),
         /** Publish an MQTT message. Same signature as she.mqttpub(). */
         pub: (...args) => she.mqttpub(...args),
+        /**
+         * Publish a command and wait for the device's status to confirm it. Resolves with
+         * { val, ms, tries }; rejects with an Error carrying reason timeout | offline | superseded | unloaded.
+         */
+        command: (...args) => she.mqttcommand(...args),
         /** Get the last-known value for a topic. */
         get: (topic) => she.getValue(topic),
         /** Get a specific property from a topic's state object. */

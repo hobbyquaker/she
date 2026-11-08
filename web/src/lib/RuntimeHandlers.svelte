@@ -69,7 +69,7 @@
     });
 
     const KIND_LABEL: Record<string, string> = {
-        'sub': 'sub', 'var': 'var', 'schedule': 'schedule', 'sun': 'sun', 'interval': 'interval', 'timer': 'timeout', 'shift': 'shift',
+        'sub': 'sub', 'var': 'var', 'schedule': 'schedule', 'sun': 'sun', 'interval': 'interval', 'timer': 'setTimeout', 'shift': 'shift',
         'timeout': 'she.timeout', 'debounce': 'debounce', 'debounce maxWait': 'debounce (maxWait)', 'throttle': 'throttle', 'retry': 'retry',
         'schedule random': 'schedule (random)', 'command': 'command',
     };

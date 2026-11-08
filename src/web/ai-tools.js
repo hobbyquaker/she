@@ -493,7 +493,7 @@ const TOOL_DEFINITIONS = [
         function: {
             name: 'list_timers',
             description:
-                'Pending one-shot timers, intervals, schedule jobs and sun events per script with their next fire time. Use it for "why did it switch at …" and "what is still going to happen".',
+                'Pending one-shot timers, intervals, schedule jobs, sun events, timing helpers (debounce, throttle, timeout, retry) and commands waiting for confirmation (she.mqtt.command) per script with their next fire time. Use it for "why did it switch at …" and "what is still going to happen".',
             parameters: {
                 type: 'object',
                 properties: { script: { type: 'string', description: 'Substring of a script path. Empty: every script with something pending.' } },
@@ -1522,6 +1522,8 @@ function toolGetHealth(ctx = {}) {
         lines.push(`memory: ${st.memMb} MB, cpu: ${st.cpuPercent}%, event loop: ${st.eluPercent}% utilised, lag mean ${st.elMeanMs} ms max ${st.elMaxMs} ms`);
     if (st.matterEnabled) lines.push(`matter: ${st.matterNodes} node(s), ${st.matterEndpoints} endpoint(s)`);
     if (st.dbEnabled) lines.push(`sheDB: ${st.dbDocs} document(s), ${st.dbViews} view(s)`);
+    if (st.pendingTimers !== undefined)
+        lines.push(`pending timers: ${st.pendingTimers}, failed commands since start: ${st.commandsFailed ?? 0} (she.mqtt.command: timeout or offline)`);
     return lines.join('\n');
 }
 

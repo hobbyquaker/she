@@ -6,6 +6,7 @@ she.mqtt.pub(topic, payload, [opts]) publish (commands: no retain); { changed: t
 she.mqtt.get(topic)                 last known value
 she.mqtt.age(topic)                 seconds since the value last changed
 she.mqtt.timer(src, ms, target)     publish 1 when src turns truthy, 0 after ms
+she.mqtt.command(topic, payload, [{ timeout: 5, retries: 0, confirm }])  → Promise<{ val, ms, tries }>; waits for the status topic to confirm; rejects with reason timeout | offline | superseded
 she.mqtt.or(srcs[], target) / and   publish 1 when any / all sources are truthy, else 0
 she.schedule('0 7 * * *', cb)       cron string, Date, or 'sunrise' / 'sunset' with { shift: seconds }
 she.http.fetch(url, [opts])         → Promise<{ body, code, headers }>
