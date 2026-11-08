@@ -597,3 +597,101 @@ describe('empty payload clears the topic from the state store (B2)', () => {
         mqtt.publish('test/retained/gone', '', { retain: true });
     }, 20000);
 });
+
+describe('timing helpers (debounce, throttle, timeout) and the sub/pub options', () => {
+    it('a debounced subscription bundles the events of several topics into one callback', async () => {
+        const seen = [];
+        const first = new Promise((resolve) => {
+            subscribe('ms', /test-timing\.js: timing-debounced (.+)$/, (line, m) => {
+                seen.push(m[1]);
+                resolve();
+            });
+        });
+        mqtt.publish('timing/a', '1');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        mqtt.publish('timing/b', '2');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        mqtt.publish('timing/a', '3');
+        await first;
+        // the last event's topic and value, objPrev from before the first one (timing/a had no state: {})
+        expect(seen).toEqual(['timing/a 3 prev=undefined']);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        expect(seen).toHaveLength(1);
+    }, 20000);
+
+    it('pub with changed: true sends the same payload once', async () => {
+        const published = [];
+        mqttSubscribe('timing/changed-out', (payload) => published.push(payload));
+        const done = (v) =>
+            new Promise((resolve) => {
+                subscribe('ms', new RegExp(`test-timing\\.js: timing-pub-done ${v}$`), resolve);
+            });
+        let d = done(1);
+        mqtt.publish('timing/pub-trigger', '1');
+        await d;
+        d = done(1);
+        mqtt.publish('timing/pub-trigger', '1');
+        await d;
+        d = done(2);
+        mqtt.publish('timing/pub-trigger', '2');
+        await d;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(published).toEqual(['1', '2']);
+    }, 20000);
+
+    it('a bad setTimeout delay is reported with the script name and the timer runs at once', (done) => {
+        let warned = false;
+        subscribe('ms', /test-timing\.js: setTimeout: delay is not a number of milliseconds \(got "5m"\), using 0/, () => {
+            warned = true;
+        });
+        subscribe('ms', /test-timing\.js: timing-bad-delay-fired/, () => {
+            expect(warned).toBe(true);
+            done();
+        });
+        mqtt.publish('timing/bad-delay', '1');
+    }, 20000);
+
+    it('she.setTimeout is the tracked sandbox setTimeout', (done) => {
+        // both subscriptions up front: a subscribe() inside a subscribe() callback re-enters the matcher
+        let idSeen = false;
+        subscribe('ms', /test-timing\.js: timing-alias-id object/, () => {
+            idSeen = true;
+        });
+        subscribe('ms', /test-timing\.js: timing-alias-fired/, () => {
+            expect(idSeen).toBe(true);
+            done();
+        });
+        mqtt.publish('timing/alias', '1');
+    }, 20000);
+
+    it('she.mqtt.timer with swapped arguments throws a TypeError naming the signature', (done) => {
+        subscribe('ms', /test-timing-swapped\.js: TypeError: she\.mqtt\.timer\(src, ms, target\): ms must be a number of milliseconds \(got "timing\/presence"\)/, () => done());
+        mqtt.publish('timing/swap', '1');
+    }, 20000);
+
+    it('a hot reload clears an armed timeout and flushes a debounce with flushOnUnload once', async () => {
+        const scriptPath = path.join(__dirname, '../testscripts/test-timing.js');
+        const armed = new Promise((resolve) => subscribe('ms', /test-timing\.js: timing-armed pending=true/, resolve));
+        mqtt.publish('timing/arm', '1');
+        await armed;
+        mqtt.publish('timing/flush-later', 'bye');
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        let fired = 0;
+        let flushed = 0;
+        subscribe('ms', /test-timing\.js: timing-timeout-fired/, () => fired++);
+        subscribe('ms', /test-timing\.js: timing-flushed bye/, () => flushed++);
+        subscribe('ms', /test-timing\.js: timing-flushed bye/, () => flushed++);
+        const reloaded = new Promise((resolve) => subscribe('ms', /change detected\. hot-reloading/, resolve));
+        const original = fs.readFileSync(scriptPath, 'utf8');
+        try {
+            fs.appendFileSync(scriptPath, '\n// reload trigger\n');
+            await reloaded;
+            await new Promise((resolve) => setTimeout(resolve, 3500));
+            expect(fired).toBe(0);
+            expect(flushed).toBe(1);
+        } finally {
+            fs.writeFileSync(scriptPath, original);
+        }
+    }, 20000);
+});

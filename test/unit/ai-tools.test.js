@@ -305,6 +305,8 @@ describe("the daemon's state (I19, I27, I28)", () => {
                 timers: [
                     { due: now + 300000, every: null },
                     { due: now + 60000, every: 60000 },
+                    { due: now + 5000, every: null, kind: 'debounce', name: 'infobox' },
+                    { due: now + 240000, every: null, kind: 'timeout', name: null },
                 ],
             },
             {
@@ -359,7 +361,7 @@ describe("the daemon's state (I19, I27, I28)", () => {
         expect(out).toContain('- subscribes: var/status/presence/bath, home/status/bath/door');
         expect(out).toContain('- publishes (seen): home/set/bath/light');
         expect(out).toMatch(/- schedules: job in 1h.*sunset in 2h/);
-        expect(out).toContain('- pending timers: 2');
+        expect(out).toContain('- pending timers: 4');
         expect(await executeTool('list_scripts', {}, {})).toMatch(/did not expose/);
     });
 
@@ -397,6 +399,8 @@ describe("the daemon's state (I19, I27, I28)", () => {
         expect(timers).toContain('### licht/bath.js');
         expect(timers).toMatch(/- interval every 1m, next in 1m/);
         expect(timers).toMatch(/- timer in 5m/);
+        expect(timers).toMatch(/- debounce "infobox" in 5s/);
+        expect(timers).toMatch(/- timeout in 4m/);
         expect(timers).toMatch(/- sunset in 2h/);
         expect(timers).not.toContain('misc/other.js');
         expect(await executeTool('list_timers', { script: 'other' }, ctx)).toMatch(/Nothing pending for scripts matching/);

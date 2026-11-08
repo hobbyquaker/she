@@ -268,7 +268,9 @@ const { domain, vm, fs, path, suncalc } = modules;
 const scheduler = modules['node-schedule'];
 
 const StateStore = require('./lib/state-store');
-const { trackTimeout } = require('./lib/script-timers');
+const { trackTimeout, isValidDelay, describeDelay } = require('./lib/script-timers');
+const timing = require('./lib/timing');
+const publishChanged = require('./lib/publish-changed');
 const sandboxModules = [];
 const store = new StateStore();
 if (typeof config.port !== 'undefined') require('./web/broker-api').setStore(store);
@@ -282,8 +284,19 @@ const varSubscriptions = []; // store-based var:: subscriptions { key, handler, 
 const scriptJobs = new Map(); // scriptFile â†’ node-schedule Job[]
 const scriptPublishes = new Map(); // scriptFile → Set<topic> a script published to (roadmap I19; capped)
 const scriptTimers = new Map(); // scriptFile â†’ Set<timer id>
+const scriptUnloadHooks = new Map(); // scriptFile → Set<fn> run first when the script is unloaded (roadmap S10)
 
 const _global = {};
+
+// One store listener serves every she.on('var::…') of every script (roadmap S8). Before, each call
+// added a listener of its own, so Node warned about MaxListeners from the eleventh on; now a
+// registration is an entry in varSubscriptions, which unloadScript removes.
+store.on('change', (changedKey, val, obj, prevObj) => {
+    if (!changedKey.startsWith('var::')) return;
+    for (const sub of varSubscriptions.slice()) {
+        if (sub.key === changedKey) _dispatch(sub._script, () => sub.callback(val, obj, prevObj));
+    }
+});
 
 // ── Event-loop heartbeat ─────────────────────────────────────────────────────
 let _blockingScript = null;
@@ -620,7 +633,7 @@ const introspect = {
             publishes: [...(scriptPublishes.get(file) || [])],
             jobs: (scriptJobs.get(file) || []).filter(Boolean).map((job) => ({ next: nextOf(job) })),
             sunEvents: sunEvents.filter((e) => e._script === file).map((e) => ({ pattern: e.pattern, next: nextOf(e._job) })),
-            timers: [...(scriptTimers.get(file) || [])].map((t) => ({ due: t.due || null, every: t.every || null })),
+            timers: [...(scriptTimers.get(file) || [])].map((t) => ({ due: t.due || null, every: t.every || null, kind: t.kind || null, name: t.name || null })),
         })),
     stats: statsSnapshot,
     health: healthSnapshot,
@@ -935,17 +948,25 @@ function stateChange(topic, state, oldState, msg) {
 
             delay = Math.floor(delay);
 
-            setTimeout(() => {
-                /**
-                 * @callback subscribeCallback
-                 * @param {string} topic - the topic that triggered this callback
-                 * @param {mixed} val - the val property of the new state
-                 * @param {object} obj - new state - the whole state object (e.g. {"val": true, "ts": 12346345, "lc": 12346345} )
-                 * @param {object} objPrev - previous state - the whole state object
-                 * @param {object} msg - the mqtt message as received from MQTT.js
-                 */
-                _dispatch(subs._script, () => subs.callback(topic, state.val, state, oldState, msg));
-            }, delay);
+            // The delay timer is tracked like a script's own setTimeout (roadmap S8), so a reload of
+            // the script between the message and the shifted callback cancels the callback instead
+            // of running the unloaded script's code.
+            trackTimeout(
+                scriptTimers.get(subs._script) || new Set(),
+                () => {
+                    /**
+                     * @callback subscribeCallback
+                     * @param {string} topic - the topic that triggered this callback
+                     * @param {mixed} val - the val property of the new state
+                     * @param {object} obj - new state - the whole state object (e.g. {"val": true, "ts": 12346345, "lc": 12346345} )
+                     * @param {object} objPrev - previous state - the whole state object
+                     * @param {object} msg - the mqtt message as received from MQTT.js
+                     */
+                    subs.deliver(topic, state.val, state, oldState, msg);
+                },
+                delay,
+                delay > 0 ? { kind: 'shift', name: subs.topic } : {},
+            );
         }
     });
 }
@@ -1004,6 +1025,14 @@ function runScript(script, name, _origin) {
     if (!scriptTimers.has(name)) scriptTimers.set(name, new Set());
     const _myJobs = scriptJobs.get(name);
     const _myTimers = scriptTimers.get(name);
+    const _myHooks = new Set();
+    scriptUnloadHooks.set(name, _myHooks);
+    const _myLastPayload = new Map(); // topic → last payload, for pub({ changed: true })
+    let _unloaded = false;
+    let _subCount = 0;
+    _myHooks.add(() => {
+        _unloaded = true;
+    });
 
     log.debug(logLabel, 'creating domain');
     const scriptDomain = domain.create();
@@ -1013,6 +1042,41 @@ function runScript(script, name, _origin) {
     function serializeArg(a) {
         return a !== null && typeof a === 'object' ? JSON.stringify(a) : a;
     }
+
+    /**
+     * The script's one-shot timer: the delay is validated and a bad one is logged with the script's
+     * name (roadmap S9), the callback runs in the script's domain, the id is tracked for the unload
+     * and carries kind and name for the timer list. Every timer API of the sandbox goes through here.
+     */
+    function _timeout(fn, delay, meta = {}, api = 'setTimeout') {
+        if (_unloaded) {
+            log.debug(logLabel, `${api} after unload ignored`);
+            return null;
+        }
+        return trackTimeout(
+            _myTimers,
+            scriptDomain.bind(() => _dispatch(name, fn)),
+            delay,
+            {
+                warn: (msg) => log.warn(logLabel, msg),
+                api,
+                kind: meta.kind,
+                name: meta.name,
+            },
+        );
+    }
+    function _clearTimeout(id) {
+        _myTimers.delete(id);
+        clearTimeout(id);
+    }
+    const _timing = timing.createTimingHelpers({
+        setTimeout: (fn, ms, meta) => _timeout(fn, ms, meta),
+        clearTimeout: _clearTimeout,
+        onUnload: (fn) => {
+            _myHooks.add(fn);
+            return () => _myHooks.delete(fn);
+        },
+    });
 
     const she = {
         global: _global,
@@ -1087,36 +1151,52 @@ function runScript(script, name, _origin) {
             } else if (rest.length > 2) {
                 throw new Error('wrong number of arguments');
             }
+            options = options || {};
 
-            if (typeof topic === 'string') {
-                if (typeof options.condition === 'string') {
-                    if (options.condition.indexOf('\n') !== -1) {
-                        throw new Error('options.condition string must be one-line javascript');
-                    }
-                    /* eslint-disable no-new-func */
-                    options.condition = new Function('topic', 'val', 'obj', 'objPrev', 'msg', 'return ' + options.condition + ';');
+            let topics;
+            if (typeof topic === 'string') topics = [topic];
+            else if (typeof topic === 'object' && topic.length > 0) topics = Array.prototype.slice.call(topic);
+            else return;
+
+            if (typeof options.condition === 'string') {
+                if (options.condition.indexOf('\n') !== -1) {
+                    throw new Error('options.condition string must be one-line javascript');
+                }
+                /* eslint-disable no-new-func */
+                options.condition = new Function('topic', 'val', 'obj', 'objPrev', 'msg', 'return ' + options.condition + ';');
+            }
+
+            if (typeof options.condition === 'function') {
+                options.condition = scriptDomain.bind(options.condition);
+            }
+
+            const boundCallback = typeof callback === 'function' && scriptDomain.bind(callback);
+            // what runs the callback for one event; with opts.debounce or opts.throttle the events of
+            // this call are bundled — across the topics of an array, per topic with opts.perTopic
+            let deliver = (t, val, obj, objPrev, msg) => _dispatch(name, () => boundCallback(t, val, obj, objPrev, msg));
+            const label = topics.length > 1 ? `${topics[0]} +${topics.length - 1}` : topics[0];
+            const limited = timing.subscriptionLimiter(options, deliver, _timing, label);
+            if (limited) deliver = limited;
+
+            for (const tp of topics) {
+                subscriptions.push({ topic: tp, options, callback: boundCallback, deliver, _script: name });
+                _subCount++;
+                if (_subCount === 1000) {
+                    log.warn(
+                        logLabel,
+                        'has registered 1000 subscriptions — she.mqtt.sub is meant to be called when the script loads, not inside a callback: every call adds a subscription that stays until the script is unloaded',
+                    );
                 }
 
-                if (typeof options.condition === 'function') {
-                    options.condition = scriptDomain.bind(options.condition);
-                }
-
-                subscriptions.push({ topic, options, callback: typeof callback === 'function' && scriptDomain.bind(callback), _script: name });
-
-                if (options.retain && store.has('mqtt::' + topic) && typeof callback === 'function') {
-                    _dispatch(name, () => callback(topic, store.get('mqtt::' + topic), store.getObject('mqtt::' + topic)));
-                } else if (options.retain && (/\/\+\//.test(topic) || /\+$/.test(topic) || /\+/.test(topic) || topic.endsWith('#')) && typeof callback === 'function') {
-                    for (const [t, obj] of store.mqttEntries()) {
-                        if (mqttWildcards(t, topic)) {
-                            _dispatch(name, () => callback(t, obj.val, obj));
+                if (options.retain && boundCallback) {
+                    if (store.has('mqtt::' + tp)) {
+                        deliver(tp, store.get('mqtt::' + tp), store.getObject('mqtt::' + tp));
+                    } else if (tp.includes('+') || tp.endsWith('#')) {
+                        for (const [t, obj] of store.mqttEntries()) {
+                            if (mqttWildcards(t, tp)) deliver(t, obj.val, obj);
                         }
                     }
                 }
-            } else if (typeof topic === 'object' && topic.length > 0) {
-                topic = Array.prototype.slice.call(topic);
-                topic.forEach((tp) => {
-                    she.mqttsub(tp, options, callback);
-                });
             }
         },
 
@@ -1179,17 +1259,30 @@ function runScript(script, name, _origin) {
                 return;
             }
 
-            if (options.random) {
-                _myJobs.push(
-                    scheduler.scheduleJob(pattern, () => {
-                        // Track the random-delay timer so it is cancelled on unload
-                        // if the job fires in the same tick as the script is reloaded.
-                        trackTimeout(_myTimers, () => _dispatch(name, scriptDomain.bind(callback)), (parseFloat(options.random) || 0) * 1000 * Math.random());
-                    }),
-                );
-            } else {
-                _myJobs.push(scheduler.scheduleJob(pattern, () => _dispatch(name, scriptDomain.bind(callback))));
+            const run = options.random
+                ? () => {
+                      // Track the random-delay timer so it is cancelled on unload
+                      // if the job fires in the same tick as the script is reloaded.
+                      _timeout(scriptDomain.bind(callback), (parseFloat(options.random) || 0) * 1000 * Math.random(), { kind: 'schedule random' }, 'she.schedule');
+                  }
+                : () => _dispatch(name, scriptDomain.bind(callback));
+            let job = null;
+            job = scheduler.scheduleJob(pattern, () => {
+                // A one-shot job (a Date) is done after this run: forget it, so that a script
+                // scheduling a Date per event does not keep every fired job (roadmap S8).
+                if (job && job.nextInvocation() === null) {
+                    const i = _myJobs.indexOf(job);
+                    if (i !== -1) _myJobs.splice(i, 1);
+                }
+                run();
+            });
+            if (!job) {
+                // a Date from the sandbox is of the context's realm, so no instanceof
+                const shown = pattern && typeof pattern.toISOString === 'function' ? pattern.toISOString() : JSON.stringify(pattern);
+                log.warn(logLabel, `she.schedule: nothing scheduled for ${shown} — not a valid pattern, or a date in the past`);
+                return;
             }
+            _myJobs.push(job);
         },
 
         /**
@@ -1200,6 +1293,8 @@ function runScript(script, name, _origin) {
          * @param {Object} [options] - the options to publish with
          * @param {number} [options.qos=0] - QoS Level
          * @param {boolean} [options.retain=false] - retain flag
+         * @param {boolean} [options.changed=false] - publish only when the payload differs from the last one this
+         *   script published to the topic (before the first one: from the topic's current value in the state store)
          */
         mqttpub: function Sandbox_mqttpub(topic, payload, options) {
             if (typeof topic === 'object' && topic.length > 0) {
@@ -1218,7 +1313,13 @@ function runScript(script, name, _origin) {
             } else {
                 payload = String(payload);
             }
+            let changed = false;
+            if (options && typeof options === 'object' && 'changed' in options) {
+                ({ changed, ...options } = options);
+            }
+            if (changed && publishChanged.isRepeat(_myLastPayload, topic, payload, (t) => store.getObject('mqtt::' + t))) return;
             if (!mqtt || !connected) return; // silently drop when MQTT is not connected
+            publishChanged.remember(_myLastPayload, topic, payload);
             mqtt.publish(topic, payload, options);
         },
 
@@ -1308,11 +1409,8 @@ function runScript(script, name, _origin) {
             } else if (key.startsWith('var::')) {
                 const varStoreKey = 'var::' + key.slice(5);
                 const boundCb = scriptDomain.bind(callback);
-                const varHandler = (changedKey, val, obj, prevObj) => {
-                    if (changedKey === varStoreKey) _dispatch(name, () => boundCb(val, obj, prevObj));
-                };
-                store.on('change', varHandler);
-                varSubscriptions.push({ key: varStoreKey, handler: varHandler, _script: name });
+                // served by the one store listener at module level (roadmap S8)
+                varSubscriptions.push({ key: varStoreKey, callback: boundCb, _script: name });
                 // Fire immediately if var already has a value (retain semantics)
                 const currentVarObj = store.getObject(varStoreKey);
                 if (currentVarObj !== undefined) boundCb(currentVarObj.val, currentVarObj, undefined);
@@ -1332,22 +1430,30 @@ function runScript(script, name, _origin) {
     she.log = she.info;
 
     const Sandbox = {
-        setTimeout: (fn, delay, ...args) => {
+        // setTimeout(fn) without a delay is Node's "next tick"; a delay that is given but is not a
+        // number is a mistake and logged with the script's name (roadmap S9)
+        setTimeout: (fn, ...rest) => {
+            const [delay, ...args] = rest;
             const wrapped = args.length ? () => fn(...args) : fn;
-            return trackTimeout(_myTimers, () => _dispatch(name, wrapped), delay);
+            return _timeout(wrapped, rest.length ? delay : 0);
         },
-        setInterval: (fn, delay, ...args) => {
+        setInterval: (fn, ...rest) => {
+            let [delay, ...args] = rest;
+            if (!isValidDelay(delay)) {
+                log.warn(logLabel, `setInterval: delay is not a number of milliseconds (got ${describeDelay(delay)}), using 0`);
+                delay = 0;
+            }
             const wrapped = args.length ? () => fn(...args) : fn;
-            const id = setInterval(() => _dispatch(name, wrapped), delay);
+            const id = setInterval(
+                scriptDomain.bind(() => _dispatch(name, wrapped)),
+                delay,
+            );
             id.every = delay;
             id.due = Date.now() + delay;
             _myTimers.add(id);
             return id;
         },
-        clearTimeout: (id) => {
-            _myTimers.delete(id);
-            clearTimeout(id);
-        },
+        clearTimeout: _clearTimeout,
         clearInterval: (id) => {
             _myTimers.delete(id);
             clearInterval(id);
@@ -1356,7 +1462,11 @@ function runScript(script, name, _origin) {
         Buffer,
 
         require(md) {
-            if (modules[md]) {
+            // A relative path is cached by Node under its resolved file; caching it here under the bare
+            // specifier made two scripts requiring './util' from different directories share the first
+            // one's module (roadmap S8). The cache here is for the daemon's own modules and packages.
+            const relative = /^\.\.?\//.test(md);
+            if (!relative && modules[md]) {
                 return modules[md];
             }
             // Failures throw (Cannot find module, syntax errors in the required
@@ -1384,7 +1494,7 @@ function runScript(script, name, _origin) {
                     }
                 }
             }
-            modules[md] = result;
+            if (!relative) modules[md] = result;
             return result;
         },
 
@@ -1415,16 +1525,16 @@ function runScript(script, name, _origin) {
         },
         has: (p) => secrets.has(p),
     });
-    // she.setTimeout / she.clearTimeout — tracked versions for use by stdlib and
-    // sandbox modules that don't have direct access to the Sandbox context.
-    she.setTimeout = (fn, delay, ...args) => {
-        const wrapped = args.length ? () => fn(...args) : fn;
-        return trackTimeout(_myTimers, () => _dispatch(name, wrapped), delay);
-    };
-    she.clearTimeout = (id) => {
-        _myTimers.delete(id);
-        clearTimeout(id);
-    };
+    // she.setTimeout / she.clearTimeout — the sandbox's tracked timers under the she object: the
+    // documented aliases of the globals, and what stdlib and the sandbox modules use.
+    she.setTimeout = Sandbox.setTimeout;
+    she.clearTimeout = Sandbox.clearTimeout;
+    // Timing helpers (roadmap S10): their timers are the script's, so a reload clears them and
+    // the timer list shows them with kind and name.
+    she.debounce = _timing.debounce;
+    she.throttle = _timing.throttle;
+    she.timeout = _timing.timeout;
+    she.retry = _timing.retry;
     sandboxModules.forEach((md) => {
         md(she, { scriptDomain, scriptName, scriptFile: name });
     });
@@ -1523,6 +1633,20 @@ function unloadScript(file) {
     let removedCallbacks = 0;
     let removedTimers = 0;
 
+    // The script's unload hooks run first (roadmap S10): the sandbox marks itself unloaded, a debounce
+    // with flushOnUnload runs its pending call, a retry stops. Then the timers below are cleared.
+    const hooks = scriptUnloadHooks.get(file);
+    if (hooks) {
+        scriptUnloadHooks.delete(file);
+        for (const hook of hooks) {
+            try {
+                _dispatch(file, hook);
+            } catch (err) {
+                log.error(unloadLabel, 'error while unloading: ' + (err && err.stack ? err.stack : err));
+            }
+        }
+    }
+
     // Remove MQTT subscriptions belonging to this script
     for (let i = subscriptions.length - 1; i >= 0; i--) {
         if (subscriptions[i]._script === file) {
@@ -1572,7 +1696,6 @@ function unloadScript(file) {
     // Remove store-based var:: subscriptions belonging to this script
     for (let i = varSubscriptions.length - 1; i >= 0; i--) {
         if (varSubscriptions[i]._script === file) {
-            store.removeListener('change', varSubscriptions[i].handler);
             varSubscriptions.splice(i, 1);
             removedCallbacks++;
         }

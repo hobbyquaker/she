@@ -1532,7 +1532,7 @@ function toolListTimers({ script = '' } = {}, ctx = {}) {
     for (const sc of ctx.introspect.scripts()) {
         if (q && !sc.label.toLowerCase().includes(q)) continue;
         const items = [
-            ...sc.timers.map((t) => (t.every ? `interval every ${ago(t.every)}, next ${inTime(t.due)}` : `timer ${inTime(t.due)}`)),
+            ...sc.timers.map((t) => (t.every ? `interval every ${ago(t.every)}, next ${inTime(t.due)}` : `${t.kind || 'timer'}${t.name ? ` "${t.name}"` : ''} ${inTime(t.due)}`)),
             ...sc.jobs.map((j) => `schedule job ${inTime(j.next)}`),
             ...sc.sunEvents.map((e) => `${e.pattern} ${inTime(e.next)}`),
         ];
