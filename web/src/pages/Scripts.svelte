@@ -405,13 +405,37 @@ declare const she: {
     warn(...args: any[]): void;
     error(...args: any[]): void;
     now(): number;
+    /** The sandbox's setTimeout / clearTimeout (tracked, cleared on reload); a delay that is not a number is logged with the script name. */
+    setTimeout(fn: (...args: any[]) => void, ms?: number, ...args: any[]): any;
+    clearTimeout(id: any): void;
+    /** A restartable one-shot timer (milliseconds), created idle: restart() arms it, another restart() starts over, cancel() disarms. */
+    timeout(ms: number, cb: () => void, opts?: { name?: string }): { restart(ms?: number): any; start(ms?: number): any; cancel(): any; pending(): boolean; remaining(): number };
+    /** Bundle calls: fn runs with the last call's arguments after 'wait' ms of quiet, at the latest after opts.maxWait ms. Milliseconds. */
+    debounce: {
+        <F extends (...args: any[]) => any>(fn: F, wait: number, opts?: { maxWait?: number; leading?: boolean; trailing?: boolean; flushOnUnload?: boolean; name?: string }): F & { cancel(): void; flush(): any; pending(): boolean };
+        /** One debounce state per key — the first argument, or opts.key(...args). */
+        keyed<F extends (...args: any[]) => any>(fn: F, wait: number, opts?: { maxWait?: number; leading?: boolean; trailing?: boolean; flushOnUnload?: boolean; name?: string; key?: (...args: Parameters<F>) => any }): F & { cancel(key?: any): void; flush(key?: any): any; pending(key?: any): boolean; keys(): any[] };
+    };
+    /** Rate-limit calls: the first at once, then at most once per 'wait' ms (with the last arguments). Milliseconds. */
+    throttle: {
+        <F extends (...args: any[]) => any>(fn: F, wait: number, opts?: { leading?: boolean; trailing?: boolean; name?: string }): F & { cancel(): void; flush(): any; pending(): boolean };
+        keyed<F extends (...args: any[]) => any>(fn: F, wait: number, opts?: { leading?: boolean; trailing?: boolean; name?: string; key?: (...args: Parameters<F>) => any }): F & { cancel(key?: any): void; flush(key?: any): any; pending(key?: any): boolean; keys(): any[] };
+    };
+    /** Call fn(attempt) until it succeeds; waits opts.delay ms (× opts.backoff per failure) between attempts; after the last failure onFail(err, tries) or a rejection. */
+    retry<T>(fn: (attempt: number) => T | Promise<T>, opts?: { tries?: number; delay?: number; backoff?: number; onFail?: (err: any, tries: number) => any; name?: string }): Promise<T>;
     /** Schedule with a cron string, Date, node-schedule literal, array of any of those,
      *  or a suncalc event name ('sunrise', 'sunset', 'dawn', 'dusk', …) for solar scheduling.
      *  opts.shift (seconds) offsets solar events; opts.random adds a random delay. */
     schedule(pattern: string | Date | object | (string | Date | object)[], opts?: { shift?: number; random?: number }, cb?: () => void): void;
     mqtt: {
-        sub(topic: string | string[], opts?: any, cb?: (topic: string, val: any, obj: any, prev: any, msg: any) => void): void;
-        pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean }): void;
+        /** opts: change, retain, shift, random, condition — and debounce / maxWait / throttle (SECONDS), perTopic, name, flushOnUnload */
+        sub(
+            topic: string | string[],
+            opts?: { change?: boolean; retain?: boolean; shift?: number; random?: number; condition?: string | ((...args: any[]) => any); debounce?: number; maxWait?: number; throttle?: number; perTopic?: boolean; name?: string; flushOnUnload?: boolean } | string | ((...args: any[]) => any),
+            cb?: (topic: string, val: any, obj: any, prev: any, msg: any) => void,
+        ): void;
+        /** opts.changed: publish only when the payload differs from this script's last publish to the topic */
+        pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean; changed?: boolean }): void;
         get(topic: string): any;
         getProp(topic: string, ...prop: string[]): any;
         link(source: string | string[], target: string | string[], value?: any): void;

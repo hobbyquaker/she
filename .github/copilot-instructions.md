@@ -34,8 +34,8 @@
 Scripts run in a VM sandbox and receive a `she` object:
 
 ### MQTT (primary interface)
-- `she.mqtt.sub(topic, [options], callback)` — subscribe
-- `she.mqtt.pub(topic, payload, [options])` — publish
+- `she.mqtt.sub(topic, [options], callback)` — subscribe; options `change`, `retain`, `shift`, `random`, `condition`, and `debounce`/`maxWait`/`throttle` (seconds), `perTopic`, `name`, `flushOnUnload`
+- `she.mqtt.pub(topic, payload, [options])` — publish; `options.changed` publishes only when the payload differs from the script's last one to the topic
 - `she.mqtt.get(topic)` → current value
 - `she.mqtt.link(src, target, [transform])` — forward value changes
 - `she.mqtt.getProp(topic, ...props)` — read state property (`val`, `ts`, `lc`)
@@ -43,6 +43,13 @@ Scripts run in a VM sandbox and receive a `she` object:
 
 ### Scheduling
 - `she.schedule(pattern, [options], callback)` — cron string, Date, or suncalc event name (e.g. `'sunrise'`, `'sunset'`); options: `shift` (seconds offset), `random` (random delay in seconds)
+
+### Timing helpers (milliseconds; timers tracked per script, cleared on reload, shown in the timer list)
+- `she.timeout(ms, cb, [{ name }])` → handle `restart([ms])`/`start()`, `cancel()`, `pending()`, `remaining()` — a restartable timer, created idle
+- `she.debounce(fn, wait, [{ maxWait, leading, trailing, flushOnUnload, name }])` → wrapped with `cancel()`, `flush()`, `pending()`; `she.debounce.keyed(...)` with a state per key (`opts.key`)
+- `she.throttle(fn, wait, [{ leading, trailing, name }])` → wrapped; `she.throttle.keyed(...)`
+- `she.retry(fn, [{ tries, delay, backoff, onFail, name }])` → Promise
+- `she.setTimeout` / `she.clearTimeout` — the sandbox's tracked timers under `she` (official aliases); a non-number delay is logged with the script name
 
 ### sheDB (document store)
 - `she.db.get(id)` → document or undefined

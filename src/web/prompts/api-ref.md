@@ -8,15 +8,33 @@ she.mqtt.sub(topic, [opts], cb)        Subscribe; topic may be a string or an ar
     opts.retain     also fire for the retained value present on connect and script start
     opts.shift      delay the callback by N seconds; opts.random adds up to N random seconds
     opts.condition  fn(val) or a one-line JS string over val/obj/objPrev; the callback runs only when truthy
-    cb(topic, val, obj, objPrev, msg)   obj and objPrev are { val, ts, lc }
-she.mqtt.pub(topic, payload, [opts])   Publish; objects are JSON-stringified; opts { qos, retain }
+    opts.debounce   SECONDS: bundle events, one callback once nothing came in for N s; opts.maxWait (seconds) runs it at the latest then
+    opts.throttle   SECONDS: the first event at once, then at most one callback per N s (with the last event)
+    opts.perTopic   with debounce/throttle on an array or wildcard: one bundle per topic; opts.name names it in the timer list
+    opts.flushOnUnload  with debounce: run a pending callback once on unload/reload (default: dropped)
+    cb(topic, val, obj, objPrev, msg)   obj and objPrev are { val, ts, lc }; debounced: the last event, objPrev from before the first bundled one
+she.mqtt.pub(topic, payload, [opts])   Publish; objects are JSON-stringified; opts { qos, retain, changed }
+    opts.changed    publish only when the payload differs from this script's last publish to the topic (before that: from the topic's state, set→status)
 she.mqtt.get(topic)                    Last known value (undefined when never seen); an empty payload removes a topic
 she.mqtt.getProp(topic, 'val'|'ts'|'lc')  One property of the state; without a property the whole { val, ts, lc }
 she.mqtt.age(topic, ['message'])       Seconds since the last change, or since the last message with 'message'; NaN when never seen
 she.mqtt.link(src, target, [fn])       Forward src changes to target, optionally transformed
 she.mqtt.or / and / max / min(srcs[], topicOrCb)   Combine sources; publish 1/0 or the extreme value; re-evaluated on every change
-she.mqtt.timer(src, ms, topicOrCb)     Publish 1 when src turns truthy, 0 after ms; restarted when src fires again
+she.mqtt.timer(src, ms, topicOrCb)     Publish 1 when src turns truthy, 0 after ms (a number — swapped arguments throw at load); restarted when src fires again
                                         topicOrCb: a topic string or cb(topic, val)
+```
+
+### Timing helpers (MILLISECONDS, like setTimeout; cleared on unload/reload; pending runs listed by list_timers with kind and name)
+```
+she.timeout(ms, cb, [{ name }])         A restartable timer, created idle → handle.restart([ms]) arms or starts over, cancel(), pending(), remaining()
+                                        the motion-light pattern: off.restart() on every motion, off.cancel() when the state changes
+she.debounce(fn, wait, [opts])          Bundle calls: fn runs with the LAST call's args after `wait` ms of quiet; opts { maxWait, leading=false, trailing=true, flushOnUnload, name }
+                                        → wrapped(...args) with cancel(), flush(), pending(); maxWait keeps a never-resting source from starving fn
+she.throttle(fn, wait, [opts])          Rate-limit: first call at once, then at most once per `wait` ms; opts { leading=true, trailing=true, name }; trailing:false = fire, then block
+she.debounce.keyed / she.throttle.keyed(fn, wait, [opts])   One state per key (the first argument, or opts.key(...args)); cancel(key)/flush(key)/pending(key), without key: all
+she.retry(fn, [opts])                   → Promise; fn(attempt) may be async; opts { tries=3, delay=1000, backoff=1, onFail(err, tries), name }
+                                        resolves with fn's result; after the last failure: onFail's return value, or rejects without onFail; an unload stops it
+she.setTimeout / she.clearTimeout       The sandbox's setTimeout/clearTimeout under she (official aliases); a non-number delay is logged with the script name
 ```
 
 ### Scheduling
@@ -24,7 +42,7 @@ she.mqtt.timer(src, ms, topicOrCb)     Publish 1 when src turns truthy, 0 after 
 she.schedule(pattern, [opts], cb)      pattern: cron string | Date | 'sunrise' 'sunset' 'dawn' 'dusk' 'nauticalDawn' 'nauticalDusk' 'solarNoon' 'night'
     opts.shift    seconds offset (-1800 = 30 min before);  opts.random  up to N random seconds later
 she.now()                              Milliseconds since the epoch
-setTimeout / setInterval               Available; cleared automatically when the script is unloaded
+setTimeout / setInterval               Available; cleared automatically when the script is unloaded; a bad delay is logged with the script name
 ```
 
 ### sheDB (documents, ids like topics: devices/lamp1)

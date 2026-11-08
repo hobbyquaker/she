@@ -9,6 +9,7 @@ Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox m
 - [Logging](#logging)
 - [she.mqtt — MQTT access](#shemqtt----mqtt-access)
 - [she.now()](#shenow)
+- [Timing helpers](#timing-helpers) — `she.timeout`, `she.debounce`, `she.throttle`, `she.retry`, `she.setTimeout`
 - [she.schedule()](#sheschedulepattern-options-callback)
 - [she.global](#sheglobal)
 - [she.http — HTTP helpers](#shehttp----http-helpers)
@@ -60,6 +61,12 @@ Subscribe to one or more MQTT topics.
 | `[options.shift]` | `number` | Delay execution by this many seconds. Must be positive. |
 | `[options.random]` | `number` | Random additional delay in seconds. Must be positive. |
 | `[options.condition]` | `function \| string` | Only call callback when this evaluates to truthy. String must be single-line JS. |
+| `[options.debounce]` | `number` | **Seconds.** Bundle events: call the callback once no event came in for this long. See [Debounce and throttle in a subscription](#debounce-and-throttle-in-a-subscription). |
+| `[options.maxWait]` | `number` | **Seconds.** With `debounce`: call the callback at the latest this long after the first bundled event, even while events keep coming. |
+| `[options.throttle]` | `number` | **Seconds.** Call the callback for the first event at once, then at most once per window — with the last event — while events keep coming. |
+| `[options.perTopic]` | `boolean` | With `debounce` or `throttle` on an array or a wildcard: one bundle per topic instead of one for the whole subscription. |
+| `[options.name]` | `string` | The name of the pending debounce/throttle in the timer list (default: the topic). |
+| `[options.flushOnUnload]` | `boolean` | With `debounce`: run a pending callback once when the script is unloaded or reloaded (default: it is dropped). |
 | `callback` | `function` | See callback parameters below. |
 
 **Callback parameters:**
@@ -88,11 +95,27 @@ she.mqtt.sub('home/presence', 'val === true', () => {
     she.mqtt.pub('home/alarm/off', 1);
 });
 
-// delayed execution -- useful for debouncing
+// delayed execution
 she.mqtt.sub('home/motion/hall', { change: true, shift: 5 }, (topic, val) => {
     if (!val) she.mqtt.pub('home/light/hall', 0);
 });
 ```
+
+#### Debounce and throttle in a subscription
+
+A dashboard text that depends on twenty topics would be rebuilt twenty times when they all change within a second. `debounce` bundles the events: the callback runs once, when no event came in for `debounce` seconds — and, with `maxWait`, at the latest `maxWait` seconds after the first event of a bundle, so a topic that never rests cannot starve it. `throttle` is the other shape: react to the first event at once, then at most once per window.
+
+```js
+// one rebuild per burst, at the latest every 15 s while values keep changing
+she.mqtt.sub(topics, { debounce: 5, maxWait: 15 }, () => {
+    const html = render(topics.map((t) => she.mqtt.get(t)));
+    she.mqtt.pub('var/set/Infobox', html, { changed: true });
+});
+```
+
+The callback receives the **last** bundled event's `topic`, `val`, `obj` and `msg`, and the `objPrev` from **before the first** bundled event — so `obj.val !== objPrev.val` still tells whether the value really changed over the whole bundle. On an array of topics or a wildcard, one bundle serves all topics; `perTopic: true` keeps one per topic (the idle ones are forgotten). The units are **seconds**, like `shift` and `random`.
+
+A pending bundle is dropped when the script is unloaded or hot-reloaded, like a `setTimeout`; `flushOnUnload: true` runs it once instead. Pending bundles appear in the timer list (`list_timers` in the AI chat) as `debounce "<name>"` / `throttle "<name>"` with the time they are due.
 
 ---
 
@@ -143,11 +166,17 @@ Publish an MQTT message.
 | `payload` | `string \| object` | | Payload. Objects are JSON-stringified automatically. |
 | `[options.qos]` | `number` | `0` | QoS level (0, 1, or 2). |
 | `[options.retain]` | `boolean` | `false` | Retain flag. |
+| `[options.changed]` | `boolean` | `false` | Publish only when the payload differs from the one this script last published to the topic. Before the script's first publish of a run, the comparison is with the topic's current value in the state store — for a command topic (`<prefix>/set/<name>`) with its `status` sibling, where a variable's or an adapter's state lives. |
 
 ```js
 she.mqtt.pub('home/light/kitchen', 1);
 she.mqtt.pub('home/sensor/data', { temp: 21.5, hum: 60 }, { retain: true });
+
+// a value that is recomputed often but rarely changes: publish it only when it did
+she.mqtt.pub('var/set/Infobox', html, { changed: true });
 ```
+
+`changed` compares by value (`'21.5'` and `'21.50'` are the same, so are `[1,2]` and `{"val":[1,2]}`). The last payloads are remembered per script, for up to 200 topics; a hot reload starts over with the state store — which also covers the broker's echo of your own publish that has not arrived yet.
 
 ---
 
@@ -295,8 +324,10 @@ When `target` is a topic string, any lingering `1` left over from a previous dae
 | Param | Type | Description |
 |---|---|---|
 | `src` | `string \| string[]` | Topic(s) to watch. |
-| `ms` | `number` | On-duration in milliseconds. |
+| `ms` | `number` | On-duration in milliseconds. Must be a number: swapped arguments throw a `TypeError` at load (`she.mqtt.timer(src, ms, target): ms must be a number of milliseconds`). |
 | `target` | `string \| function` | Topic to publish to, or `callback(topic, val)`. |
+
+For a timer that is restarted from your own logic rather than by a topic, see [`she.timeout`](#shetimeoutms-callback-options).
 
 ```js
 // entrance light stays on for 30 s after doorbell
@@ -313,6 +344,137 @@ she.mqtt.timer('home/motion/hall', 30_000, (topic, val) => {
 ## she.now()
 
 Returns the current time in milliseconds since the Unix epoch (equivalent to `Date.now()`).
+
+---
+
+## Timing helpers
+
+The patterns scripts build from `setTimeout`/`clearTimeout` and timestamp variables — a light that goes off some minutes after the last motion, a mailbox sensor that must not fire twice in a minute, a dashboard that is rebuilt once per burst of changes, a flaky fetch that is tried again — as helpers. All of them use the script's tracked timers: **a pending run is dropped when the script is unloaded or hot-reloaded**, like a `setTimeout` (a debounce can ask for `flushOnUnload`), and **pending runs appear in the timer list** (`list_timers` in the AI chat) with their kind, name and due time. An exception in the wrapped function is logged with the script's name like one in a subscription callback.
+
+**Units: milliseconds**, like `setTimeout` — the subscription options `debounce`/`maxWait`/`throttle` take seconds, like `shift`.
+
+### she.setTimeout(fn, ms, ...args) / she.clearTimeout(id)
+
+The sandbox's `setTimeout` and `clearTimeout` under the `she` object — the same functions, officially. A delay that is given but is not a number of milliseconds (`undefined` from a missing config field, `'5m'`, `NaN`) is logged with the script's name (`setTimeout: delay is not a number of milliseconds (got "5m"), using 0`) and runs at once; `setTimeout(fn)` without a delay runs on the next tick as in Node. `setInterval`/`clearInterval` exist as globals only.
+
+### she.timeout(ms, callback, [options])
+
+A restartable one-shot timer. It is created **idle**; `restart()` arms it, another `restart()` starts the delay over, `cancel()` disarms it. This replaces the `let timer; clearTimeout(timer); timer = setTimeout(...)` dance of every motion light.
+
+| Param | Type | Description |
+|---|---|---|
+| `ms` | `number` | Delay in milliseconds. |
+| `callback` | `function` | Called with no arguments when the delay ran out. |
+| `[options.name]` | `string` | Name in the timer list (default: the callback's name). |
+
+Returns a handle:
+
+| Method | Description |
+|---|---|
+| `restart([ms])` | Arm the timer, or start the delay over; a new `ms` replaces the delay. `start()` is the same. Returns the handle. |
+| `cancel()` | Disarm. Returns the handle. |
+| `pending()` | `true` while armed. |
+| `remaining()` | Milliseconds until it fires, `0` when idle. |
+
+```js
+// motion light: off 5 minutes after the last motion, unless the door was opened meanwhile
+const off = she.timeout(5 * 60_000, () => she.mqtt.pub('home/light/hall', 0), { name: 'hall light off' });
+she.mqtt.sub('home/motion/hall', (topic, val) => {
+    if (!val) return;
+    she.mqtt.pub('home/light/hall', 1);
+    off.restart();
+});
+she.mqtt.sub('home/door/front', { change: true }, (topic, val) => {
+    if (val) off.cancel();
+});
+
+// re-evaluate at the next deadline, whichever event comes first
+const evaluate = she.timeout(0, () => evaluateNow());
+function plan(nextMs) {
+    evaluate.restart(Math.max(0, nextMs - she.now()) + 100);
+}
+```
+
+### she.debounce(fn, wait, [options])
+
+Bundle calls: `fn` runs with the arguments of the **last** call once `wait` ms passed without a new one — and, with `maxWait`, at the latest `maxWait` ms after the first call of a bundle. Without `maxWait`, a source that never rests starves the callback; name the limit when that can happen.
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `function` | | What to run. |
+| `wait` | `number` | | Quiet period in milliseconds. |
+| `[options.maxWait]` | `number` | | Run at the latest this many ms after the first bundled call. |
+| `[options.leading]` | `boolean` | `false` | Also run on the first call of a bundle. |
+| `[options.trailing]` | `boolean` | `true` | Run after the quiet period. |
+| `[options.flushOnUnload]` | `boolean` | `false` | Run a pending call when the script is unloaded or reloaded. |
+| `[options.name]` | `string` | `fn.name` | Name in the timer list. |
+
+Returns the wrapped function with `cancel()` (drop the pending call), `flush()` (run it now; returns `fn`'s result) and `pending()` (`true` while a call waits).
+
+```js
+// recompute the heating once per burst of sensor changes, at the latest every 30 s
+const recompute = she.debounce(computeSetpoints, 5_000, { maxWait: 30_000, name: 'heating' });
+she.mqtt.sub(['home/temp/+', 'home/window/+', 'var/status/Mode'], () => recompute());
+```
+
+### she.debounce.keyed(fn, wait, [options]) / she.throttle.keyed(…)
+
+The same, with a **separate state per key**. The key is the first argument of the call unless `options.key(...args)` says otherwise. `cancel(key)`, `flush(key)` and `pending(key)` act on one key, without a key on all of them; `keys()` lists the active ones. Idle keys are forgotten, so a wildcard subscription does not accumulate state.
+
+```js
+// a setpoint changed by hand counts once it stayed for 30 s — per room
+const settled = she.debounce.keyed((room, setpoint) => markManual(room, setpoint), 30_000, { name: 'manual' });
+she.mqtt.sub('home/thermostat/+/setpoint', (topic, val) => settled(topic.split('/')[2], val));
+```
+
+### she.throttle(fn, wait, [options])
+
+Rate-limit calls: `fn` runs for the first call of a window at once and, when more calls came in, once more with the last arguments when the window ends — never more often than every `wait` ms.
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `function` | | What to run. |
+| `wait` | `number` | | Window in milliseconds. |
+| `[options.leading]` | `boolean` | `true` | Run on the first call of a window. |
+| `[options.trailing]` | `boolean` | `true` | Run once more at the end of a window when calls came in meanwhile. |
+| `[options.name]` | `string` | `fn.name` | Name in the timer list. |
+
+Returns the wrapped function with `cancel()`, `flush()` and `pending()` as above.
+
+```js
+// mailbox: the flap sensor bounces — notify once, then ignore it for a minute
+const notify = she.throttle(() => she.mqtt.pub('notify/set/push', 'Post ist da'), 60_000, { trailing: false, name: 'mailbox' });
+she.mqtt.sub('home/mailbox/flap', (topic, val) => {
+    if (val) notify();
+});
+```
+
+### she.retry(fn, [options])
+
+Call `fn` until it succeeds, waiting between the attempts. `fn(attempt)` may return a promise. The promise resolves with `fn`'s result; when every attempt failed it calls `onFail(err, tries)` and resolves with its return value — or, without `onFail`, rejects with the last error (so `await` it in a `try/catch`). An unload stops the attempts; the promise then never settles.
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `fn` | `function` | | The attempt; gets the attempt number (1, 2, …). |
+| `[options.tries]` | `number` | `3` | Attempts in total. |
+| `[options.delay]` | `number` | `1000` | Milliseconds before the second attempt. |
+| `[options.backoff]` | `number` | `1` | The delay is multiplied by this after each failure (`2` doubles it). |
+| `[options.onFail]` | `function` | | `(err, tries)` after the last failure. |
+| `[options.name]` | `string` | `fn.name` | Name in the timer list (`retry "<name> attempt 2/3"`). |
+
+```js
+// a weather service that fails now and then: three attempts a minute apart, then a warning
+she.schedule('*/30 * * * *', () => {
+    she.retry(() => she.http.fetch('https://weather.example.com/forecast'), {
+        tries: 3,
+        delay: 60_000,
+        onFail: (err) => she.warn('forecast not loaded:', err.message),
+        name: 'forecast',
+    }).then((res) => {
+        if (res) she.mqtt.pub('var/set/Forecast', res.body);
+    });
+});
+```
 
 ---
 

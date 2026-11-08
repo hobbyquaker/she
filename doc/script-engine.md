@@ -9,7 +9,8 @@ This document describes how **she** loads and runs `.js` scripts: the execution 
 Each `.js` file is compiled with Node.js's built-in [`vm.Script`](https://nodejs.org/api/vm.html) and runs inside a sandboxed context created with `vm.createContext`. The context is populated with:
 
 - A `she` object containing the full sandbox API (MQTT, scheduling, DB, logging, …)
-- Sandboxed `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval` (resource-tracked per script)
+- Sandboxed `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval` (resource-tracked per script; `she.setTimeout`/`she.clearTimeout` are the same functions). A delay that is not a number of milliseconds is logged with the script's name and runs at once — no anonymous `TimeoutNaNWarning` from Node.
+- The timing helpers `she.timeout`, `she.debounce`, `she.throttle`, `she.retry` (see the [Sandbox API](sandbox-api.md#timing-helpers)); their timers are the script's, too
 - `require()` (see [Module system](#module-system) below)
 - `Buffer`
 - `console.log` / `console.error` (forwarded to `she.info` / `she.error`)
@@ -95,7 +96,7 @@ When a script file is saved:
 1. The old script is **unloaded**:
    - All MQTT subscriptions registered by this script are removed.
    - All `node-schedule` jobs registered by this script are cancelled.
-   - All `setTimeout` / `setInterval` timers created by this script are cleared.
+   - All `setTimeout` / `setInterval` timers created by this script are cleared — including the pending runs of `she.timeout`, `she.debounce`, `she.throttle`, `she.retry` and of a subscription's `debounce`/`throttle`, and a subscription callback still waiting for its `shift`/`random` delay. A debounce created with `flushOnUnload: true` runs its pending call once before that.
    - All sun-event registrations from this script are removed.
    - Per-script resource tracking maps are reset.
    - The `domain` from the previous run is discarded.
@@ -107,8 +108,13 @@ Other scripts are not affected. The daemon does not restart. MQTT state is prese
 
 ### What is NOT cleaned up on reload
 
-- **`she.global`** — the shared mutable object (`she.global.myVar`) is shared across all scripts and survives reload. This is intentional.
+- **`she.global`** — the shared mutable object (`she.global.myVar`) is shared across all scripts and survives reload. This is intentional. Whatever a script stored there — a function, an object with closures — keeps the old script's context alive until it is overwritten.
+- **Required modules** — `require()` goes through Node's module cache, which lives for the daemon's process: a change to a required file (a `.shelib` helper, a package) takes effect at the next daemon restart, not at the next reload of the requiring script.
 - **External side effects** — anything your script did to the outside world (MQTT messages published, DB records written, etc.) is not rolled back.
+
+### Register at load time
+
+`she.mqtt.sub`, `she.schedule`, `she.on` and the other registrations are meant for the top level of a script: each call adds an entry that lives until the script is unloaded. A subscription made inside a callback is one more subscription per event — the script accumulates them, and every message is matched against all of them. The daemon warns once when a script reaches 1000 subscriptions. A one-shot `she.schedule(new Date(...))` is the exception: a fired job is forgotten, so scheduling a date per event is fine; a date in the past (or an invalid pattern) schedules nothing and says so in the log. For "do this in N ms", use `setTimeout` or `she.timeout`; for "when this topic changes", one subscription at load.
 
 ### `.shelib` — shared library directories
 
