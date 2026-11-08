@@ -288,17 +288,27 @@
     // The editor is the fixed centre; Files, Log, Runtime and the AI chat are panels that dock around
     // it (bottom, left, right, split, tabbed), remembered per browser. The panels' markup is rendered
     // into a hidden parking container below and adopted by the dock when a panel is open.
-    const DOCK_KEY = 'she-scripts-dock-layout';
+    // v2: the stored format changed (layout plus the panels' remembered groups); older entries are dropped
+    const DOCK_KEY = 'she-scripts-dock-layout-v2';
     let dock: Dock | null = null;
     let dockEl = $state<HTMLDivElement | undefined>(undefined);
     let hostFiles: HTMLElement, hostEditor: HTMLElement, hostLog: HTMLElement, hostRuntime: HTMLElement, hostChat: HTMLElement;
-    /** where a panel goes when it is (re)opened from the toolbar */
-    const PANEL_HOME: Record<string, DockOpenOptions> = {
-        files: { position: { referencePanel: 'editor', direction: 'left' }, width: 220 },
-        log: { position: { referencePanel: 'editor', direction: 'below' }, height: 160 },
-        runtime: { position: { referencePanel: 'log', direction: 'within', fallback: 'below' }, height: 200 },
-        chat: { position: { referencePanel: 'editor', direction: 'right' }, width: 360 },
-    };
+    const PANEL_TITLE: Record<string, string> = { files: 'Files', log: 'Log', runtime: 'Runtime', chat: 'AI assistant' };
+    /**
+     * The default layout, and where a panel that was never placed goes when it is opened from the
+     * toolbar: Files in a narrow column on the left, the AI assistant in a third of the width on the
+     * right (both full height), Log and Runtime side by side in the bottom quarter under the editor.
+     */
+    function panelHome(id: string): DockOpenOptions {
+        const w = dockEl?.clientWidth || 1600, h = dockEl?.clientHeight || 900;
+        switch (id) {
+            case 'files': return { position: { direction: 'left' }, width: 215 };
+            case 'chat': return { position: { direction: 'right' }, width: Math.round(w / 3) };
+            case 'log': return { position: { referencePanel: 'editor', direction: 'below' }, height: Math.round(h / 4) };
+            case 'runtime': return { position: { referencePanel: 'log', direction: 'right', fallback: 'below' }, height: Math.round(h / 4) };
+            default: return {};
+        }
+    }
     function syncDockState(open: Set<string>) {
         filesOpen = open.has('files');
         logOpen = open.has('log');
@@ -308,10 +318,14 @@
     function togglePanel(id: string) {
         if (!dock) return;
         if (dock.isOpen(id)) dock.close(id);
-        else dock.open(id, PANEL_HOME[id]);
+        else dock.open(id, panelHome(id));
+    }
+    function toggleTitle(id: string, open: boolean) {
+        return `${open ? 'Hide' : 'Show'} ${PANEL_TITLE[id]} panel`;
     }
     function createEditorDock() {
         if (!dockEl || dock) return;
+        try { localStorage.removeItem('she-scripts-dock-layout'); } catch { /* the previous format's entry, if any */ }
         dock = createDock(dockEl, {
             panels: [
                 { id: 'editor', title: 'Editor', element: hostEditor },
@@ -323,9 +337,10 @@
             centre: 'editor',
             storageKey: DOCK_KEY,
             defaultLayout: (open) => {
-                open('files', PANEL_HOME.files);
-                open('log', PANEL_HOME.log);
-                open('runtime', { ...PANEL_HOME.runtime, inactive: true });
+                open('files', panelHome('files'));
+                open('chat', { ...panelHome('chat'), inactive: true });
+                open('log', panelHome('log'));
+                open('runtime', { ...panelHome('runtime'), inactive: true });
             },
             onChange: syncDockState,
         });
@@ -1264,7 +1279,7 @@ declare const she: {
         if (!chatExtraFiles.some(f => f.name === entry.path)) {
             chatExtraFiles = [...chatExtraFiles, { name: entry.path, content }];
         }
-        dock?.open('chat', PANEL_HOME.chat);
+        dock?.open('chat', panelHome('chat'));
     }
 
     // ── Drag-drop ─────────────────────────────────────────────────────────────
@@ -1963,16 +1978,17 @@ declare const she: {
                 <button onclick={del} class="danger">Delete</button>
             {/if}
             <div class="panel-toggles" role="group" aria-label="Panels">
-                <button class:on={filesOpen} onclick={() => togglePanel('files')} title="Files panel — drag a panel's tab to dock it elsewhere">Files</button>
-                <button class:on={logOpen} onclick={() => togglePanel('log')} title="Script log panel">Log</button>
-                <button class:on={runtimeOpen} onclick={() => togglePanel('runtime')} title="Runtime panel — the script's handlers and timers, live">Runtime</button>
+                <button class:on={filesOpen} aria-pressed={filesOpen} onclick={() => togglePanel('files')} title="{toggleTitle('files', filesOpen)} — drag a panel's tab to dock it elsewhere">Files</button>
+                <button class:on={logOpen} aria-pressed={logOpen} onclick={() => togglePanel('log')} title={toggleTitle('log', logOpen)}>Log</button>
+                <button class:on={runtimeOpen} aria-pressed={runtimeOpen} onclick={() => togglePanel('runtime')} title="{toggleTitle('runtime', runtimeOpen)} — the script's handlers and timers, live">Runtime</button>
                 <button class="reset" onclick={() => dock?.reset()} title="Reset the panel layout">⟲</button>
             </div>
             <button
                 class="ai-toggle"
                 class:ai-open={chatOpen}
+                aria-pressed={chatOpen}
                 onclick={() => togglePanel('chat')}
-                title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
+                title={toggleTitle('chat', chatOpen)}
             >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
                     <line x1="5.5" y1="5" x2="4" y2="2.5"/>
@@ -2157,8 +2173,9 @@ declare const she: {
     :global(.dockview-theme-she) {
         --dv-group-view-background-color: var(--bg-app);
         --dv-tabs-and-actions-container-background-color: var(--bg-panel);
-        --dv-tabs-and-actions-container-height: 28px;
-        --dv-tabs-and-actions-container-font-size: 12px;
+        /* a slim tab strip: lower than the panels' own header rows beneath it */
+        --dv-tabs-and-actions-container-height: 18px;
+        --dv-tabs-and-actions-container-font-size: 11px;
         --dv-activegroup-visiblepanel-tab-background-color: var(--bg-app);
         --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-panel);
         --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-app);
@@ -2192,8 +2209,9 @@ declare const she: {
         --dv-tab-group-chip-padding: 2px 6px; --dv-tab-group-chip-border-radius: 4px; --dv-tab-group-chip-font-size: 11px;
         --dv-tab-group-line-opacity: 0.6;
     }
-    :global(.dockview-theme-she .dv-tab) { padding: 0 10px; }
+    :global(.dockview-theme-she .dv-tab) { padding: 0 4px 0 8px; }
     :global(.dockview-theme-she .dv-tab.dv-active-tab) { border-top: 1px solid var(--accent); }
+    :global(.dockview-theme-she .dv-default-tab .dv-default-tab-content) { margin-right: 2px; }
     .panel-toggles { display: inline-flex; gap: 2px; margin-left: 4px; }
     .panel-toggles button {
         background: none; border: 1px solid transparent; color: var(--fg-muted); border-radius: 3px;
@@ -2542,12 +2560,13 @@ declare const she: {
     }
     .disk-bar button { background: var(--accent); border: none; color: #fff; padding: 2px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; }
     .disk-bar button.ghost { background: none; border: 1px solid var(--border); color: var(--fg-muted); }
-    .tab-close {
+    /* the close × of the editor's file tabs — and of the dock's panel tabs, the same button */
+    .tab-close, :global(.dockview-theme-she .dv-default-tab .dv-default-tab-action) {
         background: none; border: none; color: var(--fg-muted); cursor: pointer;
-        font-size: 14px; padding: 0; width: 16px; height: 16px;
+        font-size: 14px; line-height: 1; padding: 0; width: 16px; height: 16px;
         display: flex; align-items: center; justify-content: center; border-radius: 2px; flex-shrink: 0;
     }
-    .tab-close:hover { background: var(--bg-hover); color: var(--fg); }
+    .tab-close:hover, :global(.dockview-theme-she .dv-default-tab .dv-default-tab-action:hover) { background: var(--bg-hover); color: var(--fg); }
 
     .editor-toolbar {
         display: flex; align-items: center; gap: 6px; padding: 6px 10px;
