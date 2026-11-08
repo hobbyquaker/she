@@ -632,7 +632,14 @@ const introspect = {
             if (!mqtt || !connected) return reject(new Error('MQTT is not connected'));
             mqtt.publish(String(topic), typeof payload === 'object' ? JSON.stringify(payload) : String(payload), opts || {}, (err) => (err ? reject(err) : resolve()));
         }),
-    config: () => ({ name: config.name, variablePrefix: config.variablePrefix || 'var', version: pkg.version }),
+    config: () => ({
+        name: config.name,
+        variablePrefix: config.variablePrefix || 'var',
+        version: pkg.version,
+        timezone: timeSettings.timeZone,
+        locale: timeSettings.locale,
+        holidays: timeSettings.holidays,
+    }),
     scripts: () =>
         Object.keys(scripts).map((file) => ({
             file,

@@ -1523,6 +1523,7 @@ function toolGetHealth(ctx = {}) {
         lines.push(`memory: ${st.memMb} MB, cpu: ${st.cpuPercent}%, event loop: ${st.eluPercent}% utilised, lag mean ${st.elMeanMs} ms max ${st.elMaxMs} ms`);
     if (st.matterEnabled) lines.push(`matter: ${st.matterNodes} node(s), ${st.matterEndpoints} endpoint(s)`);
     if (st.dbEnabled) lines.push(`sheDB: ${st.dbDocs} document(s), ${st.dbViews} view(s)`);
+    if (cfg.timezone) lines.push(`time: zone ${cfg.timezone}, locale ${cfg.locale}, holidays ${cfg.holidays || 'NOT CONFIGURED (she.time.isHoliday() is always false)'}`);
     return lines.join('\n');
 }
 

@@ -292,7 +292,7 @@ describe('history tools (I15)', () => {
 describe("the daemon's state (I19, I27, I28)", () => {
     const now = Date.now();
     const introspect = {
-        config: () => ({ variablePrefix: 'var', version: '9.9.9' }),
+        config: () => ({ variablePrefix: 'var', version: '9.9.9', timezone: 'Europe/Berlin', locale: 'de-DE', holidays: null }),
         scripts: () => [
             {
                 file: '/s/licht/bath.js',
@@ -395,6 +395,7 @@ describe("the daemon's state (I19, I27, I28)", () => {
         expect(health).toContain('she 9.9.9 — started: true, mqtt: connected, scripts loaded: 2, safe mode: no');
         expect(health).toContain('topics: 8000, messages/s: 42, handlers: 450');
         expect(health).toContain('matter: 2 node(s), 3 endpoint(s)');
+        expect(health).toContain('time: zone Europe/Berlin, locale de-DE, holidays NOT CONFIGURED');
 
         const timers = await executeTool('list_timers', {}, ctx);
         expect(timers).toContain('### licht/bath.js');
