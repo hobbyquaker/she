@@ -17,6 +17,8 @@ sudo systemctl start smart-home-engine
 
 `she --install` creates a dedicated `she` system user, installs + enables the systemd unit and puts the `she-servicectl` helper for the optional [Services](services.md) feature in place. All state (scripts, database, config) is kept in `/var/lib/she/`. Once the service is running, open **http://localhost:8080**
 
+**Updating.** The version button at the top right of the web UI shows the installed version, the update channel (Config → Updates: `stable` offers the releases, `beta` the pre-releases too) and the newest version the channel offers; *Update to v…* installs exactly that version and restarts the daemon once npm has finished — when npm fails, the daemon keeps running and the popup says why. The install runs through the `she-servicectl` helper (`she-update <version>`, helper v16, shipped with 3.0.0-beta.2); an installation set up before that has an older helper — update it once on the Services → Hosts tab (*Update helper*), or run `sudo she --install` again. By hand: `sudo npm install -g smart-home-engine@<version>` (`@latest` for the newest release, `@next` for the newest pre-release), then `sudo systemctl restart smart-home-engine`. A Docker container is updated by pulling a new image.
+
 ### Docker
 
 Multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR on every release:

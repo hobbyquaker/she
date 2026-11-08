@@ -81,11 +81,15 @@ Fields are *secret* or *plain*: for secret fields the HTTP API is write-only —
 
 ## Service management helper (`she-servicectl`)
 
-With the optional Services feature ([doc/services.md](services.md)) she manages xyz2mqtt adapter instances on the host: systemd units, env files under `/etc/<adapter>/`, `npm install -g`. The daemon user does **not** get a general `sudo` for this. `sudo she --install` installs one POSIX shell script, `/usr/local/bin/she-servicectl`, and allows exactly that binary in `/etc/sudoers.d/she`:
+With the optional Services feature ([doc/services.md](services.md)) she manages xyz2mqtt adapter instances on the host: systemd units, env files under `/etc/<adapter>/`, `npm install -g`. The daemon user does **not** get a general `sudo` for this. `sudo she --install` installs one POSIX shell script, `/usr/local/bin/she-servicectl`, and writes `/etc/sudoers.d/she`:
 
 ```
+she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine
+she ALL=(root) NOPASSWD: /usr/local/bin/npm install -g smart-home-engine
 she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl
 ```
+
+The first line is the UI's *Restart* button. The second was she's own update until 3.0.0-beta.1 and is kept for one more release as a fallback (sudo matches it literally, so it installs npm's `latest` and nothing else — the path is whatever `command -v npm` was at install time); since 3.0.0-beta.2 the update runs through the helper's `she-update <version>`, which accepts a release version (`3.0.0`, `3.0.0-beta.2`: digits, dots, a pre-release suffix) and nothing npm could read as a range, a tag, a URL or a second package, and the daemon restarts only after npm exited 0. The third line is the Services feature.
 
 The script is the complete list of what she can do as root — including `self-update`, which replaces the script with the copy she sends after checking the header, the `VERSION` line and `sh -n` (a `.bak` is kept): she already runs adapter installers and `npm install -g` as root through this rule, so letting it refresh the helper adds no reach it did not have. It does mean the she user's trust level is "root on the managed hosts", which is why the Services feature belongs behind she's authentication. it accepts a fixed set of subcommands, validates every argument against a pattern (adapter names must correspond to a template unit with mqtt-interfaces-core's `/etc/<adapter>/%i.env` layout, instance names are `[A-Za-z0-9_.-]+`, actions come from a short allow-list) and takes free-form data — env files, install options — only on stdin. Review it once ([service/she-servicectl](../service/she-servicectl)); it has no dependencies beyond systemd, journalctl and npm.
 

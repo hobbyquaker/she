@@ -818,7 +818,8 @@ Returns a snapshot of runtime counters.
 | `updateChannel` | The update channel in use: `stable` or `beta` (config key `updateChannel`) |
 | `latestVersion` | The version the channel offers — newer than the running one and published on npm; absent when there is none. `latestPrerelease: true` marks a pre-release |
 | `latestStable` / `latestBeta` | The newest release and the newest pre-release on GitHub, whatever the channel (when known) |
-| `updateError` | Why the last check could not offer anything (GitHub or npm unreachable, a release missing on npm) |
+| `updateError` | Why the last check could not offer anything (GitHub or npm unreachable, a release missing on npm) — or why the last `POST /she/update` failed (npm's exit code and its last output lines; the helper too old), until the next attempt |
+| `updating` | `true` while `POST /she/update` is installing |
 | `docker` | `true` in a Docker container — the daemon does not update itself there |
 
 ### POST /she/restart
@@ -843,10 +844,10 @@ Asks GitHub for the releases of she and answers what the configured channel offe
 
 ### POST /she/update
 
-Installs the offered version exactly (`sudo npm install -g smart-home-engine@<version>`) and restarts the daemon. **409** `{ ok: false, error }` when no update is known (run the check first) or in a Docker container, which is updated by pulling a new image.
+Installs the offered version exactly and restarts the daemon once npm has exited 0. The install runs as root through the helper, `she-servicectl she-update <version>` (`via: "helper"`, helper v16 and later — see [services.md](services.md)); a host whose helper is older falls back to the literal `sudo npm install -g smart-home-engine` of the old sudoers rule, which installs npm's `latest`, so only when the offered version is `latest` (`via: "npm-latest"`). While npm runs, `GET /she/status` says `updating: true`; when npm fails the daemon keeps running, `updating` goes away and `updateError` carries npm's exit code and last lines. **409** `{ ok: false, error }` when no update is known (run the check first), in a Docker container (updated by pulling a new image), while an update is already running, or when the host needs its helper updated first (*Update helper* on the Services → Hosts tab, or `sudo she --install` once) — that reason is also put into `updateError`.
 
 ```json
-{ "ok": true, "version": "3.0.0-beta.1" }
+{ "ok": true, "version": "3.0.0-beta.2", "via": "helper" }
 ```
 
 ---
