@@ -430,7 +430,7 @@
             const selected = gitInfo.changes.filter(c => checkedFiles.has(c.file)).map(c => c.file);
             const all = selected.length === gitInfo.changes.length;
             const r = await generateCommitMessage(all ? [] : selected);
-            commitAllMsg = r.message;
+            commitAllMsg = r.message.split('\n')[0]; // the popup's single-line field takes the summary line
         } catch (e: any) {
             commitAllErr = e.message;
         } finally {
@@ -1125,7 +1125,8 @@ declare const she: {
             tab.dirty = false;
             error = '';
             saving = false; // the save is done; a commit (and the AI's message) must not hold the button
-            if (!skipCommit) await afterScriptChange([activeTab], `update ${activeTab}`);
+            if (skipCommit) loadGitStatus();
+            else await afterScriptChange([activeTab], `update ${activeTab}`);
         } catch (e: any) { error = (e as Error).message; }
         finally { saving = false; }
     }
@@ -2020,7 +2021,7 @@ declare const she: {
                                         disabled={!aiConfigured || commitAllAiBusy || commitAllBusy || checkedFiles.size === 0}
                                         title={aiConfigured ? 'Generate the message with AI from the selected changes' : AI_HINT}
                                         aria-label="Generate the commit message with AI"
-                                    >{commitAllAiBusy ? '…' : '✨'}</button>
+                                    >{commitAllAiBusy ? '…' : 'AI'}</button>
                                     <button
                                         class="changes-commit-btn"
                                         onclick={commitAllChanges}

@@ -110,7 +110,7 @@
                 onclick={generateWithAi}
                 disabled={!aiAvailable || !generate || generating}
                 title={aiAvailable ? 'Let the configured AI write the message from the staged diff' : aiHint}
-            >{generating ? 'Generating…' : '✨ Generate with AI'}</button>
+            >{generating ? 'Generating…' : 'Generate with AI'}</button>
             <span class="spacer"></span>
             <button class="cancel" onclick={cancel}>Cancel</button>
             <button onclick={submit} disabled={!value.trim() || generating}>{confirmLabel}</button>
