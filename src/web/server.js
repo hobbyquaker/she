@@ -22,6 +22,8 @@ const { attachWss, closeWss } = require('./log-ws');
 const { init: initAuth, authMiddleware, checkAuth, router: authRouter } = require('./auth');
 
 const app = express();
+// every request from arrival to the end of the response, for the event-loop heartbeat's attribution
+app.use(require('../lib/activity').middleware());
 // 10 MB: a long AI conversation with its tool events, a saved script, a sheDB document — Express's 100 KB
 // default answered "request entity too large" on a long chat (1.52.0)
 app.use(express.json({ limit: '10mb' }));

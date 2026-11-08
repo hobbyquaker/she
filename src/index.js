@@ -220,7 +220,7 @@ if (_sentinelBefore !== 'live' && !SAFE_MODE) {
         (config.safeModeEarlyCrash || 300) * 1000,
     ).unref();
 }
-log.debug('loaded config: ', config);
+log.debug('loaded config: ' + JSON.stringify(require('./lib/redact-config').redactConfig(config)));
 
 if (typeof config.port !== 'undefined') {
     // Validate: password mode requires a password hash
@@ -627,6 +627,7 @@ function broadcastBrokers() {
  * counters under each other. Sampled every 10 s, every second while a Runtime page is open; the
  * history keeps one sample per 10 s for an hour.
  */
+let _statsLagMax = 0; // the worst event-loop lag since the last maintenance/stats sample
 function sampleGauges() {
     const now = Date.now();
     const elapsed = (now - _mqttMsgTs) / 1000;
@@ -642,6 +643,7 @@ function sampleGauges() {
     const elMeanMs = Math.round(_elHisto.mean / 1e6) || 0;
     const elMaxMs = Math.round(_elHisto.max / 1e6) || 0;
     _elHisto.reset();
+    if (elMaxMs > _statsLagMax) _statsLagMax = elMaxMs;
     const mem = process.memoryUsage();
     const sample = {
         ts: now,
@@ -661,6 +663,43 @@ function sampleGauges() {
     return sample;
 }
 sampleGauges();
+
+/**
+ * The daemon's own process statistics: what every mqtt-smarthome adapter publishes
+ * as <name>/maintenance/stats — retained, every statsInterval seconds (0 disables) — so the
+ * Services page, InfluxDB and Elasticsearch keep she's memory trend like any adapter's. The last
+ * sample is also served in /she/status as `stats`.
+ */
+const _processStats = require('./lib/process-stats');
+const countSchedules = () => {
+    let n = 0;
+    for (const h of runtime.handlers.values()) if (h.kind === 'schedule' || h.kind === 'sun') n++;
+    return n;
+};
+const _procStats = _processStats.createProcessStats({
+    takeLagMax: () => {
+        const v = _statsLagMax;
+        _statsLagMax = 0;
+        return v;
+    },
+    counts: () => ({
+        scripts: Object.keys(scripts).length,
+        topics: countTopics(),
+        handlers: subscriptions.length + varSubscriptions.length + mqttEventCallbacks.length,
+        timers: runtime.pending.size,
+        schedules: countSchedules(),
+    }),
+});
+let _lastStats = null;
+const STATS_TOPIC = config.name + '/maintenance/stats';
+const _statsSeconds = Number(config.statsInterval);
+if (_statsSeconds > 0) {
+    const publishStats = () => {
+        _lastStats = _procStats.sample();
+        if (mqtt && connected) mqtt.publish(STATS_TOPIC, JSON.stringify(_lastStats), { retain: true });
+    };
+    setInterval(publishStats, _statsSeconds * 1000).unref();
+}
 
 // Register runtime stats provider for GET /she/status
 const statsSnapshot = () => {
@@ -707,7 +746,13 @@ const statsSnapshot = () => {
         elMeanMs,
         elMaxMs,
         pendingTimers: runtime.pending.size,
+        schedules: countSchedules(),
         commandsFailed: runtime.commandsFailed,
+        memory: process.memoryUsage(),
+        resources: _processStats.activeResources(),
+        statsTopic: _statsSeconds > 0 && config.url ? STATS_TOPIC : null,
+        statsInterval: _statsSeconds > 0 ? _statsSeconds : 0,
+        stats: _lastStats,
         safeMode: SAFE_MODE,
         safeModeReason: SAFE_MODE_REASON,
         brokers: brokerStatuses(),
@@ -876,7 +921,7 @@ if (config.url) {
 
     mqtt.on('connect', () => {
         connected = true;
-        log.info('mqtt connected ' + config.url);
+        log.info('mqtt connected ' + require('./lib/redact-config').redactUrl(String(config.url)));
         log.debug('mqtt subscribe #');
         mqtt.subscribe('#');
         mqtt.subscribe('$SYS/#');
@@ -2517,12 +2562,14 @@ function start() {
             const prevBeat = _lastBeat;
             _lastBeat = now;
             if (lag > _hbThreshold) {
-                // Attribute to a script only if it dispatched a callback since the previous beat.
-                const label = _blockingScriptTs >= prevBeat ? (_blockingScript ?? 'unknown') : 'unknown';
+                // Attribute to a script only if it dispatched a callback since the previous beat;
+                // otherwise name the daemon's own work (HTTP requests, child processes).
+                const script = _blockingScriptTs >= prevBeat ? _blockingScript : null;
+                const who = script ? `last active script: ${script}` : `no script active; ${require('./lib/activity').describe(prevBeat, now)}`;
                 if (lag > 2000) {
-                    log.warn(`event loop blocked ${lag}ms — script: ${label}`);
+                    log.warn(`event loop blocked ${lag}ms — ${who}`);
                 } else {
-                    log.warn(`event loop lag ${lag}ms — last active script: ${label}`);
+                    log.warn(`event loop lag ${lag}ms — ${who}`);
                 }
             }
         }, _hbInterval);

@@ -30,6 +30,7 @@ let latePort;
 let late = null;
 let lateServer = null;
 let lateMqtt = null;
+let httpPort; // the daemon's HTTP port, learned from its log line by the brokers block
 
 const msSubscriptions = {};
 const msBuffer = [];
@@ -156,8 +157,12 @@ beforeAll((done) => {
             tmpConfigFile,
             JSON.stringify({
                 url: `mqtt://127.0.0.1:${brokerPort}`,
+                // Aedes accepts any credentials; they are here so the redacted config line can be checked
+                mqttUsername: 'she',
+                mqttPassword: 'Sup3rSecretPw',
                 verbosity: 'debug',
                 port: 0,
+                statsInterval: 2,
                 brokers: {
                     shed: {
                         url: `mqtt://127.0.0.1:${shedPort}`,
@@ -879,7 +884,21 @@ describe('she.time in the sandbox', () => {
 
 describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviour", () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    let httpPort;
+
+    /**
+     * Poll until fn() returns a truthy value. The daemon's own MQTT client receives a message independently of the
+     * test's subscriber, so its state store and status may lag the test by a few milliseconds — a one-shot read races.
+     */
+    const until = async (fn, timeoutMs = 5000, everyMs = 50) => {
+        const t0 = Date.now();
+        for (;;) {
+            const v = await fn();
+            if (v) return v;
+            if (Date.now() - t0 > timeoutMs) throw new Error(`condition not met within ${timeoutMs} ms`);
+            await wait(everyMs);
+        }
+    };
+    const getJson = async (urlPath) => (await fetch(`http://127.0.0.1:${httpPort}${urlPath}`)).json();
 
     it('the daemon started with the shed connected and the late broker not — healthy, scripts running', async () => {
         await new Promise((resolve) => subscribe('ms', /brokers: 2 additional broker\(s\): shed, late/, () => resolve()));
@@ -927,7 +946,8 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
         subscribe('ms', /test-brokers\.js: (primary|shed) only only\/b (\d)/, (line, m) => lines.push(m[1] + ':' + m[2]));
         mqtt.publish('only/a', '1');
         shedMqtt.publish('only/b', '2');
-        await wait(500);
+        await until(() => lines.length >= 2);
+        await wait(200); // a third line (a leaked subscription) would have to show up by now
         expect(lines.sort()).toEqual(['primary:1', 'shed:2']);
     }, 20000);
 
@@ -960,11 +980,15 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
         const seen = onceOnPrimary('shed/tele/temp');
         shedMqtt.publish('tele/temp', '21.5', { retain: true });
         expect(await seen).toEqual(['21.5', false]);
-        // the primary's state store has it like any other topic
-        const state = await (await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state`)).json();
-        expect(state.find((e) => e.topic === 'shed/tele/temp')).toMatchObject({ val: 21.5 });
+        // the primary's state store has it like any other topic — polled: the daemon's client gets the message
+        // independently of the test's subscriber above
+        const entry = await until(async () => (await getJson('/she/mqtt/state')).find((e) => e.topic === 'shed/tele/temp'));
+        expect(entry).toMatchObject({ val: 21.5 });
         // and the shed's own view is served by ?broker=
-        const shedState = await (await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state?broker=shed`)).json();
+        const shedState = await until(async () => {
+            const s = await getJson('/she/mqtt/state?broker=shed');
+            return s.find((e) => e.topic === 'tele/temp') && s;
+        });
         expect(shedState.find((e) => e.topic === 'tele/temp')).toMatchObject({ val: 21.5 });
         expect(shedState.find((e) => e.topic === 'shed/tele/temp')).toBeUndefined();
         expect((await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state?broker=nope`)).status).toBe(404);
@@ -1031,8 +1055,12 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
         await flushed;
         expect(await fromShe).toBe('queued');
         await retained;
-        const status = await (await fetch(`http://127.0.0.1:${httpPort}/she/status`)).json();
-        expect(status.brokers.find((b) => b.name === 'late')).toMatchObject({ connected: true, error: null, queued: 0 });
+        // the status flips a moment after the "connected" log line — polled
+        const lateStatus = await until(async () => {
+            const b = (await getJson('/she/status')).brokers.find((x) => x.name === 'late');
+            return b && b.connected && b.queued === 0 && b;
+        });
+        expect(lateStatus).toMatchObject({ connected: true, error: null, queued: 0 });
     }, 30000);
 
     it('POST /she/mqtt/publish with "broker" publishes on that broker', async () => {
@@ -1050,5 +1078,48 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
             body: JSON.stringify({ topic: 'api/pub', payload: 'hi', broker: 'nope' }),
         });
         expect(bad.status).toBe(404);
+    }, 20000);
+});
+
+describe("the daemon's own reporting: the redacted config line, maintenance/stats", () => {
+    it('logs the configuration as JSON with the secrets masked', async () => {
+        const line = await new Promise((resolve) => subscribe('ms', /loaded config: (\{.*\})\s*$/, (l, m) => resolve(m[1])));
+        expect(line).not.toContain('Sup3rSecretPw');
+        expect(line).not.toContain('[object Object]');
+        const cfg = JSON.parse(line);
+        expect(cfg.mqttPassword).toBe('***');
+        expect(cfg.mqttUsername).toBe('she');
+        expect(cfg.statsInterval).toBe(2);
+        expect(cfg.brokers.shed.mirror).toHaveLength(4);
+        expect(cfg).not.toHaveProperty('_');
+        expect(cfg).not.toHaveProperty('data-dir');
+    }, 20000);
+
+    it('publishes she/maintenance/stats retained in the mqtt-smarthome shape, with her own fields after it', async () => {
+        const payload = await new Promise((resolve) => {
+            const handler = (t, p, packet) => {
+                if (t === 'she/maintenance/stats') {
+                    mqtt.removeListener('message', handler);
+                    resolve([JSON.parse(p.toString()), packet.retain]);
+                }
+            };
+            mqtt.on('message', handler);
+            mqtt.subscribe('she/maintenance/stats');
+        });
+        const [stats, retain] = payload;
+        expect(retain).toBe(true); // retained on the broker: a fresh subscriber gets the last sample
+        expect(Object.keys(stats).slice(0, 7)).toEqual(['rss', 'heapUsed', 'heapTotal', 'cpu', 'eventLoopLag', 'uptime', 'ts']);
+        for (const v of Object.values(stats)) expect(typeof v).toBe('number');
+        expect(stats.rss).toBeGreaterThan(0);
+        expect(stats.heapUsed).toBeGreaterThan(0);
+        expect(stats.scripts).toBeGreaterThan(0);
+        expect(stats.topics).toBeGreaterThan(0);
+        const status = await (await fetch(`http://127.0.0.1:${httpPort}/she/status`)).json();
+        expect(status.statsTopic).toBe('she/maintenance/stats');
+        expect(status.statsInterval).toBe(2);
+        expect(status.stats).toMatchObject({ rss: expect.any(Number), heapUsed: expect.any(Number) });
+        expect(status.memory).toMatchObject({ rss: expect.any(Number), heapUsed: expect.any(Number), heapTotal: expect.any(Number), external: expect.any(Number) });
+        expect(typeof status.resources).toBe('object');
+        expect(typeof status.schedules).toBe('number');
     }, 20000);
 });

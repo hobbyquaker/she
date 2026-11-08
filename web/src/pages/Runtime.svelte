@@ -110,6 +110,11 @@
         window.dispatchEvent(new CustomEvent('she:open-script', { detail: { path: script, line } }));
     }
     const n = (v: number | null | undefined, unit = '') => (v === null || v === undefined ? '—' : `${v}${unit}`);
+    const mb = (bytes: number | null | undefined) => (bytes === null || bytes === undefined ? '—' : `${Math.round(bytes / 1048576)} MB`);
+    /** the daemon's memory in bytes: the live status, the last maintenance/stats sample for the Linux split */
+    const memory = $derived(stats?.memory ?? null);
+    const procStats = $derived(stats?.stats ?? null);
+    const resources = $derived(stats?.resources ? Object.entries(stats.resources).sort((a, b) => b[1] - a[1]) : []);
     /** the additional brokers (M2): from the live snapshot, else from the polled status */
     const brokers = $derived(snapshot?.brokers ?? stats?.brokers ?? []);
     const brokersDown = $derived(brokers.filter((b) => !b.connected));
@@ -159,6 +164,15 @@
                 <div class="value">{n(gauges?.heapMb ?? stats?.heapMb, ' MB')}</div>
                 <div class="spark"><Sparkline values={series('heapMb')} unit="MB" zero={false} /></div>
             </div>
+            <div class="tile" title="process.memoryUsage(): heapTotal is what V8 reserved for the heap, external and arrayBuffers live outside it">
+                <div class="label">Heap total · external</div>
+                <div class="value">{mb(memory?.heapTotal)}<span class="unit"> · {mb(memory ? memory.external + memory.arrayBuffers : null)}</span></div>
+                {#if procStats?.heapArena !== undefined}
+                    <div class="hint" title="from /proc/self/smaps: the glibc heap arena ([heap], retained after free) and every anonymous page (V8's heap included)">glibc arena {mb(procStats.heapArena)} · anonymous {mb(procStats.anonymous)}</div>
+                {:else if stats?.statsTopic}
+                    <div class="hint">published retained to {stats.statsTopic}</div>
+                {/if}
+            </div>
             <div class="tile">
                 <div class="label">CPU</div>
                 <div class="value">{n(gauges?.cpuPercent ?? stats?.cpuPercent, ' %')}</div>
@@ -189,6 +203,13 @@
                 <div class="value">{n(gauges?.pendingTimers ?? totals.pending)}</div>
                 <div class="spark"><Sparkline values={series('pendingTimers')} /></div>
             </div>
+            {#if resources.length > 0}
+            <div class="tile" title={'process.getActiveResourcesInfo():\n' + resources.map(([k, v]) => `${k}: ${v}`).join('\n')}>
+                <div class="label">Active handles</div>
+                <div class="value">{resources.reduce((a, [, v]) => a + v, 0)}</div>
+                <div class="hint">{resources.slice(0, 3).map(([k, v]) => `${v} ${k}`).join(' · ')}{stats?.schedules ? ` · ${stats.schedules} schedules` : ''}{stats?.statsTopic ? ` · stats → ${stats.statsTopic}` : ''}</div>
+            </div>
+            {/if}
             <div class="tile">
                 <div class="label">Last 5 min</div>
                 <div class="value">{totals.fires5} <span class="unit">callbacks</span></div>

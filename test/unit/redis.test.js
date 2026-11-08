@@ -58,6 +58,13 @@ describe('src/lib/redis', () => {
         expect(log.info).toHaveBeenCalledWith(expect.stringContaining('redis: connected'), 'redis://localhost:6379');
     });
 
+    it('logs the URL without its credentials', async () => {
+        const store = makeStore();
+        const log = makeLog();
+        await redisModule.init({ url: 'redis://she:R3dis@localhost:6379/1', store, log });
+        expect(log.info).toHaveBeenCalledWith(expect.stringContaining('redis: connected'), 'redis://***:***@localhost:6379/1');
+    });
+
     it('seeds StateStore from Redis hash on startup', async () => {
         const stored = {
             'var::light': JSON.stringify({ val: true, ts: 1000, lc: 1000 }),

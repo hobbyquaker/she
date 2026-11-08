@@ -23,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
+const activity = require('./activity');
 const sshDeploy = require('./ssh-deploy');
 
 const HELPER = '/usr/local/bin/she-servicectl';
@@ -79,6 +80,7 @@ function createLocalDriver(opts = {}) {
                 if (err) return reject(classify(err, stdout, stderr, code));
                 resolve({ stdout, stderr, code: 0 });
             });
+            activity.track(child, activity.commandLabel(cmd, argv));
             if (stdin !== undefined) {
                 child.stdin.on('error', () => {});
                 child.stdin.end(stdin);
@@ -90,7 +92,7 @@ function createLocalDriver(opts = {}) {
 
     function spawnHelper(args) {
         const [cmd, argv] = command(args);
-        return spawn(cmd, argv, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+        return activity.track(spawn(cmd, argv, { env, stdio: ['ignore', 'pipe', 'pipe'] }), activity.commandLabel(cmd, argv));
     }
 
     return { name, local: true, helperPath: helper, exec, spawn: spawnHelper };
@@ -130,6 +132,7 @@ function createSshDriver(hostCfg, opts = {}) {
                 if (err) return reject(classify(err, stdout, stderr, code, { ssh: true }));
                 resolve({ stdout, stderr, code: 0 });
             });
+            activity.track(child, `ssh ${name}: ${command.split(' ').slice(0, 3).join(' ')}`);
             child.stdin.on('error', () => {});
             child.stdin.end(stdin === undefined ? '' : stdin);
         });
@@ -141,7 +144,7 @@ function createSshDriver(hostCfg, opts = {}) {
     }
     /** long-running helper call (logs --follow) */
     function spawnHelper(args) {
-        return spawn(sshBin, sshArgv(remoteCommand(args)), { env, stdio: ['ignore', 'pipe', 'pipe'] });
+        return activity.track(spawn(sshBin, sshArgv(remoteCommand(args)), { env, stdio: ['ignore', 'pipe', 'pipe'] }), `ssh ${name}: ${activity.commandLabel(helper, args)}`);
     }
     /** arbitrary command on the host — only used by the helper deploy */
     function run(command, options) {
@@ -156,10 +159,11 @@ function createSshDriver(hostCfg, opts = {}) {
             const hostPart = target.slice(at + 1);
             const bracketed = hostPart.includes(':') && !hostPart.startsWith('[') ? target.slice(0, at + 1) + '[' + hostPart + ']' : target;
             const argv = [...sshDeploy.scpArgs(sshCfg, defaultIdentity), localPath, bracketed + ':' + remotePath];
-            execFile(scpBin, argv, { timeout: 60000, env }, (err, stdout, stderr) => {
+            const child = execFile(scpBin, argv, { timeout: 60000, env }, (err, stdout, stderr) => {
                 if (err) return reject(new HostError('SSH_FAILED', String(stderr || err.message).trim()));
                 resolve();
             });
+            activity.track(child, `scp ${name}: ${path.basename(localPath)}`);
         });
     }
 

@@ -183,6 +183,28 @@ export interface BrokerStatus {
     mirror: { in: number; out: number };
 }
 
+/** `<name>/maintenance/stats` as she publishes it: the mqtt-smarthome fields first, then her extras */
+export interface ProcessStats {
+    rss: number;
+    heapUsed: number;
+    heapTotal: number;
+    cpu: number;
+    eventLoopLag: number;
+    uptime: number;
+    ts: number;
+    external?: number;
+    arrayBuffers?: number;
+    scripts?: number;
+    topics?: number;
+    handlers?: number;
+    timers?: number;
+    schedules?: number;
+    /** the glibc brk heap ([heap] mapping) — Linux only */
+    heapArena?: number;
+    /** every anonymous page (V8's heap included) — Linux only */
+    anonymous?: number;
+}
+
 export interface DaemonStatus {
     scripts: number;
     runningScripts?: string[];
@@ -205,7 +227,18 @@ export interface DaemonStatus {
     elMaxMs?: number;
     heapMb?: number;
     pendingTimers?: number;
+    /** schedule and sun-event handlers registered */
+    schedules?: number;
     commandsFailed?: number;
+    /** process.memoryUsage() in bytes */
+    memory?: { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number };
+    /** process.getActiveResourcesInfo() counted by type */
+    resources?: Record<string, number>;
+    /** the retained topic she's own maintenance/stats go to (null without MQTT or with statsInterval 0) */
+    statsTopic?: string | null;
+    statsInterval?: number;
+    /** the last maintenance/stats sample: the fleet's fields plus she's extras (bytes, counts; heapArena/anonymous on Linux) */
+    stats?: ProcessStats | null;
     latestVersion?: string;
     /** the update channel the check uses: 'stable' (releases) or 'beta' (pre-releases too) */
     updateChannel?: 'stable' | 'beta';

@@ -17,6 +17,8 @@
  * exit code and the last lines of its output.
  */
 
+const activity = require('./activity');
+
 const VERSION_RX = /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/;
 /** the first helper version with the `she-update` command */
 const HELPER_SHE_UPDATE_VERSION = 16;
@@ -91,7 +93,7 @@ function runInstall([cmd, argv], { spawn, onLine } = {}) {
         };
         let child;
         try {
-            child = spawn(cmd, argv, { stdio: ['ignore', 'pipe', 'pipe'] });
+            child = activity.track(spawn(cmd, argv, { stdio: ['ignore', 'pipe', 'pipe'] }), activity.commandLabel(cmd, argv));
         } catch (err) {
             finish(false, null, null, `could not start ${cmd}: ${err.message}`);
             return;

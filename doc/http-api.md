@@ -879,7 +879,10 @@ Returns a snapshot of runtime counters.
 | `topics` | Number of MQTT topics tracked in the state store |
 | `safeMode` | `true` when the daemon runs in [safe mode](script-engine.md#safe-mode) — the web UI shows a banner |
 | `mqttMsgPerSec`, `cpuPercent`, `eluPercent`, `elMeanMs`, `elMaxMs`, `memMb`, `heapMb` | The daemon's gauges from the latest sample (taken every 10 s, every second while a Runtime page is open — see [`/she/runtime/history`](#get-sheruntimehistory)) |
-| `handlers`, `pendingTimers`, `commandsFailed` | Registered handlers, timers pending right now, `she.mqtt.command` failures (timeout, offline) since start |
+| `handlers`, `pendingTimers`, `schedules`, `commandsFailed` | Registered handlers, timers pending right now, schedule and sun-event handlers, `she.mqtt.command` failures (timeout, offline) since start |
+| `memory` | `process.memoryUsage()` in bytes: `{ rss, heapTotal, heapUsed, external, arrayBuffers }` — `heapUsed` is the figure that shows a leak; the RSS breathes with the garbage collector |
+| `resources` | `process.getActiveResourcesInfo()` counted by type: `{ "Timeout": 12, "TCPSocketWrap": 3, … }` |
+| `stats`, `statsTopic`, `statsInterval` | The last [`<name>/maintenance/stats`](services.md#shes-own-topics) sample she published (`null` until the first one), the topic it goes to (`null` without MQTT or with `statsInterval` 0) and the interval in seconds |
 | `brokers` | The [additional brokers](brokers.md): `{ name, url, connected, everConnected, since, error, queued, messages, rules, topics, mirror: { in, out } }` each; empty when none is configured |
 | `matterEnabled`, `matterNodes`, `matterEndpoints`, `dbEnabled`, `dbDocs`, `dbViews`, `startedAt`, `dataDir`, `user` | What the web UI's header needs |
 | `updateChannel` | The update channel in use: `stable` or `beta` (config key `updateChannel`) |
