@@ -212,6 +212,16 @@ she.info('counter:', she.global.counter);
 
 ---
 
+## Watching the engine: the Runtime page and the editor's Runtime panel
+
+The icon at the top right of the web UI opens the **Runtime** page: the daemon's gauges (message rate, memory, CPU, event-loop utilisation and lag, topics, handlers, pending timers, failed commands) with a sparkline of the last hour, and below them every handler every script has registered — subscriptions, variable listeners, schedules, sun events, intervals, timers and timing helpers — with how often it fired, how much callback time it took, how many of its callbacks threw, when it last ran and what is pending under it with a countdown. The statistics are kept since the script's load and over the last five minutes; the three handlers that cost the most time in the last five minutes are highlighted. The page is read-only and live while it is open (a snapshot every second over the WebSocket; nothing is sent while no page is subscribed).
+
+The script editor has the same view for the open script as its **Runtime panel**, with actions: a pending timer can be cancelled or fired now (a debounce: flushed), a schedule or sun event run once, an interval cleared. Every action is written to the script's log (`timeout "hall off" cancelled from the editor`). A click on the line number jumps to the call that registered the handler — the line is captured from the script's stack frame when it registers.
+
+The editor's panels — files, log, Runtime, AI chat — dock around the editor: drag a panel by its tab to the left, right or bottom, split or tab them, resize and close them; the toolbar reopens a closed panel and resets the layout. The layout is remembered per browser.
+
+The daemon's gauges are sampled every 10 s (every second while a Runtime page is open) and kept for an hour; `GET /she/status` returns the latest sample. See the [HTTP API](http-api.md#runtime--sheruntime) for the endpoints.
+
 ## Logging
 
 `she.debug`, `she.info`, `she.warn`, `she.error` (and the alias `she.log`) automatically prefix every message with the script's name, making it easy to filter log output per script. `console.log` and `console.error` inside scripts are forwarded to `she.info` and `she.error` respectively, also with the script name prefix.

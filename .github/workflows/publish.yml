@@ -29,5 +29,12 @@ jobs:
             - name: Build web frontend
               run: npm run build:web
 
+            # a pre-release version (3.0.0-beta.0) goes to the dist-tag `next`, never to `latest`:
+            # `npm install -g smart-home-engine` and the update check of older versions keep
+            # resolving the last stable release
             - name: Publish to npm
-              run: npm publish
+              run: |
+                  VERSION=$(node -p "require('./package.json').version")
+                  case "$VERSION" in *-*) TAG=next ;; *) TAG=latest ;; esac
+                  echo "publishing $VERSION with dist-tag $TAG"
+                  npm publish --tag "$TAG"

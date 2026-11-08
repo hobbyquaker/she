@@ -304,6 +304,50 @@ Execute a view and return its results.
 
 ---
 
+## Runtime — `/she/runtime`
+
+What every script has registered, with statistics and pending timers — what the Runtime page and the editor's Runtime panel show.
+
+### GET /she/runtime
+
+Query: `script=<label>` limits the answer to one script (its path relative to the script directory, e.g. `lights/hallway.js`).
+
+```json
+{
+  "ts": 1794142764736,
+  "gauges": { "ts": 1794142760000, "mqttMsgPerSec": 14, "cpuPercent": 0.8, "eluPercent": 1, "elMeanMs": 20, "elMaxMs": 21, "memMb": 157, "heapMb": 59, "topics": 17, "handlers": 19, "pendingTimers": 17 },
+  "commandsFailed": 0,
+  "scripts": [
+    {
+      "file": "/home/she/.she/scripts/lights/hallway.js", "label": "lights/hallway.js", "origin": "user",
+      "handlers": [
+        { "id": "h3", "kind": "sub", "name": "zigbee/status/hall/motion", "detail": null, "line": 5, "next": null,
+          "actions": { "run": false, "cancel": false },
+          "fires": 119, "errors": 0, "totalMs": 3.6, "maxMs": 0.29, "lastFire": 1794142764100, "lastMs": 0.02, "lastError": null,
+          "recent": { "fires": 119, "errors": 0, "totalMs": 3.6 }, "pending": [] },
+        { "id": "h5", "kind": "timeout", "name": "hall off", "line": 4, "fires": 0, "pending": [ { "id": "t41", "due": 1794142880000, "start": 1794142760000, "every": null } ] }
+      ]
+    }
+  ]
+}
+```
+
+`kind` is `sub`, `var`, `schedule`, `sun`, `interval`, `timer` (a plain `setTimeout`), `shift` (a delayed subscription delivery), `timeout`, `debounce`, `debounce maxWait`, `throttle`, `retry`, `schedule random` or `command` (a pending `she.mqtt.command`, whose pending entries carry `topic`, `payload`, `tries` and `confirm`). `recent` is the last five minutes. Timers are grouped by kind, name and the registering line; `line` is the script line of the registration (null when it could not be determined).
+
+### GET /she/runtime/history
+
+The daemon's gauges, one sample per 10 s for the last hour: `{ "intervalMs": 10000, "samples": [ { "ts", "mqttMsgPerSec", "cpuPercent", "eluPercent", "elMeanMs", "elMaxMs", "memMb", "heapMb", "topics", "handlers", "pendingTimers" } ] }`.
+
+### POST /she/runtime/action
+
+Body: `{ "id": "t41", "action": "cancel" | "run" }`. On a pending timer's id: `cancel` removes it without running it, `run` fires it now (a debounce: its flush). On a handler's id: `run` runs a schedule, a sun event or an interval once (they stay), `cancel` clears an interval. The action is written to the script's log. Answers `{ "ok": true, "script", "kind", "name", "what" }`; `400` when the action is not possible for that entry, `404` when the id is unknown — the script was reloaded in between.
+
+### WebSocket `runtime:subscribe`
+
+A client of `/she/ws` sends `{ "type": "runtime:subscribe" }` (optionally with `"script": "<label>"`) and receives `{ "type": "runtime", ...snapshot }` about once a second until it sends `{ "type": "runtime:unsubscribe" }` or disconnects. One subscription per socket.
+
+---
+
 ## Matter — `/she/matter`
 
 Matter must be enabled via `--matter-storage`. All endpoints return HTTP 503 if the Matter controller is not initialised.
