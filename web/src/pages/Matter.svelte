@@ -2,7 +2,7 @@
     import { onMount, onDestroy, tick, untrack } from 'svelte';
     import jsQR from 'jsqr';
     import { subscribeWs } from '../lib/ws.js';
-    import { listMatterDevices, getMatterDevice, getMatterDeviceInfo, commissionMatter, unpairMatter, renameMatterDevice, sendMatterCommand, listMatterUpdates, checkMatterUpdates, startMatterUpdate, cancelMatterUpdate, getMatterHealth, type MatterDevice, type MatterNodeDetail, type MatterDeviceInfo, type MatterUpdates, type MatterNodeUpdate, type MatterHealth } from '../lib/api.js';
+    import { listMatterDevices, getMatterDevice, getMatterDeviceInfo, commissionMatter, unpairMatter, forgetMatter, renameMatterDevice, sendMatterCommand, listMatterUpdates, checkMatterUpdates, startMatterUpdate, cancelMatterUpdate, getMatterHealth, type MatterDevice, type MatterNodeDetail, type MatterDeviceInfo, type MatterUpdates, type MatterNodeUpdate, type MatterHealth } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import MatterValue from '../lib/MatterValue.svelte';
@@ -570,11 +570,30 @@
     }
 
     async function unpair(nodeId: string) {
+        const dev = devices.find((d) => d.nodeId === nodeId);
+        if (dev?.state === 'fabric_lost') return forget(nodeId);
         if (!(await dialog.show(`Unpair device ${nodeId}?`, { confirm: 'Unpair', danger: true }))) return;
         try {
             await unpairMatter(nodeId);
             if (selected?.nodeId === nodeId) { selected = null; selectedId = null; }
             await loadDevices();
+        } catch (e: unknown) {
+            error = e instanceof Error ? e.message : String(e);
+        }
+    }
+
+    /** Remove a node from she only — for one that lost she's fabric or cannot be reached any more. */
+    async function forget(nodeId: string) {
+        const dev = devices.find((d) => d.nodeId === nodeId);
+        const why = dev?.state === 'fabric_lost'
+            ? `The device does not carry she's fabric any more (factory-reset, or she's fabric removed by another admin) — it cannot be decommissioned. she forgets it locally; commission it again to use it.`
+            : `The node is removed from she without decommissioning the device; if the device still carries she's fabric, it keeps it until a factory reset.`;
+        if (!(await dialog.show(`Forget ${dev?.name ?? `node ${nodeId}`}? ${why}`, { confirm: 'Forget', danger: true }))) return;
+        try {
+            await forgetMatter(nodeId);
+            if (selected?.nodeId === nodeId) { selected = null; selectedId = null; }
+            await loadDevices();
+            await loadHealth();
         } catch (e: unknown) {
             error = e instanceof Error ? e.message : String(e);
         }
@@ -636,7 +655,7 @@
         if (msg.nodeId === undefined) return;
         const nodeId = String(msg.nodeId);
         const online = Boolean(msg.online);
-        devices = devices.map((d) => (d.nodeId === nodeId ? { ...d, online } : d));
+        devices = devices.map((d) => (d.nodeId === nodeId ? { ...d, online, state: online ? 'online' : d.state === 'fabric_lost' ? 'fabric_lost' : 'offline' } : d));
         feed = [{ id: _evtSeq++, kind: 'status', nodeId, online, ts: Date.now() }, ...feed.slice(0, FEED_MAX - 1)];
     });
     const unsubAttr   = subscribeWs('matter:attr', (msg) => {
@@ -775,7 +794,7 @@
                             ctxMenu = { x: e.clientX, y: e.clientY, nodeId: device.nodeId, name: device.name ?? null };
                         }}
                     >
-                        <span class="status-dot" class:online={device.online}></span>
+                        <span class="status-dot" class:online={device.online} class:fabric-lost={device.state === 'fabric_lost'} title={device.state === 'fabric_lost' ? `fabric lost since ${device.fabricLostSince ? fmtTime(device.fabricLostSince) : '?'}` : device.online ? 'online' : 'offline'}></span>
                         <span class="device-label">
                             {#if device.name}
                                 <span class="device-name">{device.name}</span>
@@ -785,11 +804,13 @@
                             {/if}
                         </span>
                         {#if updatesAvailable.has(device.nodeId)}<span class="upd-badge" title="Firmware update available">⬆</span>{/if}
-                        {#if healthAlerts.has(device.nodeId)}<span class="health-badge" title={healthAlerts.get(device.nodeId)?.message}>{healthAlerts.get(device.nodeId)?.kind === 'low_battery' ? '🪫' : '⚠'}</span>{/if}
+                        {#if device.state === 'fabric_lost'}
+                            <span class="health-badge lost" title={healthAlerts.get(device.nodeId)?.message ?? `The device does not carry she's fabric any more — re-commission it or forget the node`}>fabric lost</span>
+                        {:else if healthAlerts.has(device.nodeId)}<span class="health-badge" title={healthAlerts.get(device.nodeId)?.message}>{healthAlerts.get(device.nodeId)?.kind === 'low_battery' ? '🪫' : '⚠'}</span>{/if}
                     </button>
                     <button
                         class="unpair-btn"
-                        title="Unpair"
+                        title={device.state === 'fabric_lost' ? 'Forget node' : 'Unpair'}
                         onclick={() => unpair(device.nodeId)}
                     >✕</button>
                 </li>
@@ -808,6 +829,7 @@
             <button onclick={() => { const m = ctxMenu!; ctxMenu = null; renameDevice(m.nodeId, m.name); }}>Rename…</button>
             <button onclick={() => { const m = ctxMenu!; ctxMenu = null; navigator.clipboard.writeText(m.nodeId); }}>Copy node ID</button>
             <button class="ctx-danger" onclick={() => { const m = ctxMenu!; ctxMenu = null; unpair(m.nodeId); }}>Unpair…</button>
+            <button class="ctx-danger" title="Remove the node from she without decommissioning the device" onclick={() => { const m = ctxMenu!; ctxMenu = null; forget(m.nodeId); }}>Forget node…</button>
         </div>
     {/if}
 
@@ -887,11 +909,22 @@
                     {#if h.battery}<span class="dcl-v">battery {h.battery.percent !== null ? `${h.battery.percent} %` : h.battery.level ?? '—'}{h.battery.state && h.battery.state !== 'unknown' ? ` (${h.battery.state})` : ''}{h.battery.voltageMv !== null ? ` · ${(h.battery.voltageMv / 1000).toFixed(2)} V` : ''}</span><span class="dcl-sep">·</span>{/if}
                     <span class="dcl-dim">last seen {h.lastSeen ? fmtTime(h.lastSeen) : 'never'}</span>
                     <span class="dcl-sep">·</span>
-                    <span class="dcl-dim">{h.online === false ? `offline since ${h.since ? fmtTime(h.since) : '?'}` : h.online ? `online since ${h.since ? fmtTime(h.since) : '?'}` : 'state unknown'}</span>
+                    {#if h.fabricLost && h.online !== true}
+                        <span class="fw-err">fabric lost since {fmtTime(h.fabricLost)}</span>
+                    {:else}
+                        <span class="dcl-dim">{h.online === false ? `offline since ${h.since ? fmtTime(h.since) : '?'}` : h.online ? `online since ${h.since ? fmtTime(h.since) : '?'}` : 'state unknown'}</span>
+                    {/if}
                     {#if h.offlineCount7d}<span class="dcl-sep">·</span><span class="dcl-dim">{h.offlineCount7d} offline period{h.offlineCount7d === 1 ? '' : 's'} in 7 days ({fmtDur(h.offlineMs7d)})</span>{/if}
                     {#if h.roles.length > 1}<span class="dcl-sep">·</span><span class="dcl-dim">Thread role {h.roles.slice(-3).map((r) => ROLE_NAMES[r.role] ?? r.role).join(' → ')}</span>{/if}
-                    {#each h.alerts as a (a.key)}<span class="fw-err">{a.message}</span>{/each}
+                    {#each h.alerts.filter((a) => a.kind !== 'fabric_lost') as a (a.key)}<span class="fw-err">{a.message}</span>{/each}
                 </div>
+                {#if h.fabricLost && h.online !== true}
+                    <div class="fw fw-avail lost-line">
+                        <span class="dcl-k">Fabric</span>
+                        <span class="dcl-dim">The device answers she with <code>NoSharedTrustRoots</code>: it does not carry she's fabric any more — it was factory-reset, or another administrator removed she's fabric. It cannot come back by itself; she has paused it and probes it once an hour. Re-commission the device (Commission → its pairing code), or forget the node.</span>
+                        <button class="fw-btn" onclick={() => forget(selected!.nodeId)}>Forget node</button>
+                    </div>
+                {/if}
             {/if}
             <Fabrics nodeId={selected.nodeId} online={devices.find((d) => d.nodeId === selected?.nodeId)?.online ?? false} />
             {#each selected.endpoints as ep (ep.endpointId)}
@@ -1279,6 +1312,11 @@
     .status-dot.online {
         background: var(--fg-ok);
     }
+    .status-dot.fabric-lost {
+        background: transparent;
+        border: 2px solid var(--fg-err);
+        box-sizing: border-box;
+    }
     .device-label {
         flex: 1;
         min-width: 0;
@@ -1362,6 +1400,9 @@
     .upd-btn:disabled { opacity: 0.5; cursor: default; }
     .upd-badge { color: #98c379; font-size: 11px; margin-left: 4px; }
     .health-badge { font-size: 11px; margin-left: 4px; }
+    .health-badge.lost { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg-err); border: 1px solid var(--fg-err); border-radius: 3px; padding: 0 3px; line-height: 1.4; }
+    .lost-line { align-items: baseline; flex-wrap: wrap; }
+    .lost-line code { font-size: 11px; }
     details {
         margin-bottom: 8px;
         background: var(--bg-panel);

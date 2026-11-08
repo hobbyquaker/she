@@ -489,6 +489,9 @@ export interface MatterDevice {
     nodeId: string;
     online: boolean;
     name?: string | null;
+    /** fabric_lost: the device answers with NoSharedTrustRoots — it does not carry she's fabric any more */
+    state?: 'online' | 'offline' | 'fabric_lost';
+    fabricLostSince?: number | null;
 }
 
 export interface MatterCluster {
@@ -523,6 +526,11 @@ export function commissionMatter(opts: ({ passcode: number; discriminator?: numb
 
 export function unpairMatter(nodeId: string): Promise<{ ok: boolean }> {
     return request('DELETE', `/she/matter/devices/${nodeId}`);
+}
+
+/** Remove the node locally without decommissioning it (unreachable, or she's fabric lost). */
+export function forgetMatter(nodeId: string): Promise<{ ok: boolean }> {
+    return request('POST', `/she/matter/devices/${nodeId}/forget`);
 }
 
 export function renameMatterDevice(nodeId: string, name: string): Promise<{ ok: boolean }> {
@@ -773,7 +781,7 @@ export function sendMatterGroupCommand(id: number, clusterName: string, command:
 // ---- Matter device health (M21) ----
 
 export interface MatterBattery { percent: number | null; level: string | null; state: string | null; voltageMv: number | null; ts: number | null }
-export interface MatterHealthAlert { key: string; kind: 'low_battery' | 'offline'; nodeId: string; name: string; message: string; since: number }
+export interface MatterHealthAlert { key: string; kind: 'low_battery' | 'offline' | 'fabric_lost'; nodeId: string; name: string; message: string; since: number }
 export interface MatterNodeHealth {
     nodeId: string;
     name?: string | null;
@@ -781,6 +789,8 @@ export interface MatterNodeHealth {
     online: boolean | null;
     since: number | null;
     battery: MatterBattery | null;
+    /** when the device first answered with NoSharedTrustRoots; null while it carries she's fabric */
+    fabricLost: number | null;
     offlineNow: number;
     offlineCount7d: number;
     offlineMs7d: number;
