@@ -19,6 +19,34 @@ function sendOrDrop(ws, str) {
     ws.send(str);
 }
 const _welcomeProviders = [];
+const _clientHandlers = new Map(); // message type → (ws, msg)
+const _closeHandlers = new Set(); // (ws) when a client goes away
+
+/**
+ * Handle a message a client sends: `{ type, ... }`. One handler per type.
+ * @param {string} type
+ * @param {(ws: import('ws').WebSocket, msg: object) => void} fn
+ */
+function onClientMessage(type, fn) {
+    _clientHandlers.set(type, fn);
+}
+
+/**
+ * Called with the socket when a client disconnects — to drop what it subscribed to.
+ * @param {(ws: import('ws').WebSocket) => void} fn
+ */
+function onClientClose(fn) {
+    _closeHandlers.add(fn);
+}
+
+/**
+ * Send a JSON message to one client (dropped when it is gone or not reading).
+ * @param {import('ws').WebSocket} ws
+ * @param {object} msg
+ */
+function sendWs(ws, msg) {
+    sendOrDrop(ws, JSON.stringify(msg));
+}
 
 /**
  * Register a function that returns a welcome message (or array of messages)
@@ -54,8 +82,24 @@ function attachWss(httpServer, authCheck = () => true) {
             return;
         }
         _clients.add(ws);
-        ws.on('close', () => _clients.delete(ws));
-        ws.on('error', () => _clients.delete(ws));
+        const gone = () => {
+            if (!_clients.delete(ws)) return;
+            for (const fn of _closeHandlers) fn(ws);
+        };
+        ws.on('close', gone);
+        ws.on('error', gone);
+        // A client may ask for something — a page subscribing to the runtime snapshot: { type, ... }
+        ws.on('message', (data) => {
+            let msg;
+            try {
+                msg = JSON.parse(data.toString());
+            } catch {
+                return;
+            }
+            if (!msg || typeof msg.type !== 'string') return;
+            const handler = _clientHandlers.get(msg.type);
+            if (handler) handler(ws, msg);
+        });
         // Send current state to this new client immediately
         for (const provider of _welcomeProviders) {
             const msgs = provider();
@@ -153,5 +197,8 @@ module.exports = {
     getBrokerLogBuffer,
     getLogBuffer,
     setWelcomeProvider,
+    onClientMessage,
+    onClientClose,
+    sendWs,
     _internal: { clients: _clients, MAX_BACKLOG },
 };

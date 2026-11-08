@@ -34,6 +34,9 @@ function createTimingHelpers(prim) {
     const { setTimeout: setTimer, clearTimeout: clearTimer } = prim;
     const now = prim.now || Date.now;
     const onUnload = typeof prim.onUnload === 'function' ? prim.onUnload : () => () => {};
+    // the script line a helper was created on, captured once per helper and carried in its timer meta
+    // (the stack at re-arm time points into a callback, not to the registration)
+    const lineAt = typeof prim.line === 'function' ? prim.line : () => null;
 
     /**
      * Bundle calls: run fn with the arguments of the last call once `wait` ms passed without a new
@@ -56,8 +59,9 @@ function createTimingHelpers(prim) {
         if (maxWait !== undefined) assertDelay(maxWait, api, 'opts.maxWait');
         if (!leading && !trailing) throw new TypeError(`${api}: opts.leading and opts.trailing cannot both be false`);
         const name = opts.name || fn.name || undefined;
-        const meta = { kind: 'debounce', name };
-        const maxMeta = { kind: 'debounce maxWait', name };
+        const line = opts.line !== undefined ? opts.line : lineAt();
+        const meta = { kind: 'debounce', name, line };
+        const maxMeta = { kind: 'debounce maxWait', name, line };
 
         let timer = null;
         let maxTimer = null;
@@ -144,7 +148,7 @@ function createTimingHelpers(prim) {
         assertDelay(wait, api, 'wait');
         const { leading = true, trailing = true, _onSettle } = opts;
         if (!leading && !trailing) throw new TypeError(`${api}: opts.leading and opts.trailing cannot both be false`);
-        const meta = { kind: 'throttle', name: opts.name || fn.name || undefined };
+        const meta = { kind: 'throttle', name: opts.name || fn.name || undefined, line: opts.line !== undefined ? opts.line : lineAt() };
 
         let timer = null;
         let lastArgs = null;
@@ -258,7 +262,7 @@ function createTimingHelpers(prim) {
         const api = 'she.timeout(ms, cb, [opts])';
         assertDelay(ms, api, 'ms');
         assertFn(cb, api, 'cb');
-        const meta = { kind: 'timeout', name: opts.name || cb.name || undefined };
+        const meta = { kind: 'timeout', name: opts.name || cb.name || undefined, line: lineAt() };
         let id = null;
         let due = 0;
         const handle = {
@@ -315,6 +319,7 @@ function createTimingHelpers(prim) {
         if (typeof backoff !== 'number' || !Number.isFinite(backoff) || backoff < 0) throw new TypeError(`${api}: opts.backoff must be a factor (got ${describeDelay(backoff)})`);
         if (onFail !== undefined) assertFn(onFail, api, 'opts.onFail');
         const name = opts.name || fn.name || undefined;
+        const line = lineAt();
 
         let aborted = false;
         const off = onUnload(() => {
@@ -348,7 +353,7 @@ function createTimingHelpers(prim) {
                             return;
                         }
                         const wait = delay * Math.pow(backoff, n - 1);
-                        setTimer(() => attempt(n + 1), wait, { kind: 'retry', name: `${name ? name + ' ' : ''}attempt ${n + 1}/${tries}` });
+                        setTimer(() => attempt(n + 1), wait, { kind: 'retry', name: `${name ? name + ' ' : ''}attempt ${n + 1}/${tries}`, line });
                     },
                 );
             };

@@ -76,6 +76,9 @@ app.use('/she/services', servicesRouter);
 // Secrets (roadmap A5): write-only, values never leave the daemon
 app.use('/she/secrets', secretsRouter);
 
+// The runtime model: handlers, timers, statistics, gauge history, the editor's timer actions
+app.use('/she/runtime', require('./runtime-api').router);
+
 // Graceful daemon restart
 // When running under systemd, delegate to `sudo systemctl restart` so the
 // service actually comes back up. Otherwise fall back to exit(0) and let

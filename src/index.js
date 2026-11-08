@@ -71,7 +71,7 @@ const _pino = require('pino')(
     }),
 );
 // Lazy import â€” log-ws exports a no-op broadcastLog when the HTTP server is not started.
-const { broadcastLog, broadcast, setWelcomeProvider } = require('./web/log-ws');
+const { broadcastLog, broadcast, setWelcomeProvider, onClientMessage, onClientClose, sendWs } = require('./web/log-ws');
 const shedb = require('./web/shedb');
 // One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
 const log = require('./lib/logger').createLogger({
@@ -271,6 +271,12 @@ const StateStore = require('./lib/state-store');
 const { trackTimeout, isValidDelay, describeDelay } = require('./lib/script-timers');
 const timing = require('./lib/timing');
 const publishChanged = require('./lib/publish-changed');
+const { Runtime } = require('./lib/runtime');
+const { callerLine } = require('./lib/call-site');
+// What every script has registered, with statistics — the Runtime page and the editor's panel
+const runtime = new Runtime();
+/** the script line a registration came from, or null */
+const lineOf = (file) => callerLine(file)?.line ?? null;
 const sandboxModules = [];
 const store = new StateStore();
 if (typeof config.port !== 'undefined') require('./web/broker-api').setStore(store);
@@ -294,7 +300,7 @@ const _global = {};
 store.on('change', (changedKey, val, obj, prevObj) => {
     if (!changedKey.startsWith('var::')) return;
     for (const sub of varSubscriptions.slice()) {
-        if (sub.key === changedKey) _dispatch(sub._script, () => sub.callback(val, obj, prevObj));
+        if (sub.key === changedKey) _dispatch(sub._script, () => sub.callback(val, obj, prevObj), sub._rt);
     }
 });
 
@@ -310,18 +316,26 @@ let _blockingScriptTs = 0; // timestamp when the last _dispatch() call finished
  * as a last resort but cannot name the script; label-prefixed errors also show
  * up in the script's log panel in the Scripts tab.
  */
-function _dispatch(label, fn) {
+function _dispatch(label, fn, handler) {
     _blockingScript = label;
+    const t0 = handler ? performance.now() : 0;
     let result;
+    let failed = false;
     try {
         result = fn();
+    } catch (err) {
+        failed = true;
+        throw err;
     } finally {
         // Record end-time synchronously — no setImmediate, which would race with the
         // heartbeat timer when blocking occurs inside a poll-phase (I/O) callback.
         _blockingScriptTs = Date.now();
+        // the handler's statistics: fires, time, errors — since load and over the last five minutes
+        if (handler) handler.stats.record(performance.now() - t0, failed, _blockingScriptTs);
     }
     if (result && typeof result.then === 'function' && typeof result.catch === 'function') {
         result.catch((err) => {
+            if (handler) handler.stats.fail();
             const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
             log.error(makeLabel(label) + ' async callback error: ' + msg);
         });
@@ -405,10 +419,10 @@ function sunScheduleEvent(obj, shift) {
                 // Event is less than 1s in the future or already in the past
                 // (options.random may have shifted us further to the past)
                 // call the callback immediately!
-                _dispatch(obj._script, obj.domain.bind(obj.callback));
+                _dispatch(obj._script, obj.domain.bind(obj.callback), obj._rt);
             } else {
                 // Schedule the event and track the job so it can be cancelled on script unload
-                obj._job = scheduler.scheduleJob(event, () => _dispatch(obj._script, obj.domain.bind(obj.callback)));
+                obj._job = scheduler.scheduleJob(event, () => _dispatch(obj._script, obj.domain.bind(obj.callback), obj._rt));
             }
         }
     }
@@ -530,11 +544,21 @@ new PerformanceObserver((list) => {
     }
 }).observe({ type: 'gc', buffered: false });
 
-// Register runtime stats provider for GET /she/status
-const statsSnapshot = () => {
+function countTopics() {
     let topics = 0;
     // eslint-disable-next-line no-unused-vars
     for (const _ of store.mqttEntries()) topics++;
+    return topics;
+}
+
+/**
+ * The daemon's gauges: rates since the previous sample (message rate, CPU, event-loop utilisation
+ * and lag), memory, counts. One sampler owns the interval counters — every reader (the status
+ * endpoint, the Runtime page, the hour's history) sees the same sample instead of resetting the
+ * counters under each other. Sampled every 10 s, every second while a Runtime page is open; the
+ * history keeps one sample per 10 s for an hour.
+ */
+function sampleGauges() {
     const now = Date.now();
     const elapsed = (now - _mqttMsgTs) / 1000;
     const mqttMsgPerSec = elapsed > 0 ? Math.round((_mqttMsgCount / elapsed) * 10) / 10 : 0;
@@ -549,7 +573,30 @@ const statsSnapshot = () => {
     const elMaxMs = Math.round(_elHisto.max / 1e6);
     _elHisto.reset();
     const mem = process.memoryUsage();
-    const memMb = Math.round(mem.rss / 1048576);
+    const sample = {
+        ts: now,
+        mqttMsgPerSec,
+        cpuPercent,
+        eluPercent: Math.round(eluDelta.utilization * 100),
+        elMeanMs,
+        elMaxMs,
+        memMb: Math.round(mem.rss / 1048576),
+        heapMb: Math.round(mem.heapUsed / 1048576),
+        topics: countTopics(),
+        handlers: runtime.handlers.size,
+        pendingTimers: runtime.pending.size,
+    };
+    runtime.latestGauges = sample;
+    runtime.gauges.push(sample);
+    return sample;
+}
+sampleGauges();
+
+// Register runtime stats provider for GET /she/status
+const statsSnapshot = () => {
+    const g = runtime.latestGauges || sampleGauges();
+    const { mqttMsgPerSec, cpuPercent, eluPercent, elMeanMs, elMaxMs, memMb, heapMb } = g;
+    const topics = countTopics();
     const core = shedb.getCore();
     const dbDocs = core ? Object.keys(core.docs).length : null;
     const dbViews = core ? Object.keys(core.queries).length : null;
@@ -584,15 +631,78 @@ const statsSnapshot = () => {
         dbViews,
         handlers: subscriptions.length + varSubscriptions.length + mqttEventCallbacks.length,
         memMb,
+        heapMb,
         cpuPercent,
-        eluPercent: Math.round(eluDelta.utilization * 100),
+        eluPercent,
         elMeanMs,
         elMaxMs,
+        pendingTimers: runtime.pending.size,
+        commandsFailed: runtime.commandsFailed,
         safeMode: SAFE_MODE,
         safeModeReason: SAFE_MODE_REASON,
     };
 };
 require('./web/server').setStatsProvider(statsSnapshot);
+
+// The Runtime page and the editor's Runtime panel: a snapshot about once a second over the
+// WebSocket, only to the clients that asked for it (optionally one script's part); the gauges are
+// sampled every second while someone watches, every 10 s otherwise.
+const _runtimeSubs = new Map(); // ws → script file | null (everything)
+const scriptLabel = (f) => makeLabel(f).slice(0, -1);
+const scriptOrigin = (f) => scriptOrigins.get(f) || 'user';
+const fileOfLabel = (label) => Object.keys(scripts).find((f) => scriptLabel(f) === label);
+function runtimeSnapshot(file) {
+    return runtime.snapshot({ script: file, label: scriptLabel, origin: scriptOrigin });
+}
+function pushRuntime() {
+    if (_runtimeSubs.size === 0) return;
+    let full = null;
+    for (const [ws, file] of _runtimeSubs) {
+        let snap;
+        if (file === null) snap = full || (full = runtimeSnapshot());
+        else snap = runtimeSnapshot(file);
+        sendWs(ws, { type: 'runtime', ...snap });
+    }
+}
+let _sampleTimer = null;
+function scheduleSample() {
+    if (_sampleTimer) clearTimeout(_sampleTimer);
+    _sampleTimer = setTimeout(
+        () => {
+            sampleGauges();
+            pushRuntime();
+            scheduleSample();
+        },
+        _runtimeSubs.size > 0 ? 1000 : 10_000,
+    );
+    _sampleTimer.unref();
+}
+scheduleSample();
+onClientMessage('runtime:subscribe', (ws, msg) => {
+    let file = null;
+    if (typeof msg.script === 'string' && msg.script) {
+        file = fileOfLabel(msg.script);
+        // not loaded (a library, a disabled or broken script): subscribe anyway and show it empty — the
+        // panel re-subscribes when the script's running state changes
+        if (!file) file = '\0unknown:' + msg.script;
+    }
+    const first = _runtimeSubs.size === 0;
+    _runtimeSubs.set(ws, file);
+    sendWs(ws, { type: 'runtime', ...runtimeSnapshot(file) });
+    if (first) scheduleSample(); // from the 10 s to the 1 s cadence at once
+});
+onClientMessage('runtime:unsubscribe', (ws) => _runtimeSubs.delete(ws));
+onClientClose((ws) => _runtimeSubs.delete(ws));
+require('./web/runtime-api').init({
+    runtime,
+    snapshot: (label) => {
+        if (!label) return runtimeSnapshot();
+        const file = fileOfLabel(label);
+        return runtimeSnapshot(file || '\0unknown:' + label);
+    },
+    history: () => ({ intervalMs: runtime.gauges.intervalMs, samples: runtime.gauges.list() }),
+    log: (file, msg) => log.info(makeLabel(file), msg),
+});
 
 // Health probe for GET /she/health (roadmap A1) — cheap, no counting, no allocation.
 const healthSnapshot = () => ({
@@ -633,7 +743,13 @@ const introspect = {
             publishes: [...(scriptPublishes.get(file) || [])],
             jobs: (scriptJobs.get(file) || []).filter(Boolean).map((job) => ({ next: nextOf(job) })),
             sunEvents: sunEvents.filter((e) => e._script === file).map((e) => ({ pattern: e.pattern, next: nextOf(e._job) })),
-            timers: [...(scriptTimers.get(file) || [])].map((t) => ({ due: t.due || null, every: t.every || null, kind: t.kind || null, name: t.name || null })),
+            timers: [...(scriptTimers.get(file) || [])].map((t) => ({
+                due: t.due || null,
+                start: t.start || null,
+                every: t.every || null,
+                kind: t.kind || null,
+                name: t.name || null,
+            })),
         })),
     stats: statsSnapshot,
     health: healthSnapshot,
@@ -948,25 +1064,50 @@ function stateChange(topic, state, oldState, msg) {
 
             delay = Math.floor(delay);
 
+            /**
+             * @callback subscribeCallback
+             * @param {string} topic - the topic that triggered this callback
+             * @param {mixed} val - the val property of the new state
+             * @param {object} obj - new state - the whole state object (e.g. {"val": true, "ts": 12346345, "lc": 12346345} )
+             * @param {object} objPrev - previous state - the whole state object
+             * @param {object} msg - the mqtt message as received from MQTT.js
+             */
+            const run = () => subs.deliver(topic, state.val, state, oldState, msg);
+            const timers = scriptTimers.get(subs._script) || new Set();
             // The delay timer is tracked like a script's own setTimeout, so a reload of
             // the script between the message and the shifted callback cancels the callback instead
             // of running the unloaded script's code.
-            trackTimeout(
-                scriptTimers.get(subs._script) || new Set(),
-                () => {
-                    /**
-                     * @callback subscribeCallback
-                     * @param {string} topic - the topic that triggered this callback
-                     * @param {mixed} val - the val property of the new state
-                     * @param {object} obj - new state - the whole state object (e.g. {"val": true, "ts": 12346345, "lc": 12346345} )
-                     * @param {object} objPrev - previous state - the whole state object
-                     * @param {object} msg - the mqtt message as received from MQTT.js
-                     */
-                    subs.deliver(topic, state.val, state, oldState, msg);
-                },
-                delay,
-                delay > 0 ? { kind: 'shift', name: subs.topic } : {},
-            );
+            if (delay === 0) {
+                trackTimeout(timers, run, 0);
+            } else {
+                // a shifted delivery is a pending timer of the script: listed under the
+                // subscription's `shift` group, cancellable from the editor
+                const group = runtime.timerGroup(subs._script, { kind: 'shift', name: subs.topic, line: subs._rt?.line ?? null });
+                let pending = null;
+                const id = trackTimeout(
+                    timers,
+                    () => {
+                        runtime.removePending(pending);
+                        run();
+                    },
+                    delay,
+                    { kind: 'shift', name: subs.topic },
+                );
+                const clear = () => {
+                    timers.delete(id);
+                    clearTimeout(id);
+                    runtime.removePending(pending);
+                };
+                pending = runtime.addPending(group, {
+                    due: id.due,
+                    start: id.start,
+                    fire: () => {
+                        clear();
+                        run();
+                    },
+                    cancel: clear,
+                });
+            }
         }
     });
 }
@@ -1053,9 +1194,20 @@ function runScript(script, name, _origin) {
             log.debug(logLabel, `${api} after unload ignored`);
             return null;
         }
-        return trackTimeout(
+        // The runtime model groups timers by kind, name and the line that created them: a plain
+        // setTimeout by its call site, a timing helper by the line the helper was created on (the
+        // helper passes it in its meta — the stack at re-arm time points into a callback).
+        const kind = meta.kind || 'timer';
+        const line = meta.line !== undefined ? meta.line : kind === 'timer' ? lineOf(name) : null;
+        const group = runtime.timerGroup(name, { kind, name: meta.name, line });
+        const run = scriptDomain.bind(() => _dispatch(name, fn, group));
+        let pending = null;
+        const id = trackTimeout(
             _myTimers,
-            scriptDomain.bind(() => _dispatch(name, fn)),
+            () => {
+                runtime.removePending(pending);
+                run();
+            },
             delay,
             {
                 warn: (msg) => log.warn(logLabel, msg),
@@ -1064,10 +1216,22 @@ function runScript(script, name, _origin) {
                 name: meta.name,
             },
         );
+        pending = runtime.addPending(group, {
+            due: id.due,
+            start: id.start,
+            fire: () => {
+                _clearTimeout(id);
+                run();
+            },
+            cancel: () => _clearTimeout(id),
+        });
+        id.rt = pending;
+        return id;
     }
     function _clearTimeout(id) {
         _myTimers.delete(id);
         clearTimeout(id);
+        if (id && id.rt) runtime.removePending(id.rt);
     }
     const _timing = timing.createTimingHelpers({
         setTimeout: (fn, ms, meta) => _timeout(fn, ms, meta),
@@ -1076,6 +1240,7 @@ function runScript(script, name, _origin) {
             _myHooks.add(fn);
             return () => _myHooks.delete(fn);
         },
+        line: () => lineOf(name),
     });
 
     const she = {
@@ -1171,15 +1336,22 @@ function runScript(script, name, _origin) {
             }
 
             const boundCallback = typeof callback === 'function' && scriptDomain.bind(callback);
+            const label = topics.length > 1 ? `${topics[0]} +${topics.length - 1}` : topics[0];
+            // one handler in the runtime model per call — the topics of an array share it, like
+            // they share the limiter below
+            const optNames = ['change', 'retain', 'shift', 'random', 'condition', 'debounce', 'throttle', 'maxWait', 'perTopic'].filter(
+                (k) => options[k] !== undefined && options[k] !== false,
+            );
+            const detail = [topics.length > 1 ? topics.join(', ') : null, optNames.length ? optNames.join(', ') : null].filter(Boolean).join(' · ') || null;
+            const handler = runtime.handler(name, { kind: 'sub', name: label, detail, line: lineOf(name) });
             // what runs the callback for one event; with opts.debounce or opts.throttle the events of
             // this call are bundled — across the topics of an array, per topic with opts.perTopic
-            let deliver = (t, val, obj, objPrev, msg) => _dispatch(name, () => boundCallback(t, val, obj, objPrev, msg));
-            const label = topics.length > 1 ? `${topics[0]} +${topics.length - 1}` : topics[0];
+            let deliver = (t, val, obj, objPrev, msg) => _dispatch(name, () => boundCallback(t, val, obj, objPrev, msg), handler);
             const limited = timing.subscriptionLimiter(options, deliver, _timing, label);
             if (limited) deliver = limited;
 
             for (const tp of topics) {
-                subscriptions.push({ topic: tp, options, callback: boundCallback, deliver, _script: name });
+                subscriptions.push({ topic: tp, options, callback: boundCallback, deliver, _script: name, _rt: handler });
                 _subCount++;
                 if (_subCount === 1000) {
                     log.warn(
@@ -1246,6 +1418,7 @@ function runScript(script, name, _origin) {
                 if (typeof options.shift !== 'undefined' && (options.shift < -86400 || options.shift > 86400)) {
                     throw new Error('options.shift out of range');
                 }
+                const sunDetail = [options.shift ? `shift ${options.shift}s` : null, options.random ? `random ${options.random}s` : null].filter(Boolean).join(', ') || null;
                 const obj = {
                     pattern,
                     options,
@@ -1253,19 +1426,37 @@ function runScript(script, name, _origin) {
                     context: she,
                     domain: scriptDomain,
                     _script: name,
+                    _rt: null,
                 };
+                obj._rt = runtime.handler(name, {
+                    kind: 'sun',
+                    name: pattern,
+                    detail: sunDetail,
+                    line: lineOf(name),
+                    next: () => nextOf(obj._job),
+                    run: () => _dispatch(name, scriptDomain.bind(callback), obj._rt),
+                });
                 sunEvents.push(obj);
                 sunScheduleEvent(obj);
                 return;
             }
 
+            // a Date from the sandbox is of the context's realm, so no instanceof
+            const shown = pattern && typeof pattern.toISOString === 'function' ? pattern.toISOString() : typeof pattern === 'string' ? pattern : JSON.stringify(pattern);
+            let handler = null;
+            const runNow = () => _dispatch(name, scriptDomain.bind(callback), handler);
             const run = options.random
                 ? () => {
                       // Track the random-delay timer so it is cancelled on unload
                       // if the job fires in the same tick as the script is reloaded.
-                      _timeout(scriptDomain.bind(callback), (parseFloat(options.random) || 0) * 1000 * Math.random(), { kind: 'schedule random' }, 'she.schedule');
+                      _timeout(
+                          () => runNow(),
+                          (parseFloat(options.random) || 0) * 1000 * Math.random(),
+                          { kind: 'schedule random', name: shown, line: handler?.line ?? null },
+                          'she.schedule',
+                      );
                   }
-                : () => _dispatch(name, scriptDomain.bind(callback));
+                : runNow;
             let job = null;
             job = scheduler.scheduleJob(pattern, () => {
                 // A one-shot job (a Date) is done after this run: forget it, so that a script
@@ -1273,16 +1464,23 @@ function runScript(script, name, _origin) {
                 if (job && job.nextInvocation() === null) {
                     const i = _myJobs.indexOf(job);
                     if (i !== -1) _myJobs.splice(i, 1);
+                    runtime.removeHandler(handler);
                 }
                 run();
             });
             if (!job) {
-                // a Date from the sandbox is of the context's realm, so no instanceof
-                const shown = pattern && typeof pattern.toISOString === 'function' ? pattern.toISOString() : JSON.stringify(pattern);
                 log.warn(logLabel, `she.schedule: nothing scheduled for ${shown} — not a valid pattern, or a date in the past`);
                 return;
             }
             _myJobs.push(job);
+            handler = runtime.handler(name, {
+                kind: 'schedule',
+                name: shown,
+                detail: options.random ? `random ${options.random}s` : null,
+                line: lineOf(name),
+                next: () => nextOf(job),
+                run: runNow,
+            });
         },
 
         /**
@@ -1409,11 +1607,12 @@ function runScript(script, name, _origin) {
             } else if (key.startsWith('var::')) {
                 const varStoreKey = 'var::' + key.slice(5);
                 const boundCb = scriptDomain.bind(callback);
+                const handler = runtime.handler(name, { kind: 'var', name: key, line: lineOf(name) });
                 // served by the one store listener at module level
-                varSubscriptions.push({ key: varStoreKey, callback: boundCb, _script: name });
+                varSubscriptions.push({ key: varStoreKey, callback: boundCb, _script: name, _rt: handler });
                 // Fire immediately if var already has a value (retain semantics)
                 const currentVarObj = store.getObject(varStoreKey);
-                if (currentVarObj !== undefined) boundCb(currentVarObj.val, currentVarObj, undefined);
+                if (currentVarObj !== undefined) _dispatch(name, () => boundCb(currentVarObj.val, currentVarObj, undefined), handler);
             } else if (key.startsWith('matter::')) {
                 const parts = key.slice(8).split('/');
                 if (parts.length !== 4) throw new TypeError('she.on: invalid matter key (expected matter::nodeId/ep/Cluster/attr)');
@@ -1444,19 +1643,36 @@ function runScript(script, name, _origin) {
                 delay = 0;
             }
             const wrapped = args.length ? () => fn(...args) : fn;
-            const id = setInterval(
-                scriptDomain.bind(() => _dispatch(name, wrapped)),
-                delay,
-            );
+            let handler = null;
+            let pending = null;
+            const tick = scriptDomain.bind(() => _dispatch(name, wrapped, handler));
+            const id = setInterval(() => {
+                // the pending entry is the next run: the progress bar starts over with every tick
+                if (pending) {
+                    pending.start = Date.now();
+                    pending.due = pending.start + delay;
+                }
+                tick();
+            }, delay);
             id.every = delay;
-            id.due = Date.now() + delay;
+            id.start = Date.now();
+            id.due = id.start + delay;
             _myTimers.add(id);
+            const clear = () => {
+                _myTimers.delete(id);
+                clearInterval(id);
+                runtime.removeHandler(handler);
+            };
+            handler = runtime.handler(name, { kind: 'interval', name: `every ${delay} ms`, line: lineOf(name), run: tick, cancel: clear });
+            pending = runtime.addPending(handler, { due: id.due, start: id.start, every: delay });
+            id.rt = handler;
             return id;
         },
         clearTimeout: _clearTimeout,
         clearInterval: (id) => {
             _myTimers.delete(id);
             clearInterval(id);
+            if (id && id.rt) runtime.removeHandler(id.rt);
         },
 
         Buffer,
@@ -1692,6 +1908,7 @@ function unloadScript(file) {
         scriptTimers.delete(file);
     }
     scriptPublishes.delete(file);
+    runtime.removeScript(file);
 
     // Remove store-based var:: subscriptions belonging to this script
     for (let i = varSubscriptions.length - 1; i >= 0; i--) {

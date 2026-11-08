@@ -57,7 +57,8 @@ function trackTimeout(timers, fn, delay, opts = {}) {
         fn();
     }, delay);
     if (id && typeof id === 'object') {
-        id.due = Date.now() + delay; // when it fires (roadmap I28: list_timers)
+        id.start = Date.now(); // when it was armed — the progress bar of the timer list runs from here
+        id.due = id.start + delay; // when it fires (roadmap I28: list_timers)
         if (opts.kind) id.kind = opts.kind;
         if (opts.name) id.name = opts.name;
     }

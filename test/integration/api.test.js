@@ -236,3 +236,125 @@ describe('she.http.sub() — webhook routes', () => {
         expect(res.body).toMatchObject({ error: 'async error' });
     });
 });
+
+describe('runtime model — GET /she/runtime, history, actions, WebSocket', () => {
+    const WebSocket = require('ws');
+    const byKind = (handlers, kind) => handlers.filter((h) => h.kind === kind);
+    let script;
+
+    it("lists the script's handlers with kinds, names, lines and pending timers", async () => {
+        const res = await get('/she/runtime?script=test-runtime.js');
+        expect(res.status).toBe(200);
+        expect(res.body.scripts).toHaveLength(1);
+        [script] = res.body.scripts;
+        expect(script.label).toBe('test-runtime.js');
+        const sub = byKind(script.handlers, 'sub')[0];
+        expect(sub).toMatchObject({ name: 'runtime/input', detail: 'change', line: 7, fires: 0 });
+        expect(byKind(script.handlers, 'var')[0]).toMatchObject({ name: 'var::runtimeVar', line: 12 });
+        const sched = byKind(script.handlers, 'schedule')[0];
+        expect(sched).toMatchObject({ name: '0 3 * * *', line: 14, actions: { run: true, cancel: false } });
+        expect(typeof sched.next).toBe('number');
+        const interval = byKind(script.handlers, 'interval')[0];
+        expect(interval).toMatchObject({ name: 'every 60000 ms', line: 16, actions: { run: true, cancel: true } });
+        expect(interval.pending).toHaveLength(1);
+        expect(interval.pending[0].every).toBe(60000);
+        const timer = byKind(script.handlers, 'timer')[0];
+        expect(timer).toMatchObject({ line: 18 });
+        expect(timer.pending).toHaveLength(1);
+        expect(timer.pending[0].due - timer.pending[0].start).toBe(3600000);
+        // the debounce exists as a helper but has no pending timer until it is called
+        expect(byKind(script.handlers, 'debounce')).toHaveLength(0);
+        // the whole model lists every script with a registration (test-api.js has only routes)
+        const all = await get('/she/runtime');
+        expect(all.body.scripts.map((s) => s.label)).toContain('test-runtime.js');
+        expect(all.body.gauges).toMatchObject({ memMb: expect.any(Number), handlers: expect.any(Number) });
+    });
+
+    it('counts a fire and an error of the subscription, with the callback time', async () => {
+        mqtt.publish('runtime/input', '1');
+        mqtt.publish('runtime/input', 'throw');
+        await new Promise((r) => setTimeout(r, 300));
+        const res = await get('/she/runtime?script=test-runtime.js');
+        const sub = byKind(res.body.scripts[0].handlers, 'sub')[0];
+        expect(sub.fires).toBe(2);
+        expect(sub.errors).toBe(1);
+        expect(sub.lastFire).toBeGreaterThan(0); // the daemon runs on a mocked clock
+        expect(sub.recent).toMatchObject({ fires: 2, errors: 1 });
+        expect(sub.totalMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('an armed debounce shows up with its name and the creating line', async () => {
+        await get('/api/test-runtime/arm');
+        const res = await get('/she/runtime?script=test-runtime.js');
+        const deb = byKind(res.body.scripts[0].handlers, 'debounce')[0];
+        expect(deb).toMatchObject({ name: 'runtime bundle', line: 20 });
+        expect(deb.pending).toHaveLength(1);
+    });
+
+    it('runs a pending debounce now and cancels the long timer, both logged to the script', async () => {
+        const before = await get('/she/runtime?script=test-runtime.js');
+        const deb = byKind(before.body.scripts[0].handlers, 'debounce')[0];
+        const timer = byKind(before.body.scripts[0].handlers, 'timer')[0];
+        const ran = new Promise((resolve) => subscribe(/test-runtime\.js: runtime debounce ran/, () => resolve()));
+        const logged = new Promise((resolve) => subscribe(/test-runtime\.js: debounce "runtime bundle" run now from the editor/, () => resolve()));
+        let res = await post('/she/runtime/action', { id: deb.pending[0].id, action: 'run' });
+        expect(res.status).toBe(200);
+        await ran;
+        await logged;
+        res = await post('/she/runtime/action', { id: timer.pending[0].id, action: 'cancel' });
+        expect(res.status).toBe(200);
+        const after = await get('/she/runtime?script=test-runtime.js');
+        expect(byKind(after.body.scripts[0].handlers, 'timer')[0].pending).toHaveLength(0);
+        expect(byKind(after.body.scripts[0].handlers, 'debounce')[0]).toMatchObject({ fires: 1, pending: [] });
+        // the id is gone now
+        res = await post('/she/runtime/action', { id: timer.pending[0].id, action: 'cancel' });
+        expect(res.status).toBe(404);
+    });
+
+    it('runs a schedule once; the schedule stays', async () => {
+        const before = await get('/she/runtime?script=test-runtime.js');
+        const sched = byKind(before.body.scripts[0].handlers, 'schedule')[0];
+        const ran = new Promise((resolve) => subscribe(/test-runtime\.js: runtime schedule ran/, () => resolve()));
+        const res = await post('/she/runtime/action', { id: sched.id, action: 'run' });
+        expect(res.status).toBe(200);
+        await ran;
+        const after = await get('/she/runtime?script=test-runtime.js');
+        expect(byKind(after.body.scripts[0].handlers, 'schedule')[0]).toMatchObject({ id: sched.id, fires: 1 });
+    });
+
+    it('GET /she/runtime/history has at least the start sample', async () => {
+        const res = await get('/she/runtime/history');
+        expect(res.status).toBe(200);
+        expect(res.body.intervalMs).toBe(10000);
+        expect(res.body.samples.length).toBeGreaterThanOrEqual(1);
+        expect(res.body.samples[0]).toMatchObject({ ts: expect.any(Number), memMb: expect.any(Number), heapMb: expect.any(Number) });
+    });
+
+    it('pushes the snapshot over the WebSocket to a subscribed client, filtered to the script', async () => {
+        const ws = new WebSocket(`ws://127.0.0.1:${apiPort}/she/ws`);
+        await new Promise((resolve, reject) => {
+            ws.on('open', resolve);
+            ws.on('error', reject);
+        });
+        const first = new Promise((resolve) => {
+            ws.on('message', (data) => {
+                const msg = JSON.parse(data.toString());
+                if (msg.type === 'runtime') resolve(msg);
+            });
+        });
+        ws.send(JSON.stringify({ type: 'runtime:subscribe', script: 'test-runtime.js' }));
+        const msg = await first;
+        expect(msg.scripts.map((s) => s.label)).toEqual(['test-runtime.js']);
+        expect(msg.gauges).toBeTruthy();
+        // a second snapshot follows within about a second while subscribed
+        const second = new Promise((resolve) => {
+            ws.on('message', (data) => {
+                const m = JSON.parse(data.toString());
+                if (m.type === 'runtime' && m.ts > msg.ts) resolve(m);
+            });
+        });
+        await second;
+        ws.send(JSON.stringify({ type: 'runtime:unsubscribe' }));
+        ws.close();
+    }, 10000);
+});
