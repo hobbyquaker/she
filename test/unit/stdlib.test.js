@@ -578,3 +578,24 @@ describe('she.http.sub()', () => {
         expect(cb).toHaveBeenCalledWith({ key: 'val' }, { params: { id: '1' }, query: { q: 'x' }, headers: { 'x-foo': 'bar' } });
     });
 });
+
+describe('she.mqtt.timer() argument validation', () => {
+    it('throws at load when ms is not a number — the swapped-arguments case', () => {
+        const she = makeShe();
+        expect(() => she.mqtt.timer(['home/motion'], 'home/presence', 5 * 60 * 1000)).toThrow(TypeError);
+        expect(() => she.mqtt.timer(['home/motion'], 'home/presence', 5 * 60 * 1000)).toThrow(
+            /she\.mqtt\.timer\(src, ms, target\): ms must be a number of milliseconds \(got "home\/presence"\)/,
+        );
+        expect(she.mqttsub).not.toHaveBeenCalled();
+        expect(() => she.mqtt.timer('home/motion', undefined, 'home/presence')).toThrow(/got undefined/);
+        expect(() => she.mqtt.timer('home/motion', NaN, 'home/presence')).toThrow(/got NaN/);
+        expect(() => she.mqtt.timer('home/motion', -1, 'home/presence')).toThrow(TypeError);
+    });
+
+    it('throws when target is neither a topic nor a callback', () => {
+        const she = makeShe();
+        expect(() => she.mqtt.timer('home/motion', 1000, 300000)).toThrow(/target must be a topic string or a callback \(got number\)/);
+        expect(() => she.mqtt.timer('home/motion', 1000, 'home/presence')).not.toThrow();
+        expect(() => she.mqtt.timer('home/motion', 1000, () => {})).not.toThrow();
+    });
+});

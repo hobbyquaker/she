@@ -123,6 +123,15 @@ module.exports = function (she, ctx = {}) {
          * cleared by an initial timeout on startup.
          */
         timer: function Sandbox_mqtt_timer(src, ms, target) {
+            // Swapped arguments used to become a 1 ms timer and a variable named like the number —
+            // silently, apart from Node's anonymous TimeoutNaNWarning. Fail at load instead.
+            const signature = 'she.mqtt.timer(src, ms, target)';
+            if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) {
+                throw new TypeError(`${signature}: ms must be a number of milliseconds (got ${typeof ms === 'string' ? JSON.stringify(ms) : String(ms)})`);
+            }
+            if (typeof target !== 'string' && typeof target !== 'function') {
+                throw new TypeError(`${signature}: target must be a topic string or a callback (got ${typeof target})`);
+            }
             const key = target;
             she.mqttsub(src, { retain: false }, (topic, val) => {
                 if (isTruthy(val)) {
