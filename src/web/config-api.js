@@ -8,10 +8,11 @@ const { getConfigPath } = require('../lib/storage');
 const DEFAULT_CONFIG_PATH = getConfigPath();
 
 /**
- * Config keys that are consumed only by the frontend (no daemon restart needed).
- * All other keys require a daemon restart when changed.
+ * Config keys whose change needs no daemon restart: consumed only by the frontend, or re-read
+ * from the file by the daemon at every use (updateChannel — the update check). All other keys
+ * require a daemon restart when changed.
  */
-const FRONTEND_ONLY_KEYS = new Set(['gitAutoCommit', 'gitAutoPush', 'pinnedPackages']);
+const FRONTEND_ONLY_KEYS = new Set(['gitAutoCommit', 'gitAutoPush', 'pinnedPackages', 'updateChannel']);
 
 const router = express.Router();
 

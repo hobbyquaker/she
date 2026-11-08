@@ -237,6 +237,7 @@ if (typeof config.port !== 'undefined') {
             bindAddress: config.bindAddress,
             configPath: config.config,
             scriptDir: config.dir || null,
+            updateChannel: config.updateChannel,
         })
         .then((actualPort) => log.info('http server listening on :' + actualPort))
         .catch((err) => {
@@ -270,6 +271,7 @@ const scheduler = modules['node-schedule'];
 const StateStore = require('./lib/state-store');
 const { trackTimeout, isValidDelay, describeDelay } = require('./lib/script-timers');
 const timing = require('./lib/timing');
+const timeLib = require('./lib/time');
 const publishChanged = require('./lib/publish-changed');
 const { Runtime } = require('./lib/runtime');
 const { callerLine } = require('./lib/call-site');
@@ -386,6 +388,14 @@ const SUNCALC_EVENTS = new Set([
 
 const sunEvents = [];
 let sunTimes = [{}, /* today */ {}, /* tomorrow */ {}];
+
+// she.time: the zone, locale and holiday table every script's helpers use — validated once,
+// a bad value is logged once here and replaced by the default.
+const timeSettings = timeLib.settingsFromConfig(config, (msg) => log.warn(msg));
+log.info(
+    `she.time: zone ${timeSettings.timeZone}, locale ${timeSettings.locale}, holidays ${timeSettings.holidays || 'not configured'}` +
+        (timeSettings.holidaysExtra.length ? ` + ${timeSettings.holidaysExtra.length} extra` : ''),
+);
 
 function calculateSunTimes() {
     const now = new Date();
@@ -756,7 +766,14 @@ const introspect = {
             if (!mqtt || !connected) return reject(new Error('MQTT is not connected'));
             mqtt.publish(String(topic), typeof payload === 'object' ? JSON.stringify(payload) : String(payload), opts || {}, (err) => (err ? reject(err) : resolve()));
         }),
-    config: () => ({ name: config.name, variablePrefix: config.variablePrefix || 'var', version: pkg.version }),
+    config: () => ({
+        name: config.name,
+        variablePrefix: config.variablePrefix || 'var',
+        version: pkg.version,
+        timezone: timeSettings.timeZone,
+        locale: timeSettings.locale,
+        holidays: timeSettings.holidays,
+    }),
     scripts: () =>
         Object.keys(scripts).map((file) => ({
             file,
@@ -1800,6 +1817,9 @@ function runScript(script, name, _origin, source) {
     she.config = Object.freeze({
         latitude: config.latitude,
         longitude: config.longitude,
+        timezone: timeSettings.timeZone,
+        locale: timeSettings.locale,
+        holidays: timeSettings.holidays,
     });
     // she.secrets (roadmap A5): read-only access to the secrets store; unknown paths warn once per script
     const _secretWarned = new Set();
@@ -1824,6 +1844,13 @@ function runScript(script, name, _origin, source) {
     she.throttle = _timing.throttle;
     she.timeout = _timing.timeout;
     she.retry = _timing.retry;
+    // she.time: windows, wall-clock instants, holidays and formatting in the configured zone;
+    // sun events come from suncalc with the coordinates she.schedule uses.
+    she.time = timeLib.createTime({
+        ...timeSettings,
+        sunTimes: (noonMs) => suncalc.getTimes(new Date(noonMs), config.latitude, config.longitude),
+        warn: (msg) => log.warn(logLabel, msg),
+    });
     sandboxModules.forEach((md) => {
         md(she, { scriptDomain, scriptName, scriptFile: name });
     });

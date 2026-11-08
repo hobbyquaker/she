@@ -77,8 +77,28 @@ const config = require('yargs')
         type: 'number',
     })
     .option('timezone', {
-        describe: 'IANA timezone for schedules (default: the system timezone)',
+        describe: 'IANA timezone for schedules and she.time (default: the system timezone)',
         default: '',
+        type: 'string',
+    })
+    .option('locale', {
+        describe: 'locale for the names and words she.time formats, e.g. en-US (default: de-DE)',
+        default: '',
+        type: 'string',
+    })
+    .option('holidays', {
+        describe: 'public-holiday region for she.time.isHoliday(), e.g. DE-BW or AT (default: none)',
+        default: '',
+        type: 'string',
+    })
+    .option('holidays-extra', {
+        describe: 'additional holidays for she.time: MM-DD or YYYY-MM-DD, optionally followed by a name',
+        type: 'array',
+        default: [],
+    })
+    .option('update-channel', {
+        describe: 'which GitHub releases the update check offers: stable (releases) or beta (pre-releases too)',
+        default: 'stable',
         type: 'string',
     })
     .option('variable-prefix', {

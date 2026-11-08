@@ -13,6 +13,7 @@ she.http.fetch(url, [opts])         → Promise<{ body, code, headers }>
 she.debug / info / warn / error     logging
 setTimeout / setInterval            available; she.timeout(ms, cb) → handle.restart()/cancel() is a restartable timer (motion light)
 she.debounce(fn, ms, [{ maxWait }]) / she.throttle(fn, ms) / she.retry(fn, { tries, delay, onFail })   MILLISECONDS; cleared on reload
+she.time.between('22:00', '06:00') / at('06:00') / isWorkday() / format(ts, 'dd HH:mm') / iso(ts) / duration(a, b) / humanize(ms)   the daemon's zone, DST-safe; not getHours()
 ```
 Variables: read `var/status/<name>`, write `she.mqtt.pub('var/set/<name>', value)`.
 For anything else ask with the tool she_api_doc or say that you are not sure.

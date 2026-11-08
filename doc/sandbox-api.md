@@ -11,6 +11,7 @@ Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox m
 - [she.now()](#shenow)
 - [Timing helpers](#timing-helpers) — `she.timeout`, `she.debounce`, `she.throttle`, `she.retry`, `she.setTimeout`
 - [she.schedule()](#sheschedulepattern-options-callback)
+- [she.time — Time windows, holidays, formatting](#shetime----time-windows-holidays-formatting)
 - [she.global](#sheglobal)
 - [she.http — HTTP helpers](#shehttp----http-helpers)
 - [she.config](#sheconfig)
@@ -581,6 +582,65 @@ she.schedule(['dawn', 'dusk'], callback);
 
 ---
 
+## she.time -- Time windows, holidays, formatting
+
+What scripts otherwise build from `getHours()`, `getDay()` and `padStart` — "after 6", "at night", "on a weekend", a formatted timestamp — once, in the daemon's time zone and safe across the daylight-saving changes. Every helper takes a timestamp in milliseconds (what `she.now()`, `obj.ts` and `Date.now()` give), a `Date` or an ISO string, and defaults to now.
+
+**Configuration** (config file or *Config → Location*): `timezone` (IANA name; default the system zone — the zone `she.schedule` uses as well), `locale` (names and words, default `de-DE`), `holidays` (the region for `isHoliday()`: `DE`, a German state such as `DE-BW`, `AT`), `holidaysExtra` (a list of `MM-DD` or `YYYY-MM-DD`, each optionally followed by a name). An invalid value is logged at start-up and replaced by the default. Sun events use the coordinates of `she.schedule` (`latitude`/`longitude`).
+
+| Method | Returns | Description |
+|---|---|---|
+| `she.time.between(from, to, [ts])` | `boolean` | Is `ts` in the window? `from`/`to` are `'HH:mm'` / `'HH:mm:ss'` or a sun event with an optional offset (`'sunset-30m'`, `'dawn+1h'`, `'sunrise+90s'`; units `ms`, `s`, `m`, `h`). `from` inclusive, `to` exclusive; a `to` before `from` crosses midnight (`'22:00', '06:00'`). |
+| `she.time.at(time, [ts])` | `number` | The instant (ms) of `time` on the day of `ts` — `'06:00'` or a sun event like `'sunset-30m'`; `'24:00'` is the next midnight. `NaN` when a sun event does not occur that day. |
+| `she.time.startOfDay([ts])` / `endOfDay([ts])` | `number` | Midnight of the day, and the day's last millisecond. |
+| `she.time.addDays(ts, days)` | `number` | The same wall-clock time `days` days later (negative: earlier) — 23, 24 or 25 hours on the change days, not `+ 86400000`. |
+| `she.time.parts([ts])` | `object` | `{ year, month (1–12), day, hour, minute, second, millisecond, weekday (0 = Sunday), offset (minutes), zone }` in the configured zone — the replacement for `getHours()` and friends. |
+| `she.time.isWeekend([ts])` | `boolean` | Saturday or Sunday. |
+| `she.time.isHoliday([ts])` | `boolean` | A public holiday of the configured region, or an extra one; `false` (and one warning per script) when none is configured. |
+| `she.time.holiday([ts])` | `string \| null` | The holiday's name (`'Karfreitag'`), or `null`. |
+| `she.time.isWorkday([ts])` | `boolean` | Neither weekend nor holiday. |
+| `she.time.format(ts, [pattern])` | `string` | The tokens below; default `'YYYY-MM-DD HH:mm:ss'`. |
+| `she.time.iso([ts])` | `string` | ISO 8601 with the zone's offset: `2026-10-25T02:41:00+02:00`. |
+| `she.time.duration(a, b)` | `number` | `b − a` in ms — the real difference between two instants. |
+| `she.time.humanize(ms, [{ parts, long }])` | `string` | `'2 h 40 min'`: the two largest units (`d`, `h`, `min`, `s`; `ms` below one second). `parts` shows more units, `long: true` spells them out in the locale (`'2 Stunden 40 Minuten'`). |
+| `she.time.zone` / `.locale` / `.holidays` | `string` | The settings in use (`holidays` is `null` when not configured). |
+
+**Format tokens**: `YYYY` `YY` year · `M` `MM` month, `MMM` `MMMM` its name · `D` `DD` day · `H` `HH` hour (24 h) · `m` `mm` minute · `s` `ss` second · `SSS` milliseconds · `dd` weekday short (`So`), `ddd` long (`Sonntag`) · `Z` offset (`+01:00`) · `[text]` literal. Names follow `locale`.
+
+**Daylight-saving time.** The behaviour is fixed, and the tests pin it:
+- A time that does not exist — `at('02:30')` on the day the clocks go forward — is the instant one hour later on the wall clock: 03:30. A window `02:00–03:00` is empty that day; `01:30–03:30` lasts one hour.
+- A time that exists twice — `at('02:30')` on the day the clocks go back — is its first occurrence (still summer time). A window `02:00–03:00` lasts two hours that day; `22:00–06:00` nine.
+- `between`, `duration` and `addDays` compare instants, so none of them is off by an hour.
+
+```js
+// a night window — one call, over midnight
+if (she.time.between('22:00', '06:00')) she.mqtt.pub('home/set/hall/light', 30);
+
+// relative to the sun: from half an hour before sunset until 23:00
+she.mqtt.sub('home/status/hall/motion', (topic, val) => {
+    if (val && she.time.between('sunset-30m', '23:00')) she.mqtt.pub('home/set/hall/light', 1);
+});
+
+// an event list that stays sortable in the double hour: the ISO timestamp carries the offset
+she.mqtt.sub('home/status/+/door', (topic, val, obj) => {
+    events.unshift({ at: she.time.iso(obj.ts), text: she.time.format(obj.ts, 'dd HH:mm') + ' ' + topic });
+});
+
+// a sleep duration across the autumn change: 02:40 CEST → 06:25 CET is 4 h 45 min, not 3 h 45 min
+const night = she.time.duration(asleepTs, awakeTs);
+she.mqtt.pub('var/set/sleep/last', she.time.humanize(night));
+
+// on working days only, every five minutes between 6 and 8 in the morning
+she.schedule('*/5 6-7 * * *', () => {
+    if (she.time.isWorkday()) she.mqtt.pub('home/set/kitchen/radio', 1);
+});
+
+// tomorrow at 06:00 — right on the 23- and 25-hour days as well
+const wake = she.time.at('06:00', she.time.addDays(she.now(), 1));
+```
+
+---
+
 ## she.global
 
 A plain object shared across all running scripts. Use it to pass values, pre-computed results, or utility functions between scripts without going through MQTT.
@@ -720,6 +780,9 @@ A read-only object exposing daemon configuration values relevant to scripts. Att
 |---|---|---|
 | `she.config.latitude` | `number` | Geographic latitude configured under *Config → Solar events*. Used internally for suncalc event scheduling. |
 | `she.config.longitude` | `number` | Geographic longitude configured under *Config → Solar events*. |
+| `she.config.timezone` | `string` | The IANA time zone `she.time` and `she.schedule` work in — the configured one, or the system's. |
+| `she.config.locale` | `string` | The locale of `she.time.format`'s names (default `de-DE`). |
+| `she.config.holidays` | `string \| null` | The holiday region of `she.time.isHoliday()`, or `null` when none is configured. |
 
 ```js
 she.info('location:', she.config.latitude, she.config.longitude);

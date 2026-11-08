@@ -814,7 +814,12 @@ Returns a snapshot of runtime counters.
 | `safeMode` | `true` when the daemon runs in [safe mode](script-engine.md#safe-mode) — the web UI shows a banner |
 | `mqttMsgPerSec`, `cpuPercent`, `eluPercent`, `elMeanMs`, `elMaxMs`, `memMb`, `heapMb` | The daemon's gauges from the latest sample (taken every 10 s, every second while a Runtime page is open — see [`/she/runtime/history`](#get-sheruntimehistory)) |
 | `handlers`, `pendingTimers`, `commandsFailed` | Registered handlers, timers pending right now, `she.mqtt.command` failures (timeout, offline) since start |
-| `matterEnabled`, `matterNodes`, `matterEndpoints`, `dbEnabled`, `dbDocs`, `dbViews`, `startedAt`, `dataDir`, `user`, `docker`, `latestVersion` | What the web UI's header needs |
+| `matterEnabled`, `matterNodes`, `matterEndpoints`, `dbEnabled`, `dbDocs`, `dbViews`, `startedAt`, `dataDir`, `user` | What the web UI's header needs |
+| `updateChannel` | The update channel in use: `stable` or `beta` (config key `updateChannel`) |
+| `latestVersion` | The version the channel offers — newer than the running one and published on npm; absent when there is none. `latestPrerelease: true` marks a pre-release |
+| `latestStable` / `latestBeta` | The newest release and the newest pre-release on GitHub, whatever the channel (when known) |
+| `updateError` | Why the last check could not offer anything (GitHub or npm unreachable, a release missing on npm) |
+| `docker` | `true` in a Docker container — the daemon does not update itself there |
 
 ### POST /she/restart
 
@@ -827,6 +832,22 @@ Sends a graceful shutdown signal. The process exits with code 0 so the process m
 ```
 
 The connection will drop immediately after the response. The daemon is typically back within a second or two.
+
+### POST /she/check-update
+
+Asks GitHub for the releases of she and answers what the configured channel offers: `stable` — the newest release — or `beta` — the newest release or pre-release, whichever is higher. A version is offered only when it is newer than the running one (never a downgrade) and published on npm. Best-effort: when GitHub or npm cannot be reached, `latestVersion` is `null` and `updateError` says why. The daemon runs this check at start and every 24 hours by itself.
+
+```json
+{ "latestVersion": "3.0.0-beta.1", "updateChannel": "beta", "latestPrerelease": true, "latestStable": "2.1.0", "latestBeta": "3.0.0-beta.1" }
+```
+
+### POST /she/update
+
+Installs the offered version exactly (`sudo npm install -g smart-home-engine@<version>`) and restarts the daemon. **409** `{ ok: false, error }` when no update is known (run the check first) or in a Docker container, which is updated by pulling a new image.
+
+```json
+{ "ok": true, "version": "3.0.0-beta.1" }
+```
 
 ---
 

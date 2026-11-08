@@ -1514,8 +1514,9 @@ function toolGetHealth(ctx = {}) {
     if (!ctx.introspect?.health) return NO_INTROSPECT;
     const h = ctx.introspect.health() || {};
     const st = ctx.introspect.stats ? ctx.introspect.stats() || {} : {};
+    const cfg = ctx.introspect.config ? ctx.introspect.config() || {} : {};
     const lines = [
-        `started: ${h.started}, mqtt: ${h.mqttConfigured ? (h.mqttConnected ? 'connected' : 'DISCONNECTED') : 'not configured'}, scripts loaded: ${h.scripts}, safe mode: ${h.safeMode ? 'YES' : 'no'}`,
+        `she ${cfg.version || 'unknown version'} — started: ${h.started}, mqtt: ${h.mqttConfigured ? (h.mqttConnected ? 'connected' : 'DISCONNECTED') : 'not configured'}, scripts loaded: ${h.scripts}, safe mode: ${h.safeMode ? 'YES' : 'no'}`,
     ];
     if (st.topics !== undefined) lines.push(`topics: ${st.topics}, messages/s: ${st.mqttMsgPerSec}, handlers: ${st.handlers}`);
     if (st.memMb !== undefined)
@@ -1524,6 +1525,7 @@ function toolGetHealth(ctx = {}) {
     if (st.dbEnabled) lines.push(`sheDB: ${st.dbDocs} document(s), ${st.dbViews} view(s)`);
     if (st.pendingTimers !== undefined)
         lines.push(`pending timers: ${st.pendingTimers}, failed commands since start: ${st.commandsFailed ?? 0} (she.mqtt.command: timeout or offline)`);
+    if (cfg.timezone) lines.push(`time: zone ${cfg.timezone}, locale ${cfg.locale}, holidays ${cfg.holidays || 'NOT CONFIGURED (she.time.isHoliday() is always false)'}`);
     return lines.join('\n');
 }
 

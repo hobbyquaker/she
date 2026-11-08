@@ -19,6 +19,11 @@ Usage: she [options]
 | | `--disable-watch` | `false` | Disable file watching (scripts are not reloaded on change). |
 | | `--latitude` | `48.7408` | Latitude for solar-event scheduling (`she.schedule('sunrise', ...)`). |
 | | `--longitude` | `9.1778` | Longitude for solar-event scheduling. |
+| | `--timezone` | system | IANA time zone for `she.schedule` and `she.time` (e.g. `Europe/Berlin`). Default: the system zone. |
+| | `--locale` | `de-DE` | Locale of the names `she.time.format` writes and of `she.time.humanize`'s long form. |
+| | `--holidays` | — | Public-holiday region for `she.time.isHoliday()`: `DE`, a German state (`DE-BW`, …) or `AT`. |
+| | `--holidays-extra` | — | Additional holidays for `she.time`: `MM-DD` or `YYYY-MM-DD`, each optionally followed by a name (a list in the config file). |
+| | `--update-channel` | `stable` | Which GitHub releases the update check offers: `stable` (releases) or `beta` (pre-releases too). Read from the config file at every check, so a change on the Config page needs no restart. |
 | | `--auth` | `none` | Authentication mode: `none` (open), `password` (single-user login), `proxy` (trust HTTP header set by nginx/authentik). |
 | | `--proxy-header` | `X-Remote-User` | HTTP header carrying the authenticated user in `proxy` mode. |
 | | `--bind-address` | `0.0.0.0` | Interface the HTTP server binds to. Use `127.0.0.1` when behind nginx. |

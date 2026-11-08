@@ -53,6 +53,21 @@ she.now()                              Milliseconds since the epoch
 setTimeout / setInterval               Available; cleared automatically when the script is unloaded; a bad delay is logged with the script name
 ```
 
+### Time (she.time — the daemon's zone, DST-safe; ts = ms | Date | ISO string, default now)
+```
+she.time.between(from, to, [ts])       In the window? from/to: 'HH:mm' or a sun event with offset ('sunset-30m', 'dawn+1h', 'sunrise+90s'); from inclusive, to exclusive
+                                        to before from crosses midnight: she.time.between('22:00', '06:00') is the whole night in one call
+she.time.at(time, [ts])                ms of 'HH:mm' or a sun event on the day of ts; '24:00' = next midnight; NaN when the sun event does not occur
+she.time.startOfDay / endOfDay([ts])   ms of midnight / of the day's last ms;  she.time.addDays(ts, n)  the same wall clock n days later (DST-safe, not +86400000)
+she.time.parts([ts])                   { year, month 1-12, day, hour, minute, second, millisecond, weekday 0=Sunday, offset (min), zone } — instead of getHours()/getDay()
+she.time.isWeekend / isHoliday / isWorkday([ts])   holidays from the config (holidays: 'DE-BW', holidaysExtra: [...]); she.time.holiday([ts]) → name or null
+she.time.format(ts, [pattern])         tokens YYYY YY M MM MMM MMMM D DD H HH m mm s ss SSS dd (So) ddd (Sonntag) Z (+01:00) [literal]; default 'YYYY-MM-DD HH:mm:ss'
+she.time.iso([ts])                     '2026-10-25T02:41:00+02:00' — ISO 8601 WITH offset: sortable even in the autumn double hour
+she.time.duration(a, b)                b - a in ms, the real difference;  she.time.humanize(ms, [{ parts: 2, long }]) → '2 h 40 min' / '2 Stunden 40 Minuten'
+    DST rules: a time in the spring gap (02:30) resolves to 03:30; one in the autumn double hour to its first occurrence; windows and durations compare instants
+    Prefer she.time over new Date().getHours()/getDay()/toLocale*/padStart: those use the process zone and break around the DST change
+```
+
 ### sheDB (documents, ids like topics: devices/lamp1)
 ```
 she.db.get(id)                         Document or undefined
