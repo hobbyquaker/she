@@ -695,3 +695,40 @@ describe('timing helpers (debounce, throttle, timeout) and the sub/pub options',
         }
     }, 20000);
 });
+
+describe('she.time in the sandbox', () => {
+    it('iso carries the offset of the configured zone and parses back to the instant', (done) => {
+        subscribe('ms', /test-time\.js: time-iso (\d+) (\S+) zone=(\S+)/, (line, match) => {
+            const [, ts, iso, zone] = match;
+            expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
+            expect(Date.parse(iso)).toBe(Math.floor(Number(ts) / 1000) * 1000); // iso is to the second
+            expect(Intl.supportedValuesOf('timeZone').concat('UTC')).toContain(zone);
+            done();
+        });
+        mqtt.publish('time/iso', '1');
+    }, 20000);
+
+    it('a 22:00–06:00 window is one call, and the sun events come from the daemon', (done) => {
+        subscribe('ms', /test-time\.js: time-window night=(\w+) day=(\w+) sunset=(\w+) sunsetDay=(\w+)/, (line, match) => {
+            const [, night, day, sunset, sunsetDay] = match;
+            expect(night).toBe('true');
+            expect(day).toBe('false');
+            expect(sunset).toBe('true');
+            expect(sunsetDay).toBe('true');
+            done();
+        });
+        mqtt.publish('time/window', '1');
+    }, 20000);
+
+    it('isHoliday without a holiday config is false and warns once with the script name', (done) => {
+        let warned = 0;
+        subscribe('ms', /test-time\.js: she\.time: no holidays configured/, () => {
+            warned += 1;
+        });
+        subscribe('ms', /test-time\.js: time-holiday first=false second=false workdayIsBoolean=true/, () => {
+            expect(warned).toBe(1);
+            done();
+        });
+        mqtt.publish('time/holiday', '1');
+    }, 20000);
+});
