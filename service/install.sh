@@ -45,6 +45,9 @@ install -m 755 -o root -g root "$HELPER_SRC" "$HELPER_DST"
 echo "installed $HELPER_DST"
 
 # --- sudoers rules -------------------------------------------------------
+# she's own update runs through the helper (she-servicectl she-update <version>). The npm line is
+# the fallback for a daemon that still updates with the literal command (she up to 3.0.0-beta.1);
+# it goes away in a later release.
 NPM_BIN="$(command -v npm)"
 SUDOERS_FILE=/etc/sudoers.d/she
 cat > "$SUDOERS_FILE" <<EOF
