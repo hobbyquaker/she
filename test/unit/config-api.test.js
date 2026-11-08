@@ -195,6 +195,18 @@ describe('PATCH /she/config', () => {
         expect(res.body.restartRequired).toBe(false);
     });
 
+    test('the git commit keys need no restart: the daemon reads them at every save, rename and delete', async () => {
+        for (const [key, value] of [
+            ['gitCommitMode', 'ask'],
+            ['gitCommitAi', true],
+            ['gitAutoCommit', true],
+            ['gitAutoPush', true],
+        ]) {
+            const res = await httpRequest('PATCH', port, '/she/config', { path: key, value });
+            expect(res.body.restartRequired).toBe(false);
+        }
+    });
+
     test('rejects a malformed path', async () => {
         const res = await httpRequest('PATCH', port, '/she/config', { path: 'broker/../etc', value: 1 });
         expect(res.status).toBe(400);

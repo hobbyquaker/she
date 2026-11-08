@@ -133,9 +133,10 @@ function resolveAi(raw, providerId) {
  * @param {{ baseUrl?: string, model: string, apiKey?: string }} config
  * @param {Array<{role:string,content:string}>} messages
  * @param {Array|undefined} [tools]  — OpenAI tool definitions; omit to disable tool calling
+ * @param {{ signal?: AbortSignal, maxTokens?: number }} [opts]  — a cancel signal and an answer cap for short, budgeted calls
  * @returns {{ message?: string, usage?: object, toolCalls?: Array, assistantMsg?: object }}
  */
-async function callOpenAICompat(config, messages, tools) {
+async function callOpenAICompat(config, messages, tools, opts = {}) {
     const base = (config.baseUrl || 'http://localhost:11434').replace(/\/$/, '');
     const url = `${base}/v1/chat/completions`;
     const headers = { 'Content-Type': 'application/json' };
@@ -143,11 +144,13 @@ async function callOpenAICompat(config, messages, tools) {
 
     const body = { model: config.model, messages: plainMessages(messages), stream: false };
     if (tools?.length) body.tools = tools;
+    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
 
     const res = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        signal: opts.signal,
     });
 
     if (!res.ok) {
@@ -177,9 +180,10 @@ async function callOpenAICompat(config, messages, tools) {
  * @param {{ model: string, apiKey?: string }} config
  * @param {Array<{role:string,content:string}>} messages  — first may be role:'system'
  * @param {Array|undefined} [tools]  — Anthropic tool definitions; omit to disable tool calling
+ * @param {{ signal?: AbortSignal, maxTokens?: number }} [opts]  — a cancel signal and an answer cap for short, budgeted calls
  * @returns {{ message?: string, usage?: object, toolCalls?: Array, assistantMsg?: Array }}
  */
-async function callAnthropic(config, messages, tools) {
+async function callAnthropic(config, messages, tools, opts = {}) {
     const systemMsg = messages.find((m) => m.role === 'system');
     const userMessages = messages.filter((m) => m.role !== 'system');
 
@@ -194,7 +198,7 @@ async function callAnthropic(config, messages, tools) {
         system: anthropicSystem(systemMsg),
         messages: userMessages,
         // thinking tokens count against this on the current models; 4096 cut answers short
-        max_tokens: 16384,
+        max_tokens: opts.maxTokens || 16384,
     };
     if (tools?.length) body.tools = tools;
 
@@ -202,6 +206,7 @@ async function callAnthropic(config, messages, tools) {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
+        signal: opts.signal,
     });
 
     if (!res.ok) {
@@ -1023,6 +1028,7 @@ module.exports = {
     _tools: { toolsFor, toolAllowed },
     _internal: {
         callAnthropic,
+        callOpenAICompat,
         answerText,
         readAiConfig,
         normalizeAiConfig,

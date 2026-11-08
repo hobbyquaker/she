@@ -9,10 +9,10 @@ const DEFAULT_CONFIG_PATH = getConfigPath();
 
 /**
  * Config keys whose change needs no daemon restart: consumed only by the frontend, or re-read
- * from the file by the daemon at every use (updateChannel — the update check). All other keys
- * require a daemon restart when changed.
+ * from the file by the daemon at every use (updateChannel — the update check; the git commit keys —
+ * read at every save, rename and delete). All other keys require a daemon restart when changed.
  */
-const FRONTEND_ONLY_KEYS = new Set(['gitAutoCommit', 'gitAutoPush', 'pinnedPackages', 'updateChannel']);
+const FRONTEND_ONLY_KEYS = new Set(['gitAutoCommit', 'gitAutoPush', 'gitCommitMode', 'gitCommitAi', 'pinnedPackages', 'updateChannel']);
 
 const router = express.Router();
 
