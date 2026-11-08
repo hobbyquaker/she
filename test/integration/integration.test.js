@@ -881,6 +881,21 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     let httpPort;
 
+    /**
+     * Poll until fn() returns a truthy value. The daemon's own MQTT client receives a message independently of the
+     * test's subscriber, so its state store and status may lag the test by a few milliseconds — a one-shot read races.
+     */
+    const until = async (fn, timeoutMs = 5000, everyMs = 50) => {
+        const t0 = Date.now();
+        for (;;) {
+            const v = await fn();
+            if (v) return v;
+            if (Date.now() - t0 > timeoutMs) throw new Error(`condition not met within ${timeoutMs} ms`);
+            await wait(everyMs);
+        }
+    };
+    const getJson = async (urlPath) => (await fetch(`http://127.0.0.1:${httpPort}${urlPath}`)).json();
+
     it('the daemon started with the shed connected and the late broker not — healthy, scripts running', async () => {
         await new Promise((resolve) => subscribe('ms', /brokers: 2 additional broker\(s\): shed, late/, () => resolve()));
         await new Promise((resolve) => subscribe('ms', /mqtt@shed connected mqtt:\/\/127\.0\.0\.1:\d+/, () => resolve()));
@@ -927,7 +942,8 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
         subscribe('ms', /test-brokers\.js: (primary|shed) only only\/b (\d)/, (line, m) => lines.push(m[1] + ':' + m[2]));
         mqtt.publish('only/a', '1');
         shedMqtt.publish('only/b', '2');
-        await wait(500);
+        await until(() => lines.length >= 2);
+        await wait(200); // a third line (a leaked subscription) would have to show up by now
         expect(lines.sort()).toEqual(['primary:1', 'shed:2']);
     }, 20000);
 
@@ -960,11 +976,15 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
         const seen = onceOnPrimary('shed/tele/temp');
         shedMqtt.publish('tele/temp', '21.5', { retain: true });
         expect(await seen).toEqual(['21.5', false]);
-        // the primary's state store has it like any other topic
-        const state = await (await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state`)).json();
-        expect(state.find((e) => e.topic === 'shed/tele/temp')).toMatchObject({ val: 21.5 });
+        // the primary's state store has it like any other topic — polled: the daemon's client gets the message
+        // independently of the test's subscriber above
+        const entry = await until(async () => (await getJson('/she/mqtt/state')).find((e) => e.topic === 'shed/tele/temp'));
+        expect(entry).toMatchObject({ val: 21.5 });
         // and the shed's own view is served by ?broker=
-        const shedState = await (await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state?broker=shed`)).json();
+        const shedState = await until(async () => {
+            const s = await getJson('/she/mqtt/state?broker=shed');
+            return s.find((e) => e.topic === 'tele/temp') && s;
+        });
         expect(shedState.find((e) => e.topic === 'tele/temp')).toMatchObject({ val: 21.5 });
         expect(shedState.find((e) => e.topic === 'shed/tele/temp')).toBeUndefined();
         expect((await fetch(`http://127.0.0.1:${httpPort}/she/mqtt/state?broker=nope`)).status).toBe(404);
@@ -1031,8 +1051,12 @@ describe("additional brokers: she.mqtt('<name>'), mirror rules, offline behaviou
         await flushed;
         expect(await fromShe).toBe('queued');
         await retained;
-        const status = await (await fetch(`http://127.0.0.1:${httpPort}/she/status`)).json();
-        expect(status.brokers.find((b) => b.name === 'late')).toMatchObject({ connected: true, error: null, queued: 0 });
+        // the status flips a moment after the "connected" log line — polled
+        const lateStatus = await until(async () => {
+            const b = (await getJson('/she/status')).brokers.find((x) => x.name === 'late');
+            return b && b.connected && b.queued === 0 && b;
+        });
+        expect(lateStatus).toMatchObject({ connected: true, error: null, queued: 0 });
     }, 30000);
 
     it('POST /she/mqtt/publish with "broker" publishes on that broker', async () => {
