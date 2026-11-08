@@ -174,7 +174,7 @@
     td.err { color: var(--fg-err); font-weight: 600; }
     .muted { color: var(--fg-dim); }
     .sub { color: var(--fg-muted); }
-    .kind { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 10px; font-weight: 600; line-height: 16px; background: var(--bg-widget); color: var(--fg-muted); text-transform: lowercase; }
+    .kind { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 10px; font-weight: 600; line-height: 16px; background: var(--bg-widget); color: var(--fg-muted); white-space: nowrap; }
     .k-sub { color: var(--fg-brand); } .k-var { color: var(--fg-value); } .k-schedule, .k-sun { color: var(--fg-ok); }
     .k-timer, .k-timeout, .k-debounce, .k-throttle, .k-retry, .k-interval, .k-shift { color: var(--fg-warn-subtle); } .k-command { color: var(--fg-err-subtle); }
     .name-text { color: var(--fg-text); word-break: break-all; }

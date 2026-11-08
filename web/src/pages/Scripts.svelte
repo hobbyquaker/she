@@ -26,13 +26,17 @@
         type SearchMatch,
         type SearchResult,
     } from '../lib/api.js';
-    import { subscribeLog, subscribeWs, getHistoryEntries, type LogEntry } from '../lib/ws.js';
+    import { subscribeLog, subscribeWs, subscribeRuntime, getHistoryEntries, type LogEntry } from '../lib/ws.js';
     import { fmtLogTs as fmt } from '../lib/format.js';
     import { splitLogMessage, scriptResolver, collectScriptPaths } from '../lib/log-links.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import Chat from './Chat.svelte';
     import { registerCompletionProviders } from '../lib/completions.js';
+    import { createDock, type Dock, type DockOpenOptions } from '../lib/dock.js';
+    import '../lib/dockview.css';
+    import RuntimeHandlers from '../lib/RuntimeHandlers.svelte';
+    import { runtimeAction, type RuntimeSnapshot } from '../lib/api.js';
 
     interface Tab {
         path: string;
@@ -62,7 +66,10 @@
     let saving = $state(false);
     let error = $state('');
     let dropdownOpen = $state(false);
-    let logPanelOpen = $state(true);
+    // which dock panels are open — mirrored from the dock, so the toolbar toggles show it
+    let logOpen = $state(true);
+    let runtimeOpen = $state(false);
+    let filesOpen = $state(true);
     let gitInfo = $state<GitStatus | null>(null);
     let gitAutoCommit = $state(false);
     let gitAutoPush   = $state(false);
@@ -274,14 +281,92 @@
     let proposedModifiedModel: monaco.editor.ITextModel | null = null;
 
     // Resizable panels
-    let asideWidth = $state(parseInt(localStorage.getItem('she-scripts-sidebar-width') ?? '220', 10));
-    let logHeight = $state(parseInt(localStorage.getItem('she-scripts-log-height') ?? '130', 10));
-    let chatWidth = $state(parseInt(localStorage.getItem('she-scripts-chat-width') ?? '340', 10));
     let historyPanelHeight = $state(parseInt(localStorage.getItem('she-scripts-history-height') ?? '220', 10));
-    let sidebarResizing = false, sidebarResizeStartX = 0, sidebarResizeStartW = 0;
-    let logResizing = false, logResizeStartY = 0, logResizeStartH = 0;
-    let chatResizing = false, chatResizeStartX = 0, chatResizeStartW = 0;
     let historyPanelResizing = false, historyPanelResizeStartY = 0, historyPanelResizeStartH = 0;
+
+    // ── Docking ──────────────────────────────────────────────────────────────
+    // The editor is the fixed centre; Files, Log, Runtime and the AI chat are panels that dock around
+    // it (bottom, left, right, split, tabbed), remembered per browser. The panels' markup is rendered
+    // into a hidden parking container below and adopted by the dock when a panel is open.
+    const DOCK_KEY = 'she-scripts-dock-layout';
+    let dock: Dock | null = null;
+    let dockEl = $state<HTMLDivElement | undefined>(undefined);
+    let hostFiles: HTMLElement, hostEditor: HTMLElement, hostLog: HTMLElement, hostRuntime: HTMLElement, hostChat: HTMLElement;
+    /** where a panel goes when it is (re)opened from the toolbar */
+    const PANEL_HOME: Record<string, DockOpenOptions> = {
+        files: { position: { referencePanel: 'editor', direction: 'left' }, width: 220 },
+        log: { position: { referencePanel: 'editor', direction: 'below' }, height: 160 },
+        runtime: { position: { referencePanel: 'log', direction: 'within', fallback: 'below' }, height: 200 },
+        chat: { position: { referencePanel: 'editor', direction: 'right' }, width: 360 },
+    };
+    function syncDockState(open: Set<string>) {
+        filesOpen = open.has('files');
+        logOpen = open.has('log');
+        runtimeOpen = open.has('runtime');
+        chatOpen = open.has('chat');
+    }
+    function togglePanel(id: string) {
+        if (!dock) return;
+        if (dock.isOpen(id)) dock.close(id);
+        else dock.open(id, PANEL_HOME[id]);
+    }
+    function createEditorDock() {
+        if (!dockEl || dock) return;
+        dock = createDock(dockEl, {
+            panels: [
+                { id: 'editor', title: 'Editor', element: hostEditor },
+                { id: 'files', title: 'Files', element: hostFiles },
+                { id: 'log', title: 'Log', element: hostLog },
+                { id: 'runtime', title: 'Runtime', element: hostRuntime },
+                { id: 'chat', title: 'AI assistant', element: hostChat },
+            ],
+            centre: 'editor',
+            storageKey: DOCK_KEY,
+            defaultLayout: (open) => {
+                open('files', PANEL_HOME.files);
+                open('log', PANEL_HOME.log);
+                open('runtime', { ...PANEL_HOME.runtime, inactive: true });
+            },
+            onChange: syncDockState,
+        });
+        // for the browser console and UI automation (screenshots): the dock's API
+        (window as any).__sheDock = dock;
+    }
+    onDestroy(() => dock?.dispose());
+
+    // ── Runtime panel: the open script's handlers and timers, live, with actions ──
+    let runtimeSnap = $state<RuntimeSnapshot | null>(null);
+    let runtimeNow = $state(Date.now());
+    let runtimeError = $state('');
+    const runtimeRows = $derived.by(() => {
+        if (!runtimeSnap || !activeTab) return [];
+        const sc = runtimeSnap.scripts.find((x) => x.label === activeTab);
+        return sc ? sc.handlers : [];
+    });
+    const runtimeLive = $derived(runtimeSnap !== null && Date.now() - runtimeSnap.ts < 5000);
+    $effect(() => {
+        if (!_mounted || !active || !runtimeOpen || !activeTab) {
+            runtimeSnap = null;
+            return;
+        }
+        const label = activeTab;
+        const unsub = subscribeRuntime(label, (msg) => {
+            runtimeSnap = msg as RuntimeSnapshot;
+        });
+        const tick = setInterval(() => { runtimeNow = Date.now(); }, 200);
+        return () => {
+            unsub();
+            clearInterval(tick);
+        };
+    });
+    async function doRuntimeAction(id: string, action: 'cancel' | 'run') {
+        runtimeError = '';
+        try {
+            await runtimeAction(id, action);
+        } catch (e: any) {
+            runtimeError = e?.message ?? String(e);
+        }
+    }
 
     const chatScript = $derived(
         activeTab && currentTab
@@ -343,8 +428,6 @@
 
     const TABS_KEY   = 'she-tabs';
     const ACTIVE_KEY = 'she-active-tab';
-    const LOG_KEY    = 'she-log-open';
-    const CHAT_KEY   = 'she-chat-open';
 
     let {
         active = true,
@@ -378,11 +461,6 @@
         localStorage.setItem(TABS_KEY, JSON.stringify(tabs.map(t => t.path)));
         if (activeTab) localStorage.setItem(ACTIVE_KEY, activeTab);
         else           localStorage.removeItem(ACTIVE_KEY);
-    });
-
-    $effect(() => {
-        if (!_mounted) return;
-        localStorage.setItem(CHAT_KEY, String(chatOpen));
     });
 
     // Re-layout Monaco when the Scripts panel becomes visible after being hidden, and when the browser
@@ -515,8 +593,8 @@ declare const she: {
 
     onMount(async () => {
         window.addEventListener('beforeunload', onBeforeUnload);
-        logPanelOpen = localStorage.getItem(LOG_KEY) !== 'false';
-        chatOpen     = localStorage.getItem(CHAT_KEY) === 'true';
+        // the dock first: Monaco below is created inside the editor panel once it is in place
+        createEditorDock();
 
         monaco.languages.typescript.javascriptDefaults.addExtraLib(she_dts, 'she-api.d.ts');
         monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
@@ -588,7 +666,7 @@ declare const she: {
             const tab = tabs.find(t => t.path === relPath);
             if (tab) {
                 tab.logEntries = [...tab.logEntries.slice(-199), entry];
-                if (tab.path === activeTab && logPanelOpen && logEl && logAutoscroll) {
+                if (tab.path === activeTab && logOpen && logEl && logAutoscroll) {
                     tick().then(() => { if (logEl) logEl.scrollTop = logEl.scrollHeight; });
                 }
             }
@@ -1155,7 +1233,7 @@ declare const she: {
         if (!chatExtraFiles.some(f => f.name === entry.path)) {
             chatExtraFiles = [...chatExtraFiles, { name: entry.path, content }];
         }
-        chatOpen = true;
+        dock?.open('chat', PANEL_HOME.chat);
     }
 
     // ── Drag-drop ─────────────────────────────────────────────────────────────
@@ -1273,10 +1351,6 @@ declare const she: {
 
     function clearLog() { if (currentTab) currentTab.logEntries = []; }
 
-    function toggleLogPanel() {
-        logPanelOpen = !logPanelOpen;
-        localStorage.setItem(LOG_KEY, String(logPanelOpen));
-    }
 
 
     /** Map a file path to its Monaco language identifier. */
@@ -1339,22 +1413,13 @@ declare const she: {
     }
 
     // ── Panel resize handlers ────────────────────────────────────────────────
-    function onSidebarResizeStart(e: MouseEvent) { sidebarResizing = true; sidebarResizeStartX = e.clientX; sidebarResizeStartW = asideWidth; e.preventDefault(); }
-    function onLogResizeStart(e: MouseEvent) { logResizing = true; logResizeStartY = e.clientY; logResizeStartH = logHeight; e.preventDefault(); }
-    function onChatResizeStart(e: MouseEvent) { chatResizing = true; chatResizeStartX = e.clientX; chatResizeStartW = chatWidth; e.preventDefault(); }
     function onHistoryPanelResizeStart(e: MouseEvent) { historyPanelResizing = true; historyPanelResizeStartY = e.clientY; historyPanelResizeStartH = historyPanelHeight; e.preventDefault(); }
 
     function onGlobalMouseMove(e: MouseEvent) {
-        if (sidebarResizing) asideWidth = Math.max(140, Math.min(500, sidebarResizeStartW + e.clientX - sidebarResizeStartX));
-        if (logResizing) logHeight = Math.max(60, Math.min(500, logResizeStartH - (e.clientY - logResizeStartY)));
-        if (chatResizing) chatWidth = Math.max(200, Math.min(700, chatResizeStartW - (e.clientX - chatResizeStartX)));
         if (historyPanelResizing) historyPanelHeight = Math.max(80, Math.min(600, historyPanelResizeStartH - (e.clientY - historyPanelResizeStartY)));
     }
 
     function onGlobalMouseUp() {
-        if (sidebarResizing) { sidebarResizing = false; localStorage.setItem('she-scripts-sidebar-width', String(asideWidth)); }
-        if (logResizing) { logResizing = false; localStorage.setItem('she-scripts-log-height', String(logHeight)); }
-        if (chatResizing) { chatResizing = false; localStorage.setItem('she-scripts-chat-width', String(chatWidth)); }
         if (historyPanelResizing) { historyPanelResizing = false; localStorage.setItem('she-scripts-history-height', String(historyPanelHeight)); }
     }
 
@@ -1504,7 +1569,10 @@ declare const she: {
 {/if}
 
 <div class="layout" onkeydown={onLayoutKeydown}>
-    <aside style:width="{asideWidth}px">
+    <div class="dock" bind:this={dockEl}></div>
+    <!-- The panels are rendered here and adopted by the dock while they are open -->
+    <div class="dock-parking" aria-hidden="true">
+    <aside bind:this={hostFiles}>
         <div class="toolbar">
             <button onclick={newFile} title="New script">+ File</button>
             <button onclick={newFolder} title="New folder">+ Folder</button>
@@ -1733,10 +1801,8 @@ declare const she: {
         </div>
         {/if}
     </aside>
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="sidebar-resize-handle" role="separator" onmousedown={onSidebarResizeStart}></div>
 
-    <div class="editor-area">
+    <div class="editor-area" bind:this={hostEditor}>
         {#if tabs.length > 0}
             <div class="tab-bar-wrap">
                 <button class="tab-scroll-btn" onclick={() => scrollTabBar(-1)} disabled={!canScrollLeft} aria-label="Scroll tabs left">‹</button>
@@ -1865,10 +1931,16 @@ declare const she: {
             {#if activeTab}
                 <button onclick={del} class="danger">Delete</button>
             {/if}
+            <div class="panel-toggles" role="group" aria-label="Panels">
+                <button class:on={filesOpen} onclick={() => togglePanel('files')} title="Files panel — drag a panel's tab to dock it elsewhere">Files</button>
+                <button class:on={logOpen} onclick={() => togglePanel('log')} title="Script log panel">Log</button>
+                <button class:on={runtimeOpen} onclick={() => togglePanel('runtime')} title="Runtime panel — the script's handlers and timers, live">Runtime</button>
+                <button class="reset" onclick={() => dock?.reset()} title="Reset the panel layout">⟲</button>
+            </div>
             <button
                 class="ai-toggle"
                 class:ai-open={chatOpen}
-                onclick={() => chatOpen = !chatOpen}
+                onclick={() => togglePanel('chat')}
                 title={chatOpen ? 'Close AI assistant' : 'Open AI assistant'}
             >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
@@ -1977,19 +2049,16 @@ declare const she: {
                     </div>
                     {/if}
                 </div>
+            </div>
+        </div>
+    </div>
 
-                {#if tabs.length > 0}
-                <div class="log-panel" class:collapsed={!logPanelOpen} style:height={logPanelOpen ? `${logHeight}px` : '26px'}>
-                    {#if logPanelOpen}
-                        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                        <div class="log-resize-handle" role="separator" onmousedown={onLogResizeStart}></div>
-                    {/if}
+    <div class="log-panel" bind:this={hostLog}>
                     <div class="log-header">
-                        <button class="log-toggle" onclick={toggleLogPanel}>
-                            {logPanelOpen ? '▾' : '▸'} Script Log
+                        <span class="log-title">
+                            Script Log
                             {#if activeTab}<span class="log-file"> — {activeTab.split('/').pop()}</span>{/if}
-                        </button>
-                        {#if logPanelOpen}
+                        </span>
                             <select class="log-filter-level" bind:value={logFilterLevel}>
                                 {#each LOG_LEVELS as l}<option value={l}>{l}</option>{/each}
                             </select>
@@ -2005,9 +2074,7 @@ declare const she: {
                                 Auto-scroll
                             </label>
                             <button class="log-clear" onclick={clearLog}>Clear</button>
-                        {/if}
                     </div>
-                    {#if logPanelOpen}
                         <div class="log-body" bind:this={logEl}>
                             <!-- Unkeyed on purpose: duplicate entries are legal in a log stream -->
                             {#each (currentTab?.logEntries ?? []).filter(logEntryVisible) as e}
@@ -2025,30 +2092,87 @@ declare const she: {
                                 </div>
                             {/each}
                             {#if (currentTab?.logEntries.length ?? 0) === 0}
-                                <span class="log-empty">No log output for this script.</span>
+                                <span class="log-empty">{activeTab ? 'No log output for this script.' : 'Open a script to see its log.'}</span>
                             {/if}
                         </div>
-                    {/if}
-                </div>
-                {/if}
-            </div>
+    </div>
 
-            {#if chatOpen}
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                <div class="chat-resize-handle" role="separator" onmousedown={onChatResizeStart}></div>
-                <div class="chat-container" style:width="{chatWidth}px">
-                    <Chat currentScript={chatScript} {onApply} {onCreateFile} bind:extraFiles={chatExtraFiles} />
-                </div>
-            {/if}
+    <div class="runtime-panel" bind:this={hostRuntime}>
+        <div class="rt-header">
+            <span class="rt-title">Runtime {#if activeTab}<span class="log-file">— {activeTab.split('/').pop()}</span>{/if}</span>
+            {#if activeTab && !scriptRunning.has(activeTab)}<span class="rt-note">not running</span>{/if}
+            <span class="rt-live" class:on={runtimeLive}>{runtimeLive ? '● live' : ''}</span>
+            {#if runtimeError}<span class="rt-error">{runtimeError}</span>{/if}
         </div>
+        <div class="rt-body">
+            <RuntimeHandlers handlers={runtimeRows} now={runtimeNow} actions onjump={(_script, line) => { if (activeTab) openAtLine(activeTab, line); }} onaction={doRuntimeAction}
+                emptyText={!activeTab ? 'Open a script to see what it registered.' : activeTab && !scriptRunning.has(activeTab) ? 'This script is not running.' : runtimeSnap ? 'This script has registered nothing.' : 'Loading…'} />
+        </div>
+    </div>
+
+    <div class="chat-container" bind:this={hostChat}>
+        <Chat currentScript={chatScript} {onApply} {onCreateFile} bind:extraFiles={chatExtraFiles} />
+    </div>
     </div>
 </div>
 
 <style>
-    .layout { display: flex; height: 100%; }
+    .layout { position: relative; height: 100%; }
+    .dock { position: absolute; inset: 0; }
+    .dock-parking { display: none; }
+    /* a panel fills the dock's content container (parked, the hosts are display: none anyway) */
+    aside, .editor-area, .log-panel, .runtime-panel, .chat-container { width: 100%; height: 100%; min-height: 0; }
+    /* the dock's own chrome in the app's colours */
+    :global(.dockview-theme-she) {
+        --dv-group-view-background-color: var(--bg-app);
+        --dv-tabs-and-actions-container-background-color: var(--bg-panel);
+        --dv-tabs-and-actions-container-height: 28px;
+        --dv-tabs-and-actions-container-font-size: 12px;
+        --dv-activegroup-visiblepanel-tab-background-color: var(--bg-app);
+        --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-panel);
+        --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-app);
+        --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-panel);
+        --dv-activegroup-visiblepanel-tab-color: var(--fg-text);
+        --dv-activegroup-hiddenpanel-tab-color: var(--fg-muted);
+        --dv-inactivegroup-visiblepanel-tab-color: var(--fg);
+        --dv-inactivegroup-hiddenpanel-tab-color: var(--fg-muted);
+        --dv-tab-divider-color: var(--border-sub);
+        --dv-separator-border: var(--border-sub);
+        --dv-paneview-header-border-color: var(--border-sub);
+        --dv-paneview-active-outline-color: var(--accent);
+        --dv-icon-hover-background-color: var(--bg-hover);
+        --dv-scrollbar-background-color: var(--border);
+        --dv-tabs-container-scrollbar-color: var(--border);
+        --dv-sash-color: transparent;
+        --dv-active-sash-color: var(--accent);
+        --dv-active-sash-transition-duration: 0.1s;
+        --dv-active-sash-transition-delay: 0.3s;
+        --dv-drag-over-background-color: rgba(14, 99, 156, 0.25);
+        --dv-drag-over-border-color: var(--accent);
+        --dv-drag-over-border: 1px solid var(--accent);
+        --dv-edge-dock-indicator-color: var(--accent-hov);
+        --dv-tab-group-color: var(--accent);
+        --dv-overlay-z-index: 50;
+        --dv-border-radius: 0px; --dv-tab-border-radius: 0px; --dv-sash-border-radius: 0px; --dv-dropdown-border-radius: 3px;
+        --dv-tab-margin: 0; --dv-spacing-padding: 0px; --dv-tab-font-size: inherit; --dv-tab-close-icon-size: inherit;
+        --dv-floating-box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); --dv-floating-border: 1px solid var(--border); --dv-floating-group-border: none;
+        --dv-floating-group-dragging-opacity: 0.5; --dv-floating-titlebar-height: 22px;
+        --dv-context-menu-background-color: var(--bg-panel); --dv-context-menu-color: var(--fg);
+        --dv-tab-group-chip-padding: 2px 6px; --dv-tab-group-chip-border-radius: 4px; --dv-tab-group-chip-font-size: 11px;
+        --dv-tab-group-line-opacity: 0.6;
+    }
+    :global(.dockview-theme-she .dv-tab) { padding: 0 10px; }
+    :global(.dockview-theme-she .dv-tab.dv-active-tab) { border-top: 1px solid var(--accent); }
+    .panel-toggles { display: inline-flex; gap: 2px; margin-left: 4px; }
+    .panel-toggles button {
+        background: none; border: 1px solid transparent; color: var(--fg-muted); border-radius: 3px;
+        padding: 2px 6px; font-size: 11px; cursor: pointer;
+    }
+    .panel-toggles button:hover { color: var(--fg); background: var(--bg-hover); }
+    .panel-toggles button.on { color: var(--fg-text); background: var(--bg-active); }
+    .panel-toggles button.reset { font-size: 12px; padding: 0 5px; }
 
     aside {
-        min-width: 140px; max-width: 500px; flex-shrink: 0;
         background: var(--bg-panel);
         display: flex; flex-direction: column; overflow: hidden;
     }
@@ -2261,7 +2385,7 @@ declare const she: {
     .git-mod { color: #e2c08d; font-size: 10px; font-weight: 600; flex-shrink: 0; }
     .err { color: var(--fg-err); padding: 8px; font-size: 12px; }
 
-    .editor-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .editor-area { display: flex; flex-direction: column; min-width: 0; }
 
     .editor-body { flex: 1; display: flex; min-height: 0; }
     .editor-left { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -2312,29 +2436,19 @@ declare const she: {
     .ai-toggle:hover { background: var(--bg-hover) !important; }
     .ai-toggle.ai-open { background: var(--fg-brand) !important; color: #fff !important; border-color: var(--fg-brand) !important; }
 
-    /* Resize handles */
-    .sidebar-resize-handle {
-        width: 5px; cursor: col-resize; flex-shrink: 0;
-        background: var(--border-sub); transition: background 0.15s;
-    }
-    .sidebar-resize-handle:hover, .sidebar-resize-handle:active { background: var(--accent); }
+    .chat-container { display: flex; flex-direction: column; min-width: 0; }
 
-    .log-resize-handle {
-        height: 5px; cursor: row-resize; flex-shrink: 0;
-        background: var(--border-sub); transition: background 0.15s;
+    .runtime-panel { display: flex; flex-direction: column; min-height: 0; background: var(--bg-app); }
+    .rt-header {
+        display: flex; align-items: center; gap: 8px; padding: 4px 8px; flex-shrink: 0;
+        background: var(--bg-panel); border-bottom: 1px solid var(--border-sub); font-size: 11px; color: var(--fg-muted);
     }
-    .log-resize-handle:hover, .log-resize-handle:active { background: var(--accent); }
-
-    .chat-resize-handle {
-        width: 5px; cursor: col-resize; flex-shrink: 0;
-        background: var(--border-sub); transition: background 0.15s;
-    }
-    .chat-resize-handle:hover, .chat-resize-handle:active { background: var(--accent); }
-
-    .chat-container {
-        display: flex; flex-direction: column;
-        min-width: 200px; max-width: 700px; flex-shrink: 0;
-    }
+    .rt-title { flex: 1; }
+    .rt-note { color: var(--fg-warn); }
+    .rt-live { color: var(--fg-dim); }
+    .rt-live.on { color: var(--fg-ok); }
+    .rt-error { color: var(--fg-err); }
+    .rt-body { flex: 1; overflow: auto; min-height: 0; }
 
     /* Loading state: a tab opens on click and spins until its content arrives. */
     @keyframes she-spin { to { transform: rotate(360deg); } }
@@ -2512,10 +2626,8 @@ declare const she: {
 
     /* editor-container is now absolute inside .editor-stack */
 
-    .log-panel {
-        flex-shrink: 0; display: flex; flex-direction: column;
-        border-top: 1px solid var(--border-sub);
-    }
+    .log-panel { display: flex; flex-direction: column; min-height: 0; }
+    .log-title { color: var(--fg-muted); font-size: 11px; flex: 1; }
     .log-header {
         display: flex; align-items: center; gap: 6px; padding: 4px 8px;
         background: var(--bg-panel); border-bottom: 1px solid var(--border-sub); flex-shrink: 0;

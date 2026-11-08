@@ -1,0 +1,1684 @@
+/* dockview-core 8.8.3 — the stylesheet the UMD bundle injects (the ESM entry ships none in this version). MIT, https://github.com/mathuo/dockview */
+.dv-drop-target-container {
+  position: absolute;
+  z-index: 9999;
+  top: 0px;
+  left: 0px;
+  height: 100%;
+  width: 100%;
+  pointer-events: none;
+  overflow: hidden;
+  --dv-transition-duration: 300ms;
+}
+.dv-drop-target-container .dv-drop-target-anchor {
+  position: relative;
+  border: var(--dv-drag-over-border);
+  background-color: var(--dv-drag-over-background-color);
+  opacity: 1;
+  /* GPU optimizations */
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  contain: layout paint;
+  transition: opacity var(--dv-transition-duration) ease-in, top var(--dv-transition-duration) ease-out, left var(--dv-transition-duration) ease-out, width var(--dv-transition-duration) ease-out, height var(--dv-transition-duration) ease-out;
+}
+.dv-drop-target {
+  position: relative;
+  --dv-transition-duration: 70ms;
+}
+.dv-drop-target > .dv-drop-target-dropzone {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  height: 100%;
+  width: 100%;
+  z-index: 1000;
+  pointer-events: none;
+}
+.dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection {
+  position: relative;
+  box-sizing: border-box;
+  height: 100%;
+  width: 100%;
+  border: var(--dv-drag-over-border);
+  background-color: var(--dv-drag-over-background-color);
+  transition: top var(--dv-transition-duration) ease-out, left var(--dv-transition-duration) ease-out, width var(--dv-transition-duration) ease-out, height var(--dv-transition-duration) ease-out, opacity var(--dv-transition-duration) ease-out;
+  will-change: transform;
+  pointer-events: none;
+}
+.dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection.dv-drop-target-top.dv-drop-target-small-vertical {
+  border-top: 1px solid var(--dv-drag-over-border-color);
+}
+.dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection.dv-drop-target-bottom.dv-drop-target-small-vertical {
+  border-bottom: 1px solid var(--dv-drag-over-border-color);
+}
+.dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection.dv-drop-target-left.dv-drop-target-small-horizontal {
+  border-left: 1px solid var(--dv-drag-over-border-color);
+}
+.dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection.dv-drop-target-right.dv-drop-target-small-horizontal {
+  border-right: 1px solid var(--dv-drag-over-border-color);
+}
+.dv-dnd-compass {
+  z-index: 1001;
+}
+.dv-dnd-compass-cell {
+  box-sizing: border-box;
+  border-radius: 2px;
+  border: 1px solid var(--dv-dnd-compass-color, #1f9cf0);
+  background-color: var(--dv-dnd-compass-cell-color, rgba(31, 156, 240, 0.25));
+}
+.dv-dnd-compass-cell-edge {
+  border-style: dashed;
+  background-color: var(--dv-dnd-compass-edge-cell-color, rgba(31, 156, 240, 0.12));
+}
+.dv-dnd-compass-cell-active {
+  background-color: var(--dv-dnd-compass-active-cell-color, rgba(31, 156, 240, 0.5));
+  border-style: solid;
+}
+.dv-dnd-compass-edge-preview {
+  z-index: 1000;
+  box-sizing: border-box;
+  background-color: var(--dv-drag-over-background-color);
+  border: var(--dv-drag-over-border);
+}
+.dv-dragged {
+  transform: translate3d(0px, 0px, 0px); /* forces tab to be drawn on a separate layer (see https://github.com/microsoft/vscode/issues/18733) */
+}
+/* Applied to the ghost tab clone during drag so it shows the same border as a focused tab */
+.dv-tab-ghost-drag {
+  position: relative;
+}
+.dv-tab-ghost-drag::after {
+  position: absolute;
+  content: "";
+  height: 100%;
+  width: 100%;
+  top: 0px;
+  left: 0px;
+  pointer-events: none;
+  outline: 1px solid var(--dv-tab-divider-color) !important;
+  outline-offset: -1px;
+  z-index: 5;
+}
+.dv-tab {
+  flex-shrink: 0;
+}
+.dv-tab:focus-visible, .dv-tab:has(:focus-visible) {
+  position: relative;
+}
+.dv-tab:focus-visible::after, .dv-tab:has(:focus-visible)::after {
+  position: absolute;
+  content: "";
+  height: 100%;
+  width: 100%;
+  top: 0px;
+  left: 0px;
+  pointer-events: none;
+  outline: 1px solid var(--dv-tab-divider-color) !important;
+  outline-offset: -1px;
+  z-index: 5;
+}
+.dv-tab.dv-tab-dragging .dv-default-tab-action {
+  background-color: var(--dv-activegroup-visiblepanel-tab-color);
+}
+.dv-tab.dv-active-tab .dv-default-tab .dv-default-tab-action {
+  visibility: visible;
+}
+.dv-tab.dv-inactive-tab .dv-default-tab .dv-default-tab-action {
+  visibility: hidden;
+}
+.dv-tab.dv-inactive-tab .dv-default-tab:hover .dv-default-tab-action {
+  visibility: visible;
+}
+@media (hover: none) {
+  .dv-tab.dv-inactive-tab .dv-default-tab .dv-default-tab-action {
+    visibility: visible;
+  }
+}
+.dv-tab .dv-default-tab {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dv-tab .dv-default-tab .dv-default-tab-content {
+  flex-grow: 1;
+  margin-right: 4px;
+}
+.dv-tab .dv-default-tab .dv-default-tab-action {
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.dv-tab .dv-default-tab .dv-default-tab-action:hover {
+  border-radius: 2px;
+  background-color: var(--dv-icon-hover-background-color);
+}
+@media (pointer: coarse) {
+  .dv-tab .dv-default-tab .dv-default-tab-action {
+    padding: 8px;
+  }
+}
+.dv-tabs-overflow-dropdown-default {
+  height: 100%;
+  box-sizing: border-box;
+  color: var(--dv-activegroup-hiddenpanel-tab-color);
+  margin: var(--dv-tab-margin);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+.dv-tabs-overflow-dropdown-default > span {
+  padding-left: 0.25rem;
+}
+.dv-tabs-overflow-dropdown-default > svg {
+  transform: rotate(90deg);
+}
+.dv-tabs-overflow-dropdown-default:hover {
+  border-radius: 2px;
+  background-color: var(--dv-icon-hover-background-color);
+}
+.dv-tabs-container {
+  display: flex;
+  position: relative;
+  height: 100%;
+  overflow: auto;
+  scrollbar-width: thin;
+  /**
+   * Multi-row (wrapping) tabs. Inert until the `MultiRowTabsModule` toggles
+   * `.dv-tabs-container--wrap` on this element (`overflow.mode: 'wrap'`):
+   * tabs wrap onto multiple rows instead of clipping into the dropdown, and
+   * the strip grows to fit (the header grows via the `:has()` rule in
+   * tabsContainer.scss; the free header-aware content-sizing seam then shrinks
+   * the content area to match). Restricted to horizontal headers in v1.
+   */
+}
+.dv-tabs-container.dv-tabs-container--wrap:not(.dv-tabs-container-vertical) {
+  flex-wrap: wrap;
+  height: auto;
+  overflow: visible;
+  align-content: flex-start;
+}
+.dv-tabs-container.dv-tabs-container--wrap:not(.dv-tabs-container-vertical) .dv-tab {
+  height: var(--dv-tabs-and-actions-container-height);
+}
+.dv-tabs-container.dv-tabs-container--wrap:not(.dv-tabs-container-vertical).dv-tabs-container--wrap-capped {
+  max-height: calc(var(--dv-tabs-and-actions-container-height) * var(--dv-max-tab-rows));
+  overflow: hidden;
+}
+.dv-tabs-container.dv-tabs-container--wrap:not(.dv-tabs-container-vertical) .dv-tab--reorder-before::after,
+.dv-tabs-container.dv-tabs-container--wrap:not(.dv-tabs-container-vertical) .dv-tab--reorder-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  z-index: 10;
+  pointer-events: none;
+  background-color: var(--dv-drag-over-border-color);
+}
+.dv-tabs-container.dv-tabs-container--wrap:not(.dv-tabs-container-vertical) .dv-tab--reorder-before::after {
+  left: 0;
+}
+.dv-tabs-container.dv-tabs-container--wrap:not(.dv-tabs-container-vertical) .dv-tab--reorder-after::after {
+  right: 0;
+}
+.dv-tabs-container {
+  /**
+   * Multi-column (wrapping) tabs for a vertical (edge-group) header: the
+   * mirror of the horizontal rule above with the axes swapped. The main axis
+   * is vertical (bounded by the header height, so overflowing tabs wrap) and
+   * the cross axis is horizontal (grows into additional columns). The header
+   * grows in width via the `:has()` rule in tabsContainer.scss.
+   *
+   * Column flow direction under `writing-mode: vertical-rl` differs
+   * between left and right header positions; this needs visual verification
+   * in a real browser (jsdom lays out neither writing-mode nor flex-wrap).
+   */
+}
+.dv-tabs-container.dv-tabs-container--wrap.dv-tabs-container-vertical {
+  flex-wrap: wrap;
+  width: auto;
+  height: 100%;
+  max-height: 100%;
+  overflow: visible;
+  align-content: flex-start;
+}
+.dv-tabs-container.dv-tabs-container--wrap.dv-tabs-container-vertical .dv-tab {
+  width: var(--dv-tabs-and-actions-container-height);
+  height: var(--dv-wrap-vertical-tab-height, auto);
+}
+.dv-tabs-container.dv-tabs-container--wrap.dv-tabs-container-vertical.dv-tabs-container--wrap-capped {
+  max-width: calc(var(--dv-tabs-and-actions-container-height) * var(--dv-max-tab-rows));
+  overflow: hidden;
+}
+.dv-tabs-container.dv-tabs-container--wrap.dv-tabs-container-vertical .dv-tab--reorder-before::after,
+.dv-tabs-container.dv-tabs-container--wrap.dv-tabs-container-vertical .dv-tab--reorder-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 10;
+  pointer-events: none;
+  background-color: var(--dv-drag-over-border-color);
+}
+.dv-tabs-container.dv-tabs-container--wrap.dv-tabs-container-vertical .dv-tab--reorder-before::after {
+  top: 0;
+}
+.dv-tabs-container.dv-tabs-container--wrap.dv-tabs-container-vertical .dv-tab--reorder-after::after {
+  bottom: 0;
+}
+.dv-tabs-container {
+  /* GPU optimizations for smooth scrolling */
+  will-change: scroll-position;
+  transform: translate3d(0, 0, 0);
+  /**
+   * Stop scroll-chaining at the tab strip so that wheel / trackpad
+   * overscroll past the strip's edges doesn't trigger the browser's
+   * swipe-to-go-back-or-forward gesture (and doesn't scroll the page
+   * either). `contain` keeps the native bounce visuals; `none` would
+   * also disable them.
+   */
+  overscroll-behavior: contain;
+  /**
+   * Empty space between tabs (and the scrollbar lane) keeps pan-x so a
+   * flick on those areas produces native momentum scroll. The tab and
+   * chip elements themselves opt out (`touch-action: none`) so the
+   * pointer drag source owns the gesture from pointerdown - a flick on
+   * a tab or chip always becomes a drag, regardless of direction.
+   */
+  touch-action: pan-x;
+}
+.dv-tabs-container.dv-tabs-container-vertical {
+  width: 100%;
+  height: fit-content;
+  max-height: 100%;
+  writing-mode: vertical-rl;
+  touch-action: pan-y;
+}
+.dv-tabs-container.dv-horizontal .dv-tab:not(:first-child)::before, .dv-tabs-container.dv-vertical .dv-tab:not(:first-child)::before {
+  content: " ";
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  pointer-events: none;
+  background-color: var(--dv-tab-divider-color);
+}
+.dv-tabs-container.dv-horizontal .dv-tab:not(:first-child)::before {
+  width: 1px;
+  height: 100%;
+}
+.dv-tabs-container.dv-vertical .dv-tab:not(:first-child)::before {
+  width: 100%;
+  height: 1px;
+}
+.dv-tabs-container::-webkit-scrollbar {
+  height: 3px;
+}
+.dv-tabs-container {
+  /* Track */
+}
+.dv-tabs-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dv-tabs-container {
+  /* Handle */
+}
+.dv-tabs-container::-webkit-scrollbar-thumb {
+  background: var(--dv-tabs-container-scrollbar-color);
+}
+.dv-scrollable > .dv-tabs-container {
+  overflow: hidden;
+}
+.dv-tab {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  outline: none;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  position: relative;
+  box-sizing: border-box;
+  font-size: var(--dv-tab-font-size);
+  margin: var(--dv-tab-margin);
+  touch-action: none;
+}
+.dv-tab.dv-tab--shifting {
+  will-change: transform, margin-left, margin-right, margin-top, margin-bottom;
+  transition: transform var(--dv-transition-duration, 200ms) ease-out, margin-left var(--dv-transition-duration, 200ms) ease-out, margin-right var(--dv-transition-duration, 200ms) ease-out, margin-top var(--dv-transition-duration, 200ms) ease-out, margin-bottom var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tab.dv-tab--dragging {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: width var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tab.dv-tab--group-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: width var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tab.dv-tab--group-expanding {
+  transition: width var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tab.dv-tab--pinned:has(.dv-tab-pin) {
+  display: flex;
+  align-items: center;
+}
+.dv-tab.dv-tab--pinned .dv-tab-pin {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 4px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+.dv-tab.dv-tab--pinned .dv-tab-pin .dv-svg {
+  width: 11px;
+  height: 11px;
+}
+.dv-tab.dv-tab--pinned .dv-default-tab {
+  min-width: 0;
+}
+.dv-tab.dv-tab--pinned .dv-default-tab-action {
+  display: none;
+}
+.dv-tab.dv-tab--pinned-compact .dv-default-tab-content {
+  display: none;
+}
+.dv-tab.dv-tab--pinned-compact .dv-tab-pin {
+  margin-right: 0;
+}
+.dv-tabs-container:not(.dv-tabs-container--wrap):not(.dv-tabs-container-vertical) > .dv-tab.dv-tab--pinned-sticky {
+  position: sticky;
+  left: var(--dv-pinned-sticky-left, 0);
+  z-index: 2;
+}
+.dv-tabs-and-actions-container.dv-tabs-and-actions-container--pinned-row {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--dv-tabs-and-actions-container-height);
+  align-content: flex-start;
+}
+.dv-tabs-and-actions-container.dv-tabs-and-actions-container--pinned-row .dv-pinned-row {
+  flex: 0 0 100%;
+  order: -1;
+}
+.dv-tabs-and-actions-container.dv-tabs-and-actions-container--pinned-row .dv-tab.dv-tab--pinned {
+  display: none;
+}
+.dv-pinned-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--dv-tabs-and-actions-container-height);
+  padding: 2px 4px;
+  background-color: var(--dv-tabs-and-actions-container-background-color);
+  border-bottom: 1px solid var(--dv-tab-divider-color);
+}
+.dv-pinned-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--dv-tab-font-size);
+  cursor: pointer;
+  user-select: none;
+  background-color: var(--dv-activegroup-hiddenpanel-tab-background-color);
+  color: var(--dv-activegroup-hiddenpanel-tab-color);
+}
+.dv-pinned-tab.dv-pinned-tab--active {
+  background-color: var(--dv-activegroup-visiblepanel-tab-background-color);
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+}
+.dv-pinned-tab .dv-pinned-tab-label {
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dv-pinned-tab .dv-pinned-tab-unpin {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+.dv-pinned-tab .dv-pinned-tab-unpin:hover {
+  opacity: 1;
+}
+.dv-pinned-tab.dv-pinned-tab--dragging {
+  opacity: 0.5;
+}
+.dv-pinned-tab.dv-pinned-tab--drop-before, .dv-pinned-tab.dv-pinned-tab--drop-after {
+  position: relative;
+}
+.dv-pinned-tab.dv-pinned-tab--drop-before::after, .dv-pinned-tab.dv-pinned-tab--drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  z-index: 10;
+  pointer-events: none;
+  background-color: var(--dv-drag-over-border-color);
+}
+.dv-pinned-tab.dv-pinned-tab--drop-before::after {
+  left: 0;
+}
+.dv-pinned-tab.dv-pinned-tab--drop-after::after {
+  right: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dv-tab {
+    transition: none !important;
+  }
+  .dv-tab-group-chip {
+    transition: none !important;
+  }
+}
+.dv-tab-group-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  padding: var(--dv-tab-group-chip-padding);
+  margin: 0 8px 0 8px;
+  border-radius: var(--dv-tab-group-chip-border-radius);
+  font-size: var(--dv-tab-group-chip-font-size);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  box-sizing: border-box;
+  line-height: 1;
+  touch-action: none;
+  background-color: var(--dv-tab-group-color);
+  color: white;
+}
+.dv-tab-group-chip.dv-tab-group-chip--accent-off {
+  background-color: transparent;
+  color: inherit;
+}
+.dv-tab-group-chip.dv-tab-group-chip--shifting {
+  will-change: margin-left, margin-top;
+  transition: margin-left var(--dv-transition-duration, 200ms) ease-out, margin-top var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tab-group-chip.dv-tab-group-chip--dragging {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: width var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tab-group-chip .dv-tab-group-chip-label--empty {
+  display: none;
+}
+.dv-tab-group-chip:has(.dv-tab-group-chip-label--empty) {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 50%;
+}
+.dv-tab-group-chip:has(.dv-tab-group-chip-label--empty)::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+.dv-tab-group-underline {
+  position: absolute;
+  bottom: 0;
+  opacity: var(--dv-tab-group-line-opacity);
+  pointer-events: none;
+  z-index: 10;
+}
+.dv-tab-group-chip-continuation {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  opacity: var(--dv-tab-group-line-opacity);
+  pointer-events: none;
+  z-index: 10;
+}
+.dv-groupview-header-bottom .dv-tab-group-underline {
+  bottom: auto;
+  top: 0;
+}
+.dv-tabs-container-vertical .dv-tab-group-underline {
+  bottom: auto;
+  left: 0;
+}
+.dv-tabs-container-vertical .dv-tab-group-chip {
+  margin: 8px 0 8px 0;
+}
+.dv-tabs-container-vertical .dv-tab-group-chip.dv-tab-group-chip--dragging {
+  height: 0 !important;
+  min-height: 0 !important;
+  width: auto !important;
+  min-width: initial !important;
+  transition: height var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tabs-container-vertical .dv-tab {
+  padding: 0.5rem 0.25rem;
+}
+.dv-tabs-container-vertical .dv-tab.dv-tab--group-collapsed {
+  height: 0 !important;
+  min-height: 0 !important;
+  width: auto !important;
+  min-width: initial !important;
+  transition: height var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tabs-container-vertical .dv-tab.dv-tab--group-expanding {
+  transition: height var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tabs-container-vertical .dv-tab.dv-tab--dragging {
+  height: 0 !important;
+  min-height: 0 !important;
+  width: auto !important;
+  min-width: initial !important;
+  transition: height var(--dv-transition-duration, 200ms) ease-out, padding var(--dv-transition-duration, 200ms) ease-out, margin var(--dv-transition-duration, 200ms) ease-out, opacity var(--dv-transition-duration, 200ms) ease-out;
+}
+.dv-tabs-overflow-container {
+  flex-direction: column;
+  height: unset;
+  font-size: var(--dv-tabs-and-actions-container-font-size);
+  max-height: min(50vh, 400px);
+  overflow-y: auto;
+  border: 1px solid var(--dv-tab-divider-color);
+  background-color: var(--dv-group-view-background-color);
+  /* Scrollbar styling for webkit browsers */
+}
+.dv-tabs-overflow-container::-webkit-scrollbar {
+  width: 6px;
+}
+.dv-tabs-overflow-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dv-tabs-overflow-container::-webkit-scrollbar-thumb {
+  background: var(--dv-tabs-container-scrollbar-color);
+  border-radius: 3px;
+}
+.dv-tabs-overflow-container {
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+}
+.dv-tabs-overflow-container .dv-tab:not(:last-child) {
+  border-bottom: 1px solid var(--dv-tab-divider-color);
+}
+.dv-tabs-overflow-container .dv-active-tab {
+  background-color: var(--dv-activegroup-visiblepanel-tab-background-color);
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+}
+.dv-tabs-overflow-container .dv-inactive-tab {
+  background-color: var(--dv-activegroup-hiddenpanel-tab-background-color);
+  color: var(--dv-activegroup-hiddenpanel-tab-color);
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--dv-activegroup-hiddenpanel-tab-color);
+  cursor: pointer;
+  border-bottom: 1px solid var(--dv-tab-divider-color);
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-group-header:hover {
+  background-color: var(--dv-icon-hover-background-color);
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-group-color {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--dv-tab-group-color);
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-group-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-group-collapsed-badge {
+  font-size: 0.75em;
+  font-weight: 400;
+  opacity: 0.7;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background-color: var(--dv-tab-divider-color);
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-pinned-header {
+  cursor: default;
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-pinned-header:hover {
+  background-color: transparent;
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-pinned-header .dv-tabs-overflow-pinned-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.dv-tabs-overflow-container .dv-tabs-overflow-pinned-header .dv-tabs-overflow-pinned-icon .dv-svg {
+  width: 11px;
+  height: 11px;
+}
+.dv-tabs-overflow-container .dv-tab.dv-tab--grouped {
+  padding-left: 16px;
+}
+/*
+ * Advanced overflow popover (AdvancedOverflowModule): the same container as the
+ * free list, upgraded in place with a search input, a scrollable listbox, and a
+ * keyboard-highlighted active row. Styles live in core so the module ships no
+ * CSS; they are inert unless the module renders this body.
+ */
+.dv-tabs-overflow-container.dv-tabs-overflow-advanced {
+  min-width: 220px;
+}
+.dv-tabs-overflow-container.dv-tabs-overflow-advanced .dv-tabs-overflow-search {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-bottom: 1px solid var(--dv-tab-divider-color);
+  outline: none;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+  background-color: var(--dv-group-view-background-color);
+}
+.dv-tabs-overflow-container.dv-tabs-overflow-advanced .dv-tabs-overflow-list {
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+.dv-tabs-overflow-container.dv-tabs-overflow-advanced .dv-tab.dv-tabs-overflow-option--focused {
+  outline: 1px solid var(--dv-tab-divider-color);
+  outline-offset: -1px;
+  background-color: var(--dv-icon-hover-background-color);
+}
+.dv-tabs-and-actions-container {
+  display: flex;
+  background-color: var(--dv-tabs-and-actions-container-background-color);
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: var(--dv-tabs-and-actions-container-height);
+  font-size: var(--dv-tabs-and-actions-container-font-size);
+  /**
+   * Multi-row (wrapping) tabs: when the tab list wraps onto multiple rows
+   * (`.dv-tabs-container--wrap`, toggled by the `MultiRowTabsModule`), the
+   * header grows to fit instead of clipping. Inert otherwise: the single-row
+   * fixed height above is unchanged.
+   */
+}
+.dv-tabs-and-actions-container:has(.dv-tabs-container--wrap) {
+  height: auto;
+  min-height: var(--dv-tabs-and-actions-container-height);
+  align-items: flex-start;
+}
+.dv-tabs-and-actions-container:has(.dv-tabs-container--wrap) > .dv-pre-actions-container,
+.dv-tabs-and-actions-container:has(.dv-tabs-container--wrap) > .dv-left-actions-container,
+.dv-tabs-and-actions-container:has(.dv-tabs-container--wrap) > .dv-right-actions-container,
+.dv-tabs-and-actions-container:has(.dv-tabs-container--wrap) > .dv-void-container {
+  height: var(--dv-tabs-and-actions-container-height);
+}
+.dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-scrollable {
+  flex-grow: 1;
+}
+.dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-tabs-container {
+  flex-grow: 1;
+}
+.dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-tabs-container .dv-tab {
+  flex-grow: 1;
+  padding: 0px;
+}
+.dv-tabs-and-actions-container.dv-single-tab.dv-full-width-single-tab .dv-void-container {
+  flex-grow: 0;
+}
+.dv-tabs-and-actions-container .dv-void-container {
+  display: flex;
+  flex-grow: 1;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  touch-action: none;
+}
+.dv-tabs-and-actions-container .dv-void-container.dv-draggable {
+  cursor: grab;
+}
+.dv-tabs-and-actions-container .dv-right-actions-container {
+  display: flex;
+}
+.dv-tabs-and-actions-container .dv-right-actions-container.dv-right-actions-container-vertical {
+  flex-direction: column;
+}
+.dv-tabs-and-actions-container.dv-groupview-header-vertical {
+  flex-direction: column;
+  height: auto;
+  width: var(--dv-tabs-and-actions-container-height);
+}
+.dv-tabs-and-actions-container.dv-groupview-header-vertical:has(.dv-tabs-container--wrap) {
+  width: auto;
+  min-width: var(--dv-tabs-and-actions-container-height);
+}
+.dv-tabs-and-actions-container.dv-groupview-header-vertical:has(.dv-tabs-container--wrap) > .dv-scrollable {
+  align-self: stretch;
+}
+.dv-watermark {
+  display: flex;
+  height: 100%;
+}
+.dv-dockview {
+  position: relative;
+  background-color: var(--dv-group-view-background-color);
+}
+.dv-dockview .dv-watermark-container {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  height: 100%;
+  width: 100%;
+  z-index: 1;
+}
+.dv-dockview .dv-overlay-render-container {
+  position: relative;
+}
+.dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab {
+  background-color: var(--dv-activegroup-visiblepanel-tab-background-color);
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+}
+.dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-inactive-tab {
+  background-color: var(--dv-activegroup-hiddenpanel-tab-background-color);
+  color: var(--dv-activegroup-hiddenpanel-tab-color);
+}
+.dv-groupview.dv-inactive-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab {
+  background-color: var(--dv-inactivegroup-visiblepanel-tab-background-color);
+  color: var(--dv-inactivegroup-visiblepanel-tab-color);
+}
+.dv-groupview.dv-inactive-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-inactive-tab {
+  background-color: var(--dv-inactivegroup-hiddenpanel-tab-background-color);
+  color: var(--dv-inactivegroup-hiddenpanel-tab-color);
+}
+/**
+ * when a tab is dragged we lose the above stylings because they are conditional on parent elements
+ * therefore we also set some stylings for the dragging event
+ **/
+.dv-tab.dv-tab-dragging {
+  background-color: var(--dv-activegroup-visiblepanel-tab-background-color);
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+}
+.dv-keyboard-docking-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 100;
+  max-width: 90%;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  background-color: var(--dv-context-menu-background-color, var(--dv-group-view-background-color));
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+  border: 1px solid var(--dv-tab-divider-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.dv-groupview {
+  display: flex;
+  height: 100%;
+  background-color: var(--dv-group-view-background-color);
+  overflow: hidden;
+  flex-direction: column;
+}
+.dv-groupview:focus {
+  outline: none;
+}
+.dv-groupview > .dv-content-container {
+  flex-grow: 1;
+  min-height: 0;
+  outline: none;
+}
+.dv-groupview.dv-groupview-header-bottom {
+  flex-direction: column-reverse;
+}
+.dv-groupview.dv-groupview-header-left {
+  flex-direction: row;
+}
+.dv-groupview.dv-groupview-header-right {
+  flex-direction: row-reverse;
+}
+.dv-groupview.dv-groupview-edge.dv-edge-collapsed > .dv-content-container {
+  display: none;
+}
+.dv-root-wrapper {
+  height: 100%;
+  width: 100%;
+}
+.dv-grid-view,
+.dv-branch-node {
+  height: 100%;
+  width: 100%;
+}
+.dv-debug .dv-resize-container .dv-resize-handle-top {
+  background-color: red;
+}
+.dv-debug .dv-resize-container .dv-resize-handle-bottom {
+  background-color: green;
+}
+.dv-debug .dv-resize-container .dv-resize-handle-left {
+  background-color: yellow;
+}
+.dv-debug .dv-resize-container .dv-resize-handle-right {
+  background-color: blue;
+}
+.dv-debug .dv-resize-container .dv-resize-handle-topleft,
+.dv-debug .dv-resize-container .dv-resize-handle-topright,
+.dv-debug .dv-resize-container .dv-resize-handle-bottomleft,
+.dv-debug .dv-resize-container .dv-resize-handle-bottomright {
+  background-color: cyan;
+}
+.dv-floating-overlay-host {
+  position: absolute;
+  pointer-events: none;
+}
+.dv-floating-overlay-host > .dv-resize-container {
+  pointer-events: auto;
+}
+.dv-edge-peek {
+  background-color: var(--dv-group-view-background-color);
+  border: 1px solid var(--dv-separator-border);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+.dv-edge-peek > * {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+.dv-auto-edge-band {
+  position: absolute;
+  pointer-events: none;
+  z-index: var(--dv-overlay-z-index, 999);
+  background-color: var(--dv-edge-dock-indicator-color);
+  box-shadow: 0 0 6px var(--dv-edge-dock-indicator-color);
+}
+.dv-edge-peek-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 8px;
+  box-sizing: border-box;
+  background-color: var(--dv-group-view-background-color);
+  border: 1px solid var(--dv-separator-border);
+  border-bottom: none;
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+  font-size: 12px;
+}
+.dv-edge-peek-header .dv-edge-peek-pin,
+.dv-edge-peek-header .dv-edge-peek-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  cursor: pointer;
+  border: none;
+  padding: 4px;
+  color: inherit;
+  background: transparent;
+  outline: none;
+}
+.dv-edge-peek-header .dv-edge-peek-pin:hover,
+.dv-edge-peek-header .dv-edge-peek-close:hover {
+  border-radius: 2px;
+  background-color: var(--dv-icon-hover-background-color);
+}
+.dv-edge-peek-header .dv-edge-peek-pin:focus-visible,
+.dv-edge-peek-header .dv-edge-peek-close:focus-visible {
+  border-radius: 2px;
+  outline: 1px solid var(--dv-tab-divider-color);
+  outline-offset: -1px;
+}
+.dv-edge-peek-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-resize-container > .dv-grid-view {
+  width: 100%;
+  height: 100%;
+}
+.dv-resize-container-with-titlebar {
+  display: flex;
+  flex-direction: column;
+}
+.dv-resize-container-with-titlebar > .dv-floating-titlebar {
+  flex: 0 0 auto;
+}
+.dv-resize-container-with-titlebar > .dv-grid-view {
+  height: auto;
+  flex: 1 1 0;
+  min-height: 0;
+}
+.dv-floating-titlebar {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  height: var(--dv-floating-titlebar-height, 22px);
+  background-color: var(--dv-floating-titlebar-background-color);
+  border-bottom: var(--dv-floating-titlebar-border-bottom, none);
+  user-select: none;
+  touch-action: none;
+}
+.dv-floating-titlebar.dv-draggable {
+  cursor: grab;
+}
+.dv-resize-container {
+  --dv-overlay-z-index: var(--dv-overlay-z-index, 999);
+  position: absolute;
+  z-index: calc(var(--dv-overlay-z-index) - 2);
+  background-color: var(--dv-group-view-background-color);
+  border: var(--dv-floating-border);
+  box-shadow: var(--dv-floating-box-shadow);
+  /* GPU optimizations for floating group movement */
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+.dv-resize-container.dv-hidden {
+  display: none;
+}
+.dv-resize-container.dv-resize-container-dragging {
+  opacity: var(--dv-floating-group-dragging-opacity);
+  /* Enhanced GPU acceleration during drag */
+  will-change: transform, opacity;
+}
+.dv-resize-container .dv-resize-handle-top,
+.dv-resize-container .dv-resize-handle-bottom,
+.dv-resize-container .dv-resize-handle-left,
+.dv-resize-container .dv-resize-handle-right,
+.dv-resize-container .dv-resize-handle-topleft,
+.dv-resize-container .dv-resize-handle-topright,
+.dv-resize-container .dv-resize-handle-bottomleft,
+.dv-resize-container .dv-resize-handle-bottomright {
+  touch-action: none;
+}
+.dv-resize-container .dv-resize-handle-top {
+  height: 4px;
+  width: calc(100% - 8px);
+  left: 4px;
+  top: -2px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: ns-resize;
+}
+.dv-resize-container .dv-resize-handle-bottom {
+  height: 4px;
+  width: calc(100% - 8px);
+  left: 4px;
+  bottom: -2px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: ns-resize;
+}
+.dv-resize-container .dv-resize-handle-left {
+  height: calc(100% - 8px);
+  width: 4px;
+  left: -2px;
+  top: 4px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: ew-resize;
+}
+.dv-resize-container .dv-resize-handle-right {
+  height: calc(100% - 8px);
+  width: 4px;
+  right: -2px;
+  top: 4px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: ew-resize;
+}
+.dv-resize-container .dv-resize-handle-topleft {
+  height: 4px;
+  width: 4px;
+  top: -2px;
+  left: -2px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: nw-resize;
+}
+.dv-resize-container .dv-resize-handle-topright {
+  height: 4px;
+  width: 4px;
+  right: -2px;
+  top: -2px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: ne-resize;
+}
+.dv-resize-container .dv-resize-handle-bottomleft {
+  height: 4px;
+  width: 4px;
+  left: -2px;
+  bottom: -2px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: sw-resize;
+}
+.dv-resize-container .dv-resize-handle-bottomright {
+  height: 4px;
+  width: 4px;
+  right: -2px;
+  bottom: -2px;
+  z-index: var(--dv-overlay-z-index);
+  position: absolute;
+  cursor: se-resize;
+}
+@media (pointer: coarse) {
+  .dv-resize-container .dv-resize-handle-top,
+  .dv-resize-container .dv-resize-handle-bottom {
+    height: 16px;
+    width: calc(100% - 48px);
+    left: 24px;
+  }
+  .dv-resize-container .dv-resize-handle-top {
+    top: -10px;
+  }
+  .dv-resize-container .dv-resize-handle-bottom {
+    bottom: -10px;
+  }
+  .dv-resize-container .dv-resize-handle-left,
+  .dv-resize-container .dv-resize-handle-right {
+    width: 16px;
+    height: calc(100% - 48px);
+    top: 24px;
+  }
+  .dv-resize-container .dv-resize-handle-left {
+    left: -10px;
+  }
+  .dv-resize-container .dv-resize-handle-right {
+    right: -10px;
+  }
+  .dv-resize-container .dv-resize-handle-topleft,
+  .dv-resize-container .dv-resize-handle-topright,
+  .dv-resize-container .dv-resize-handle-bottomleft,
+  .dv-resize-container .dv-resize-handle-bottomright {
+    height: 24px;
+    width: 24px;
+  }
+  .dv-resize-container .dv-resize-handle-topleft {
+    top: -12px;
+    left: -12px;
+  }
+  .dv-resize-container .dv-resize-handle-topright {
+    top: -12px;
+    right: -12px;
+  }
+  .dv-resize-container .dv-resize-handle-bottomleft {
+    bottom: -12px;
+    left: -12px;
+  }
+  .dv-resize-container .dv-resize-handle-bottomright {
+    bottom: -12px;
+    right: -12px;
+  }
+}
+.dv-smart-guides {
+  pointer-events: none;
+  z-index: calc(var(--dv-overlay-z-index, 999) + 100);
+}
+.dv-smart-guide {
+  background-color: var(--dv-smart-guides-color, #1f9cf0);
+}
+.dv-smart-guide-preview {
+  box-sizing: border-box;
+  background-color: var(--dv-smart-guides-preview-color, rgba(31, 156, 240, 0.18));
+  border: 1px solid var(--dv-smart-guides-color, #1f9cf0);
+}
+.dv-render-overlay {
+  --dv-overlay-z-index: var(--dv-overlay-z-index, 999);
+  position: absolute;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  contain: layout paint;
+  isolation: isolate;
+  /* GPU optimizations */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+.dv-render-overlay.dv-render-overlay-float {
+  z-index: calc(var(--dv-overlay-z-index) - 1);
+}
+.dv-debug .dv-render-overlay {
+  outline: 1px solid red;
+  outline-offset: -1;
+}
+.dv-pane-container {
+  height: 100%;
+  width: 100%;
+}
+.dv-pane-container.dv-animated .dv-view {
+  /* GPU optimizations for smooth pane animations */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  transition: transform 0.15s ease-out;
+}
+.dv-pane-container .dv-view {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0px !important;
+}
+.dv-pane-container .dv-view:not(:first-child)::before {
+  background-color: transparent !important;
+}
+.dv-pane-container .dv-view:not(:first-child) .dv-pane > .dv-pane-header {
+  border-top: 1px solid var(--dv-paneview-header-border-color, var(--dv-separator-border));
+}
+.dv-pane-container .dv-view .dv-default-header {
+  background-color: var(--dv-group-view-background-color);
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+  display: flex;
+  padding: 0px 8px;
+  cursor: pointer;
+}
+.dv-pane-container .dv-view .dv-default-header .dv-pane-header-icon {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.dv-pane-container .dv-view .dv-default-header > span {
+  padding-left: 8px;
+  flex-grow: 1;
+}
+.dv-pane-container:first-of-type > .dv-pane > .dv-pane-header {
+  border-top: none !important;
+}
+.dv-pane-container .dv-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+.dv-pane-container .dv-pane .dv-pane-header {
+  box-sizing: border-box;
+  user-select: none;
+  position: relative;
+  outline: none;
+}
+.dv-pane-container .dv-pane .dv-pane-header.dv-pane-draggable {
+  cursor: pointer;
+}
+.dv-pane-container .dv-pane .dv-pane-header:focus-visible:before, .dv-pane-container .dv-pane .dv-pane-header:has(:focus-visible):before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  content: "";
+  pointer-events: none;
+  outline: 1px solid;
+  outline-width: -1px;
+  outline-style: solid;
+  outline-offset: -1px;
+  outline-color: var(--dv-paneview-active-outline-color);
+}
+.dv-pane-container .dv-pane .dv-pane-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-grow: 1;
+  position: relative;
+  outline: none;
+}
+.dv-pane-container .dv-pane .dv-pane-body:focus-visible:before, .dv-pane-container .dv-pane .dv-pane-body:has(:focus-visible):before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  content: "";
+  pointer-events: none;
+  outline: 1px solid;
+  outline-width: -1px;
+  outline-style: solid;
+  outline-offset: -1px;
+  outline-color: var(--dv-paneview-active-outline-color);
+}
+.dv-scrollable {
+  position: relative;
+  overflow: hidden;
+}
+.dv-scrollable .dv-scrollbar {
+  position: absolute;
+  border-radius: 2px;
+  background-color: transparent;
+  /* GPU optimizations */
+  will-change: background-color, transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  transition-property: background-color;
+  transition-timing-function: ease-in-out;
+  transition-duration: 1s;
+  transition-delay: 0s;
+}
+.dv-scrollable .dv-scrollbar-horizontal {
+  bottom: 0px;
+  left: 0px;
+  height: 4px;
+}
+.dv-scrollable .dv-scrollbar-vertical {
+  right: 0px;
+  top: 0px;
+  width: 4px;
+}
+.dv-scrollable:hover .dv-scrollbar, .dv-scrollable.dv-scrollable-resizing .dv-scrollbar, .dv-scrollable.dv-scrollable-scrolling .dv-scrollbar {
+  background-color: var(--dv-scrollbar-background-color, rgba(255, 255, 255, 0.25));
+}
+.dv-debug .dv-split-view-container .dv-sash-container .dv-sash.dv-enabled {
+  background-color: black;
+}
+.dv-debug .dv-split-view-container .dv-sash-container .dv-sash.dv-disabled {
+  background-color: orange;
+}
+.dv-debug .dv-split-view-container .dv-sash-container .dv-sash.dv-maximum {
+  background-color: green;
+}
+.dv-debug .dv-split-view-container .dv-sash-container .dv-sash.dv-minimum {
+  background-color: red;
+}
+.dv-split-view-container {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+}
+.dv-split-view-container.dv-splitview-disabled > .dv-sash-container > .dv-sash {
+  pointer-events: none;
+}
+.dv-split-view-container.dv-animation .dv-view,
+.dv-split-view-container.dv-animation .dv-sash {
+  /* GPU optimizations for smooth animations */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  transition: transform 0.15s ease-out;
+}
+.dv-split-view-container.dv-horizontal {
+  height: 100%;
+}
+.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash {
+  height: 100%;
+  width: 4px;
+}
+.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash.dv-enabled {
+  cursor: ew-resize;
+}
+.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash.dv-disabled {
+  cursor: default;
+}
+.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash.dv-maximum {
+  cursor: w-resize;
+}
+.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash.dv-minimum {
+  cursor: e-resize;
+}
+.dv-split-view-container.dv-horizontal > .dv-view-container > .dv-view:not(:first-child)::before {
+  height: 100%;
+  width: 1px;
+}
+.dv-split-view-container.dv-vertical {
+  width: 100%;
+}
+.dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash {
+  width: 100%;
+  height: 4px;
+}
+.dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash.dv-enabled {
+  cursor: ns-resize;
+}
+.dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash.dv-disabled {
+  cursor: default;
+}
+.dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash.dv-maximum {
+  cursor: n-resize;
+}
+.dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash.dv-minimum {
+  cursor: s-resize;
+}
+.dv-split-view-container.dv-vertical > .dv-view-container > .dv-view {
+  width: 100%;
+}
+.dv-split-view-container.dv-vertical > .dv-view-container > .dv-view:not(:first-child)::before {
+  height: 1px;
+  width: 100%;
+}
+.dv-split-view-container .dv-sash-container {
+  height: 100%;
+  width: 100%;
+  position: absolute;
+}
+.dv-split-view-container .dv-sash-container .dv-sash {
+  position: absolute;
+  z-index: 99;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  touch-action: none;
+  background-color: var(--dv-sash-color, transparent);
+}
+.dv-split-view-container .dv-sash-container .dv-sash:not(.disabled):active, .dv-split-view-container .dv-sash-container .dv-sash:not(.disabled):hover {
+  background-color: var(--dv-active-sash-color, transparent);
+  transition-property: background-color;
+  transition-timing-function: ease-in-out;
+  transition-duration: var(--dv-active-sash-transition-duration, 0.1s);
+  transition-delay: var(--dv-active-sash-transition-delay, 0.5s);
+}
+@media (pointer: coarse) {
+  .dv-split-view-container .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    content: "";
+    position: absolute;
+    background: transparent;
+  }
+  .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    top: 0;
+    bottom: 0;
+    left: -10px;
+    right: -10px;
+  }
+  .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash:not(.dv-disabled)::before {
+    left: 0;
+    right: 0;
+    top: -10px;
+    bottom: -10px;
+  }
+}
+.dv-split-view-container .dv-view-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+.dv-split-view-container .dv-view-container .dv-view {
+  height: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+  position: absolute;
+}
+.dv-split-view-container.dv-separator-border .dv-view:not(:first-child)::before {
+  content: " ";
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  pointer-events: none;
+  background-color: var(--dv-separator-border);
+}
+.dv-svg {
+  display: inline-block;
+  fill: currentcolor;
+  line-height: 1;
+  stroke: currentcolor;
+  stroke-width: 0;
+}
+.dockview-spaced {
+  --dv-spacing-padding: 10px;
+  --dv-tab-font-size: 12px;
+  --dv-border-radius: 12px;
+  --dv-tab-margin-block: 0.5rem;
+  --dv-tab-margin-inline: 0.25rem;
+  --dv-tab-margin: var(--dv-tab-margin-block) var(--dv-tab-margin-inline);
+  --dv-tabs-and-actions-container-height: 44px;
+  --dv-tab-border-radius: 8px;
+  --dv-sash-border-radius: 4px;
+  --dv-dropdown-border-radius: 8px;
+  --dv-tab-close-icon-size: 8px;
+  --dv-floating-group-border: 2px solid var(--dv-group-view-background-color);
+  --dv-floating-titlebar-background-color: var(
+      --dv-group-view-background-color
+  );
+  --dv-floating-titlebar-border-bottom: none;
+  box-sizing: border-box;
+  padding: var(--dv-spacing-padding);
+  background-color: var(--dv-group-view-background-color);
+}
+.dockview-spaced .dv-dockview {
+  padding: 0;
+}
+.dockview-spaced .dv-resize-container:has(> .dv-groupview) {
+  border-radius: 8px;
+}
+.dockview-spaced .dv-sash {
+  border-radius: var(--dv-sash-border-radius);
+}
+.dockview-spaced .dv-drop-target-anchor {
+  border-radius: calc(var(--dv-border-radius) / 4);
+}
+.dockview-spaced .dv-drop-target-anchor.dv-drop-target-content {
+  border-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-resize-container {
+  border-radius: var(--dv-border-radius) !important;
+  border: none;
+}
+.dockview-spaced .dv-resize-container .dv-groupview {
+  border: var(--dv-floating-group-border);
+}
+.dockview-spaced .dv-resize-container > .dv-grid-view {
+  box-sizing: border-box;
+  padding: var(--dv-spacing-padding);
+}
+.dockview-spaced .dv-resize-container-with-titlebar > .dv-grid-view {
+  padding-top: 0;
+}
+.dockview-spaced .dv-resize-container-with-titlebar > .dv-floating-titlebar {
+  border-top-left-radius: var(--dv-border-radius);
+  border-top-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-tabs-overflow-container,
+.dockview-spaced .dv-tabs-overflow-dropdown-default {
+  border-radius: var(--dv-dropdown-border-radius);
+  height: unset !important;
+}
+.dockview-spaced .dv-render-overlay {
+  border-bottom-left-radius: var(--dv-border-radius);
+  border-bottom-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-tab {
+  border-radius: var(--dv-tab-border-radius);
+}
+.dockview-spaced .dv-tab .dv-svg {
+  height: var(--dv-tab-close-icon-size);
+  width: var(--dv-tab-close-icon-size);
+}
+.dockview-spaced .dv-tabs-container--wrap:not(.dv-tabs-container-vertical) .dv-tab {
+  height: calc(var(--dv-tabs-and-actions-container-height) - 2 * var(--dv-tab-margin-block));
+}
+.dockview-spaced .dv-tabs-container-vertical .dv-tab {
+  margin: var(--dv-tab-margin-inline) var(--dv-tab-margin-block);
+}
+.dockview-spaced .dv-tabs-container--wrap.dv-tabs-container-vertical .dv-tab {
+  width: calc(var(--dv-tabs-and-actions-container-height) - 2 * var(--dv-tab-margin-block));
+}
+.dockview-spaced .dv-groupview {
+  border-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-groupview .dv-tabs-and-actions-container {
+  padding: 0px calc(var(--dv-border-radius) / 2);
+  border-top-left-radius: var(--dv-border-radius);
+  border-top-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-groupview .dv-tabs-and-actions-container.dv-groupview-header-vertical {
+  padding: calc(var(--dv-border-radius) / 2) 0;
+}
+.dockview-spaced .dv-groupview .dv-content-container {
+  background-color: var(--dv-tabs-and-actions-container-background-color);
+  border-bottom-left-radius: var(--dv-border-radius);
+  border-bottom-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-groupview.dv-groupview-header-bottom > .dv-tabs-and-actions-container {
+  border-radius: 0 0 var(--dv-border-radius) var(--dv-border-radius);
+}
+.dockview-spaced .dv-groupview.dv-groupview-header-bottom > .dv-content-container {
+  border-radius: var(--dv-border-radius) var(--dv-border-radius) 0 0;
+}
+.dockview-spaced .dv-groupview.dv-groupview-header-left > .dv-tabs-and-actions-container {
+  border-radius: var(--dv-border-radius) 0 0 var(--dv-border-radius);
+}
+.dockview-spaced .dv-groupview.dv-groupview-header-left > .dv-content-container {
+  border-radius: 0 var(--dv-border-radius) var(--dv-border-radius) 0;
+}
+.dockview-spaced .dv-groupview.dv-groupview-header-right > .dv-tabs-and-actions-container {
+  border-radius: 0 var(--dv-border-radius) var(--dv-border-radius) 0;
+}
+.dockview-spaced .dv-groupview.dv-groupview-header-right > .dv-content-container {
+  border-radius: var(--dv-border-radius) 0 0 var(--dv-border-radius);
+}
+.dockview-spaced .dv-groupview.dv-edge-tool-window .dv-edge-peek-header {
+  border-top-left-radius: var(--dv-border-radius);
+  border-top-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-groupview.dv-edge-tool-window .dv-content-container {
+  border-radius: 0;
+}
+.dockview-spaced .dv-groupview.dv-edge-tool-window .dv-tabs-and-actions-container {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: var(--dv-border-radius);
+  border-bottom-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-edge-peek {
+  border-bottom-left-radius: var(--dv-border-radius);
+  border-bottom-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-edge-peek-clip {
+  border-bottom-left-radius: var(--dv-border-radius);
+  border-bottom-right-radius: var(--dv-border-radius);
+}
+.dockview-spaced .dv-edge-peek-header {
+  border-top-left-radius: var(--dv-border-radius);
+  border-top-right-radius: var(--dv-border-radius);
+}
+.dv-context-menu {
+  min-width: 160px;
+  overflow: hidden;
+  background: var(--dv-context-menu-background-color, var(--dv-activegroup-hiddenpanel-tab-background-color));
+  color: var(--dv-context-menu-color, var(--dv-activegroup-hiddenpanel-tab-color));
+  border: 1px solid var(--dv-tab-divider-color);
+  border-radius: var(--dv-border-radius);
+  box-shadow: var(--dv-floating-box-shadow);
+  padding: 4px 0;
+}
+.dv-context-menu-item {
+  height: 25px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: var(--dv-tabs-and-actions-container-font-size);
+  white-space: nowrap;
+  user-select: none;
+}
+.dv-context-menu-item:hover {
+  background: var(--dv-icon-hover-background-color);
+}
+.dv-context-menu-item.dv-context-menu-item--disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+.dv-context-menu-separator {
+  height: 1px;
+  background: var(--dv-tab-divider-color);
+  margin: 4px 0;
+}
+.dv-context-menu-rename {
+  padding: 8px 12px 4px;
+}
+.dv-context-menu-rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--dv-tab-divider-color);
+  border-radius: var(--dv-border-radius);
+  background: inherit;
+  color: var(--dv-activegroup-visiblepanel-tab-color);
+  font-size: var(--dv-tabs-and-actions-container-font-size);
+  outline: none;
+}
+.dv-context-menu-rename-input:focus {
+  border-color: var(--dv-activegroup-visiblepanel-tab-color);
+}
+.dv-context-menu-rename-input::placeholder {
+  color: var(--dv-activegroup-hiddenpanel-tab-color);
+}
+.dv-context-menu-color-picker {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  padding: 8px 12px;
+  align-items: center;
+}
+.dv-context-menu-color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+  background-color: var(--dv-tab-group-color);
+}
+.dv-context-menu-color-swatch:hover {
+  opacity: 0.85;
+}
+.dv-context-menu-color-swatch.dv-context-menu-color-swatch--selected {
+  outline: 2px solid var(--dv-tab-divider-color);
+  outline-offset: 2px;
+}
+.dv-tab-group-indicator-none .dv-groupview-header-bottom .dv-tab-group-underline {
+  top: auto;
+  bottom: 0;
+}
+.dv-groupview.dv-groupview-header-bottom.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab::after, .dv-groupview.dv-groupview-header-bottom.dv-inactive-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab::after {
+  top: 0px;
+  bottom: auto;
+}
