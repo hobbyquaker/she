@@ -70,7 +70,7 @@ async function init({ url, store, log }) {
         });
     });
 
-    log.info('redis: connected', url);
+    log.info('redis: connected', require('./redact-config').redactUrl(String(url)));
 }
 
 /** @returns {import('ioredis').Redis | null} */

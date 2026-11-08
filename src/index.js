@@ -220,7 +220,7 @@ if (_sentinelBefore !== 'live' && !SAFE_MODE) {
         (config.safeModeEarlyCrash || 300) * 1000,
     ).unref();
 }
-log.debug('loaded config: ', config);
+log.debug('loaded config: ' + JSON.stringify(require('./lib/redact-config').redactConfig(config)));
 
 if (typeof config.port !== 'undefined') {
     // Validate: password mode requires a password hash
