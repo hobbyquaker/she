@@ -3,6 +3,7 @@
     import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, type AuthMode, type BrokerStatus } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
+    import { resolveCommitMode, type CommitMode } from '../lib/git-commit.js';
     import { subscribeWs } from '../lib/ws.js';
     import { getTheme, setTheme, type Theme } from '../lib/theme.js';
     import L from 'leaflet';
@@ -148,7 +149,10 @@
     // Scripts
     let dir            = $state('');
     let disableWatch   = $state(false);
-    let gitAutoCommit  = $state(false);
+    /** commits of script changes: off, a dialog, or automatic — gitCommitMode (the old gitAutoCommit: true reads as auto) */
+    let gitCommitMode  = $state<CommitMode>('off');
+    /** auto mode: the AI writes the message, the default when it fails or is not configured — gitCommitAi */
+    let gitCommitAi    = $state(false);
     let gitAutoPush    = $state(false);
     let timezone       = $state('');
     let locale         = $state('');
@@ -271,7 +275,7 @@
         'mqttUsername', 'mqttPassword', 'mqttCa', 'mqttCert', 'mqttKey', 'mqttVersion',
         'brokers',
         'port', 'bindAddress', 'auth', 'password', 'proxyHeader', 'proxyLogoutUrl',
-        'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush',
+        'dir', 'disableWatch', 'gitAutoCommit', 'gitAutoPush', 'gitCommitMode', 'gitCommitAi',
         'latitude', 'longitude', 'timezone', 'locale', 'holidays', 'holidaysExtra',
         'updateChannel',
         'verbosity',
@@ -352,7 +356,7 @@
         { id: 'webserver',  label: 'Web server',   terms: ['port','http','server','bind','address'] },
         { id: 'updates',    label: 'Updates',      terms: ['update','channel','stable','beta','pre-release','release','version','github'] },
         { id: 'scripts',    label: 'Scripts',      terms: ['directory','watch','hot reload','dir'] },
-        { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository'] },
+        { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository','commit message','ai','ask'] },
         { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule','locale','holidays','holiday','feiertag','she.time'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
@@ -410,8 +414,10 @@
             if (typeof cfg.proxyLogoutUrl   === 'string')  authProxyLogoutUrl = cfg.proxyLogoutUrl;
             if (typeof cfg.dir              === 'string')  dir          = cfg.dir;
             if (typeof cfg.disableWatch     === 'boolean') disableWatch = cfg.disableWatch;
-            if (typeof cfg.gitAutoCommit    === 'boolean') gitAutoCommit = cfg.gitAutoCommit;
-            if (typeof cfg.gitAutoPush      === 'boolean') gitAutoPush   = cfg.gitAutoPush;
+            const commit = resolveCommitMode(cfg);
+            gitCommitMode = commit.mode;
+            gitCommitAi   = commit.ai;
+            gitAutoPush   = commit.autoPush;
             if (typeof cfg.latitude         === 'number')  latitude     = cfg.latitude;
             if (typeof cfg.longitude        === 'number')  longitude    = cfg.longitude;
             if (typeof cfg.timezone         === 'string')  timezone     = cfg.timezone;
@@ -621,7 +627,9 @@
 
         if (dir)            cfg.dir         = dir;
         if (disableWatch)   cfg.disableWatch = true;
-        if (gitAutoCommit)  cfg.gitAutoCommit = true;
+        // gitCommitMode replaces gitAutoCommit: the old key is not written back (the daemon still reads it as auto)
+        if (gitCommitMode !== 'off') cfg.gitCommitMode = gitCommitMode;
+        if (gitCommitMode === 'auto' && gitCommitAi) cfg.gitCommitAi = true;
         if (gitAutoPush)    cfg.gitAutoPush   = true;
 
         if (latitude  !== '') cfg.latitude  = Number(latitude);
@@ -1198,15 +1206,34 @@
                 {#if visibleSections.some(s => s.id === 'git')}
                 <section id="sec-git">
                     <h3>Git</h3>
+                    <div class="field">
+                        <label for="git-commit-mode">
+                            Commit script changes
+                            {@render tip('What happens after a script is saved, renamed or deleted. Off: nothing, commit by hand. Ask: a commit dialog with a pre-filled message you can edit, or let the AI write. Auto: a commit without asking. Only effective when the scripts directory is inside a git repository.')}
+                        </label>
+                        <select id="git-commit-mode" bind:value={gitCommitMode}>
+                            <option value="off">Off — commit by hand</option>
+                            <option value="ask">Ask — show a commit dialog</option>
+                            <option value="auto">Auto — commit without asking</option>
+                        </select>
+                    </div>
+                    {#if gitCommitMode === 'auto'}
                     <div class="field field--check">
                         <span></span>
                         <label class="check-label">
-                            <input type="checkbox" bind:checked={gitAutoCommit} />
+                            <input type="checkbox" bind:checked={gitCommitAi} />
                             <span class="checkmark"></span>
-                            Auto-commit on save
-                            {@render tip('When enabled, saving or renaming/deleting a script automatically creates a git commit. Only effective when the scripts directory is inside a git repository.')}
+                            Let the AI write the commit message
+                            {@render tip('The configured AI assistant describes the staged diff; the message is the default (the changed file, or the file and the date) when the AI is not configured, fails or does not answer within a few seconds. Saving does not wait longer than that.')}
                         </label>
                     </div>
+                    {#if gitCommitAi && aiEntries.length === 0}
+                    <div class="field">
+                        <span></span>
+                        <p class="hint">No AI provider is configured (section AI Assistant) — commits use the default message until one is.</p>
+                    </div>
+                    {/if}
+                    {/if}
                     <div class="field field--check">
                         <span></span>
                         <label class="check-label">
