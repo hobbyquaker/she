@@ -90,6 +90,9 @@ type GridNode = SerializedGridObject<LeafData>;
 type GridLeaf = GridNode & { data: LeafData };
 type Dims = { width?: number; height?: number };
 
+/** the share of the dock a panel takes when it is dropped beside the editor */
+const NEW_SHARE = 0.3;
+
 /**
  * A panel tab: the title and a close button that hides the panel through the dock (dockview's own
  * close removes the group, and with it the panel's place in the layout). Uses dockview's class names
@@ -212,6 +215,8 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
     let held = new Map<string, Dims>();
     /** the layout's structure the held sizes belong to; '' right after a rebuild */
     let structure = '';
+    /** group id → visible, as of the last layout change: a group shown again is not a newcomer */
+    let groupsBefore = new Map<string, boolean>();
     let lastOpen = '';
 
     const api = createDockview(el, {
@@ -234,7 +239,9 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
     function lockCentre() {
         const centre = api.getPanel(opts.centre);
         if (!centre) return;
-        centre.group.locked = 'no-drop-target';
+        // nothing is dropped into the editor's group as a tab, but its edges stay drop targets, so a panel can be
+        // docked back below or beside the code instead of only along the whole dock's edge
+        centre.group.locked = true;
         centre.group.header.hidden = true;
     }
 
@@ -337,9 +344,37 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
      */
     function holdSizes() {
         const pinned: { group: IDockviewGroupPanel; before: Record<'minW' | 'maxW' | 'minH' | 'maxH', number> }[] = [];
-        for (const [groupId, dims] of held) {
+        // a group keeps a size only where it still sits beside the editor in the same direction: a panel
+        // dragged from its own column into the editor's column keeps its group, and holding the column
+        // width it had would squeeze the editor's whole column to it
+        const now = sizesToHold(api.toJSON(), opts.centre);
+        for (const [groupId, was] of held) {
             const group = groupById(groupId);
             if (!group || !group.api.isVisible || group.api.location.type !== 'grid') continue;
+            const still = now.get(groupId);
+            const dims: Dims = {
+                width: still?.width !== undefined ? was.width : undefined,
+                height: still?.height !== undefined ? was.height : undefined,
+            };
+            if (dims.width === undefined && dims.height === undefined) continue;
+            pin(group, dims);
+        }
+        // a group that has just come to sit beside the editor (dropped on one of its edges) takes a modest
+        // share instead of dockview's half of the editor
+        for (const [groupId, is] of now) {
+            const group = groupById(groupId);
+            if (!group || !group.api.isVisible || group.api.location.type !== 'grid') continue;
+            // shown again after a close: it comes back with its own size, not as a newcomer
+            if (groupsBefore.get(groupId) === false) continue;
+            const was = held.get(groupId);
+            const dims: Dims = {
+                width: is.width !== undefined && was?.width === undefined ? Math.min(is.width, Math.round(el.clientWidth * NEW_SHARE)) : undefined,
+                height: is.height !== undefined && was?.height === undefined ? Math.min(is.height, Math.round(el.clientHeight * NEW_SHARE)) : undefined,
+            };
+            if (dims.width === undefined && dims.height === undefined) continue;
+            pin(group, dims);
+        }
+        function pin(group: IDockviewGroupPanel, dims: Dims) {
             const before = { minW: group.minimumWidth, maxW: group.maximumWidth, minH: group.minimumHeight, maxH: group.maximumHeight };
             group.api.setConstraints({
                 minimumWidth: dims.width,
@@ -366,6 +401,7 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
         if (structure !== '' && now !== structure) holdSizes();
         structure = now;
         held = sizesToHold(api.toJSON(), opts.centre);
+        groupsBefore = new Map(api.groups.map((g) => [g.id, g.api.isVisible]));
         save();
         notify();
     }
