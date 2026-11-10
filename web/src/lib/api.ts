@@ -232,6 +232,14 @@ export interface DaemonStatus {
     commandsFailed?: number;
     /** process.memoryUsage() in bytes */
     memory?: { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number };
+    /** V8's heap size limit in bytes */
+    heapLimit?: number;
+    /** the cores available to the daemon */
+    cpus?: number;
+    /** the main broker's connection is up */
+    mqttConnected?: boolean;
+    /** the lag (ms) above which the heartbeat names the blocking script; null when it is off */
+    heartbeatThreshold?: number | null;
     /** process.getActiveResourcesInfo() counted by type */
     resources?: Record<string, number>;
     /** the retained topic she's own maintenance/stats go to (null without MQTT or with statsInterval 0) */
@@ -2330,8 +2338,26 @@ export function getRuntime(script?: string): Promise<RuntimeSnapshot> {
     return request('GET', '/she/runtime' + (script ? '?script=' + encodeURIComponent(script) : ''));
 }
 
-export function getRuntimeHistory(): Promise<{ intervalMs: number; samples: GaugeSample[] }> {
-    return request('GET', '/she/runtime/history');
+/**
+ * The gauges of one minute: the highest message rate, CPU, utilisation and lag of its samples, the
+ * mean of the mean lag, the last value of the levels, and the callbacks and script errors counted in it.
+ */
+export interface MinuteSample extends GaugeSample {
+    callbacks: number;
+    errors: number;
+}
+
+export interface RuntimeHistory {
+    /** one sample per 10 s for the last hour */
+    intervalMs: number;
+    samples: GaugeSample[];
+    /** one sample per minute for the last day; the last one is the minute still running */
+    minutes?: { intervalMs: number; samples: MinuteSample[] };
+}
+
+/** `since`: only the minutes that start at or after it (the 10 s samples always come whole). */
+export function getRuntimeHistory(since?: number): Promise<RuntimeHistory> {
+    return request('GET', '/she/runtime/history' + (since ? '?since=' + since : ''));
 }
 
 export function runtimeAction(id: string, action: 'cancel' | 'run'): Promise<{ ok: boolean; kind: string; name: string | null }> {

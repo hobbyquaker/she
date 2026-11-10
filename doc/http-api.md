@@ -336,7 +336,23 @@ Query: `script=<label>` limits the answer to one script (its path relative to th
 
 ### GET /she/runtime/history
 
-The daemon's gauges, one sample per 10 s for the last hour: `{ "intervalMs": 10000, "samples": [ { "ts", "mqttMsgPerSec", "cpuPercent", "eluPercent", "elMeanMs", "elMaxMs", "memMb", "heapMb", "topics", "handlers", "pendingTimers" } ] }`.
+The daemon's gauges at two resolutions, both kept in memory and lost at a restart:
+
+```json
+{
+  "intervalMs": 10000,
+  "samples": [ { "ts": 1794142760000, "mqttMsgPerSec": 14, "cpuPercent": 0.8, "eluPercent": 1, "elMeanMs": 20, "elMaxMs": 21, "memMb": 157, "heapMb": 59, "topics": 17, "handlers": 19, "pendingTimers": 17 } ],
+  "minutes": {
+    "intervalMs": 60000,
+    "samples": [ { "ts": 1794142740000, "mqttMsgPerSec": 31, "cpuPercent": 9.4, "eluPercent": 4, "elMeanMs": 20.3, "elMaxMs": 46, "memMb": 157, "heapMb": 59, "topics": 17, "handlers": 19, "pendingTimers": 17, "callbacks": 26, "errors": 0 } ]
+  }
+}
+```
+
+- `samples` — one sample per 10 s for the last hour (at most 360).
+- `minutes.samples` — one sample per minute for the last 24 hours (at most 1440), oldest first. `ts` is the start of the minute; a minute in which the daemon took no sample is missing, not zero. The last entry is the minute still running and changes until it is over. Every gauge sample of a minute is folded into it: `mqttMsgPerSec`, `cpuPercent`, `eluPercent` and `elMaxMs` are the **highest** value of the minute, `elMeanMs` is the mean, `memMb`, `heapMb`, `topics`, `handlers` and `pendingTimers` are the last value. `callbacks` is the number of script callbacks run in that minute, `errors` the number of script errors (a callback that threw or rejected, a script that failed to compile or threw while loading).
+
+Query: `since=<ms>` limits `minutes.samples` to the minutes that start at or after that time — a client that already holds the day asks with the `ts` of its last sample and replaces that one. `samples` is not affected.
 
 ### POST /she/runtime/action
 
@@ -882,6 +898,9 @@ Returns a snapshot of runtime counters.
 | `handlers`, `pendingTimers`, `schedules`, `commandsFailed` | Registered handlers, timers pending right now, schedule and sun-event handlers, `she.mqtt.command` failures (timeout, offline) since start |
 | `memory` | `process.memoryUsage()` in bytes: `{ rss, heapTotal, heapUsed, external, arrayBuffers }` — `heapUsed` is the figure that shows a leak; the RSS breathes with the garbage collector |
 | `resources` | `process.getActiveResourcesInfo()` counted by type: `{ "Timeout": 12, "TCPSocketWrap": 3, … }` |
+| `heapLimit`, `cpus` | What the Runtime page measures against: V8's heap size limit in bytes (`v8.getHeapStatistics().heap_size_limit`) and the cores available to the process |
+| `mqttConnected` | `true` while the connection to the main broker is up (`false` without a broker configured) |
+| `heartbeatThreshold` | The event-loop lag in ms above which the heartbeat names the blocking script; `null` when the heartbeat is not enabled |
 | `stats`, `statsTopic`, `statsInterval` | The last [`<name>/maintenance/stats`](services.md#shes-own-topics) sample she published (`null` until the first one), the topic it goes to (`null` without MQTT or with `statsInterval` 0) and the interval in seconds |
 | `brokers` | The [additional brokers](brokers.md): `{ name, url, connected, everConnected, since, error, queued, messages, rules, topics, mirror: { in, out } }` each; empty when none is configured |
 | `matterEnabled`, `matterNodes`, `matterEndpoints`, `dbEnabled`, `dbDocs`, `dbViews`, `startedAt`, `dataDir`, `user` | What the web UI's header needs |

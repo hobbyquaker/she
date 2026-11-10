@@ -2,7 +2,8 @@
 
 /**
  * The runtime model over HTTP: what every script has registered, with statistics and pending timers
- * (`GET /she/runtime`, optionally one script), the hour's gauge history (`GET /she/runtime/history`),
+ * (`GET /she/runtime`, optionally one script), the gauge history — an hour at 10 s, a day at one
+ * sample per minute — (`GET /she/runtime/history`),
  * and the editor's actions on a timer or handler (`POST /she/runtime/action`). The live view goes
  * over the WebSocket (`runtime:subscribe`); these endpoints serve a one-off read and the actions.
  */
@@ -18,7 +19,8 @@ let _ctx = null;
  * @param {object} ctx
  * @param {import('../lib/runtime').Runtime} ctx.runtime
  * @param {(label?: string) => object} ctx.snapshot the model, or one script's part by its label
- * @param {() => {intervalMs: number, samples: object[]}} ctx.history
+ * @param {(since?: number) => {intervalMs: number, samples: object[], minutes: {intervalMs: number, samples: object[]}}} ctx.history
+ *   `since` limits the minute samples to those that start at or after it
  * @param {(file: string, msg: string) => void} ctx.log writes into a script's log
  */
 function init(ctx) {
@@ -35,7 +37,9 @@ router.get('/', (req, res) => {
 router.get('/history', (req, res) => {
     if (!_ctx) return res.status(503).json({ error: 'runtime not ready' });
     res.set('Cache-Control', 'no-store');
-    res.json(_ctx.history());
+    // ?since=<ms>: only the minutes from there on — what a page that already has the day asks for
+    const since = Number(req.query.since);
+    res.json(_ctx.history(req.query.since !== undefined && Number.isFinite(since) ? since : undefined));
 });
 
 /**

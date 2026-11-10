@@ -4,6 +4,11 @@
      * fires and errors (since load and over the last five minutes), callback time, last and next run,
      * and the timers pending under each handler with a live countdown bar. Used by the Runtime page
      * (read-only, every script) and by the editor's Runtime panel (one script, with actions).
+     *
+     * Grouped by script it is still **one** table: a group's header is a row across every column, so
+     * the columns of every group sit at the same place. With `fixed` the widths come from the
+     * `colgroup` and not from the content, so they also stay where they are when the rows change —
+     * a countdown ticking, a filter typed, the grouping switched.
      */
     import type { RuntimeHandler, RuntimePending } from './api.js';
     import { fmtAgo, fmtIn, fmtMs, fmtClock, progressOf } from './runtime-format.js';
@@ -18,8 +23,12 @@
         handlers: Row[];
         /** wall clock, updated by the parent several times a second for the countdowns */
         now: number;
-        /** show the script column */
+        /** show the script column (not when grouped: the group's header names the script) */
         showScript?: boolean;
+        /** one group per script, each under a header row that folds it */
+        grouped?: boolean;
+        /** column widths from the colgroup instead of the content */
+        fixed?: boolean;
         /** offer cancel / run now */
         actions?: boolean;
         /** rows whose id is in here are highlighted as the top consumers */
@@ -28,7 +37,7 @@
         onaction?: (id: string, action: 'cancel' | 'run') => void;
         emptyText?: string;
     }
-    let { handlers, now, showScript = false, actions = false, top = new Set<string>(), onjump, onaction, emptyText = 'Nothing registered.' }: Props = $props();
+    let { handlers, now, showScript = false, grouped = false, fixed = false, actions = false, top = new Set<string>(), onjump, onaction, emptyText = 'Nothing registered.' }: Props = $props();
 
     let sortKey = $state<SortKey>('kind');
     let sortDir = $state<1 | -1>(1);
@@ -68,6 +77,27 @@
         return list;
     });
 
+    const scriptCol = $derived(showScript && !grouped);
+    const columns = $derived(9 + (scriptCol ? 1 : 0) + (actions ? 1 : 0));
+    /** the rows by script, the scripts by name; inside a group the table's sort order */
+    const groups = $derived.by(() => {
+        if (!grouped) return [];
+        const m = new Map<string, Row[]>();
+        for (const r of rows) {
+            const key = r.script ?? '';
+            if (!m.has(key)) m.set(key, []);
+            m.get(key)!.push(r);
+        }
+        return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([script, list]) => ({
+            script,
+            list,
+            pending: list.reduce((a, h) => a + h.pending.length, 0),
+            fires5: list.reduce((a, h) => a + h.recent.fires, 0),
+            errors: list.reduce((a, h) => a + h.errors, 0),
+        }));
+    });
+    let collapsed = $state<Record<string, boolean>>({});
+
     const KIND_LABEL: Record<string, string> = {
         'sub': 'sub', 'var': 'var', 'schedule': 'schedule', 'sun': 'sun', 'interval': 'interval', 'timer': 'setTimeout', 'shift': 'shift',
         'timeout': 'she.timeout', 'debounce': 'debounce', 'debounce maxWait': 'debounce (maxWait)', 'throttle': 'throttle', 'retry': 'retry',
@@ -83,15 +113,72 @@
     const arrow = (k: SortKey) => (sortKey === k ? (sortDir === 1 ? ' ▲' : ' ▼') : '');
 </script>
 
+{#snippet row(h: Row)}
+    <tr class:top={top.has(h.id)} class:has-errors={h.errors > 0}>
+        <td><span class="kind {kindClass(h.kind)}">{KIND_LABEL[h.kind] ?? h.kind}</span></td>
+        {#if scriptCol}
+            <td class="script"><button class="link" title="Open {h.script} in the editor" onclick={() => h.script && onjump?.(h.script, h.line ?? 1)}>{h.script}</button></td>
+        {/if}
+        <td class="name">
+            <span class="name-text" title={h.name ?? ''}>{h.name ?? '—'}</span>
+            {#if h.line}
+                <button class="line link" title="Jump to line {h.line} in the editor" onclick={() => onjump?.(h.script, h.line!)}>:{h.line}</button>
+            {/if}
+            {#if h.detail}<div class="detail" title={h.detail}>{h.detail}</div>{/if}
+        </td>
+        <td class="num">{h.fires}</td>
+        <td class="num" class:muted={h.recent.fires === 0}>{h.recent.fires}</td>
+        <td class="num" title="{fmtMs(h.totalMs)} total · {fmtMs(h.recent.totalMs)} in the last 5 min">{fmtMs(h.totalMs)}{#if h.recent.totalMs > 0}<span class="sub"> · {fmtMs(h.recent.totalMs)}</span>{/if}</td>
+        <td class="num">{h.maxMs > 0 ? fmtMs(h.maxMs) : '—'}</td>
+        <td class="num" class:err={h.errors > 0}>{h.errors}{#if h.recent.errors > 0}<span class="sub"> · {h.recent.errors}</span>{/if}</td>
+        <td class="when" title={h.lastFire ? fmtClock(h.lastFire) + (h.lastMs !== null ? ` · ${fmtMs(h.lastMs)}` : '') : ''}>{fmtAgo(h.lastFire, now)}</td>
+        <td class="next">
+            {#if h.pending.length > 0}
+                {#each h.pending.slice(0, 5) as p (p.id)}
+                    <div class="pending" title={pendingTitle(p)}>
+                        <div class="bar"><div class="fill" class:interval={!!p.every} style:width="{Math.round(progressOf(p.start, p.due, now) * 100)}%"></div></div>
+                        <span class="in">{fmtIn(p.due, now)}</span>
+                        {#if p.topic}<span class="topic" title={p.topic}>{p.topic}</span>{/if}
+                        {#if actions && (h.kind !== 'interval')}
+                            <span class="acts">
+                                {#if h.kind !== 'command'}<button class="act" title="Run now — remove the timer and call its callback" onclick={() => onaction?.(p.id, 'run')}>▶</button>{/if}
+                                <button class="act" title="Cancel — remove the timer without running it" onclick={() => onaction?.(p.id, 'cancel')}>✕</button>
+                            </span>
+                        {/if}
+                    </div>
+                {/each}
+                {#if h.pending.length > 5}<div class="more">+{h.pending.length - 5} more</div>{/if}
+            {:else if h.next}
+                <span class="in" title={fmtClock(h.next)}>{fmtIn(h.next, now)}</span>
+            {:else}
+                <span class="muted">—</span>
+            {/if}
+        </td>
+        {#if actions}
+            <td class="acts-cell">
+                {#if h.actions.run}<button class="act" title={h.kind === 'interval' ? 'Run once now — the interval keeps running' : 'Run once now — the schedule stays'} onclick={() => onaction?.(h.id, 'run')}>▶</button>{/if}
+                {#if h.actions.cancel}<button class="act" title="Cancel — clear the interval" onclick={() => onaction?.(h.id, 'cancel')}>✕</button>{/if}
+            </td>
+        {/if}
+    </tr>
+{/snippet}
+
 <div class="rt-table-wrap">
 {#if rows.length === 0}
     <div class="rt-empty">{emptyText}</div>
 {:else}
-<table class="rt-table">
+<table class="rt-table" class:fixed>
+    <colgroup>
+        <col class="c-kind" />
+        {#if scriptCol}<col class="c-script" />{/if}
+        <col class="c-name" />
+        <col class="c-num" /><col class="c-num" /><col class="c-time" /><col class="c-max" /><col class="c-err" /><col class="c-last" /><col class="c-next" />
+        {#if actions}<col class="c-acts" />{/if}
+    </colgroup>
     <thead>
         <tr>
             <th class="sortable" onclick={() => sortBy('kind')}>Kind{arrow('kind')}</th>
-            {#if showScript}<th>Script</th>{/if}
+            {#if scriptCol}<th>Script</th>{/if}
             <th class="sortable grow" onclick={() => sortBy('name')}>Handler{arrow('name')}</th>
             <th class="num sortable" onclick={() => sortBy('fires')} title="Callbacks since the script was loaded">Fires{arrow('fires')}</th>
             <th class="num sortable" onclick={() => sortBy('recent')} title="Callbacks in the last five minutes">5 min{arrow('recent')}</th>
@@ -104,55 +191,31 @@
         </tr>
     </thead>
     <tbody>
-        {#each rows as h (h.id)}
-            <tr class:top={top.has(h.id)} class:has-errors={h.errors > 0}>
-                <td><span class="kind {kindClass(h.kind)}">{KIND_LABEL[h.kind] ?? h.kind}</span></td>
-                {#if showScript}
-                    <td class="script"><button class="link" title="Open {h.script} in the editor" onclick={() => h.script && onjump?.(h.script, h.line ?? 1)}>{h.script}</button></td>
-                {/if}
-                <td class="name">
-                    <span class="name-text" title={h.name ?? ''}>{h.name ?? '—'}</span>
-                    {#if h.line}
-                        <button class="line link" title="Jump to line {h.line} in the editor" onclick={() => onjump?.(h.script, h.line!)}>:{h.line}</button>
-                    {/if}
-                    {#if h.detail}<div class="detail" title={h.detail}>{h.detail}</div>{/if}
-                </td>
-                <td class="num">{h.fires}</td>
-                <td class="num" class:muted={h.recent.fires === 0}>{h.recent.fires}</td>
-                <td class="num" title="{fmtMs(h.totalMs)} total · {fmtMs(h.recent.totalMs)} in the last 5 min">{fmtMs(h.totalMs)}{#if h.recent.totalMs > 0}<span class="sub"> · {fmtMs(h.recent.totalMs)}</span>{/if}</td>
-                <td class="num">{h.maxMs > 0 ? fmtMs(h.maxMs) : '—'}</td>
-                <td class="num" class:err={h.errors > 0}>{h.errors}{#if h.recent.errors > 0}<span class="sub"> · {h.recent.errors}</span>{/if}</td>
-                <td class="when" title={h.lastFire ? fmtClock(h.lastFire) + (h.lastMs !== null ? ` · ${fmtMs(h.lastMs)}` : '') : ''}>{fmtAgo(h.lastFire, now)}</td>
-                <td class="next">
-                    {#if h.pending.length > 0}
-                        {#each h.pending.slice(0, 5) as p (p.id)}
-                            <div class="pending" title={pendingTitle(p)}>
-                                <div class="bar"><div class="fill" class:interval={!!p.every} style:width="{Math.round(progressOf(p.start, p.due, now) * 100)}%"></div></div>
-                                <span class="in">{fmtIn(p.due, now)}</span>
-                                {#if p.topic}<span class="topic" title={p.topic}>{p.topic}</span>{/if}
-                                {#if actions && (h.kind !== 'interval')}
-                                    <span class="acts">
-                                        {#if h.kind !== 'command'}<button class="act" title="Run now — remove the timer and call its callback" onclick={() => onaction?.(p.id, 'run')}>▶</button>{/if}
-                                        <button class="act" title="Cancel — remove the timer without running it" onclick={() => onaction?.(p.id, 'cancel')}>✕</button>
-                                    </span>
-                                {/if}
-                            </div>
-                        {/each}
-                        {#if h.pending.length > 5}<div class="more">+{h.pending.length - 5} more</div>{/if}
-                    {:else if h.next}
-                        <span class="in" title={fmtClock(h.next)}>{fmtIn(h.next, now)}</span>
-                    {:else}
-                        <span class="muted">—</span>
-                    {/if}
-                </td>
-                {#if actions}
-                    <td class="acts-cell">
-                        {#if h.actions.run}<button class="act" title={h.kind === 'interval' ? 'Run once now — the interval keeps running' : 'Run once now — the schedule stays'} onclick={() => onaction?.(h.id, 'run')}>▶</button>{/if}
-                        {#if h.actions.cancel}<button class="act" title="Cancel — clear the interval" onclick={() => onaction?.(h.id, 'cancel')}>✕</button>{/if}
+        {#if grouped}
+            {#each groups as g (g.script)}
+                <tr class="grp">
+                    <td colspan={columns}>
+                        <div class="grp-row">
+                            <button class="grp-toggle" aria-expanded={!collapsed[g.script]} onclick={() => (collapsed[g.script] = !collapsed[g.script])}>
+                                <span class="chev">{collapsed[g.script] ? '▸' : '▾'}</span>
+                                <span class="grp-name">{g.script}</span>
+                                <span class="grp-meta">{g.list.length} handlers · {g.pending} pending · {g.fires5} fires / 5 min{#if g.errors > 0} · <span class="grp-err">{g.errors} errors</span>{/if}</span>
+                            </button>
+                            {#if g.script}<button class="link" title="Open {g.script} in the editor" onclick={() => onjump?.(g.script, 1)}>open</button>{/if}
+                        </div>
                     </td>
+                </tr>
+                {#if !collapsed[g.script]}
+                    {#each g.list as h (h.id)}
+                        {@render row(h)}
+                    {/each}
                 {/if}
-            </tr>
-        {/each}
+            {/each}
+        {:else}
+            {#each rows as h (h.id)}
+                {@render row(h)}
+            {/each}
+        {/if}
     </tbody>
 </table>
 {/if}
@@ -193,6 +256,25 @@
     .topic { color: var(--fg-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
     .more { color: var(--fg-dim); font-size: 11px; }
     .acts, .acts-cell { display: inline-flex; gap: 2px; }
+
+    /* a group's header: one row across every column */
+    tr.grp td, tr.grp:hover td { background: var(--bg-widget); padding: 0; white-space: normal; }
+    tr.grp:hover td { background: var(--bg-hover); }
+    .grp-row { display: flex; align-items: center; gap: 8px; padding-right: 10px; }
+    .grp-toggle { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; text-align: left; background: none; color: var(--fg); border: none; padding: 5px 8px; font: inherit; cursor: pointer; }
+    .chev { color: var(--fg-muted); width: 10px; flex-shrink: 0; }
+    .grp-name { font-weight: 600; color: var(--fg-text); }
+    .grp-meta { color: var(--fg-muted); font-size: 11px; }
+    .grp-err { color: var(--fg-err); }
+
+    /* fixed columns: the widths are the colgroup's, whatever the rows hold */
+    .rt-table.fixed { table-layout: fixed; min-width: 1120px; }
+    .fixed .c-kind { width: 132px; } .fixed .c-script { width: 220px; } .fixed .c-num { width: 68px; } .fixed .c-time { width: 136px; }
+    .fixed .c-max { width: 84px; } .fixed .c-err { width: 76px; } .fixed .c-last { width: 112px; } .fixed .c-next { width: 264px; } .fixed .c-acts { width: 60px; }
+    .fixed th, .fixed td { overflow: hidden; text-overflow: ellipsis; }
+    .fixed .script { max-width: none; }
+    .fixed .script .link { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+    .fixed .topic { flex: 1; min-width: 0; max-width: none; }
     .act { background: var(--bg-input); color: var(--fg-muted); border: 1px solid var(--border); border-radius: 3px; width: 20px; height: 18px; font-size: 10px; line-height: 1; cursor: pointer; padding: 0; }
     .act:hover { color: var(--fg); background: var(--bg-active); }
 </style>
