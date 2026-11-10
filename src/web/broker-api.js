@@ -251,6 +251,10 @@ router.post('/config/restore', (req, res) => {
         if (!backupPath.startsWith(path.resolve(dir) + path.sep) || !path.basename(backupPath).startsWith(`${base}.bak-`)) {
             return res.status(400).json({ error: 'invalid backup filename' });
         }
+        // a backup is a file she wrote next to the conf — never a link to something else
+        // (a missing one fails in the copy below, as before)
+        const backupStat = fs.lstatSync(backupPath, { throwIfNoEntry: false });
+        if (backupStat && !backupStat.isFile()) return res.status(400).json({ error: 'invalid backup filename' });
         mosquittoConf.restoreBackup(backupPath, fp);
         res.json({ ok: true });
     } catch (err) {

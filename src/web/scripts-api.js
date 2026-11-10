@@ -6,6 +6,7 @@ const path = require('path');
 const { git, getGitRoot, stagedDiff } = require('./git-api');
 const { broadcast } = require('./log-ws');
 const commitMessage = require('./commit-message');
+const { resolveInside } = require('../lib/safe-path');
 
 const router = express.Router();
 
@@ -61,15 +62,24 @@ async function maybeAutoCommit(req, message) {
 
 /**
  * Resolve a safe absolute path within the script root.
- * Returns null if the resolved path escapes the root (traversal attempt).
+ * Returns null if the path escapes the root — by `../`, or through a symlink that points out of it
+ * (see lib/safe-path.js; a symlink to something inside the root is fine).
  * @param {string} root - absolute script directory
  * @param {string} relPath - client-supplied relative path
+ * @param {{followLeaf?: boolean}} [opts] followLeaf false for what acts on the entry itself (delete, rename)
  * @returns {string|null}
  */
-function safePath(root, relPath) {
-    const abs = path.resolve(root, relPath.replace(/^\/+/, ''));
-    if (!abs.startsWith(root + path.sep) && abs !== root) return null;
-    return abs;
+function safePath(root, relPath, opts) {
+    return resolveInside(root, relPath, opts);
+}
+
+/** size and mtime of an entry — of the link itself when its target is gone, so one dead link does not fail the listing */
+function statOf(abs) {
+    try {
+        return fs.statSync(abs);
+    } catch {
+        return fs.lstatSync(abs);
+    }
 }
 
 function getRoot(req) {
@@ -105,7 +115,7 @@ function walk(dir, base, parentIsLib) {
             results.push(...walk(path.join(dir, entry.name), rel, lib));
         } else {
             const abs = path.join(dir, entry.name);
-            const stat = fs.statSync(abs);
+            const stat = statOf(abs);
             results.push({ path: rel, size: stat.size, mtime: stat.mtimeMs, lib });
         }
     }
@@ -139,7 +149,7 @@ function buildTree(dir, base, parentIsLib, parentIsDisabled = false) {
             const children = buildTree(abs, rel, childIsLib, effectiveDisabled);
             result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, disabled: selfDisabled, children });
         } else {
-            const stat = fs.statSync(abs);
+            const stat = statOf(abs);
             const isJs = entry.name.endsWith('.js');
             const selfDisabled = isJs ? hasShedisableMarker(abs) : false;
             const disabled = parentIsDisabled || selfDisabled;
@@ -268,12 +278,12 @@ router.use((req, res) => {
         }
     }
 
-    // DELETE /she/scripts/<path>  — delete file or directory (recursive)
+    // DELETE /she/scripts/<path>  — delete file or directory (recursive); a symlink is removed, not its target
     if (method === 'DELETE') {
-        const abs = safePath(root, filePath);
+        const abs = safePath(root, filePath, { followLeaf: false });
         if (!abs) return res.status(400).json({ error: 'Invalid path' });
         try {
-            const stat = fs.statSync(abs);
+            const stat = fs.lstatSync(abs);
             if (stat.isDirectory()) {
                 fs.rmSync(abs, { recursive: true });
             } else {
@@ -305,13 +315,14 @@ router.use((req, res) => {
     if (method === 'POST') {
         if (!filePath.endsWith('/rename')) return res.status(404).json({ error: 'Not found' });
         const srcPath = filePath.slice(0, -'/rename'.length);
-        const abs = safePath(root, srcPath);
+        // a rename moves the entry itself, so a symlink is judged by where it sits, not by its target
+        const abs = safePath(root, srcPath, { followLeaf: false });
         if (!abs) return res.status(400).json({ error: 'Invalid path' });
         const newName = req.body?.newPath;
         if (typeof newName !== 'string' || !newName) {
             return res.status(400).json({ error: 'Missing body.newPath string' });
         }
-        const absNew = safePath(root, newName);
+        const absNew = safePath(root, newName, { followLeaf: false });
         if (!absNew) return res.status(400).json({ error: 'Invalid newPath' });
         try {
             fs.mkdirSync(path.dirname(absNew), { recursive: true });

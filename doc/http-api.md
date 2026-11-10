@@ -85,6 +85,8 @@ HTTP 401
 
 ## Scripts — `/she/scripts`
 
+Every `:path` is relative to the script directory and has to stay inside it: `..` is refused, and so is a path that leaves the directory through a symbolic link — **400** `{ "error": "Invalid path" }`. A link whose target is inside the script directory works like the file or directory it points to; a link to a target that does not exist is refused, too. `DELETE` and rename act on a link itself, never on its target, so a link that points outside can be removed or moved. See [security.md](security.md#the-script-directory-and-symbolic-links).
+
 ### GET /she/scripts
 
 List all files in the script directory, recursively. Includes `.js` scripts and any other stored files (markdown, yaml, json, etc.).
@@ -126,7 +128,7 @@ Create or overwrite a file. Any file extension is accepted. The daemon only auto
 
 ### DELETE /she/scripts/:path
 
-Delete a script file.
+Delete a script file, or a directory with everything in it. A symbolic link is removed as a link; what it points to stays.
 
 **Response (HTTP 200):** `{ "ok": true }`
 

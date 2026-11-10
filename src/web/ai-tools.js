@@ -19,6 +19,7 @@ const { getLogBuffer } = require('./log-ws');
 const mqttWildcard = require('../lib/mqtt-wildcards');
 const StateStore = require('../lib/state-store');
 const { LOGS_DIR } = require('../lib/storage');
+const { resolveInside } = require('../lib/safe-path');
 const { unifiedDiff } = require('../lib/text-diff');
 
 // A tool result goes into the conversation and stays there for every later turn (roadmap I21):
@@ -831,11 +832,9 @@ function toolReadScripts(args, scriptDir, introspect) {
 function toolReadScript({ path: relPath }, scriptDir, introspect) {
     if (!scriptDir) return 'Scripts directory not configured.';
     if (!relPath || typeof relPath !== 'string') return 'path argument is required.';
-    const abs = path.resolve(scriptDir, relPath.replace(/^\/+/, ''));
-    // Path traversal guard
-    if (!abs.startsWith(scriptDir + path.sep) && abs !== scriptDir) {
-        return 'Access denied: path escapes the scripts directory.';
-    }
+    // Path traversal guard — `../` and symlinks that point out of the directory
+    const abs = resolveInside(scriptDir, relPath);
+    if (!abs) return 'Access denied: path escapes the scripts directory.';
     if (!fs.existsSync(abs)) return `File not found: ${relPath}`;
     const content = fs.readFileSync(abs, 'utf8');
     return `## ${relPath}\n${scriptSurroundings(relPath, introspect)}\`\`\`javascript\n${content}\n\`\`\``;
@@ -1567,8 +1566,8 @@ function scriptPathOf(scriptDir, relPath) {
     if (!scriptDir || !relPath || typeof relPath !== 'string') return null;
     const rel = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
     if (!rel.endsWith('.js') || rel.includes('..')) return null;
-    const abs = path.resolve(scriptDir, rel);
-    if (!abs.startsWith(path.resolve(scriptDir) + path.sep)) return null;
+    const abs = resolveInside(scriptDir, rel);
+    if (!abs || abs === path.resolve(scriptDir)) return null;
     return { rel, abs };
 }
 

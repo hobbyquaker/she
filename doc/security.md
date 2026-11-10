@@ -56,6 +56,14 @@ A script can inspect `req.headers` to implement its own auth — for example, ve
 
 > This behaviour is tracked as a known limitation and a more ergonomic solution (auth inherited by default, with an explicit `{ public: true }` opt-out for webhook receivers) is planned.
 
+## The script directory and symbolic links
+
+The HTTP API reads and writes script files only inside the script directory. A path is checked the way the file system resolves it, not as a string: a symbolic link inside the script directory that points out of it — put there by hand, or checked out with a git repository — is not followed. `GET`, `PUT` and `mkdir` on `/she/scripts`, the text search, the AI assistant's `read_script` and its script proposals refuse such a path (the search skips the file). A link whose target is inside the script directory keeps working, as does a script directory that is itself a link. A link to a target that does not exist is refused as well, because writing to it would create the target. `DELETE` and rename act on the link, not on its target, so a link that leaves can still be removed in the web UI. The git routes take paths below the script directory only and hand them to git, which does not follow links.
+
+Two things this does not change. The script engine itself follows links: a linked script file is loaded and runs wherever its target is — only the API stops reading and writing it. And scripts are code with the daemon's rights; whoever may edit a script can read whatever the `she` user can. The check keeps the *file API* inside its directory; it is not a sandbox.
+
+The broker page's config restore copies only a regular file named `mosquitto.conf.bak-…` from the config directory, never a link.
+
 ## Third-party npm packages in scripts
 
 Scripts run inside a Node.js VM sandbox, but they can `require()` any package that is installed in the global Node.js environment or in the she package itself. This means that **whatever npm package you load into a script runs with the same privileges as the she process** — full filesystem access, network access, and access to all connected devices.
