@@ -61,11 +61,32 @@ she.mqtt.sub('home/motion/hall', { change: true }, (_, val) => {
 
 ```
 
-Or use `she.timer` for simpler one-shot behaviour:
+Or let `she.mqtt.timer` do both — on with the motion, off again five minutes after the last one:
 
 ```js
-she.timer('home/motion/hall', 5 * 60 * 1000, 'home/light/hall');
+she.mqtt.timer('home/motion/hall', 5 * 60 * 1000, 'home/light/hall');
 ```
+
+---
+
+## Commands that must arrive
+
+`she.mqtt.pub` sends and forgets. For a command whose effect matters, `she.mqtt.command` waits until the device's status confirms it, and retries:
+
+```js
+// night setback: 17 °C, confirmed by the thermostat's status within 10 s, two more tries
+she.schedule('0 22 * * *', async () => {
+    try {
+        const r = await she.mqtt.command('hm/set/living-room/thermostat/SET_TEMPERATURE', 17, { tolerance: 0.1, timeout: 10, retries: 2 });
+        she.info(`setback confirmed after ${r.ms} ms`);
+    } catch (err) {
+        // timeout or offline: the warning is already in the log; tell someone
+        she.mqtt.pub('notify/set/push', `Thermostat did not confirm the setback (${err.reason})`);
+    }
+});
+```
+
+The status topic is derived from the convention (`hm/set/…` → `hm/status/…`, zigbee2mqtt's `<device>/set` → `<device>`); a failed command is warned in the log with the script and topic even when the script does not catch it.
 
 ---
 

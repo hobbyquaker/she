@@ -62,20 +62,16 @@ she.mqtt.timer('home/motion/hall', 5 * 60 * 1000, (topic, val) => {
 
 ```js
 she.mqtt.sub('home/motion/hall', { change: true }, (topic, val) => {
-    if (!val) return;
-
-    const now = new Date();
-    const hour = now.getHours();
-
-    // Active between sunset (rough: 18:00) and midnight
-    // For accurate solar times use she.schedule('sunset', ...) to set a flag
-    if (hour >= 18 || hour < 0) {
+    // the real sunset of the day, at the configured location; the window ends at midnight
+    if (val && she.time.between('sunset', '24:00')) {
         she.mqtt.pub('home/light/hall', 1);
     }
 });
 ```
 
-Or maintain a `dark` flag via solar events for accurate sunrise/sunset awareness:
+Windows over midnight work the same way: `she.time.between('22:00', '06:00')` is the whole night, and an offset such as `'sunset-30m'` starts half an hour earlier.
+
+Or maintain a `dark` flag via solar events, when other handlers need it too:
 
 ```js
 let dark = false;

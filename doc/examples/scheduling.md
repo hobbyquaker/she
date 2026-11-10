@@ -58,15 +58,13 @@ she.schedule('30 23 * * *', () => {
 
 ---
 
-## Weekend vs. weekday logic inside one handler
+## Working days only, public holidays included
 
 ```js
+// set `holidays` (e.g. "DE-BW") in the config, and a holiday is skipped like a weekend
 she.schedule('0 7 * * *', () => {
-    const day = new Date().getDay(); // 0 = Sun, 6 = Sat
-    const isWeekend = day === 0 || day === 6;
-
-    if (isWeekend) {
-        she.info('weekend — skipping morning routine');
+    if (!she.time.isWorkday()) {
+        she.info(`${she.time.holiday() || 'weekend'} — skipping morning routine`);
         return;
     }
 
