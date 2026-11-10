@@ -255,8 +255,12 @@ export interface DaemonStatus {
     /** the newest stable release and the newest pre-release known, whatever the channel */
     latestStable?: string;
     latestBeta?: string;
-    /** why the last check found nothing to offer (network, a release missing on npm), or why the last update attempt failed */
+    /** why the last check found nothing to offer (network, a release missing on npm), why GitHub was not the source (updateSource 'npm'), or why the last update attempt failed (updateFailed) */
     updateError?: string;
+    /** who named the versions of the last check: GitHub's releases, or npm's dist-tags when GitHub did not answer */
+    updateSource?: 'github' | 'npm';
+    /** updateError is a failed update attempt, not a remark of the check */
+    updateFailed?: boolean;
     /** an update is being installed right now */
     updating?: boolean;
     dataDir?: string;
@@ -312,7 +316,7 @@ export function restartDaemon(): Promise<{ ok: boolean }> {
     return request('POST', '/she/restart');
 }
 
-export function updateDaemon(): Promise<{ ok: boolean; version?: string; via?: 'helper' | 'npm-latest' }> {
+export function updateDaemon(): Promise<{ ok: boolean; version?: string; via?: 'helper' }> {
     return request('POST', '/she/update');
 }
 
@@ -323,6 +327,8 @@ export interface UpdateCheck {
     latestStable?: string;
     latestBeta?: string;
     updateError?: string;
+    updateSource?: 'github' | 'npm';
+    updateFailed?: boolean;
 }
 export function checkForUpdate(): Promise<UpdateCheck> {
     return request('POST', '/she/check-update');
