@@ -1251,6 +1251,23 @@ declare const she: {
             scrollBeyondLastLine: false,
         });
         historyDiffEditor.setModel({ original: historyDiffOrigModel, modified: historyDiffModModel });
+        resetMonacoHoverServices();
+    }
+
+    /**
+     * Monaco binds a global hover-delegate factory to the services of the last editor it constructed, and the
+     * inner editors of a diff editor bring their own services, which dispose() tears down. After a diff editor
+     * was created or disposed, the main editor's find widget and command palette would be built from disposed
+     * services: Ctrl+F, Ctrl+H and F1 did nothing ("InstantiationService has been disposed"), and every model
+     * change then threw from the half-built find widget. A throwaway editor on the global services, created and
+     * disposed at once, points the factory back at services that live as long as the page.
+     */
+    function resetMonacoHoverServices() {
+        try {
+            monaco.editor.create(document.createElement('div'), { automaticLayout: false }).dispose();
+        } catch {
+            /* nothing to restore when Monaco is not loaded */
+        }
     }
 
     function closeHistoryDiff() {
@@ -1258,6 +1275,7 @@ declare const she: {
         historyDiffBinary = false;
         historyDiffEditor?.dispose();
         historyDiffEditor = null;
+        resetMonacoHoverServices();
         historyDiffOrigModel?.dispose();
         historyDiffOrigModel = null;
         historyDiffModModel?.dispose();
@@ -1620,6 +1638,7 @@ declare const she: {
             original: proposedOriginalModel,
             modified: proposedModifiedModel,
         });
+        resetMonacoHoverServices();
     }
 
     // Reset auto-accept when the active script changes
@@ -1662,6 +1681,7 @@ declare const she: {
     function cleanupDiffEditor() {
         diffEditor?.dispose();
         diffEditor = null;
+        resetMonacoHoverServices();
         proposedOriginalModel?.dispose();
         proposedOriginalModel = null;
         proposedModifiedModel?.dispose();
