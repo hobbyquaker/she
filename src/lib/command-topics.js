@@ -143,6 +143,33 @@ function statusTopicWarning(topic, has = () => false) {
 const PUBLISH_CALL = /\bshe\.(mqtt\.pub|mqttpub|setValue|mqtt\.command|mqttcommand)\(\s*(['"`])([^'"`$\\\n]+)\2/g;
 
 /**
+ * The text of a call from its opening parenthesis to the matching closing one (strings and template
+ * literals skipped; at most 2000 characters, enough for an options object).
+ * @param {string} text
+ * @param {number} open index of the opening parenthesis
+ */
+function callText(text, open) {
+    let depth = 0;
+    let quote = null;
+    const end = Math.min(text.length, open + 2000);
+    for (let i = open; i < end; i++) {
+        const c = text[i];
+        if (quote) {
+            if (c === '\\') i++;
+            else if (c === quote) quote = null;
+            continue;
+        }
+        if (c === "'" || c === '"' || c === '`') quote = c;
+        else if (c === '(') depth++;
+        else if (c === ')' && --depth === 0) return text.slice(open, i + 1);
+    }
+    return text.slice(open, end);
+}
+
+/** a pub call marked as a deliberate publish to a status topic: `{ status: true }` among its options */
+const DELIBERATE_STATUS = /\bstatus\s*:\s*true\b/;
+
+/**
  * The literal topics a script publishes to — for the lint at load time.
  * @param {string} source
  * @returns {{ line: number, api: string, topic: string }[]}
@@ -154,6 +181,7 @@ function scanPublishTopics(source) {
     PUBLISH_CALL.lastIndex = 0;
     while ((m = PUBLISH_CALL.exec(text)) !== null) {
         const line = text.slice(0, m.index).split('\n').length;
+        if ((m[1] === 'mqtt.pub' || m[1] === 'mqttpub') && DELIBERATE_STATUS.test(callText(text, text.indexOf('(', m.index)))) continue;
         out.push({ line, api: 'she.' + m[1], topic: m[3].replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2') });
     }
     return out;

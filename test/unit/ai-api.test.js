@@ -514,6 +514,9 @@ describe('prompt profiles and the house section (I25)', () => {
         expect(noTools.staticText).not.toContain('## Tools');
 
         const big = 'x'.repeat(5000);
+        // room for the static part, the script and one attachment, not two: measured, so the reference may grow
+        const base = buildSystemPromptParts({ apiref: true }, { path: 's.js', content: 'let a;' }, null, null, null, [], { profile: 'compact' });
+        const budgetChars = base.staticText.length + base.dynamicText.length + big.length + 1000;
         const r = buildSystemPromptParts(
             { apiref: true },
             { path: 's.js', content: 'let a;' },
@@ -524,7 +527,7 @@ describe('prompt profiles and the house section (I25)', () => {
                 { name: 'a.md', content: big },
                 { name: 'b.md', content: big },
             ],
-            { profile: 'compact', budgetChars: 10000 }, // the static part plus one attachment fits, the second does not
+            { profile: 'compact', budgetChars }, // the static part plus one attachment fits, the second does not
         );
         expect(r.dropped).toEqual(['file:b.md']); // the newest attachment goes first and that already fits; the script stays
         expect(r.dynamicText).toContain('## Attached file: a.md');

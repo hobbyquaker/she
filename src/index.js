@@ -1907,7 +1907,15 @@ function runScript(script, name, _origin, source) {
         const ns = StateStore.mqttNamespace(broker);
         topic = topic.replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
         if (!broker) recordPublish(name, topic);
-        lintPublish(topic, 'she.mqtt.pub', undefined, broker);
+        // { status: true } marks a deliberate publish to a status topic (a script that adds values to an
+        // adapter's status, or acts as the adapter of a device): the status-topic lint stays silent for it
+        let deliberateStatus = false;
+        if (options && typeof options === 'object' && 'status' in options) {
+            let status;
+            ({ status, ...options } = options);
+            deliberateStatus = status === true;
+        }
+        if (!deliberateStatus) lintPublish(topic, 'she.mqtt.pub', undefined, broker);
 
         if (typeof payload === 'object') {
             payload = JSON.stringify(payload);

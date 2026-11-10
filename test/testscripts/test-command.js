@@ -20,3 +20,11 @@ she.mqtt.sub('cmdtest/trigger/offline', () => report('offline', she.mqtt.command
 she.mqtt.sub('cmdtest/trigger/z2m', () => report('z2m', she.mqtt.command('z2m/lamp/set', { state: 'ON' }, { timeout: 2 })));
 she.mqtt.sub('cmdtest/trigger/already', () => report('already', she.mqtt.command('cmd/set/lamp/STATE', 1)));
 she.mqtt.sub('cmdtest/trigger/pending', () => report('pending', she.mqtt.command('cmd/set/lamp/LONG', 1, { timeout: 60 })));
+
+// { status: true }: a deliberate publish to a status topic is not warned about; an unmarked one is
+she.mqtt.sub('cmdtest/trigger/statuspub', () => {
+    const base = ['lint', 'status', 'derived'].join('/');
+    she.mqtt.pub(base + '/MARKED', 1, { retain: true, status: true });
+    she.mqtt.pub(base + '/UNMARKED', 1);
+    she.log('statuspub done');
+});

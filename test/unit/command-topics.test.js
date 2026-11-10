@@ -89,6 +89,20 @@ describe('statusTopicWarning()', () => {
 });
 
 describe('scanPublishTopics()', () => {
+    it('leaves out a pub marked { status: true }, also over several lines and next to other options', () => {
+        const src = [
+            "she.mqtt.pub('hm/status/a/DEWPOINT', { val: 1 }, { retain: true, status: true });",
+            "she.mqtt.pub('hm/status/b/DEWPOINT', fn('(', \"')\"), {",
+            '    retain: true,',
+            '    status: true,',
+            '});',
+            "she.mqtt.pub('hm/status/c/STATE', 1, { status: false });",
+            "she.mqtt.pub('hm/status/d/STATE', 1);",
+            "she.mqtt.command('hm/status/e/STATE', 1, { status: true });",
+        ].join('\n');
+        expect(scanPublishTopics(src).map((h) => h.topic)).toEqual(['hm/status/c/STATE', 'hm/status/d/STATE', 'hm/status/e/STATE']);
+    });
+
     it('finds the literal topics of pub, mqttpub, setValue and command with their lines', () => {
         const src = [
             "she.mqtt.sub('a/status/x', () => {",

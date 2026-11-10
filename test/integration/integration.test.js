@@ -779,6 +779,18 @@ describe('she.mqtt.command — confirmation, timeout, offline, zigbee2mqtt echo,
         );
     }, 20000);
 
+    it('a publish marked { status: true } is not warned about at runtime; an unmarked one is', async () => {
+        const warned = [];
+        subscribe('ms', /test-command\.js: she\.mqtt\.pub: "(lint\/status\/derived\/[A-Z]+)" is a status topic/, (line, m) => warned.push(m[1]));
+        const done = new Promise((resolve) => subscribe('ms', /test-command\.js: statuspub done/, () => resolve()));
+        const retained = new Promise((resolve) => mqttSubscribe('lint/status/derived/MARKED', (payload) => resolve(payload)));
+        mqtt.publish('cmdtest/trigger/statuspub', '1');
+        await done;
+        expect(await retained).toBe('1'); // published, and the option did not reach the broker as something else
+        await wait(200);
+        expect(warned).toEqual(['lint/status/derived/UNMARKED']);
+    }, 20000);
+
     it('resolves when the status topic echoes the value', async () => {
         const seen = new Promise((resolve) => subscribe('ms', /test-command\.js: command echo ok (\{.*\})/, (line, m) => resolve(JSON.parse(m[1]))));
         const sent = new Promise((resolve) => mqttSubscribe('cmd/set/lamp/STATE', (payload) => resolve(payload)));

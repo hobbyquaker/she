@@ -2,7 +2,7 @@
 Scripts start with `/* global she */` and `'use strict';`. `require()` works for installed npm packages.
 ```
 she.mqtt.sub(topic, [opts], cb)     cb(topic, val, obj)   opts: { change: true } fires on changes only; { debounce: 5, maxWait: 15 } (SECONDS) bundles events; wildcards + and #
-she.mqtt.pub(topic, payload, [opts]) publish (commands: no retain); { changed: true } publishes only when the payload differs from the last one
+she.mqtt.pub(topic, payload, [opts]) publish (commands: no retain); { changed: true } publishes only when the payload differs from the last one; { status: true } = deliberate status publish
 she.mqtt.get(topic)                 last known value
 she.mqtt.age(topic)                 seconds since the value last changed
 she.mqtt.timer(src, ms, target)     publish 1 when src turns truthy, 0 after ms

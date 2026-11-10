@@ -532,8 +532,9 @@ interface SheMqtt {
         opts?: { change?: boolean; retain?: boolean; shift?: number; random?: number; condition?: string | ((...args: any[]) => any); debounce?: number; maxWait?: number; throttle?: number; perTopic?: boolean; name?: string; flushOnUnload?: boolean } | string | ((...args: any[]) => any),
         cb?: (topic: string, val: any, obj: any, prev: any, msg: any) => void,
     ): void;
-    /** opts.changed: publish only when the payload differs from this script's last publish to the topic */
-    pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean; changed?: boolean }): void;
+    /** opts.changed: publish only when the payload differs from this script's last publish to the topic;
+     *  opts.status: a deliberate publish to a <prefix>/status/… topic — no status-topic warning for this call */
+    pub(topic: string | string[], payload: any, opts?: { qos?: number; retain?: boolean; changed?: boolean; status?: boolean }): void;
     get(topic: string): any;
     getProp(topic: string, ...prop: string[]): any;
     link(source: string | string[], target: string | string[], value?: any): void;

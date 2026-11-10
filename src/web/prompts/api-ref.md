@@ -13,7 +13,7 @@ she.mqtt.sub(topic, [opts], cb)        Subscribe; topic may be a string or an ar
     opts.perTopic   with debounce/throttle on an array or wildcard: one bundle per topic; opts.name names it in the timer list
     opts.flushOnUnload  with debounce: run a pending callback once on unload/reload (default: dropped)
     cb(topic, val, obj, objPrev, msg)   obj and objPrev are { val, ts, lc }; debounced: the last event, objPrev from before the first bundled one
-she.mqtt.pub(topic, payload, [opts])   Publish; objects are JSON-stringified; opts { qos, retain, changed }
+she.mqtt.pub(topic, payload, [opts])   Publish; objects are JSON-stringified; opts { qos, retain, changed, status } — status: true marks a deliberate publish to a <prefix>/status/… topic (a derived value beside an adapter's, or a script that is a device's adapter) and silences the status-topic warning; never use it to make a command "work"
     opts.changed    publish only when the payload differs from this script's last publish to the topic (before that: from the topic's state, set→status)
 she.mqtt.get(topic)                    Last known value (undefined when never seen); an empty payload removes a topic
 she.mqtt.getProp(topic, 'val'|'ts'|'lc')  One property of the state; without a property the whole { val, ts, lc }

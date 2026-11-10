@@ -169,6 +169,7 @@ Publish an MQTT message.
 | `[options.qos]` | `number` | `0` | QoS level (0, 1, or 2). |
 | `[options.retain]` | `boolean` | `false` | Retain flag. |
 | `[options.changed]` | `boolean` | `false` | Publish only when the payload differs from the one this script last published to the topic. Before the script's first publish of a run, the comparison is with the topic's current value in the state store — for a command topic (`<prefix>/set/<name>`) with its `status` sibling, where a variable's or an adapter's state lives. |
+| `[options.status]` | `boolean` | `false` | Marks a **deliberate** publish to a status topic (`<prefix>/status/…`): a script that adds derived values next to an adapter's (a dew point beside the humidity), or that is the adapter of a device without one. she warns about a publish to a status topic, because a command sent there never reaches the device; `status: true` silences that warning for this call only. |
 
 ```js
 she.mqtt.pub('home/light/kitchen', 1);
@@ -176,6 +177,9 @@ she.mqtt.pub('home/sensor/data', { temp: 21.5, hum: 60 }, { retain: true });
 
 // a value that is recomputed often but rarely changes: publish it only when it did
 she.mqtt.pub('var/set/Infobox', html, { changed: true });
+
+// a derived value published beside the adapter's own on purpose: no status-topic warning
+she.mqtt.pub('hm/status/bathroom-climate/DEWPOINT', { val: dew }, { retain: true, status: true });
 ```
 
 `changed` compares by value (`'21.5'` and `'21.50'` are the same, so are `[1,2]` and `{"val":[1,2]}`). The last payloads are remembered per script, for up to 200 topics; a hot reload starts over with the state store — which also covers the broker's echo of your own publish that has not arrived yet.
