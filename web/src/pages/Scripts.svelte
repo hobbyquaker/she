@@ -973,6 +973,9 @@ declare const she: {
 
     async function openTab(path: string) { await openTabInternal(path, true); }
 
+    /** why a tree entry that is a link out of the script directory neither runs nor opens */
+    const OUTSIDE_TIP = 'a link that points outside the script directory — it is not loaded and cannot be opened here. Copy the file into the script directory to use it.';
+
     const activeTabLoading = $derived(!!tabs.find((t) => t.path === activeTab)?.loading);
 
     /**
@@ -1860,7 +1863,7 @@ declare const she: {
                 {@const hasErr = scriptErrors.has(entry.path)}
                 {@const isGitMod = gitChangedPaths.has(entry.path)}
                 {@const isDirty = tabs.some(t => t.path === entry.path && t.dirty)}
-                {@const ext = (entry.name.split('.').pop() ?? 'txt').toUpperCase()}
+                {@const ext = entry.outside && !entry.name.includes('.') ? '' : (entry.name.split('.').pop() ?? 'txt').toUpperCase()}
                 {@const isJs = entry.name.endsWith('.js')}
                 <li
                     class="tree-file"
@@ -1871,14 +1874,27 @@ declare const she: {
                     oncontextmenu={(e) => openCtxMenu(e, entry)}
                 >
                     <div class="file-row">
-                        <button class:lib={entry.lib} class:dis={entry.disabled} class:err={hasErr} onclick={() => openTab(entry.path)}>
+                        <button
+                            class:lib={entry.lib}
+                            class:dis={entry.disabled}
+                            class:err={hasErr}
+                            class:outside={entry.outside}
+                            title={entry.outside ? OUTSIDE_TIP : undefined}
+                            onclick={() => (entry.outside ? (error = `${entry.path}: ${OUTSIDE_TIP}`) : openTab(entry.path))}
+                        >
                             <span class="badge badge-{ext.toLowerCase()}" class:badge-shelib={entry.lib}>{badgeContent(ext)}</span>
                             <span class="fname">{entry.name}</span>
+                            {#if entry.outside}
+                                <span class="outside-mark" aria-label="outside, not loaded">
+                                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2l-.8.8"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0L3 8.8A3 3 0 0 0 7.2 13l.8-.8"/></svg>
+                                    outside, not loaded
+                                </span>
+                            {/if}
                             {#if isGitMod}<span class="git-mod" title="Uncommitted changes">M</span>{/if}{#if isDirty}<span class="dirty-dot">●</span>{/if}
                             {#if isJs && scriptRunning.has(entry.path) && !hasErr}<span class="run-dot" title="Running">●</span>{/if}
                             {#if hasErr}<span class="err-dot">●</span>{/if}
                         </button>
-                        {#if isJs}
+                        {#if isJs && !entry.outside}
                             <label class="dis-label" class:dis-locked={parentDisabled} title={parentDisabled ? 'Disabled by parent directory' : 'Disable — this script will not be executed'}>
                                 <input type="checkbox" checked={entry.disabled} disabled={parentDisabled} onchange={() => toggleDisabled(entry.path, !entry.disabled)} />
                                 <span class="dis-checkmark"></span>
@@ -2505,6 +2521,11 @@ declare const she: {
     .tree-file button.lib .fname { color: var(--fg-muted); font-style: italic; }
     .tree-file button.dis .fname { color: var(--fg-dim); }
     .tree-file button.err .fname { color: var(--fg-err); }
+    .tree-file button.outside .fname { color: var(--fg-dim); flex: 0 1 auto; }
+    .outside-mark {
+        display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0;
+        color: var(--fg-warn); font-size: 10px; white-space: nowrap;
+    }
     .tree-file button:hover { background: var(--bg-hover); }
     .tree-file.active-tab button { background: var(--bg-active); color: var(--fg-text); }
     .tree-file.active:not(.active-tab) button { background: var(--bg-hover); }

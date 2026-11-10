@@ -6,7 +6,7 @@ const path = require('path');
 const { git, getGitRoot, stagedDiff } = require('./git-api');
 const { broadcast } = require('./log-ws');
 const commitMessage = require('./commit-message');
-const { resolveInside } = require('../lib/safe-path');
+const { resolveInside, linksOutside } = require('../lib/safe-path');
 
 const router = express.Router();
 
@@ -108,8 +108,16 @@ function hasShedisableMarker(abs) {
     return fs.existsSync(path.join(path.dirname(abs), `.shedisable-${path.basename(abs)}`));
 }
 
+/**
+ * `{ outside: true }` for a symlink that leaves the script directory — the engine does not load it
+ * and the routes here refuse to read or write it — and nothing for every other entry.
+ */
+function outsideFlag(root, entry, abs) {
+    return entry.isSymbolicLink() && linksOutside(root, abs) ? { outside: true } : {};
+}
+
 /** Flat list of all files with metadata and lib flag. */
-function walk(dir, base, parentIsLib) {
+function walk(dir, base, parentIsLib, root = dir) {
     let entries;
     try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -124,11 +132,11 @@ function walk(dir, base, parentIsLib) {
         if (entry.isDirectory() && entry.name.startsWith('.')) continue;
         const rel = base ? `${base}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
-            results.push(...walk(path.join(dir, entry.name), rel, lib));
+            results.push(...walk(path.join(dir, entry.name), rel, lib, root));
         } else {
             const abs = path.join(dir, entry.name);
             const stat = statOf(abs);
-            results.push({ path: rel, size: stat.size, mtime: stat.mtimeMs, lib });
+            results.push({ path: rel, size: stat.size, mtime: stat.mtimeMs, lib, ...outsideFlag(root, entry, abs) });
         }
     }
     return results;
@@ -136,9 +144,10 @@ function walk(dir, base, parentIsLib) {
 
 /**
  * Nested tree of all files and subdirectories.
- * Each node: { type:'file'|'dir', name, path, lib, size?, mtime?, children? }
+ * Each node: { type:'file'|'dir', name, path, lib, size?, mtime?, children?, outside? }
+ * A symlink is a file node, whatever it points to; `outside` marks one that leaves the script directory.
  */
-function buildTree(dir, base, parentIsLib, parentIsDisabled = false) {
+function buildTree(dir, base, parentIsLib, parentIsDisabled = false, root = dir) {
     let entries;
     try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -158,14 +167,14 @@ function buildTree(dir, base, parentIsLib, parentIsDisabled = false) {
             const childIsLib = lib || hasShelibMarker(abs);
             const selfDisabled = hasShedisableMarker(abs);
             const effectiveDisabled = parentIsDisabled || selfDisabled;
-            const children = buildTree(abs, rel, childIsLib, effectiveDisabled);
+            const children = buildTree(abs, rel, childIsLib, effectiveDisabled, root);
             result.push({ type: 'dir', name: entry.name, path: rel, lib: childIsLib, disabled: selfDisabled, children });
         } else {
             const stat = statOf(abs);
             const isJs = entry.name.endsWith('.js');
             const selfDisabled = isJs ? hasShedisableMarker(abs) : false;
             const disabled = parentIsDisabled || selfDisabled;
-            result.push({ type: 'file', name: entry.name, path: rel, lib, size: stat.size, mtime: stat.mtimeMs, ...(isJs ? { disabled } : {}) });
+            result.push({ type: 'file', name: entry.name, path: rel, lib, size: stat.size, mtime: stat.mtimeMs, ...(isJs ? { disabled } : {}), ...outsideFlag(root, entry, abs) });
         }
     }
     result.sort((a, b) => {

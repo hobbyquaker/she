@@ -276,6 +276,7 @@ const timeLib = require('./lib/time');
 const publishChanged = require('./lib/publish-changed');
 const { Runtime } = require('./lib/runtime');
 const { callerLine } = require('./lib/call-site');
+const { linksOutside } = require('./lib/safe-path');
 const { createCommander } = require('./lib/command');
 const { statusTopicWarning, scanPublishTopics } = require('./lib/command-topics');
 // What every script has registered, with statistics — the Runtime page and the editor's panel
@@ -2074,7 +2075,19 @@ function runScript(script, name, _origin, source) {
             if (md.match(/^\.\//) || md.match(/^\.\.\//)) {
                 // Relative import — resolve from the script's own directory
                 she.debug('require', md);
-                result = require(path.resolve(scriptDir, md));
+                const target = path.resolve(scriptDir, md);
+                // require.resolve answers with the real file, so a link that leaves the script directory
+                // shows here; a file that is missing throws from the require below, as before
+                let real;
+                try {
+                    real = require.resolve(target);
+                } catch {
+                    real = null;
+                }
+                if (real !== null && leavesScriptDir(target, real)) {
+                    throw new Error(`require('${md}'): ${NOT_LOADED_OUTSIDE}`);
+                }
+                result = require(target);
             } else {
                 // Absolute import — try ~/.she/node_modules/ first (user-installed),
                 // then fall back to engine's own require (builtins + engine deps).
@@ -2210,6 +2223,27 @@ function runScript(script, name, _origin, source) {
     }
 }
 
+const NOT_LOADED_OUTSIDE = 'not loaded — the link points outside the script directory';
+
+/**
+ * True when a path below a script directory really lies outside of it, because it is a symlink that
+ * leaves the directory or sits below one. Such a script is not loaded: the editor could not open or
+ * save it, so it would run without being editable. Links that stay inside the directory are fine.
+ * @param {string} abs the path as it is named
+ * @param {string} [real] where it really ends up, when the caller knows already
+ */
+function leavesScriptDir(abs, real) {
+    const dirs = config.dir ? (Array.isArray(config.dir) ? config.dir : [config.dir]) : [];
+    return dirs.some((d) => linksOutside(d, abs, real));
+}
+
+/** leavesScriptDir, with the warning that tells the user why the script or directory does not run */
+function skipLinkedOutside(abs) {
+    if (!leavesScriptDir(abs)) return false;
+    log.warn(makeLabel(abs), NOT_LOADED_OUTSIDE);
+    return true;
+}
+
 function loadScript(file, origin) {
     origin = origin || 'user';
     file = file.replace(/\\/g, '/');
@@ -2218,6 +2252,7 @@ function loadScript(file, origin) {
         log.error(loadLabel, 'already loaded?!');
         return;
     }
+    if (origin === 'user' && skipLinkedOutside(file)) return;
 
     log.info(loadLabel, 'loading');
     fs.readFile(file, (err, src) => {
@@ -2422,11 +2457,21 @@ function isInDisabledDir(absFile, scriptRoot) {
     return false;
 }
 
+/** True when a symlink points to a directory (false for a file, a missing target, a loop). */
+function isDirLink(abs) {
+    try {
+        return fs.statSync(abs).isDirectory();
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Recursively load all user .js scripts from a directory tree.
  * Files/dirs with a .shedisable-<name> sibling, and files inside .shelib dirs, are skipped.
  */
 function loadDirRecursive(dir, scriptRoot) {
+    if (skipLinkedOutside(dir)) return;
     let entries;
     try {
         entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -2439,6 +2484,11 @@ function loadDirRecursive(dir, scriptRoot) {
         .forEach((entry) => {
             if (entry.name.startsWith('.shedisable-')) return; // skip marker files
             const abs = path.join(dir, entry.name);
+            if (entry.isSymbolicLink() && isDirLink(abs)) {
+                // a linked directory is not descended into; one that leaves the script directory gets a word why
+                skipLinkedOutside(abs);
+                return;
+            }
             if (entry.isDirectory()) {
                 if (!isDisabledPath(abs)) loadDirRecursive(abs, scriptRoot);
             } else if (entry.name.endsWith('.js') && !isLibFile(abs, scriptRoot) && !isDisabledPath(abs)) {
@@ -2454,6 +2504,8 @@ function loadDir(dir) {
     if (!config.disableWatch) {
         const dirWatcher = chokidar.watch(dir, {
             ignored: (p, stats) => {
+                // nothing below a link that leaves the script directory is watched
+                if (leavesScriptDir(path.dirname(path.resolve(p)))) return true;
                 const name = path.basename(p);
                 if (name.startsWith('.shedisable-')) return false; // always watch disable markers
                 return stats?.isFile() && !name.endsWith('.js') && name !== '.shelib';
@@ -2519,7 +2571,10 @@ function loadDir(dir) {
             }
 
             // Directory events - handle gracefully (no process.exit)
-            if (event === 'addDir') return;
+            if (event === 'addDir') {
+                skipLinkedOutside(filePath);
+                return;
+            }
 
             if (event === 'unlinkDir') {
                 const absDir = path.resolve(filePath);
@@ -2546,6 +2601,12 @@ function loadDir(dir) {
                     log.debug(fileLabel, 'is disabled - ignoring change');
                     return;
                 }
+                if (leavesScriptDir(filePath)) {
+                    // loadScript refuses it with a warning; a script this path ran before it became such a link goes
+                    if (scripts[filePath]) unloadScript(filePath);
+                    loadScript(filePath);
+                    return;
+                }
                 log.info(fileLabel, 'change detected. hot-reloading.');
                 unloadScript(filePath);
                 loadScript(filePath);
@@ -2558,7 +2619,7 @@ function loadDir(dir) {
                     log.debug(fileLabel, 'is disabled - not loading as script');
                     return;
                 }
-                log.info(fileLabel, 'added. loading.');
+                if (!leavesScriptDir(filePath)) log.info(fileLabel, 'added. loading.');
                 loadScript(filePath);
             } else if (event === 'unlink' && filePath.endsWith('.js')) {
                 if (scripts[filePath]) {

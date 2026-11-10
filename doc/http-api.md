@@ -100,6 +100,8 @@ List all files in the script directory, recursively. Includes `.js` scripts and 
 ]
 ```
 
+An entry that is a symbolic link leaving the script directory carries `"outside": true` — here and on the file nodes of `GET /she/scripts/tree`. The engine does not load it and the routes below refuse it; other entries do not have the key.
+
 ### GET /she/scripts/:path
 
 Read a script file.
