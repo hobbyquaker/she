@@ -830,6 +830,7 @@
                         </select>
                     </div>
                     {#if authMode === 'password'}
+                    <form class="cred" onsubmit={(e) => e.preventDefault()}>
                     <div class="field">
                         <label>
                             {authPassword ? 'New password' : 'Password'}
@@ -837,6 +838,7 @@
                         </label>
                         <input type="password" bind:value={authPassword} placeholder="Enter new password" autocomplete="new-password" />
                     </div>
+                    </form>
                     {/if}
                     {#if authMode === 'proxy'}
                     <div class="field">
@@ -892,6 +894,7 @@
                         </label>
                         <input type="text" bind:value={mqttHost} placeholder="localhost:1883" />
                     </div>
+                    <form class="cred" onsubmit={(e) => e.preventDefault()}>
                     <div class="field">
                         <label>
                             Username
@@ -906,6 +909,7 @@
                         </label>
                         <input type="password" bind:value={mqttPassword} placeholder="(optional)" autocomplete="new-password" />
                     </div>
+                    </form>
                     {#if mqttProtocol === 'mqtts' || mqttProtocol === 'wss'}
                     <div class="field">
                         <label>
@@ -999,6 +1003,7 @@
                                 <label for="b{b.id}-host">Host</label>
                                 <input id="b{b.id}-host" type="text" bind:value={b.host} placeholder="broker.example:1883" spellcheck="false" />
                             </div>
+                            <form class="cred" onsubmit={(e) => e.preventDefault()}>
                             <div class="field">
                                 <label for="b{b.id}-user">Username</label>
                                 <input id="b{b.id}-user" type="text" bind:value={b.username} placeholder="(optional)" autocomplete="off" />
@@ -1007,6 +1012,7 @@
                                 <label for="b{b.id}-pass">Password</label>
                                 <input id="b{b.id}-pass" type="password" bind:value={b.password} placeholder="(optional)" autocomplete="new-password" />
                             </div>
+                            </form>
                             {#if b.protocol === 'mqtts' || b.protocol === 'wss'}
                             <div class="field">
                                 <label for="b{b.id}-ca">CA certificate</label>
@@ -1451,6 +1457,7 @@
                         </select>
                     </div>
                     {#if influxVersion === '2'}
+                    <form class="cred" onsubmit={(e) => e.preventDefault()}>
                     <div class="field">
                         <label>
                             Token
@@ -1458,6 +1465,7 @@
                         </label>
                         <input type="password" bind:value={influxToken} placeholder="API token" autocomplete="off" />
                     </div>
+                    </form>
                     <div class="field">
                         <label>
                             Organization
@@ -2087,4 +2095,6 @@
     .rules-table input { width: 100%; box-sizing: border-box; }
     .rules-table select { width: 66px; box-sizing: border-box; }
     .rules-table .arrow { color: var(--fg-muted); text-align: center; }
+    /* the credential fields sit in a form only so the browser's password handling knows them; it adds no box */
+    .cred { display: contents; }
 </style>
