@@ -2,20 +2,24 @@
 
 Your home, your rules - written in plain JavaScript.
 
-**she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl, no opinionated bloated schemata. Just scripts that do exactly what you (if you want: with the help of the integrated AI assisstant) tell them.
+**she** is a Node.js daemon that loads your `.js` scripts into a sandboxed VM and wires them up to MQTT, Matter, and everything else your smart home throws at them. No cloud, no lock-in, no YAML sprawl, no opinionated bloated schemata. Just scripts that do exactly what you (if you want: with the help of the integrated AI assistant) tell them.
 
-- **Scripts** — Monaco-based Script IDE, AI assistant, git integration, autocompletion, hot-reload without process restart
-- **MQTT** — subscribe, publish, react to state changes with wildcards, conditions, and delays
-- **Matter** — control Matter devices directly from your scripts
+- **Scripts** — Monaco-based script editor with dockable panels (files, log, the script's live handlers and timers, AI chat), autocompletion, git integration with an optional AI-written commit message, hot-reload without process restart
+- **AI assistant** — writes and changes scripts with an inline diff, uses tools to read your topics, scripts, timers and Matter devices; Anthropic, OpenAI-compatible providers or a local Ollama
+- **MQTT** — subscribe, publish, react to state changes with wildcards, conditions and delays; combiners (`and`, `or`, `min`, `max`, `timer`, `link`); `she.mqtt.command` waits until the device's status confirms a command, with retries
+- **Multiple brokers** — one primary broker plus additional ones for scripts (`she.mqtt('<name>')`), with mirror rules between them
+- **Timing and time** — debounce, throttle, restartable timeouts, retry; cron expressions and solar events (`sunrise`, `sunset`, …); `she.time` for time windows, weekends, public holidays and formatting, correct across daylight-saving changes
+- **Matter** — a built-in Matter controller: control devices from scripts, device health, bindings and groups, multi-admin, firmware updates from the CSA ledger, a Matter ↔ MQTT bridge, and Thread network insight
 - **sheDB** — lightweight document store with map/reduce views, right in the daemon
-- **Scheduler** — cron expressions and solar events (`sunrise`, `sunset`, …) in one call
 - **Script HTTP routes** — scripts can register their own REST endpoints under `/api/<scriptName>/`
-- **`require()`** — load npm packages from `~/.she/node_modules/` or relative files inside scripts
-- Supports **InfluxDB**, **Elasticsearch** and **Redis** — convenience methods for time series, full text indexing, shared states across multiple she instances
+- **`require()`** — load npm packages from `~/.she/node_modules/` (installed from the Packages page) or relative files inside scripts
+- **InfluxDB and Elasticsearch** — query and write time series (`she.influx`) and search indices (`she.elastic`) from scripts
 - **Secrets** — encrypted store for the passwords and tokens scripts need (`she.secrets.get('smtp/password')`), write-only from the UI, redacted in logs
-- **Services** — optional management of the `xyz2mqtt` adapter instances of your home (mqtt-interfaces-core convention): inventory, restart and log level over MQTT, systemd control, journal logs, config forms generated from the adapter's `--config-schema`, install/uninstall/update on the she host
-- **Broker management** — optional Mosquitto management: dynamic user/ACL management via the dynsec plugin (`she.broker.*` script API), listener and TLS configuration, TLS certificate management (server cert self-signed / CSR / import, trusted CA store), SSH-based remote file deployment
-- **Web UI** — script editor, package manager, MQTT browser, Matter device manager, sheDB frontend, log viewer, broker manager, services manager
+- **Runtime insight** — a Runtime page with memory, CPU, event loop and MQTT figures over the last day and every handler, timer and schedule with its timings; she publishes its own metrics on `<name>/maintenance/stats`
+- **Services** — optional management of the `xyz2mqtt` adapter instances of your home ([mqtt-smarthome](https://github.com/mqtt-smarthome/mqtt-smarthome) convention): inventory, restart and log level over MQTT, systemd control, journal logs, config forms generated from the adapter's `--config-schema`, install/uninstall/update on the she host
+- **Broker management** — optional Mosquitto management: dynamic user/ACL management via the dynsec plugin (`she.broker.*` script API), listener and TLS configuration, TLS certificate management (server cert self-signed / CSR / import, trusted CA store), bridges to other brokers with a live preview and rollback, SSH-based remote file deployment
+- **Web UI** — script editor, Runtime page, MQTT browser, Matter device manager, sheDB frontend, package manager, secrets, log viewer, broker manager, services manager; optional login (password or reverse proxy)
+- **Updates** — stable or beta channel, one-click update from the web UI; also as a Docker image
 
 ## Documentation
 
