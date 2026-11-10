@@ -37,8 +37,21 @@ function commandFunction(name) {
     return src.slice(from, to + 3);
 }
 
-const HAS_VISUDO = spawnSync('sh', ['-c', 'command -v visudo || test -x /usr/sbin/visudo']).status === 0;
-const withVisudo = HAS_VISUDO ? test : test.skip;
+// the real visudo is used only where it accepts a known-good file as this user: run unprivileged it
+// behaves differently between systems (a CI runner rejects files it does not own as root), and the
+// fake visudo below covers the same path everywhere
+function realVisudoWorks() {
+    if (spawnSync('sh', ['-c', 'command -v visudo || test -x /usr/sbin/visudo']).status !== 0) return false;
+    const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-visudo-probe-'));
+    try {
+        const probe = path.join(probeDir, 'probe');
+        fs.writeFileSync(probe, 'she ALL=(root) NOPASSWD: /usr/bin/true\n', { mode: 0o440 });
+        return spawnSync('sh', ['-c', 'v=$(command -v visudo || echo /usr/sbin/visudo); "$v" -c -q -f "$1"', 'sh', probe]).status === 0;
+    } finally {
+        fs.rmSync(probeDir, { recursive: true, force: true });
+    }
+}
+const withVisudo = realVisudoWorks() ? test : test.skip;
 
 const RULES = ['she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine', 'she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl'];
 const NPM_RULE = 'she ALL=(root) NOPASSWD: /usr/local/bin/npm install -g smart-home-engine';
@@ -56,6 +69,9 @@ beforeAll(() => {
     // a visudo that rejects everything, and a PATH without any visudo
     fs.mkdirSync(path.join(dir, 'rejecting'));
     fs.writeFileSync(path.join(dir, 'rejecting', 'visudo'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    // a visudo that accepts everything, for the success path on any machine
+    fs.mkdirSync(path.join(dir, 'accepting'));
+    fs.writeFileSync(path.join(dir, 'accepting', 'visudo'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 });
 beforeEach(() => fs.rmSync(sudoers, { force: true }));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -150,6 +166,17 @@ describe('the npm rule of earlier versions in the sudoers file', () => {
         const fn = commandFunction('remove_npm_sudoers_rule');
         expect(fn).toMatch(/-c -q -f "\$tmp"[^\n]*&& mv -f "\$tmp" "\$file"/);
         expect(fn).not.toMatch(/>\s*"\$file"/);
+    });
+
+    test('the edit itself, with a visudo that accepts it: the npm rule goes, every other line stays (any machine)', () => {
+        const others = ['# written by she --install', RULES[0], 'Defaults:she !requiretty', RULES[1], 'she ALL=(root) NOPASSWD: /usr/bin/npm install -g something-else'];
+        write([others[0], others[1], NPM_RULE, others[2], others[3], others[4]]);
+        const r = sheUpdate(['3.0.0'], { pathPrefix: path.join(dir, 'accepting') });
+        expect(r.status).toBe(0);
+        expect(r.stderr).toMatch(/removed the npm rule of earlier versions/);
+        expect(read()).toBe(others.join('\n') + '\n');
+        expect(fs.statSync(sudoers).mode & 0o777).toBe(0o440);
+        expect(leftovers()).toEqual([]);
     });
 
     withVisudo('a successful update removes the npm rule and keeps every other line', () => {
