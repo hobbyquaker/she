@@ -2874,13 +2874,15 @@ declare const she: {
     .ctx-menu hr { border: none; border-top: 1px solid var(--border-sub); margin: 3px 0; }
 
     /* ── Welcome page ───────────────────────────────────────────────────────── */
+    /* centred while it fits; in a low editor it scrolls from its top instead of spilling over the toolbar
+       above, where it used to cover the panel toggles and swallow their clicks */
     .welcome {
         position: absolute; inset: 0; z-index: 5;
         background: var(--bg-app);
-        display: flex; align-items: center; justify-content: center;
+        display: flex; overflow: auto;
     }
     .welcome-inner {
-        max-width: 480px; text-align: center; padding: 32px 24px;
+        max-width: 480px; text-align: center; padding: 32px 24px; margin: auto;
     }
     .welcome-logo {
         font-size: 52px; font-weight: 700; letter-spacing: -2px;

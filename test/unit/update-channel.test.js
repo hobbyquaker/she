@@ -5,7 +5,7 @@ const uc = require('../../src/lib/update-channel');
 const release = (tag, prerelease = false, draft = false) => ({ tag_name: tag, prerelease, draft });
 
 /** a fetch stub: GitHub answers with `releases`, npm knows `npmVersions` */
-function stubFetch({ releases, npmVersions = [], githubStatus = 200, githubThrows = false, npmThrows = false }) {
+function stubFetch({ releases, npmVersions = [], githubStatus = 200, githubThrows = false, npmThrows = false, distTags = null }) {
     const calls = [];
     uc.setFetch(async (url) => {
         calls.push(url);
@@ -14,6 +14,9 @@ function stubFetch({ releases, npmVersions = [], githubStatus = 200, githubThrow
             return { ok: githubStatus === 200, status: githubStatus, json: async () => releases };
         }
         if (npmThrows) throw new Error('ETIMEDOUT');
+        if (url.endsWith('/dist-tags')) {
+            return { ok: !!distTags, status: distTags ? 200 : 404, json: async () => distTags };
+        }
         const version = decodeURIComponent(url.split('/').pop());
         const known = npmVersions.includes(version);
         return { ok: known, status: known ? 200 : 404, json: async () => (known ? { version } : { error: 'Not found' }) };
@@ -22,6 +25,7 @@ function stubFetch({ releases, npmVersions = [], githubStatus = 200, githubThrow
 }
 
 afterAll(() => uc.setFetch((...args) => fetch(...args)));
+beforeEach(() => uc.clearCache());
 
 describe('update channel: the release list', () => {
     test('versionOfTag strips the v and rejects what is not a version', () => {
@@ -109,14 +113,84 @@ describe('update channel: checkUpdate', () => {
         expect(r.error).toBeNull();
     });
 
-    test('a failed GitHub fetch yields no update and says why', async () => {
+    test('GitHub and npm both failing yields no update and says why', async () => {
         stubFetch({ releases, githubThrows: true });
         const r = await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' });
         expect(r.latest).toBeNull();
         expect(r.stable).toBeNull();
+        expect(r.source).toBeNull();
         expect(r.error).toMatch(/release list not available: ENOTFOUND/);
-        stubFetch({ releases, githubStatus: 403 });
-        expect((await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' })).error).toMatch(/GitHub answered 403/);
+        expect(r.error).toMatch(/npm answered 404/);
+        stubFetch({ releases, githubStatus: 403, npmThrows: true });
+        const r2 = await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' });
+        expect(r2.latest).toBeNull();
+        expect(r2.error).toMatch(/GitHub answered 403/);
+        expect(r2.error).toMatch(/ETIMEDOUT/);
+    });
+
+    describe('GitHub refuses: the versions come from the dist-tags of npm', () => {
+        const distTags = { latest: '2.1.0', next: '3.0.0-beta.1' };
+
+        test.each([403, 429])('GitHub answers %i: stable offers latest', async (githubStatus) => {
+            const calls = stubFetch({ releases, githubStatus, distTags });
+            const r = await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' });
+            expect(r).toMatchObject({ stable: '2.1.0', prerelease: '3.0.0-beta.1', latest: '2.1.0', latestIsPrerelease: false, source: 'npm' });
+            expect(r.error).toMatch(new RegExp(`GitHub answered ${githubStatus}`));
+            expect(r.error).toMatch(/npm's dist-tags/);
+            // a dist-tag is a published version: nothing else is asked
+            expect(calls).toEqual(['https://api.github.com/repos/hobbyquaker/she/releases?per_page=30', 'https://registry.npmjs.org/-/package/smart-home-engine/dist-tags']);
+        });
+
+        test('beta offers the newer of latest and next', async () => {
+            stubFetch({ releases, githubStatus: 403, distTags });
+            const r = await uc.checkUpdate({ installed: '3.0.0-beta.0', channel: 'beta' });
+            expect(r).toMatchObject({ latest: '3.0.0-beta.1', latestIsPrerelease: true, source: 'npm' });
+            stubFetch({ releases, githubStatus: 403, distTags: { latest: '3.0.0', next: '3.0.0-beta.7' } });
+            const r2 = await uc.checkUpdate({ installed: '3.0.0-beta.7', channel: 'beta' });
+            expect(r2).toMatchObject({ latest: '3.0.0', latestIsPrerelease: false, source: 'npm' });
+        });
+
+        test('a network error falls back the same way', async () => {
+            stubFetch({ releases, githubThrows: true, distTags });
+            const r = await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' });
+            expect(r).toMatchObject({ latest: '2.1.0', source: 'npm' });
+            expect(r.error).toMatch(/ENOTFOUND/);
+        });
+
+        test('never a downgrade, and up to date stays up to date', async () => {
+            stubFetch({ releases, githubStatus: 403, distTags });
+            const r = await uc.checkUpdate({ installed: '3.0.0-beta.1', channel: 'stable' });
+            expect(r).toMatchObject({ latest: null, stable: '2.1.0', source: 'npm' });
+            const r2 = await uc.checkUpdate({ installed: '3.0.0-beta.1', channel: 'beta' });
+            expect(r2).toMatchObject({ latest: null, source: 'npm' });
+        });
+
+        test('tags that are not versions are ignored; none left is a failure', async () => {
+            stubFetch({ releases, githubStatus: 403, distTags: { latest: '2.1.0', next: 'file:../x' } });
+            expect(await uc.checkUpdate({ installed: '2.0.1', channel: 'beta' })).toMatchObject({ latest: '2.1.0', prerelease: null, source: 'npm' });
+            stubFetch({ releases, githubStatus: 403, distTags: { latest: '^2', next: 7 } });
+            const r = await uc.checkUpdate({ installed: '2.0.1', channel: 'beta' });
+            expect(r).toMatchObject({ latest: null, source: null });
+            expect(r.error).toMatch(/no dist-tags/);
+        });
+    });
+
+    test('a release list GitHub delivered is reused for a minute', async () => {
+        const calls = stubFetch({ releases, npmVersions: ['2.1.0'] });
+        expect((await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' })).source).toBe('github');
+        // GitHub refuses now, but the list is fresh: it is not asked again
+        const calls2 = stubFetch({ releases: [], githubStatus: 403, npmVersions: ['2.1.0'] });
+        const r = await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' });
+        expect(r).toMatchObject({ latest: '2.1.0', source: 'github', error: null });
+        expect(calls.filter((u) => u.startsWith('https://api.github.com/'))).toHaveLength(1);
+        expect(calls2.filter((u) => u.startsWith('https://api.github.com/'))).toHaveLength(0);
+        const now = Date.now();
+        jest.spyOn(Date, 'now').mockReturnValue(now + 61 * 1000);
+        try {
+            expect((await uc.checkUpdate({ installed: '2.0.1', channel: 'stable' })).source).toBeNull();
+        } finally {
+            Date.now.mockRestore();
+        }
     });
 
     test('a release that is not on npm is not offered', async () => {

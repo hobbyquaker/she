@@ -14,6 +14,11 @@
  * (through the group API), so the editor alone absorbs the difference — see `holdSizes`.
  *
  * The layout is remembered per browser (localStorage, best-effort) and can be reset.
+ *
+ * The dock may be created while its page is hidden (the app was opened on another page): the
+ * element then has no size, the widths and heights the default layout asks for are lost, and
+ * dockview hands every panel an equal share once the page is shown. So a default layout built
+ * without a size is built again the moment the element has one, and is not saved before.
  */
 import {
     createDockview,
@@ -218,6 +223,11 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
     /** group id → visible, as of the last layout change: a group shown again is not a newcomer */
     let groupsBefore = new Map<string, boolean>();
     let lastOpen = '';
+    /** the default layout was built while the element had no size and is built again when it has one */
+    let awaitingSize = false;
+    let sizeObserver: ResizeObserver | null = null;
+
+    const hasSize = () => el.clientWidth > 0 && el.clientHeight > 0;
 
     const api = createDockview(el, {
         theme: { name: 'she', className: DOCK_THEME_CLASS, gap: 0, dndOverlayMounting: 'absolute', colorScheme: 'dark' },
@@ -270,6 +280,8 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
             saveTimer = null;
+            // a layout without sizes is not worth remembering; the real one follows
+            if (awaitingSize) return;
             try {
                 const data: StoredLayout = { layout: api.toJSON(), homes };
                 localStorage.setItem(opts.storageKey, JSON.stringify(data));
@@ -416,6 +428,27 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
         opts.defaultLayout(open);
         holdSizes();
         lockCentre();
+        awaitingSize = !hasSize();
+        if (awaitingSize) watchForSize();
+    }
+
+    /** Builds the default layout again once the element has a size, keeping closed what was closed meanwhile. */
+    function watchForSize() {
+        if (sizeObserver || typeof ResizeObserver === 'undefined') return;
+        sizeObserver = new ResizeObserver(() => {
+            if (awaitingSize && !hasSize()) return;
+            sizeObserver?.disconnect();
+            sizeObserver = null;
+            if (!awaitingSize) return;
+            const wasOpen = openIds();
+            // dockview's own observer may not have run yet: the grid has to know its size before panels are placed
+            api.layout(el.clientWidth, el.clientHeight);
+            buildDefault();
+            for (const p of opts.panels) {
+                if (p.id !== opts.centre && !wasOpen.has(p.id)) close(p.id);
+            }
+        });
+        sizeObserver.observe(el);
     }
 
     function restore(): boolean {
@@ -429,6 +462,8 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
         try {
             const data = JSON.parse(raw) as Partial<StoredLayout>;
             if (!data.layout?.grid) return false;
+            // saved while the page was hidden (possible up to 3.0.0-beta.7): it carries no sizes
+            if (!(data.layout.grid.width > 0) || !(data.layout.grid.height > 0)) return false;
             structure = '';
             held = new Map();
             api.fromJSON(data.layout);
@@ -456,6 +491,7 @@ export function createDock(el: HTMLElement, opts: DockOptions): Dock {
         reset: buildDefault,
         dispose: () => {
             if (saveTimer) clearTimeout(saveTimer);
+            sizeObserver?.disconnect();
             api.dispose();
         },
     };

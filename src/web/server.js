@@ -102,6 +102,8 @@ app.post('/she/restart', (req, res) => {
 
 // Update check — the GitHub releases of she, by channel: `stable` offers the newest release,
 // `beta` also the pre-releases. Polled once at start and every 24 hours, and on the UI's button.
+// When GitHub does not answer (its unauthenticated rate limit is per public address), the versions
+// come from npm's dist-tags; `updateSource` and `updateError` then say so.
 const _isDocker = require('fs').existsSync('/.dockerenv');
 let _update = null; // the last check's result (update-channel.checkUpdate)
 let _startupChannel = 'stable';
@@ -131,8 +133,13 @@ function _updateFields() {
     }
     if (_update && _update.stable) f.latestStable = _update.stable;
     if (_update && _update.prerelease) f.latestBeta = _update.prerelease;
-    if (_updateFailed) f.updateError = _updateFailed;
-    else if (_update && _update.error) f.updateError = _update.error;
+    if (_update && _update.source) f.updateSource = _update.source;
+    // `updateError` is either a failed install (`updateFailed`) or what the check has to say —
+    // which, with `updateSource: 'npm'`, is only the reason GitHub was not asked
+    if (_updateFailed) {
+        f.updateError = _updateFailed;
+        f.updateFailed = true;
+    } else if (_update && _update.error) f.updateError = _update.error;
     if (_updating) f.updating = true;
     return f;
 }
@@ -145,9 +152,8 @@ app.post('/she/check-update', async (req, res) => {
 
 // Update — install the offered version exactly, then restart — but only after npm succeeded.
 // The install runs through the helper (`she-servicectl she-update <version>`, v16) when the host
-// has it; a host with an older helper falls back to the literal `sudo npm install -g
-// smart-home-engine` of the old sudoers rule when the offered version is npm's `latest`, and is
-// asked to update the helper otherwise. Without a known version there is nothing to install.
+// has it; a host with an older helper is asked to update the helper first. Without a known
+// version there is nothing to install.
 let _updating = false; // an install is running
 let _updateFailed = null; // the last failed install's message, until the next attempt
 
@@ -158,9 +164,7 @@ function _log(level, msg) {
 
 async function _planUpdate(version) {
     const helperVersion = await selfUpdate.helperVersionOf(servicesHost.createLocalDriver());
-    // npm's `latest` matters only for the fallback, so it is fetched only when the helper is too old
-    const helperOk = Number.isInteger(helperVersion) && helperVersion >= selfUpdate.HELPER_SHE_UPDATE_VERSION;
-    return selfUpdate.planUpdate({ version, helperVersion, npmLatest: helperOk ? null : await updateChannel.npmLatest() });
+    return selfUpdate.planUpdate({ version, helperVersion });
 }
 
 app.post('/she/update', async (req, res) => {

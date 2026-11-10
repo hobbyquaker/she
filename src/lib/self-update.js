@@ -6,12 +6,10 @@
  * The daemon runs as the `she` user without a general sudo. Since 3.0.0-beta.2 the install goes
  * through the privileged helper — `she-servicectl she-update <version>` (helper v16) — which checks
  * the version strictly and runs `npm install -g smart-home-engine@<version>` as root through the one
- * sudoers rule every installation has. Before that, `she --install` wrote a second rule allowing
- * exactly `npm install -g smart-home-engine`: sudo matches arguments literally, so the exact-version
- * install the update channels need (3.0.0-beta.0) was refused — and the daemon restarted on the old
- * version regardless, which made the failure invisible. That literal command installs npm's `latest`
- * and is kept as the fallback for a host whose helper is still older than v16, but only when the
- * offered version *is* `latest`; otherwise the update asks for the helper update first.
+ * sudoers rule every installation has. A host whose helper is older than that is asked to update
+ * the helper first. (Up to 3.0.0-beta.1 the update ran `sudo npm install -g smart-home-engine`
+ * through a sudoers rule of its own; that rule could only ever install npm's `latest`, is no longer
+ * written by `she --install` and is not used any more.)
  *
  * The restart happens only after npm exited 0. A failure keeps the daemon running and reports npm's
  * exit code and the last lines of its output.
@@ -46,22 +44,19 @@ async function helperVersionOf(driver) {
 }
 
 /**
- * How to install `version`: through the helper when it has `she-update`, through the old literal
- * sudo rule when the version is npm's `latest`, otherwise not at all.
- * @param {{version: string, helperVersion: number|null, npmLatest?: string|null}} ctx
- * @returns {{mode: 'helper'|'npm-latest'}|{error: string}}
+ * How to install `version`: through the helper when it has `she-update`, otherwise not at all.
+ * @param {{version: string, helperVersion: number|null}} ctx
+ * @returns {{mode: 'helper'}|{error: string}}
  */
-function planUpdate({ version, helperVersion, npmLatest }) {
+function planUpdate({ version, helperVersion }) {
     if (!isValidVersion(version)) return { error: `not a release version: ${version}` };
     if (Number.isInteger(helperVersion) && helperVersion >= HELPER_SHE_UPDATE_VERSION) return { mode: 'helper' };
-    if (npmLatest && npmLatest === version) return { mode: 'npm-latest' };
     return { error: HELPER_NEEDED };
 }
 
 /** The command a plan runs: `[cmd, argv]`. */
 function commandFor(plan, version, { helper = HELPER } = {}) {
     if (plan.mode === 'helper') return ['sudo', ['-n', helper, 'she-update', version]];
-    if (plan.mode === 'npm-latest') return ['sudo', ['npm', 'install', '-g', PACKAGE]];
     throw new Error('no command for this plan');
 }
 
@@ -122,7 +117,7 @@ function runInstall([cmd, argv], { spawn, onLine } = {}) {
  */
 async function performUpdate({ plan, version, spawn, onRestart, log = () => {}, helper }) {
     const command = commandFor(plan, version, { helper });
-    log('info', `update: installing ${PACKAGE}@${version} ${plan.mode === 'helper' ? 'through she-servicectl' : "through the literal sudo rule (npm's latest)"}`);
+    log('info', `update: installing ${PACKAGE}@${version} through she-servicectl`);
     const r = await runInstall(command, { spawn, onLine: (line) => log('info', `update: ${line}`) });
     if (r.ok) {
         log('info', `update: ${version} installed, restarting`);

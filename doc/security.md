@@ -56,6 +56,14 @@ A script can inspect `req.headers` to implement its own auth — for example, ve
 
 > This behaviour is tracked as a known limitation and a more ergonomic solution (auth inherited by default, with an explicit `{ public: true }` opt-out for webhook receivers) is planned.
 
+## The script directory and symbolic links
+
+The HTTP API reads and writes script files only inside the script directory. A path is checked the way the file system resolves it, not as a string: a symbolic link inside the script directory that points out of it — put there by hand, or checked out with a git repository — is not followed. `GET`, `PUT` and `mkdir` on `/she/scripts`, the text search, the AI assistant's `read_script` and its script proposals refuse such a path (the search skips the file). A link whose target is inside the script directory keeps working, as does a script directory that is itself a link. A link to a target that does not exist is refused as well, because writing to it would create the target. `DELETE` and rename act on the link, not on its target, so a link that leaves can still be removed in the web UI. The git routes take paths below the script directory only and hand them to git, which does not follow links.
+
+Two things this does not change. The script engine itself follows links: a linked script file is loaded and runs wherever its target is — only the API stops reading and writing it. And scripts are code with the daemon's rights; whoever may edit a script can read whatever the `she` user can. The check keeps the *file API* inside its directory; it is not a sandbox.
+
+The broker page's config restore copies only a regular file named `mosquitto.conf.bak-…` from the config directory, never a link.
+
 ## Third-party npm packages in scripts
 
 Scripts run inside a Node.js VM sandbox, but they can `require()` any package that is installed in the global Node.js environment or in the she package itself. This means that **whatever npm package you load into a script runs with the same privileges as the she process** — full filesystem access, network access, and access to all connected devices.
@@ -85,11 +93,12 @@ With the optional Services feature ([doc/services.md](services.md)) she manages 
 
 ```
 she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine
-she ALL=(root) NOPASSWD: /usr/local/bin/npm install -g smart-home-engine
 she ALL=(root) NOPASSWD: /usr/local/bin/she-servicectl
 ```
 
-The first line is the UI's *Restart* button. The second was she's own update until 3.0.0-beta.1 and is kept for one more release as a fallback (sudo matches it literally, so it installs npm's `latest` and nothing else — the path is whatever `command -v npm` was at install time); since 3.0.0-beta.2 the update runs through the helper's `she-update <version>`, which accepts a release version (`3.0.0`, `3.0.0-beta.2`: digits, dots, a pre-release suffix) and nothing npm could read as a range, a tag, a URL or a second package, and the daemon restarts only after npm exited 0. The third line is the Services feature.
+The first line is the UI's *Restart* button. The second is the helper, and with it everything else she does as root: the Services feature, and she's own update — the helper's `she-update <version>` accepts a release version (`3.0.0`, `3.0.0-beta.2`: digits, dots, a pre-release suffix) and nothing npm could read as a range, a tag, a URL or a second package, and the daemon restarts only after npm exited 0.
+
+Installations set up before 3.0.0 have a third line, `she ALL=(root) NOPASSWD: <npm> install -g smart-home-engine`, which was she's own update until 3.0.0-beta.1. she no longer uses it and `she --install` no longer writes it; run `sudo she --install` once more to have it removed (the file is written anew), or delete the line with `sudo visudo -f /etc/sudoers.d/she`. An update through the web UI does not touch the file.
 
 The script is the complete list of what she can do as root — including `self-update`, which replaces the script with the copy she sends after checking the header, the `VERSION` line and `sh -n` (a `.bak` is kept): she already runs adapter installers and `npm install -g` as root through this rule, so letting it refresh the helper adds no reach it did not have. It does mean the she user's trust level is "root on the managed hosts", which is why the Services feature belongs behind she's authentication. it accepts a fixed set of subcommands, validates every argument against a pattern (adapter names must correspond to a template unit with mqtt-interfaces-core's `/etc/<adapter>/%i.env` layout, instance names are `[A-Za-z0-9_.-]+`, actions come from a short allow-list) and takes free-form data — env files, install options — only on stdin. Review it once ([service/she-servicectl](../service/she-servicectl)); it has no dependencies beyond systemd, journalctl and npm.
 

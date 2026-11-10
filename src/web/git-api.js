@@ -5,6 +5,7 @@ const { execFile } = require('child_process');
 const path = require('path');
 const commitMessage = require('./commit-message');
 const activity = require('../lib/activity');
+const { resolveInside } = require('../lib/safe-path');
 
 const router = express.Router();
 
@@ -47,12 +48,12 @@ async function getGitRoot(dir) {
 
 /**
  * Resolve a safe absolute path within the script root.
- * Returns null when the path escapes the root (traversal attempt).
+ * Returns null when the path escapes the root — by `../` or through a symlinked directory that
+ * points out of it. The last component is not resolved: git stages and shows a symlink as the
+ * link it is, and a deleted file has to stay nameable.
  */
 function safePath(root, relPath) {
-    const abs = path.resolve(root, relPath.replace(/^\/+/, ''));
-    if (!abs.startsWith(root + path.sep) && abs !== root) return null;
-    return abs;
+    return resolveInside(root, relPath, { followLeaf: false });
 }
 
 /** Validate commit message: non-empty, no null bytes. */

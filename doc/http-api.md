@@ -85,6 +85,8 @@ HTTP 401
 
 ## Scripts — `/she/scripts`
 
+Every `:path` is relative to the script directory and has to stay inside it: `..` is refused, and so is a path that leaves the directory through a symbolic link — **400** `{ "error": "Invalid path" }`. A link whose target is inside the script directory works like the file or directory it points to; a link to a target that does not exist is refused, too. `DELETE` and rename act on a link itself, never on its target, so a link that points outside can be removed or moved. See [security.md](security.md#the-script-directory-and-symbolic-links).
+
 ### GET /she/scripts
 
 List all files in the script directory, recursively. Includes `.js` scripts and any other stored files (markdown, yaml, json, etc.).
@@ -126,7 +128,7 @@ Create or overwrite a file. Any file extension is accepted. The daemon only auto
 
 ### DELETE /she/scripts/:path
 
-Delete a script file.
+Delete a script file, or a directory with everything in it. A symbolic link is removed as a link; what it points to stays.
 
 **Response (HTTP 200):** `{ "ok": true }`
 
@@ -906,8 +908,10 @@ Returns a snapshot of runtime counters.
 | `matterEnabled`, `matterNodes`, `matterEndpoints`, `dbEnabled`, `dbDocs`, `dbViews`, `startedAt`, `dataDir`, `user` | What the web UI's header needs |
 | `updateChannel` | The update channel in use: `stable` or `beta` (config key `updateChannel`) |
 | `latestVersion` | The version the channel offers — newer than the running one and published on npm; absent when there is none. `latestPrerelease: true` marks a pre-release |
-| `latestStable` / `latestBeta` | The newest release and the newest pre-release on GitHub, whatever the channel (when known) |
-| `updateError` | Why the last check could not offer anything (GitHub or npm unreachable, a release missing on npm) — or why the last `POST /she/update` failed (npm's exit code and its last output lines; the helper too old), until the next attempt |
+| `latestStable` / `latestBeta` | The newest release and the newest pre-release, whatever the channel (when known) |
+| `updateSource` | Who named these versions: `github` (the releases) or `npm` (the dist-tags `latest` and `next`, taken when GitHub did not answer); absent when the check found neither |
+| `updateError` | Why the last check could not offer anything (GitHub and npm unreachable, a release missing on npm); with `updateSource: "npm"` why GitHub was not the source, which is no failure — `latestVersion` is offered all the same; or, with `updateFailed: true`, why the last `POST /she/update` failed (npm's exit code and its last output lines; the helper too old), until the next attempt |
+| `updateFailed` | `true` when `updateError` is a failed update, not a remark of the check |
 | `updating` | `true` while `POST /she/update` is installing |
 | `docker` | `true` in a Docker container — the daemon does not update itself there |
 
@@ -925,15 +929,25 @@ The connection will drop immediately after the response. The daemon is typically
 
 ### POST /she/check-update
 
-Asks GitHub for the releases of she and answers what the configured channel offers: `stable` — the newest release — or `beta` — the newest release or pre-release, whichever is higher. A version is offered only when it is newer than the running one (never a downgrade) and published on npm. Best-effort: when GitHub or npm cannot be reached, `latestVersion` is `null` and `updateError` says why. The daemon runs this check at start and every 24 hours by itself.
+Asks GitHub for the releases of she and answers what the configured channel offers: `stable` — the newest release — or `beta` — the newest release or pre-release, whichever is higher. A version is offered only when it is newer than the running one (never a downgrade) and published on npm. The daemon runs this check at start and every 24 hours by itself.
+
+GitHub's API allows 60 unauthenticated requests an hour per public IP address, shared by every machine behind it. When GitHub refuses (403, 429), fails or cannot be reached, the versions come from npm's dist-tags instead — `latest` is the stable release, `next` the pre-release: the answer then carries `updateSource: "npm"` and `updateError` says why GitHub was not used. A release list GitHub delivered is reused for a minute. Best-effort: when neither GitHub nor npm answers, `latestVersion` is `null` and `updateError` says why.
+
+The same fields are part of `GET /she/status`.
 
 ```json
-{ "latestVersion": "3.0.0-beta.1", "updateChannel": "beta", "latestPrerelease": true, "latestStable": "2.1.0", "latestBeta": "3.0.0-beta.1" }
+{ "latestVersion": "3.0.0-beta.1", "updateChannel": "beta", "latestPrerelease": true, "latestStable": "2.1.0", "latestBeta": "3.0.0-beta.1", "updateSource": "github" }
+```
+
+With GitHub's rate limit used up:
+
+```json
+{ "latestVersion": "3.0.0-beta.1", "updateChannel": "beta", "latestPrerelease": true, "latestStable": "2.1.0", "latestBeta": "3.0.0-beta.1", "updateSource": "npm", "updateError": "release list not available: GitHub answered 403 — versions taken from npm's dist-tags instead" }
 ```
 
 ### POST /she/update
 
-Installs the offered version exactly and restarts the daemon once npm has exited 0. The install runs as root through the helper, `she-servicectl she-update <version>` (`via: "helper"`, helper v16 and later — see [services.md](services.md)); a host whose helper is older falls back to the literal `sudo npm install -g smart-home-engine` of the old sudoers rule, which installs npm's `latest`, so only when the offered version is `latest` (`via: "npm-latest"`). While npm runs, `GET /she/status` says `updating: true`; when npm fails the daemon keeps running, `updating` goes away and `updateError` carries npm's exit code and last lines. **409** `{ ok: false, error }` when no update is known (run the check first), in a Docker container (updated by pulling a new image), while an update is already running, or when the host needs its helper updated first (*Update helper* on the Services → Hosts tab, or `sudo she --install` once) — that reason is also put into `updateError`.
+Installs the offered version exactly and restarts the daemon once npm has exited 0. The install runs as root through the helper, `she-servicectl she-update <version>` (`via: "helper"`, always — helper v16 and later, see [services.md](services.md)); there is no other way, a host whose helper is older is refused with 409. While npm runs, `GET /she/status` says `updating: true`; when npm fails the daemon keeps running, `updating` goes away and `updateError` carries npm's exit code and last lines. **409** `{ ok: false, error }` when no update is known (run the check first), in a Docker container (updated by pulling a new image), while an update is already running, or when the host needs its helper updated first (*Update helper* on the Services → Hosts tab, or `sudo she --install` once) — that reason is also put into `updateError`.
 
 ```json
 { "ok": true, "version": "3.0.0-beta.2", "via": "helper" }

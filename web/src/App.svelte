@@ -43,6 +43,8 @@
     let stats = $state<DaemonStatus | null>(null);
     let versionOpen = $state(false);
     let checkingUpdate = $state(false);
+    // GitHub did not answer and the versions come from npm: updateError is then only the reason, not a failure
+    let updateFromNpm = $derived(stats?.updateSource === 'npm' && !stats?.updateFailed);
     let updating = $state(false);
 
     // ── Auth ────────────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@
         checkingUpdate = true;
         try {
             const res = await checkForUpdate();
-            if (stats) stats = { ...stats, latestVersion: res.latestVersion ?? undefined, updateChannel: res.updateChannel, latestPrerelease: res.latestPrerelease, latestStable: res.latestStable, latestBeta: res.latestBeta, updateError: res.updateError };
+            if (stats) stats = { ...stats, latestVersion: res.latestVersion ?? undefined, updateChannel: res.updateChannel, latestPrerelease: res.latestPrerelease, latestStable: res.latestStable, latestBeta: res.latestBeta, updateError: res.updateError, updateSource: res.updateSource, updateFailed: res.updateFailed };
         } catch { /* best-effort */ } finally {
             checkingUpdate = false;
         }
@@ -153,7 +155,7 @@
             // 409: the daemon started nothing — no version known, Docker, or the host's helper is too old for an exact-version install
             updating = false;
             const msg = e instanceof Error ? e.message : String(e);
-            if (stats) stats = { ...stats, updateError: msg };
+            if (stats) stats = { ...stats, updateError: msg, updateFailed: true };
             versionOpen = true;
             await dialog.show(`Update not started: ${msg}`, { alert: true });
             return;
@@ -169,7 +171,7 @@
                     location.reload(); return;
                 }
                 // npm finished and the daemon did not restart: the install failed and the status says why
-                if (!s.updating && s.updateError) {
+                if (!s.updating && s.updateFailed && s.updateError) {
                     updating = false;
                     stats = { ...stats, ...s };
                     versionOpen = true;
@@ -523,7 +525,7 @@
                         <dt>Channel</dt><dd title="Config → Updates">{stats?.updateChannel === 'beta' ? 'beta (pre-releases too)' : 'stable'}</dd>
                         {#if stats?.latestVersion}
                         <dt>Latest</dt><dd style="color: #f90">v{stats.latestVersion}{#if stats.latestPrerelease} <span class="version-pre">pre-release</span>{/if}</dd>
-                        {:else if stats?.updateError}
+                        {:else if stats?.updateError && !updateFromNpm}
                         <dt>Latest</dt><dd title={stats.updateError}>unknown</dd>
                         {:else}
                         <dt>Latest</dt><dd>up to date</dd>
@@ -531,7 +533,9 @@
                         {#if stats?.updateChannel === 'beta' && stats?.latestStable}
                         <dt>Stable</dt><dd>v{stats.latestStable}</dd>
                         {/if}
-                        {#if stats?.latestVersion && stats?.updateError}
+                        {#if updateFromNpm}
+                        <dt>Source</dt><dd title={stats?.updateError}>npm (GitHub did not answer)</dd>
+                        {:else if stats?.latestVersion && stats?.updateError}
                         <dt class="version-error">Update</dt><dd class="version-error">{stats.updateError}</dd>
                         {/if}
                         {#if stats?.docker}
