@@ -46,7 +46,13 @@ Your home, your rules - written in plain JavaScript.
 
 ## Quick look
 
-![AI assistant proposing changes to an existing script with inline diff](doc/screenshots/she-ai-2.png) [... more screenshots](doc/screenshots.md) 
+![The Scripts page: file tree, editor, script log, runtime panel and the AI assistant docked around the code](doc/screenshots/scripts-editor.png)
+
+| | |
+| --- | --- |
+| ![The AI assistant's proposed change as a diff in the editor](doc/screenshots/ai-script-diff.png) | ![The Runtime page with memory, CPU, event loop, MQTT and script callbacks](doc/screenshots/runtime.png) |
+
+[More screenshots: a walkthrough of every page](doc/screenshots.md)
 
 ## Motivation
 
