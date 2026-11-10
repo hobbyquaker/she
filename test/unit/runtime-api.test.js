@@ -31,7 +31,7 @@ describe('runtime API', () => {
         runtimeApi.init({
             runtime: rt,
             snapshot: (label) => rt.snapshot({ script: label ? '/s/' + label : undefined, label: (f) => f.slice(3) }),
-            history: () => ({ intervalMs: 10_000, samples: rt.gauges.list() }),
+            history: (since) => ({ intervalMs: 10_000, samples: rt.gauges.list(), minutes: { intervalMs: rt.minutes.intervalMs, samples: rt.minutes.list(since) } }),
             log: (file, msg) => logged.push([file, msg]),
         });
         const app = express();
@@ -62,7 +62,28 @@ describe('runtime API', () => {
         rt.gauges.push({ ts: 1_000_000, memMb: 50 });
         const res = await request(port, 'GET', '/she/runtime/history');
         expect(res.status).toBe(200);
-        expect(res.body).toEqual({ intervalMs: 10_000, samples: [{ ts: 1_000_000, memMb: 50 }] });
+        expect(res.body).toEqual({ intervalMs: 10_000, samples: [{ ts: 1_000_000, memMb: 50 }], minutes: { intervalMs: 60_000, samples: [] } });
+    });
+
+    it('GET /she/runtime/history carries the day at one sample per minute, ?since= limits it', async () => {
+        const MIN = 60_000;
+        for (let i = 0; i < 4; i++) rt.minutes.push({ ts: 100 * MIN + i * MIN + 5000, cpuPercent: i, elMaxMs: 20 + i, memMb: 150, callbacks: 2, errors: 0 });
+        rt.minutes.push({ ts: 103 * MIN + 30_000, cpuPercent: 50, elMaxMs: 400, memMb: 160, callbacks: 3, errors: 1 });
+        const res = await request(port, 'GET', '/she/runtime/history');
+        expect(res.status).toBe(200);
+        expect(Object.keys(res.body).sort()).toEqual(['intervalMs', 'minutes', 'samples']);
+        expect(res.body.intervalMs).toBe(10_000);
+        expect(Array.isArray(res.body.samples)).toBe(true);
+        expect(res.body.minutes.intervalMs).toBe(MIN);
+        expect(res.body.minutes.samples.map((s) => s.ts)).toEqual([100 * MIN, 101 * MIN, 102 * MIN, 103 * MIN]);
+        // the minute still open is the last one: the worst lag and CPU of its samples, the counts added up
+        expect(res.body.minutes.samples[3]).toEqual({ ts: 103 * MIN, cpuPercent: 50, elMaxMs: 400, memMb: 160, callbacks: 5, errors: 1 });
+
+        const since = await request(port, 'GET', '/she/runtime/history?since=' + 102 * MIN);
+        expect(since.body.minutes.samples.map((s) => s.ts)).toEqual([102 * MIN, 103 * MIN]);
+        expect(since.body.samples).toEqual(res.body.samples);
+        const junk = await request(port, 'GET', '/she/runtime/history?since=abc');
+        expect(junk.body.minutes.samples).toHaveLength(4);
     });
 
     it('POST /she/runtime/action cancels and runs a pending timer and logs it to the script', async () => {

@@ -2,8 +2,9 @@
 /**
  * The daemon's runtime model: what every script has registered — subscriptions, variable listeners,
  * schedules, sun events, timers (grouped by kind, name and the line that created them) and pending
- * commands — with per-handler statistics, the timers pending under each handler, and a ring buffer
- * of the daemon's gauges for the last hour.
+ * commands — with per-handler statistics, the timers pending under each handler, and two ring
+ * buffers of the daemon's gauges: one sample per 10 s for the last hour, one per minute for the
+ * last day.
  *
  * The Runtime page reads the whole model about once a second over the WebSocket while it is open;
  * the script editor's Runtime panel reads one script's part of it. Neither changes the model: the
@@ -21,7 +22,9 @@ const BUCKETS = WINDOW_MS / BUCKET_MS;
 
 /** Fires, errors and time of one handler: totals since load and the last five minutes. */
 class HandlerStats {
-    constructor() {
+    /** @param {{fires: number, errors: number}} [totals] a counter shared by every handler, counted along */
+    constructor(totals) {
+        this._totals = totals || null;
         this.fires = 0;
         this.errors = 0;
         this.totalMs = 0;
@@ -60,10 +63,12 @@ class HandlerStats {
         const b = this._bucket(now);
         b.fires++;
         b.ms += ms;
+        if (this._totals) this._totals.fires++;
         if (failed) {
             this.errors++;
             this.lastError = now;
             b.errors++;
+            if (this._totals) this._totals.errors++;
         }
     }
 
@@ -72,6 +77,7 @@ class HandlerStats {
         this.errors++;
         this.lastError = now;
         this._bucket(now).errors++;
+        if (this._totals) this._totals.errors++;
     }
 
     /** The last five minutes. */
@@ -137,6 +143,83 @@ class GaugeHistory {
     }
 }
 
+/**
+ * The gauges folded into one sample per minute, for the last day: 1440 small objects, in memory,
+ * gone with a restart. Every sample offered is folded into the minute it falls into — a spike
+ * between two kept samples must survive, which is why this is not a second GaugeHistory with a
+ * longer interval. How a field is folded: the highest value for the fields in `max` (load: a peak
+ * is what the reader looks for), the mean for those in `mean`, the sum for those in `sum` (counts
+ * since the previous sample); every other numeric field keeps its last value (levels: memory,
+ * counts of things).
+ */
+class MinuteHistory {
+    /**
+     * @param {object} [opts]
+     * @param {number} [opts.intervalMs=60000] the length of a bucket
+     * @param {number} [opts.size=1440] buckets kept (1440 × 1 min = one day)
+     * @param {string[]} [opts.max] fields that keep their highest value
+     * @param {string[]} [opts.mean] fields that keep their mean, to one decimal
+     * @param {string[]} [opts.sum] fields that are added up
+     */
+    constructor(opts = {}) {
+        this.intervalMs = opts.intervalMs || 60_000;
+        this.size = opts.size || 1440;
+        this._max = new Set(opts.max || []);
+        this._mean = new Set(opts.mean || []);
+        this._sum = new Set(opts.sum || []);
+        this._closed = [];
+        this._open = null; // { ts, n, values }
+    }
+
+    /**
+     * Fold a sample into its minute; a sample of a later minute closes the open one.
+     * @param {object} sample must carry `ts`; non-numeric fields are ignored
+     */
+    push(sample) {
+        const start = Math.floor(sample.ts / this.intervalMs) * this.intervalMs;
+        // a clock that stepped back: the sample goes into the open minute rather than behind it
+        if (!this._open || start > this._open.ts) {
+            if (this._open) {
+                this._closed.push(this._render(this._open));
+                if (this._closed.length > this.size - 1) this._closed.splice(0, this._closed.length - (this.size - 1));
+            }
+            this._open = { ts: start, n: 0, values: {} };
+        }
+        const o = this._open;
+        o.n++;
+        for (const [key, v] of Object.entries(sample)) {
+            if (key === 'ts' || typeof v !== 'number' || !Number.isFinite(v)) continue;
+            const prev = o.values[key];
+            if (prev === undefined) o.values[key] = v;
+            else if (this._max.has(key)) o.values[key] = Math.max(prev, v);
+            else if (this._mean.has(key) || this._sum.has(key)) o.values[key] = prev + v;
+            else o.values[key] = v;
+        }
+    }
+
+    _render(o) {
+        const out = { ts: o.ts };
+        for (const [key, v] of Object.entries(o.values)) out[key] = this._mean.has(key) ? Math.round((v / o.n) * 10) / 10 : v;
+        return out;
+    }
+
+    /**
+     * The minutes kept, oldest first; the last one is the minute still being filled.
+     * @param {number} [since] only the minutes that start at or after this time (ms)
+     */
+    list(since) {
+        const all = this._open ? [...this._closed, this._render(this._open)] : this._closed.slice();
+        return typeof since === 'number' && Number.isFinite(since) ? all.filter((s) => s.ts >= since) : all;
+    }
+}
+
+/** How the daemon's gauges are folded into a minute; what is not named keeps its last value. */
+const MINUTE_RULES = {
+    max: ['mqttMsgPerSec', 'cpuPercent', 'eluPercent', 'elMaxMs'],
+    mean: ['elMeanMs'],
+    sum: ['callbacks', 'errors'],
+};
+
 class NotFoundError extends Error {
     constructor(id) {
         super(`unknown runtime id ${id} — the script may have been reloaded`);
@@ -159,6 +242,9 @@ class Runtime {
         /** @type {Map<string, object>} `${script}\0${group key}` → timer group handler */
         this._groups = new Map();
         this.gauges = new GaugeHistory();
+        this.minutes = new MinuteHistory(MINUTE_RULES);
+        /** callbacks run and errors seen since the start, over every script — reloads included */
+        this.totals = { fires: 0, errors: 0 };
         this.latestGauges = null;
         this.commandsFailed = 0;
     }
@@ -184,7 +270,7 @@ class Runtime {
             name: info.name ?? null,
             detail: info.detail ?? null,
             line: info.line ?? null,
-            stats: new HandlerStats(),
+            stats: new HandlerStats(this.totals),
             pending: new Map(),
             run: info.run || null,
             cancel: info.cancel || null,
@@ -347,4 +433,4 @@ class Runtime {
     }
 }
 
-module.exports = { Runtime, HandlerStats, GaugeHistory, NotFoundError, WINDOW_MS, BUCKET_MS };
+module.exports = { Runtime, HandlerStats, GaugeHistory, MinuteHistory, MINUTE_RULES, NotFoundError, WINDOW_MS, BUCKET_MS };

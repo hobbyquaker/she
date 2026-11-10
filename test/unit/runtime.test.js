@@ -1,6 +1,6 @@
 'use strict';
 
-const { Runtime, HandlerStats, GaugeHistory, NotFoundError, WINDOW_MS, BUCKET_MS } = require('../../src/lib/runtime');
+const { Runtime, HandlerStats, GaugeHistory, MinuteHistory, MINUTE_RULES, NotFoundError, WINDOW_MS, BUCKET_MS } = require('../../src/lib/runtime');
 
 describe('HandlerStats', () => {
     it('counts fires, time, max and the last fire', () => {
@@ -58,6 +58,122 @@ describe('GaugeHistory', () => {
     it('defaults to an hour of 10 s samples', () => {
         const g = new GaugeHistory();
         expect(g.intervalMs * g.size).toBe(60 * 60 * 1000);
+    });
+});
+
+describe('MinuteHistory', () => {
+    const MIN = 60_000;
+
+    it('folds the samples of a minute into one: max, mean, sum, and the last value for the rest', () => {
+        const m = new MinuteHistory({ max: ['cpuPercent', 'elMaxMs'], mean: ['elMeanMs'], sum: ['callbacks'] });
+        m.push({ ts: 10 * MIN + 1000, cpuPercent: 2, elMaxMs: 21, elMeanMs: 20, callbacks: 3, memMb: 180 });
+        m.push({ ts: 10 * MIN + 11_000, cpuPercent: 37.5, elMaxMs: 412, elMeanMs: 23, callbacks: 5, memMb: 204 });
+        m.push({ ts: 10 * MIN + 21_000, cpuPercent: 1, elMaxMs: 20, elMeanMs: 20, callbacks: 0, memMb: 190 });
+        expect(m.list()).toEqual([{ ts: 10 * MIN, cpuPercent: 37.5, elMaxMs: 412, elMeanMs: 21, callbacks: 8, memMb: 190 }]);
+    });
+
+    it('starts a new minute with the first sample that falls into it and keeps the open one last', () => {
+        const m = new MinuteHistory({ max: ['v'] });
+        m.push({ ts: 59_999, v: 5 });
+        m.push({ ts: 60_000, v: 1 });
+        m.push({ ts: 119_000, v: 3 });
+        m.push({ ts: 5 * MIN, v: 2 }); // minutes without a sample leave a gap, not a zero
+        expect(m.list()).toEqual([
+            { ts: 0, v: 5 },
+            { ts: MIN, v: 3 },
+            { ts: 5 * MIN, v: 2 },
+        ]);
+    });
+
+    it('keeps `size` minutes and drops the oldest', () => {
+        const m = new MinuteHistory({ size: 3, max: ['v'] });
+        for (let i = 0; i < 6; i++) m.push({ ts: i * MIN, v: i });
+        expect(m.list().map((s) => s.ts)).toEqual([3 * MIN, 4 * MIN, 5 * MIN]);
+        expect(m.list().map((s) => s.v)).toEqual([3, 4, 5]);
+    });
+
+    it('holds a day at one sample per minute by default: 1440, the oldest evicted', () => {
+        const m = new MinuteHistory();
+        expect(m.intervalMs * m.size).toBe(24 * 60 * MIN);
+        for (let i = 0; i < 1500; i++) m.push({ ts: i * MIN, v: i });
+        const list = m.list();
+        expect(list).toHaveLength(1440);
+        expect(list[0].ts).toBe(60 * MIN);
+        expect(list[1439].ts).toBe(1499 * MIN);
+    });
+
+    it('list(since) returns the minutes from there on, the one that starts at `since` included', () => {
+        const m = new MinuteHistory();
+        for (let i = 0; i < 5; i++) m.push({ ts: i * MIN, v: i });
+        expect(m.list(3 * MIN).map((s) => s.ts)).toEqual([3 * MIN, 4 * MIN]);
+        expect(m.list(99 * MIN)).toEqual([]);
+        expect(m.list(NaN)).toHaveLength(5);
+    });
+
+    it('ignores what is not a finite number and puts a sample from the past into the open minute', () => {
+        const m = new MinuteHistory({ max: ['v'] });
+        m.push({ ts: 2 * MIN, v: 1, label: 'x', bad: NaN });
+        m.push({ ts: MIN, v: 9 });
+        expect(m.list()).toEqual([{ ts: 2 * MIN, v: 9 }]);
+    });
+
+    it("the daemon's rules: the worst lag, CPU, utilisation and message rate of the minute, callbacks and errors added up", () => {
+        const m = new MinuteHistory(MINUTE_RULES);
+        const base = {
+            mqttMsgPerSec: 1,
+            cpuPercent: 1,
+            eluPercent: 1,
+            elMeanMs: 20,
+            elMaxMs: 21,
+            memMb: 150,
+            heapMb: 60,
+            topics: 5,
+            handlers: 7,
+            pendingTimers: 0,
+            callbacks: 2,
+            errors: 0,
+        };
+        m.push({ ts: 0, ...base });
+        m.push({ ts: 10_000, ...base, mqttMsgPerSec: 31, cpuPercent: 94.2, eluPercent: 88, elMaxMs: 1250, memMb: 210, heapMb: 99, pendingTimers: 4, errors: 1 });
+        m.push({ ts: 20_000, ...base, elMeanMs: 26 });
+        expect(m.list()).toEqual([
+            {
+                ts: 0,
+                mqttMsgPerSec: 31,
+                cpuPercent: 94.2,
+                eluPercent: 88,
+                elMeanMs: 22,
+                elMaxMs: 1250,
+                memMb: 150,
+                heapMb: 60,
+                topics: 5,
+                handlers: 7,
+                pendingTimers: 0,
+                callbacks: 6,
+                errors: 1,
+            },
+        ]);
+    });
+});
+
+describe('Runtime totals', () => {
+    it('count every callback and error over all handlers, and survive the removal of a script', () => {
+        const rt = new Runtime();
+        const a = rt.handler('/s/a.js', { kind: 'sub', name: 'x' });
+        const b = rt.handler('/s/b.js', { kind: 'sub', name: 'y' });
+        a.stats.record(1, false, 100);
+        a.stats.record(1, true, 200);
+        b.stats.record(1, false, 300);
+        b.stats.fail(400);
+        expect(rt.totals).toEqual({ fires: 3, errors: 2 });
+        rt.removeScript('/s/a.js');
+        expect(rt.totals).toEqual({ fires: 3, errors: 2 });
+    });
+
+    it('a Runtime starts with an empty day of minutes', () => {
+        const rt = new Runtime();
+        expect(rt.minutes).toBeInstanceOf(MinuteHistory);
+        expect(rt.minutes.list()).toEqual([]);
     });
 });
 

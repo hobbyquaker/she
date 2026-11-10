@@ -625,9 +625,10 @@ function broadcastBrokers() {
  * and lag), memory, counts. One sampler owns the interval counters — every reader (the status
  * endpoint, the Runtime page, the hour's history) sees the same sample instead of resetting the
  * counters under each other. Sampled every 10 s, every second while a Runtime page is open; the
- * history keeps one sample per 10 s for an hour.
+ * history keeps one sample per 10 s for an hour and one per minute for a day (lib/runtime.js).
  */
 let _statsLagMax = 0; // the worst event-loop lag since the last maintenance/stats sample
+let _prevTotals = { fires: 0, errors: 0 }; // runtime.totals at the previous sample
 function sampleGauges() {
     const now = Date.now();
     const elapsed = (now - _mqttMsgTs) / 1000;
@@ -660,6 +661,10 @@ function sampleGauges() {
     };
     runtime.latestGauges = sample;
     runtime.gauges.push(sample);
+    // the day's history: every sample folded into its minute, with the callbacks and script errors
+    // counted since the previous sample
+    runtime.minutes.push({ ...sample, callbacks: runtime.totals.fires - _prevTotals.fires, errors: runtime.totals.errors - _prevTotals.errors });
+    _prevTotals = { ...runtime.totals };
     return sample;
 }
 sampleGauges();
@@ -700,6 +705,12 @@ if (_statsSeconds > 0) {
     };
     setInterval(publishStats, _statsSeconds * 1000).unref();
 }
+
+// what the Runtime page measures its rings against: V8's heap limit and the cores of the host; the
+// lag above which the heartbeat (when enabled) names the blocking script
+const _heapLimit = require('v8').getHeapStatistics().heap_size_limit;
+const _cpus = require('os').availableParallelism();
+const _heartbeatThreshold = config.heartbeat?.enabled ? (typeof config.heartbeat.threshold === 'number' ? config.heartbeat.threshold : 300) : null;
 
 // Register runtime stats provider for GET /she/status
 const statsSnapshot = () => {
@@ -749,6 +760,10 @@ const statsSnapshot = () => {
         schedules: countSchedules(),
         commandsFailed: runtime.commandsFailed,
         memory: process.memoryUsage(),
+        heapLimit: _heapLimit,
+        cpus: _cpus,
+        mqttConnected: !!config.url && connected,
+        heartbeatThreshold: _heartbeatThreshold,
         resources: _processStats.activeResources(),
         statsTopic: _statsSeconds > 0 && config.url ? STATS_TOPIC : null,
         statsInterval: _statsSeconds > 0 ? _statsSeconds : 0,
@@ -817,7 +832,11 @@ require('./web/runtime-api').init({
         const file = fileOfLabel(label);
         return runtimeSnapshot(file || '\0unknown:' + label);
     },
-    history: () => ({ intervalMs: runtime.gauges.intervalMs, samples: runtime.gauges.list() }),
+    history: (since) => ({
+        intervalMs: runtime.gauges.intervalMs,
+        samples: runtime.gauges.list(),
+        minutes: { intervalMs: runtime.minutes.intervalMs, samples: runtime.minutes.list(since) },
+    }),
     log: (file, msg) => log.info(makeLabel(file), msg),
 });
 
@@ -1344,6 +1363,7 @@ function createScript(source, name) {
         return new vm.Script(source, { filename: name });
     } catch (err) {
         log.error(compileLabel, err.name + ':', err.message);
+        runtime.totals.errors++;
         return false;
     }
 }
@@ -2164,8 +2184,10 @@ function runScript(script, name, _origin, source) {
                 // Killing the script mid-run leaves whatever it registered before the
                 // timeout in place; loading continues with the remaining scripts.
                 log.error(logLabel, `top-level code did not finish within ${SCRIPT_TIMEOUT_MS} ms and was terminated ("scriptTimeout", 0 disables this)`);
+                runtime.totals.errors++;
                 return;
             }
+            runtime.totals.errors++;
             // Contain top-level script errors: without this, the exception
             // unwinds through the caller (e.g. the watcher batch loading many
             // scripts in one tick) and aborts loading of subsequent scripts.
