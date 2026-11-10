@@ -83,6 +83,8 @@ export interface TreeEntry {
     path: string;
     lib: boolean;
     disabled?: boolean;
+    /** a symlink that leaves the script directory: not loaded, and the editor cannot open it */
+    outside?: boolean;
     size?: number;
     mtime?: number;
     children?: TreeEntry[];

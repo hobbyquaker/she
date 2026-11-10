@@ -72,4 +72,29 @@ function resolveInside(root, relPath, { followLeaf = true } = {}) {
     return abs;
 }
 
-module.exports = { resolveInside, realOf };
+/**
+ * True when `abs` is below `root` by its name but really lies somewhere else: a symlink on the way
+ * (the entry itself or a directory above it) leads out of the root. A path that is not below the
+ * root by name, a link whose target is missing and a loop answer false — they are not "linked in
+ * from outside", whatever else is wrong with them.
+ * @param {string} root the directory
+ * @param {string} abs the path as it is named
+ * @param {string} [real] where the path really ends up, when the caller knows it already
+ */
+function linksOutside(root, abs, real) {
+    if (typeof root !== 'string' || !root || typeof abs !== 'string') return false;
+    const absRoot = path.resolve(root);
+    if (!isInside(absRoot, path.resolve(abs))) return false;
+    const realRoot = realOf(absRoot);
+    if (realRoot === null) return false;
+    if (real === undefined) {
+        try {
+            real = fs.realpathSync(path.resolve(abs));
+        } catch {
+            return false;
+        }
+    }
+    return !isInside(realRoot, real);
+}
+
+module.exports = { resolveInside, realOf, linksOutside };

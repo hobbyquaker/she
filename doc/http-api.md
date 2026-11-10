@@ -100,6 +100,8 @@ List all files in the script directory, recursively. Includes `.js` scripts and 
 ]
 ```
 
+An entry that is a symbolic link leaving the script directory carries `"outside": true` — here and on the file nodes of `GET /she/scripts/tree`. The engine does not load it and the routes below refuse it; other entries do not have the key.
+
 ### GET /she/scripts/:path
 
 Read a script file.
@@ -947,7 +949,7 @@ With GitHub's rate limit used up:
 
 ### POST /she/update
 
-Installs the offered version exactly and restarts the daemon once npm has exited 0. The install runs as root through the helper, `she-servicectl she-update <version>` (`via: "helper"`, always — helper v16 and later, see [services.md](services.md)); there is no other way, a host whose helper is older is refused with 409. While npm runs, `GET /she/status` says `updating: true`; when npm fails the daemon keeps running, `updating` goes away and `updateError` carries npm's exit code and last lines. **409** `{ ok: false, error }` when no update is known (run the check first), in a Docker container (updated by pulling a new image), while an update is already running, or when the host needs its helper updated first (*Update helper* on the Services → Hosts tab, or `sudo she --install` once) — that reason is also put into `updateError`.
+Installs the offered version exactly and restarts the daemon once npm has exited 0. The install runs as root through the helper, `she-servicectl she-update <version>` (`via: "helper"`, always — helper v16 and later, see [services.md](services.md)); there is no other way, a host whose helper is older is refused with 409. While npm runs, `GET /she/status` says `updating: true`; when npm fails the daemon keeps running, `updating` goes away and `updateError` carries npm's exit code and last lines. **409** `{ ok: false, error }` when no update is known (run the check first), in a Docker container (updated by pulling a new image), while an update is already running, or when the host needs its helper updated first (*Update helper* on the Services → Hosts tab, or `sudo she --install` once) — that reason is also put into `updateError`. A helper of v17 or later also removes the npm sudoers rule of earlier versions once npm has succeeded ([security.md](security.md#service-management-helper-she-servicectl)); that never changes the result of the update.
 
 ```json
 { "ok": true, "version": "3.0.0-beta.2", "via": "helper" }

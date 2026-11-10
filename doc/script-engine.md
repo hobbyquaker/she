@@ -34,6 +34,8 @@ Scripts use `require()` for all imports. Node.js module resolution proceeds in t
 
 Relative imports (`./helper`, `../lib/utils`) are resolved relative to the directory of the calling script.
 
+A relative import that reaches its file through a symbolic link leading out of the script directory throws (`require('./helper'): not loaded — the link points outside the script directory`); see [Symbolic links](#symbolic-links).
+
 A failing `require()` — module not found, or an error thrown while loading the required file — **throws** and thereby stops the requiring script (at top level the script load aborts; inside a callback the domain handler logs it). A script never continues silently with an `undefined` module.
 
 ### No ESM (`import`) support
@@ -140,6 +142,18 @@ scripts/
 ```
 
 This is useful for temporarily disabling a script without deleting it. The marker files are visible in the web UI's file tree (they appear as tiny checkboxes) and can be created/deleted from the editor.
+
+### Symbolic links
+
+A symbolic link inside the script directory works as long as its target is inside the script directory, too: a linked `.js` file is loaded as a script of its own, under the link's name, and can be edited through the link. A linked directory is not scanned for scripts when she starts; files in it can be `require()`d.
+
+**A link that points outside the script directory is not loaded** — a `.js` file, a directory, or a file loaded with a relative `require()`. The log carries a warning for each one:
+
+```
+automation/shared.js: not loaded — the link points outside the script directory
+```
+
+The file tree in the web UI shows the entry with the mark "outside, not loaded"; it can be renamed or deleted there, which acts on the link and never on its target. To run such a script, copy it into the script directory. See [security.md](security.md#the-script-directory-and-symbolic-links) for the reason.
 
 ---
 

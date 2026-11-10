@@ -10,7 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const express = require('express');
-const { resolveInside } = require('../../src/lib/safe-path');
+const { resolveInside, linksOutside } = require('../../src/lib/safe-path');
 
 /** tmp/root (the root), tmp/outside (must stay unreachable) */
 function sandbox() {
@@ -141,6 +141,52 @@ describe('resolveInside()', () => {
     });
 });
 
+describe('linksOutside()', () => {
+    let box;
+    beforeEach(() => {
+        box = sandbox();
+    });
+    afterEach(() => fs.rmSync(box.tmp, { recursive: true, force: true }));
+
+    test('a link that leaves the root, and what lies below one', () => {
+        const { root } = box;
+        expect(linksOutside(root, path.join(root, 'leak.js'))).toBe(true);
+        expect(linksOutside(root, path.join(root, 'out'))).toBe(true);
+        expect(linksOutside(root, path.join(root, 'out', 'secret.txt'))).toBe(true);
+    });
+
+    test('plain entries and links that stay inside', () => {
+        const { root } = box;
+        expect(linksOutside(root, root)).toBe(false);
+        expect(linksOutside(root, path.join(root, 'a.js'))).toBe(false);
+        expect(linksOutside(root, path.join(root, 'util-link.js'))).toBe(false);
+        expect(linksOutside(root, path.join(root, 'lib-link'))).toBe(false);
+        expect(linksOutside(root, path.join(root, 'lib-link', 'util.js'))).toBe(false);
+    });
+
+    test('a dead link, a missing file and a path that is not below the root by name are not "linked outside"', () => {
+        const { root, outside } = box;
+        expect(linksOutside(root, path.join(root, 'dead.js'))).toBe(false);
+        expect(linksOutside(root, path.join(root, 'nothing.js'))).toBe(false);
+        expect(linksOutside(root, path.join(outside, 'secret.txt'))).toBe(false);
+    });
+
+    test('a root that is itself a link', () => {
+        const { tmp, root } = box;
+        const linked = path.join(tmp, 'root-link');
+        fs.symlinkSync(root, linked);
+        expect(linksOutside(linked, path.join(linked, 'a.js'))).toBe(false);
+        expect(linksOutside(linked, path.join(linked, 'util-link.js'))).toBe(false);
+        expect(linksOutside(linked, path.join(linked, 'leak.js'))).toBe(true);
+    });
+
+    test('with the real path handed in', () => {
+        const { root, outside } = box;
+        expect(linksOutside(root, path.join(root, 'x'), path.join(outside, 'secret.txt'))).toBe(true);
+        expect(linksOutside(root, path.join(root, 'x'), path.join(root, 'a.js'))).toBe(false);
+    });
+});
+
 describe('the scripts routes and symlinks', () => {
     const { router } = require('../../src/web/scripts-api');
     let box, server, port;
@@ -205,6 +251,22 @@ describe('the scripts routes and symlinks', () => {
         expect(list.status).toBe(200);
         expect(list.body.map((f) => f.path)).toContain('dead.js');
         expect((await request(port, 'GET', '/she/scripts/tree')).status).toBe(200);
+    });
+
+    test('the listing and the tree mark the links that leave the script directory, and only those', async () => {
+        const marked = (entries) =>
+            entries
+                .filter((e) => e.outside)
+                .map((e) => e.path)
+                .sort();
+        const list = await request(port, 'GET', '/she/scripts');
+        expect(marked(list.body)).toEqual(['leak.js', 'out']);
+        const tree = await request(port, 'GET', '/she/scripts/tree');
+        expect(marked(tree.body)).toEqual(['leak.js', 'out']);
+        // a link is a file node, and the entries without the mark do not carry the key at all
+        expect(tree.body.find((e) => e.path === 'out').type).toBe('file');
+        expect(tree.body.find((e) => e.path === 'util-link.js')).not.toHaveProperty('outside');
+        expect(tree.body.find((e) => e.path === 'a.js')).not.toHaveProperty('outside');
     });
 
     test('DELETE removes the link, never what it points to', async () => {
