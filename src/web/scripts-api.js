@@ -82,6 +82,18 @@ function statOf(abs) {
     }
 }
 
+/** True when an absolute path is the script directory itself, which is never deleted, renamed or replaced */
+function isRoot(root, abs) {
+    const real = (p) => {
+        try {
+            return fs.realpathSync(p);
+        } catch {
+            return path.resolve(p);
+        }
+    };
+    return path.resolve(abs) === path.resolve(root) || real(abs) === real(root);
+}
+
 function getRoot(req) {
     return req.app.locals.scriptDir || null;
 }
@@ -282,6 +294,7 @@ router.use((req, res) => {
     if (method === 'DELETE') {
         const abs = safePath(root, filePath, { followLeaf: false });
         if (!abs) return res.status(400).json({ error: 'Invalid path' });
+        if (isRoot(root, abs)) return res.status(400).json({ error: 'The script directory itself cannot be deleted' });
         try {
             const stat = fs.lstatSync(abs);
             if (stat.isDirectory()) {
@@ -318,12 +331,13 @@ router.use((req, res) => {
         // a rename moves the entry itself, so a symlink is judged by where it sits, not by its target
         const abs = safePath(root, srcPath, { followLeaf: false });
         if (!abs) return res.status(400).json({ error: 'Invalid path' });
+        if (isRoot(root, abs)) return res.status(400).json({ error: 'The script directory itself cannot be renamed' });
         const newName = req.body?.newPath;
         if (typeof newName !== 'string' || !newName) {
             return res.status(400).json({ error: 'Missing body.newPath string' });
         }
         const absNew = safePath(root, newName, { followLeaf: false });
-        if (!absNew) return res.status(400).json({ error: 'Invalid newPath' });
+        if (!absNew || isRoot(root, absNew)) return res.status(400).json({ error: 'Invalid newPath' });
         try {
             fs.mkdirSync(path.dirname(absNew), { recursive: true });
             fs.renameSync(abs, absNew);

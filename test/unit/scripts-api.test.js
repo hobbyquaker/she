@@ -177,3 +177,45 @@ describe('DELETE and rename commit per the configured mode', () => {
         expect(gitOut(dir, ['ls-files', 'six.js'])).toBe('six.js');
     });
 });
+
+describe('the script directory itself', () => {
+    let server, port, dir;
+
+    beforeAll(async () => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-scripts-root-'));
+        fs.mkdirSync(path.join(dir, 'lights'));
+        fs.writeFileSync(path.join(dir, 'lights', 'hall.js'), '// hall\n');
+        const app = express();
+        app.use(express.json());
+        app.locals.scriptDir = dir;
+        app.use('/she/scripts', router);
+        server = http.createServer(app);
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        port = server.address().port;
+    });
+
+    afterAll(async () => {
+        await new Promise((resolve) => server.close(resolve));
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it.each(['/she/scripts/', '/she/scripts/.', '/she/scripts/lights/..', '/she/scripts/%2E'])('DELETE %s is refused and deletes nothing', async (url) => {
+        const res = await request(port, 'DELETE', url);
+        // 400 for the root itself; an encoded dot is not decoded and names a file that does not exist (404)
+        expect([400, 404]).toContain(res.status);
+        expect(fs.existsSync(path.join(dir, 'lights', 'hall.js'))).toBe(true);
+    });
+
+    it('the root cannot be renamed, and nothing can be renamed onto it', async () => {
+        expect((await request(port, 'POST', '/she/scripts/./rename', { newPath: 'elsewhere' })).status).toBe(400);
+        expect((await request(port, 'POST', '/she/scripts/lights/rename', { newPath: '.' })).status).toBe(400);
+        expect(fs.existsSync(path.join(dir, 'lights', 'hall.js'))).toBe(true);
+    });
+
+    it('a directory inside the root can still be deleted', async () => {
+        fs.mkdirSync(path.join(dir, 'old'));
+        fs.writeFileSync(path.join(dir, 'old', 'x.js'), '');
+        expect((await request(port, 'DELETE', '/she/scripts/old')).status).toBe(200);
+        expect(fs.existsSync(path.join(dir, 'old'))).toBe(false);
+    });
+});
