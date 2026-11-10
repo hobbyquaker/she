@@ -9,3 +9,6 @@ web/node_modules
 !test/testscripts/node_modules/
 !test/testscripts/node_modules/**
 test/testscripts/test-reload-cleanup.js
+
+# local test runs redirected to a file
+test-output*.txt
