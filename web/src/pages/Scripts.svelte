@@ -1021,9 +1021,7 @@ declare const she: {
             editor.updateOptions({ readOnly: true });
             suppressChange = false;
             await tick();
-            tabBarEl?.querySelector<HTMLElement>(`[data-tab-path="${CSS.escape(path)}"]`)
-                ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-            updateTabScrollBounds();
+            revealTabNextFrame(path);
             return;
         }
         if (tab.model.isDisposed()) {
@@ -1039,9 +1037,19 @@ declare const she: {
         suppressChange = false;
         runSyntaxCheck();
         await tick();
-        tabBarEl?.querySelector<HTMLElement>(`[data-tab-path="${CSS.escape(path)}"]`)
-            ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
-        updateTabScrollBounds();
+        revealTabNextFrame(path);
+    }
+
+    /**
+     * Scroll the tab into view and update the tab bar's arrows in the next frame. Done right after the model
+     * switch, each of these reads forced a synchronous layout of the whole page (file tree, log, runtime table)
+     * on top of the one the switch causes anyway.
+     */
+    function revealTabNextFrame(path: string) {
+        requestAnimationFrame(() => {
+            tabBarEl?.querySelector<HTMLElement>(`[data-tab-path="${CSS.escape(path)}"]`)?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+            updateTabScrollBounds();
+        });
     }
 
     async function closeTab(path: string) {
@@ -1273,9 +1281,12 @@ declare const she: {
     function closeHistoryDiff() {
         historyDiffOpen = false;
         historyDiffBinary = false;
-        historyDiffEditor?.dispose();
-        historyDiffEditor = null;
-        resetMonacoHoverServices();
+        // only after a diff editor really existed: this runs on every tab switch, and the reset builds an editor
+        if (historyDiffEditor) {
+            historyDiffEditor.dispose();
+            historyDiffEditor = null;
+            resetMonacoHoverServices();
+        }
         historyDiffOrigModel?.dispose();
         historyDiffOrigModel = null;
         historyDiffModModel?.dispose();
@@ -1679,9 +1690,11 @@ declare const she: {
     }
 
     function cleanupDiffEditor() {
-        diffEditor?.dispose();
-        diffEditor = null;
-        resetMonacoHoverServices();
+        if (diffEditor) {
+            diffEditor.dispose();
+            diffEditor = null;
+            resetMonacoHoverServices();
+        }
         proposedOriginalModel?.dispose();
         proposedOriginalModel = null;
         proposedModifiedModel?.dispose();
