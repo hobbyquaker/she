@@ -27,7 +27,7 @@ const activity = require('./activity');
 const sshDeploy = require('./ssh-deploy');
 
 const HELPER = '/usr/local/bin/she-servicectl';
-const HELPER_VERSION = 16; // must match VERSION in service/she-servicectl (test/unit/helper-version.test.js)
+const HELPER_VERSION = 17; // must match VERSION in service/she-servicectl (test/unit/helper-version.test.js)
 /** Default identity for services.hosts[].ssh — one key for all managed hosts (I5). */
 const DEFAULT_SERVICES_IDENTITY = '~/.she/ssh/services_id_ed25519';
 /** The helper as shipped with this she version (copied to remote hosts by the deploy route). */

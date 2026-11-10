@@ -35,6 +35,7 @@
 #   she-servicectl restart-all                                     restart every running instance on this host (after a node update, say)
 #   she-servicectl self-update                                     replace this script with the one on stdin (she ships it)
 #   she-servicectl she-update <version>                            she's own update: npm install -g smart-home-engine@<version> (the she host only)
+#                                                                  and, once npm succeeded, the npm rule of earlier versions leaves /etc/sudoers.d/she
 #   she-servicectl remove-key                                      drop the public key on stdin from the calling user's authorized_keys
 #   she-servicectl teardown [--force]                              remove she from this host: that key, the sudoers rule, this script,
 #                                                                  the she-services user (adapters and their instances stay untouched)
@@ -46,7 +47,7 @@
 
 set -eu
 
-VERSION=16
+VERSION=17
 BROKER_ENV=/etc/mqtt-interfaces/broker.env
 UNIT_DIR=/etc/systemd/system
 
@@ -643,13 +644,51 @@ cmd_self_update() {
 # already has. The version is checked strictly, npm's exit code is the command's, and the npm is
 # the one next to the node that runs she (as for the adapters). Meant for the she host: the daemon
 # calls it locally only, and the command refuses where no she is installed.
+#
+# Since v17 a successful update also takes that old npm line out of she's sudoers file, so an
+# installation that only ever updates through the web UI loses it, too.
+SHE_SUDOERS=/etc/sudoers.d/she
+
+# Remove the rule "<user> ALL=(root) NOPASSWD: <npm> install -g smart-home-engine" from the sudoers
+# file $1 — that line and no other. The edited copy is written next to the file, checked with
+# `visudo -c -f` and renamed over it; sudo skips file names with a dot, so it never reads the copy.
+# Whatever goes wrong (no visudo, a file visudo rejects), the file stays as it is and stderr says
+# why. Always returns 0: the update it follows has succeeded, and this must not turn it into a failure.
+remove_npm_sudoers_rule() {
+    file=$1
+    rx='^[^#[:space:]]+[[:space:]]+ALL=\(root\)[[:space:]]+NOPASSWD:[[:space:]]+/[^[:space:],]*npm[[:space:]]+install[[:space:]]+-g[[:space:]]+smart-home-engine[[:space:]]*$'
+    [ -f "$file" ] && [ ! -L "$file" ] || return 0
+    grep -Eq "$rx" "$file" 2>/dev/null || return 0
+    visudo=$(command -v visudo 2>/dev/null) || visudo=/usr/sbin/visudo
+    if [ ! -x "$visudo" ]; then
+        printf 'she-servicectl: %s still has the npm rule of earlier versions: no visudo to check an edit with, file left as it is\n' "$file" >&2
+        return 0
+    fi
+    tmp=$(mktemp "$file.XXXXXX" 2>/dev/null) || {
+        printf 'she-servicectl: %s still has the npm rule of earlier versions: cannot write next to it, file left as it is\n' "$file" >&2
+        return 0
+    }
+    grep -Ev "$rx" "$file" > "$tmp" || true    # grep answers 1 when no line is left
+    chmod 440 "$tmp"
+    if "$visudo" -c -q -f "$tmp" >/dev/null 2>&1 && mv -f "$tmp" "$file"; then
+        printf 'she-servicectl: removed the npm rule of earlier versions from %s\n' "$file" >&2
+    else
+        rm -f "$tmp"
+        printf 'she-servicectl: %s still has the npm rule of earlier versions: visudo rejects the file without it, file left as it is\n' "$file" >&2
+    fi
+    return 0
+}
+
 cmd_she_update() {
     [ $# -eq 1 ] || die "usage: she-update <version>"
     valid_she_version "$1" || die "invalid version: $1"
     adapter_cmd she >/dev/null 2>&1 || die "she is not installed on this host"
     npm=$(adapter_npm she)
     node=$(adapter_node she)
-    PATH="$(dirname "$node"):$PATH" exec "$npm" install -g "smart-home-engine@$1" --no-audit --no-fund
+    rc=0
+    PATH="$(dirname "$node"):$PATH" "$npm" install -g "smart-home-engine@$1" --no-audit --no-fund || rc=$?
+    [ "$rc" -eq 0 ] || exit "$rc"
+    remove_npm_sudoers_rule "$SHE_SUDOERS" || true
 }
 
 # ── removing she from this host ─────────────────────────────────────────────────
