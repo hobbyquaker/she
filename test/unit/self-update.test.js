@@ -2,8 +2,8 @@
 
 /**
  * she's own update: the version must be a plain release version, the install goes through the
- * helper when it has `she-update` (v16), the old literal sudo rule is the fallback only for npm's
- * `latest`, and the daemon restarts only when npm exited 0 — 3.0.0-beta.0/1 restarted whatever
+ * helper when it has `she-update` (v16) and is refused otherwise, and the daemon restarts only
+ * when npm exited 0 — 3.0.0-beta.0/1 restarted whatever
  * sudo said, which hid a refused install completely.
  */
 
@@ -65,23 +65,22 @@ describe('self-update: the version', () => {
     });
 });
 
-describe('self-update: helper or fallback', () => {
+describe('self-update: the helper or nothing', () => {
     const version = '3.0.0-beta.2';
 
     test('a helper with she-update installs the exact version', () => {
         expect(su.planUpdate({ version, helperVersion: su.HELPER_SHE_UPDATE_VERSION })).toEqual({ mode: 'helper' });
-        expect(su.planUpdate({ version, helperVersion: 99, npmLatest: '2.1.0' })).toEqual({ mode: 'helper' });
+        expect(su.planUpdate({ version, helperVersion: 99 })).toEqual({ mode: 'helper' });
     });
 
-    test('an older helper falls back to the literal rule only when the version is npm latest', () => {
-        expect(su.planUpdate({ version: '3.0.0', helperVersion: 15, npmLatest: '3.0.0' })).toEqual({ mode: 'npm-latest' });
-        expect(su.planUpdate({ version, helperVersion: 15, npmLatest: '2.1.0' })).toEqual({ error: su.HELPER_NEEDED });
-        expect(su.planUpdate({ version, helperVersion: 15, npmLatest: null })).toEqual({ error: su.HELPER_NEEDED });
+    test('an older helper is refused, whatever npm calls latest', () => {
+        expect(su.planUpdate({ version, helperVersion: 15 })).toEqual({ error: su.HELPER_NEEDED });
+        expect(su.planUpdate({ version: '3.0.0', helperVersion: 15, npmLatest: '3.0.0' })).toEqual({ error: su.HELPER_NEEDED });
     });
 
     test('no helper at all (missing, sudo denied) is treated like an old one', () => {
-        expect(su.planUpdate({ version: '3.0.0', helperVersion: null, npmLatest: '3.0.0' })).toEqual({ mode: 'npm-latest' });
-        expect(su.planUpdate({ version, helperVersion: null, npmLatest: '3.0.0' }).error).toBe(su.HELPER_NEEDED);
+        expect(su.planUpdate({ version: '3.0.0', helperVersion: null })).toEqual({ error: su.HELPER_NEEDED });
+        expect(su.planUpdate({ version: '3.0.0', helperVersion: null, npmLatest: '3.0.0' })).toEqual({ error: su.HELPER_NEEDED });
     });
 
     test('the error names the way out', () => {
@@ -94,10 +93,10 @@ describe('self-update: helper or fallback', () => {
         expect(su.planUpdate({ version: '3.0.0 x', helperVersion: 15, npmLatest: '3.0.0 x' }).error).toMatch(/not a release version/);
     });
 
-    test('the commands: the helper takes the version, the literal rule takes none', () => {
+    test('the command: the helper takes the version; there is no other way to install', () => {
         expect(su.commandFor({ mode: 'helper' }, version)).toEqual(['sudo', ['-n', '/usr/local/bin/she-servicectl', 'she-update', version]]);
         expect(su.commandFor({ mode: 'helper' }, version, { helper: '/opt/x/she-servicectl' })).toEqual(['sudo', ['-n', '/opt/x/she-servicectl', 'she-update', version]]);
-        expect(su.commandFor({ mode: 'npm-latest' }, '3.0.0')).toEqual(['sudo', ['npm', 'install', '-g', 'smart-home-engine']]);
+        expect(() => su.commandFor({ mode: 'npm-latest' }, '3.0.0')).toThrow();
         expect(() => su.commandFor({ error: 'x' }, version)).toThrow();
     });
 
@@ -145,7 +144,7 @@ describe('self-update: the install and the restart', () => {
     test('sudo refuses (the bug this guards): exit 1 without a restart', async () => {
         const { spawn } = fakeSpawn({ code: 1, lines: ['sudo: a password is required'] });
         const onRestart = jest.fn();
-        const r = await su.performUpdate({ plan: { mode: 'npm-latest' }, version: '3.0.0', spawn, onRestart });
+        const r = await su.performUpdate({ plan, version, spawn, onRestart });
         expect(r.ok).toBe(false);
         expect(r.error).toContain('sudo: a password is required');
         expect(onRestart).not.toHaveBeenCalled();

@@ -3,6 +3,35 @@
 # Run as root after: npm install -g smart-home-engine
 set -euo pipefail
 
+HELPER_DST=/usr/local/bin/she-servicectl
+
+# --- sudoers rules -------------------------------------------------------
+# Two rules, nothing else: the web UI's Restart button and the helper, through which everything
+# else privileged goes - she's own update included (she-servicectl she-update <version>). The file
+# is written anew each time, so a rule of an earlier version does not survive a re-install: up to
+# 3.0.0-beta.7 there was a third one, "<npm> install -g smart-home-engine", for the update.
+# Written next to the target and renamed, so sudo never reads half a file (it skips names with a dot).
+write_sudoers() {
+    local file=$1 tmp
+    if [ -f "$file" ] && grep -q 'install -g smart-home-engine' "$file"; then
+        echo "removing the npm rule of earlier versions from $file"
+    fi
+    tmp="$(mktemp "$file.XXXXXX")"
+    cat > "$tmp" <<EOF
+she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine
+she ALL=(root) NOPASSWD: $HELPER_DST
+EOF
+    chmod 440 "$tmp"
+    mv -f "$tmp" "$file"
+}
+
+# install.sh --sudoers-only <file>: write only the rules, to <file> - what the tests run.
+if [ "${1:-}" = "--sudoers-only" ]; then
+    [ -n "${2:-}" ] || { echo "usage: $0 --sudoers-only <file>" >&2; exit 2; }
+    write_sudoers "$2"
+    exit 0
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "error: must be run as root (sudo $0)" >&2
     exit 1
@@ -40,23 +69,13 @@ echo "created /var/lib/she"
 # The only privileged command the Services page uses; every argument is validated
 # inside the script. See doc/services.md.
 HELPER_SRC="$(dirname "$SERVICE_SRC")/she-servicectl"
-HELPER_DST=/usr/local/bin/she-servicectl
 install -m 755 -o root -g root "$HELPER_SRC" "$HELPER_DST"
 echo "installed $HELPER_DST"
 
-# --- sudoers rules -------------------------------------------------------
-# she's own update runs through the helper (she-servicectl she-update <version>). The npm line is
-# the fallback for a daemon that still updates with the literal command (she up to 3.0.0-beta.1);
-# it goes away in a later release.
-NPM_BIN="$(command -v npm)"
+# --- sudoers rules (write_sudoers above) ---------------------------------
 SUDOERS_FILE=/etc/sudoers.d/she
-cat > "$SUDOERS_FILE" <<EOF
-she ALL=(root) NOPASSWD: /usr/bin/systemctl restart smart-home-engine
-she ALL=(root) NOPASSWD: $NPM_BIN install -g smart-home-engine
-she ALL=(root) NOPASSWD: $HELPER_DST
-EOF
-chmod 440 "$SUDOERS_FILE"
-echo "created $SUDOERS_FILE"
+write_sudoers "$SUDOERS_FILE"
+echo "wrote $SUDOERS_FILE"
 
 # --- systemd service -----------------------------------------------------
 cp "$SERVICE_SRC" "$SERVICE_DST"
