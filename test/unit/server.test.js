@@ -1,6 +1,9 @@
 'use strict';
 
+const fs = require('fs');
 const http = require('http');
+const os = require('os');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 
 // Pre-compute once — 1 round is enough for test speed
@@ -146,6 +149,83 @@ describe('password authentication', () => {
         const res = await httpGet(serverPort, '/api/anything');
         expect(res.status).not.toBe(401);
     });
+});
+
+// The whole login flow against the real server: the route order (public auth routes before the
+// middleware, the scripts router behind it) is what protects the scripts, and only the assembled
+// app can show that.
+describe('password mode end to end', () => {
+    let startServer, stopServer, port, scriptDir;
+
+    beforeEach(async () => {
+        jest.resetModules();
+        ({ startServer, stopServer } = require('../../src/web/server'));
+        scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-server-'));
+        fs.writeFileSync(path.join(scriptDir, 'hello.js'), "log.info('hello');\n");
+        port = await startServer(0, { auth: 'password', password: TEST_HASH, scriptDir, bindAddress: '127.0.0.1' });
+    });
+
+    afterEach(async () => {
+        await stopServer();
+        fs.rmSync(scriptDir, { recursive: true, force: true });
+    });
+
+    const sessionCookie = (res) => (res.cookies.find((c) => c.startsWith('she_session=')) || '').split(';')[0];
+
+    test('/she/scripts answers 401 without a cookie and does not list anything', async () => {
+        const res = await httpGet(port, '/she/scripts');
+        expect(res.status).toBe(401);
+        expect(res.body).toEqual({ error: 'Unauthorized' });
+    });
+
+    test('/she/scripts answers 401 with a cookie nobody was given', async () => {
+        const res = await httpGet(port, '/she/scripts', { cookie: 'she_session=' + 'b'.repeat(64) });
+        expect(res.status).toBe(401);
+    });
+
+    test('a wrong password is answered with 401 and no cookie', async () => {
+        const res = await httpPost(port, '/she/auth/login', { password: 'not-the-secret' });
+        expect(res.status).toBe(401);
+        expect(res.cookies).toEqual([]);
+    });
+
+    test('the right password sets a cookie that opens /she/scripts', async () => {
+        const loginRes = await httpPost(port, '/she/auth/login', { password: 'secret' });
+        expect(loginRes.status).toBe(200);
+        const cookie = sessionCookie(loginRes);
+        expect(cookie).toMatch(/^she_session=[a-f0-9]{64}$/);
+
+        const res = await httpGet(port, '/she/scripts', { cookie });
+        expect(res.status).toBe(200);
+        expect(res.body.map((f) => f.path)).toEqual(['hello.js']);
+    });
+
+    test('logout ends the session on the server, not only in the browser', async () => {
+        const cookie = sessionCookie(await httpPost(port, '/she/auth/login', { password: 'secret' }));
+        expect((await httpGet(port, '/she/scripts', { cookie })).status).toBe(200);
+
+        expect((await httpPost(port, '/she/auth/logout', {}, { cookie })).status).toBe(200);
+        expect((await httpGet(port, '/she/scripts', { cookie })).status).toBe(401);
+    });
+
+    test('/she/auth/mode is public and names the mode', async () => {
+        const res = await httpGet(port, '/she/auth/mode');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ mode: 'password' });
+    });
+});
+
+test.each(['none', 'proxy'])('/she/auth/mode is public in %s mode', async (mode) => {
+    jest.resetModules();
+    const { startServer, stopServer } = require('../../src/web/server');
+    try {
+        const port = await startServer(0, { auth: mode, bindAddress: '127.0.0.1' });
+        const res = await httpGet(port, '/she/auth/mode');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ mode });
+    } finally {
+        await stopServer();
+    }
 });
 
 describe('health endpoint (A1)', () => {
