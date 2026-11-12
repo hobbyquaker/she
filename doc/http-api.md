@@ -757,6 +757,7 @@ otherwise). File paths are relative to the scripts directory.
 | POST | `/she/git/push` | `{ remote? }` (default `origin`) | `{ ok, stdout, stderr }` |
 | GET | `/she/git/log` | `?path=<file>&limit=<n>` | `[{ hash, subject, author, date }]` |
 | GET | `/she/git/show` | `?hash=<hash>&path=<file>` | `{ content, binary }` — the file at that commit, renames followed |
+| GET | `/she/git/diff` | `?path=<file>` | `{ path, head, work, added, deleted, binary, tooLarge }` — the file's text in HEAD and in the working tree, for a diff before the commit. `added`: not in HEAD (`head` is null); `deleted`: not in the working tree (`work` is null). A binary file or one over 512 KB sends neither side; a symlink is shown as its target. **404** when neither has the file |
 
 ### POST /she/git/commit
 

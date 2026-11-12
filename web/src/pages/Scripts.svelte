@@ -32,6 +32,7 @@
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import CommitDialog from '../lib/CommitDialog.svelte';
+    import { resetMonacoHoverServices } from '../lib/monaco-services.js';
     import { resolveCommitMode, defaultCommitMessage, type CommitMode } from '../lib/git-commit.js';
     import { generateCommitMessage, getAiConfig } from '../lib/api.js';
     import Chat from './Chat.svelte';
@@ -467,7 +468,7 @@
     let dialog: { show(msg: string, opts?: { confirm?: string; danger?: boolean }): Promise<boolean> };
     let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
     let commitDialog: {
-        show(opts: { title?: string; files?: string[]; initial: string; confirm?: string; aiAvailable: boolean; aiHint?: string; generate?: () => Promise<string> }): Promise<string | null>;
+        show(opts: { title?: string; files?: string[]; initial: string; confirm?: string; aiAvailable: boolean; aiHint?: string; generate?: () => Promise<string>; languageOf?: (path: string) => string }): Promise<string | null>;
     };
 
     let currentTab = $derived(tabs.find(t => t.path === activeTab) ?? null);
@@ -1114,6 +1115,7 @@ declare const she: {
             initial: defaultCommitMessage(changed),
             aiAvailable: aiConfigured,
             aiHint: AI_HINT,
+            languageOf: langFromPath,
             generate: () => generateCommitMessage(changed).then(r => r.message),
         });
         if (!msg) return;
@@ -1150,9 +1152,11 @@ declare const she: {
         if (error) return;
         const msg = await commitDialog.show({
             title: `Commit ${path}`,
+            files: [path],
             initial: defaultCommitMessage([path]),
             aiAvailable: aiConfigured,
             aiHint: AI_HINT,
+            languageOf: langFromPath,
             generate: () => generateCommitMessage([path]).then(r => r.message),
         });
         if (!msg) return;
@@ -1260,22 +1264,6 @@ declare const she: {
         });
         historyDiffEditor.setModel({ original: historyDiffOrigModel, modified: historyDiffModModel });
         resetMonacoHoverServices();
-    }
-
-    /**
-     * Monaco binds a global hover-delegate factory to the services of the last editor it constructed, and the
-     * inner editors of a diff editor bring their own services, which dispose() tears down. After a diff editor
-     * was created or disposed, the main editor's find widget and command palette would be built from disposed
-     * services: Ctrl+F, Ctrl+H and F1 did nothing ("InstantiationService has been disposed"), and every model
-     * change then threw from the half-built find widget. A throwaway editor on the global services, created and
-     * disposed at once, points the factory back at services that live as long as the page.
-     */
-    function resetMonacoHoverServices() {
-        try {
-            monaco.editor.create(document.createElement('div'), { automaticLayout: false }).dispose();
-        } catch {
-            /* nothing to restore when Monaco is not loaded */
-        }
     }
 
     function closeHistoryDiff() {
