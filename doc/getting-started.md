@@ -136,6 +136,14 @@ The *Generate with AI* button in the commit dialogs (also in *Save & Commit* and
 of the Scripts page) is disabled with a hint until an AI provider is configured. The model sees the staged diff only,
 truncated to about 12 000 characters; nothing else of the installation goes into that request.
 
+The commit dialog lists the files it will commit. A click on one shows what changes in it — the committed version
+against the one on disk, side by side or inline in a narrow window; a new or deleted file is compared against
+nothing.
+
+Creating a script is a change like a save: one saved from an AI chat answer (*Save as new file…*) is committed in
+`auto` and opens the dialog in `ask`. *+ File* commits its empty template in `auto`, but does not ask in `ask` — the
+file's first save does.
+
 ## Next steps
 
 - [sandbox-api.md](sandbox-api.md) — complete script API reference

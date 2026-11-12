@@ -2519,3 +2519,22 @@ export function brokerBridgeRemoteRequirements(bridge: BrokerBridge): Promise<Br
 export function createBrokerBridgeRemoteUser(bridge: BrokerBridge, password: string): Promise<{ ok: boolean; done: string[]; skipped: string[] }> {
     return request('POST', '/she/broker/bridges/remote-user', { bridge, password });
 }
+
+/** The two sides of one file's uncommitted change: the text in HEAD and the text in the working tree. */
+export interface GitFileDiff {
+    path: string;
+    head: string | null;
+    work: string | null;
+    /** HEAD has no such file */
+    added: boolean;
+    /** the working tree has no such file */
+    deleted: boolean;
+    /** not text: neither side is sent */
+    binary: boolean;
+    /** too large for the diff view: neither side is sent */
+    tooLarge: boolean;
+}
+
+export function getGitDiff(filePath: string): Promise<GitFileDiff> {
+    return request('GET', `/she/git/diff?path=${encodeURIComponent(filePath)}`);
+}

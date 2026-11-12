@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { execFile } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const commitMessage = require('./commit-message');
 const activity = require('../lib/activity');
@@ -345,6 +346,96 @@ router.get('/show', async (req, res) => {
         const { stdout } = await git(['show', `${hash}:${historicPath}`], gitRoot);
         const binary = stdout.includes('\0');
         res.json({ content: binary ? null : stdout, binary });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/** A side of a diff larger than this is not sent: the browser's diff editor is for scripts, not for data files. */
+const DIFF_MAX_BYTES = 512 * 1024;
+
+/** A file's text for the diff: `{ content }`, or `{ content: null }` plus `binary` or `tooLarge`. */
+function diffText(buf) {
+    if (buf.length > DIFF_MAX_BYTES) return { content: null, tooLarge: true };
+    if (buf.includes(0)) return { content: null, binary: true };
+    return { content: buf.toString('utf8') };
+}
+
+/** What HEAD holds at the path (relative to the git root): null when HEAD has no such file, or there is no commit yet. */
+async function headSide(gitRoot, relToRoot) {
+    let entry;
+    try {
+        // --full-tree: the path is relative to the git root whatever the cwd; ls-tree takes it literally, not as a glob
+        const { stdout } = await git(['ls-tree', '-z', '-l', '--full-tree', 'HEAD', '--', relToRoot], gitRoot);
+        entry = stdout.split('\0')[0];
+    } catch {
+        return null; // no commit yet
+    }
+    const m = entry && entry.match(/^(\d+) (\w+) ([0-9a-f]+) +(\S+)\t/);
+    if (!m || m[2] !== 'blob') return null; // not in HEAD, or a directory or submodule there
+    if (parseInt(m[4], 10) > DIFF_MAX_BYTES) return { content: null, tooLarge: true };
+    const buf = await new Promise((resolve, reject) => {
+        execFile('git', ['cat-file', 'blob', m[3]], { cwd: gitRoot, timeout: 30000, encoding: 'buffer', maxBuffer: DIFF_MAX_BYTES + 1024 }, (err, stdout) =>
+            err ? reject(err) : resolve(stdout),
+        );
+    });
+    return diffText(buf);
+}
+
+/**
+ * What the working tree holds at the path: null when there is no file. A symlink is answered with its target,
+ * the way git commits it — the file it points to is never read, so a link out of the script directory shows
+ * nothing of what lies there.
+ */
+function workSide(abs) {
+    let stat;
+    try {
+        stat = fs.lstatSync(abs);
+    } catch {
+        return null;
+    }
+    if (stat.isSymbolicLink()) return { content: fs.readlinkSync(abs), symlink: true };
+    if (!stat.isFile()) return null;
+    if (stat.size > DIFF_MAX_BYTES) return { content: null, tooLarge: true };
+    return diffText(fs.readFileSync(abs));
+}
+
+// GET /she/git/diff?path=<relPath>
+// The two sides of an uncommitted change of one file (relative to scriptDir), for a diff view before the commit:
+// { path, head, work, added, deleted, binary, tooLarge } — `head` is the text in HEAD, `work` the text in the
+// working tree. `added` says HEAD has no such file, `deleted` that the working tree has none; that side is null.
+// With `binary` or `tooLarge` set a side is not text to show, and both are null.
+router.get('/diff', async (req, res) => {
+    const scriptDir = getRoot(req);
+    if (!scriptDir) return res.status(500).json({ error: 'scriptDir not configured' });
+
+    const relPath = String(req.query.path ?? '').trim();
+    if (!relPath) return res.status(400).json({ error: 'Missing path parameter' });
+
+    const gitRoot = await getGitRoot(scriptDir);
+    if (!gitRoot) return res.status(404).json({ error: 'Not a git repository' });
+
+    const abs = safePath(scriptDir, relPath);
+    if (!abs || abs === path.resolve(scriptDir)) return res.status(400).json({ error: 'Invalid path' });
+
+    const relToRoot = path.relative(gitRoot, abs).replace(/\\/g, '/');
+
+    try {
+        const head = await headSide(gitRoot, relToRoot);
+        const work = workSide(abs);
+        if (!head && !work) return res.status(404).json({ error: 'No such file' });
+        const binary = Boolean(head?.binary || work?.binary);
+        const tooLarge = Boolean(head?.tooLarge || work?.tooLarge);
+        const hide = binary || tooLarge;
+        res.json({
+            path: relPath,
+            head: hide || !head ? null : head.content,
+            work: hide || !work ? null : work.content,
+            added: !head,
+            deleted: !work,
+            binary,
+            tooLarge,
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
