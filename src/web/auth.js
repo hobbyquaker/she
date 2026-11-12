@@ -26,24 +26,35 @@ const path = require('path');
 const BCRYPT_ROUNDS = 10;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// In-memory session store — intentionally cleared on restart
-const _sessions = new Map(); // token (hex64) → { createdAt: number }
+// Session store, keyed by the SHA-256 of the token: neither the memory of the process nor the
+// session file holds a value that could be sent as a cookie. The token is 32 random bytes, so a
+// plain hash is enough — there is nothing to brute-force.
+const _sessions = new Map(); // sha256(token) (hex64) → { createdAt: number }
+const SESSION_FILE_VERSION = 1;
 
 let _mode = 'none';
 let _passwordHash = null; // bcrypt hash, only used in 'password' mode
 let _proxyHeader = 'x-remote-user'; // lowercase for req.headers lookup
 let _proxyLogoutUrl = null; // URL to redirect to on logout in proxy mode
 let _configPath = null;
+let _sessionFile = null; // where the sessions outlive a restart; null keeps them in memory only
 
 /**
  * Initialise auth state. Called once from startServer().
+ *
+ * `sessionFile` is the file the password-mode sessions are kept in, so that a restart of the daemon
+ * does not log everybody out. Without it the sessions live in memory only.
  */
-function init({ auth = 'none', password = null, proxyHeader = 'X-Remote-User', proxyLogoutUrl = null, configPath = null } = {}) {
+function init({ auth = 'none', password = null, proxyHeader = 'X-Remote-User', proxyLogoutUrl = null, configPath = null, sessionFile = null } = {}) {
     _mode = auth;
     _passwordHash = password || null;
     _proxyHeader = proxyHeader.toLowerCase();
     _proxyLogoutUrl = proxyLogoutUrl || null;
     _configPath = configPath;
+    _sessionFile = sessionFile || null;
+    _sessions.clear();
+    if (_mode === 'password') _loadSessions();
+    else _clearSessions(); // sessions left over from an earlier password mode must not come back with it
 }
 
 function getMode() {
@@ -58,12 +69,99 @@ function _getSessionToken(req) {
     return m ? m[1] : null;
 }
 
+function _hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function _expired(createdAt, now = Date.now()) {
+    return now - createdAt > SESSION_TTL_MS;
+}
+
+/** Drop the expired sessions from memory; true when there were any. */
+function _pruneSessions() {
+    const now = Date.now();
+    let pruned = false;
+    for (const [hash, s] of _sessions) {
+        if (_expired(s.createdAt, now)) {
+            _sessions.delete(hash);
+            pruned = true;
+        }
+    }
+    return pruned;
+}
+
+/**
+ * Read the session file into memory. A missing, unreadable or malformed file — or a malformed
+ * entry in it — means "no such session": the worst outcome is a login form, never a daemon that
+ * does not start.
+ */
+function _loadSessions() {
+    if (!_sessionFile) return;
+    let entries;
+    try {
+        const data = JSON.parse(fs.readFileSync(_sessionFile, 'utf8'));
+        if (!data || data.version !== SESSION_FILE_VERSION || !data.sessions || typeof data.sessions !== 'object' || Array.isArray(data.sessions)) return;
+        entries = Object.entries(data.sessions);
+    } catch {
+        return;
+    }
+    const now = Date.now();
+    let dropped = false;
+    for (const [hash, createdAt] of entries) {
+        if (/^[a-f0-9]{64}$/.test(hash) && Number.isFinite(createdAt) && !_expired(createdAt, now)) {
+            _sessions.set(hash, { createdAt });
+        } else {
+            dropped = true;
+        }
+    }
+    if (dropped) _saveSessions();
+}
+
+/**
+ * Write the sessions to the session file: only the token hashes, readable by the daemon's user
+ * only, through a temporary file and a rename so that a crash in between leaves the old file
+ * rather than half a new one. A failure (a read-only data directory) is not an error for the
+ * caller — the sessions then last as long as the process, as they did before there was a file.
+ */
+function _saveSessions() {
+    if (!_sessionFile) return;
+    _pruneSessions();
+    const sessions = {};
+    for (const [hash, s] of _sessions) sessions[hash] = s.createdAt;
+    const tmp = `${_sessionFile}.${process.pid}.tmp`;
+    try {
+        fs.mkdirSync(path.dirname(_sessionFile), { recursive: true });
+        fs.rmSync(tmp, { force: true }); // a leftover would keep its own permissions
+        fs.writeFileSync(tmp, JSON.stringify({ version: SESSION_FILE_VERSION, sessions }) + '\n', { mode: 0o600 });
+        fs.renameSync(tmp, _sessionFile);
+    } catch {
+        try {
+            fs.rmSync(tmp, { force: true });
+        } catch {
+            // nothing to clean up
+        }
+    }
+}
+
+/** Forget every session, in memory and on disk. */
+function _clearSessions() {
+    _sessions.clear();
+    if (!_sessionFile) return;
+    try {
+        fs.rmSync(_sessionFile, { force: true });
+    } catch {
+        // not removable: the next write replaces it, and init() ignores it outside password mode
+    }
+}
+
 function _validateSession(token) {
     if (!token) return false;
-    const s = _sessions.get(token);
+    const hash = _hashToken(token);
+    const s = _sessions.get(hash);
     if (!s) return false;
-    if (Date.now() - s.createdAt > SESSION_TTL_MS) {
-        _sessions.delete(token);
+    if (_expired(s.createdAt)) {
+        _sessions.delete(hash);
+        _saveSessions();
         return false;
     }
     return true;
@@ -111,7 +209,8 @@ router.post('/login', async (req, res) => {
         const ok = await bcrypt.compare(password, _passwordHash);
         if (!ok) return res.status(401).json({ error: 'Invalid password' });
         const token = crypto.randomBytes(32).toString('hex');
-        _sessions.set(token, { createdAt: Date.now() });
+        _sessions.set(_hashToken(token), { createdAt: Date.now() });
+        _saveSessions();
         res.setHeader('Set-Cookie', `she_session=${token}; HttpOnly; SameSite=Strict; Path=/`);
         res.json({ ok: true });
     } catch {
@@ -122,7 +221,7 @@ router.post('/login', async (req, res) => {
 /** POST /she/auth/logout — always public; clears cookie */
 router.post('/logout', (req, res) => {
     const token = _getSessionToken(req);
-    if (token) _sessions.delete(token);
+    if (token && _sessions.delete(_hashToken(token))) _saveSessions();
     res.setHeader('Set-Cookie', 'she_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
     res.json({ ok: true });
 });
@@ -182,7 +281,7 @@ router.post('/setup', async (req, res) => {
         _proxyLogoutUrl = cfg.proxyLogoutUrl || null;
 
         // Invalidate all existing sessions when switching away from password mode
-        if (mode !== 'password') _sessions.clear();
+        if (mode !== 'password') _clearSessions();
 
         res.json({ ok: true });
     } catch (err) {

@@ -213,6 +213,22 @@ describe('password mode end to end', () => {
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ mode: 'password' });
     });
+
+    test('a login survives a restart of the server when it is given a session file', async () => {
+        // next to the scripts only so that afterEach removes it; the daemon keeps it in its data directory
+        const sessionFile = path.join(scriptDir, '.data', 'sessions.json');
+        const options = { auth: 'password', password: TEST_HASH, scriptDir, sessionFile, bindAddress: '127.0.0.1' };
+        await stopServer();
+        port = await startServer(0, options);
+        const cookie = sessionCookie(await httpPost(port, '/she/auth/login', { password: 'secret' }));
+        await stopServer();
+
+        // a new process: nothing in memory, only the file
+        jest.resetModules();
+        ({ startServer, stopServer } = require('../../src/web/server'));
+        port = await startServer(0, options);
+        expect((await httpGet(port, '/she/scripts', { cookie })).status).toBe(200);
+    });
 });
 
 test.each(['none', 'proxy'])('/she/auth/mode is public in %s mode', async (mode) => {
