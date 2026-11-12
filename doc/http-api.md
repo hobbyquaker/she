@@ -26,7 +26,7 @@ she supports three authentication modes, configured via `auth` in `config.json` 
 | Mode | Description |
 |------|-------------|
 | `none` | No authentication — all `/she/*` endpoints are open. **Default.** Suitable for a private LAN. |
-| `password` | Single-user login. A hashed password is stored in `config.json`. The web UI shows a login form; successful login sets an HttpOnly session cookie valid for 7 days. |
+| `password` | Single-user login. A hashed password is stored in `config.json`. The web UI shows a login form; successful login sets an HttpOnly session cookie valid for 7 days; sessions survive a daemon restart (see [Security → Sessions](security.md#sessions)). |
 | `proxy` | Trust an HTTP header set by an upstream reverse proxy (e.g. nginx + authentik). The header name defaults to `X-Remote-User` and is configurable via `proxyHeader`. |
 
 **Important:** Routes under `/api/*` (user-script endpoints) are intentionally **not** covered by she-level auth — scripts are responsible for their own access control on those paths.
@@ -37,7 +37,7 @@ she supports three authentication modes, configured via `auth` in `config.json` 
 |--------|------|-------------|
 | `GET` | `/she/auth/mode` | Returns `{ "mode": "none" \| "password" \| "proxy" }` |
 | `POST` | `/she/auth/login` | `{ "password": "..." }` — sets `she_session` cookie on success |
-| `POST` | `/she/auth/logout` | Clears the session cookie |
+| `POST` | `/she/auth/logout` | Ends the session on the server and clears the session cookie |
 | `GET` | `/she/health` | Health probe — see [below](#get-shehealth) |
 | `POST` | `/she/auth/setup` | Change auth mode / password / proxyHeader at runtime (see Config tab in web UI) |
 

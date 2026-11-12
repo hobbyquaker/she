@@ -236,6 +236,7 @@ if (typeof config.port !== 'undefined') {
             proxyLogoutUrl: config.proxyLogoutUrl || null,
             bindAddress: config.bindAddress,
             configPath: config.config,
+            sessionFile: _path.join(require('./lib/storage').CONFIG_ROOT, 'sessions.json'),
             scriptDir: config.dir || null,
             updateChannel: config.updateChannel,
         })
