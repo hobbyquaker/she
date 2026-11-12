@@ -140,6 +140,10 @@ The commit dialog lists the files it will commit. A click on one shows what chan
 against the one on disk, side by side or inline in a narrow window; a new or deleted file is compared against
 nothing.
 
+Creating a script is a change like a save: one saved from an AI chat answer (*Save as new file…*) is committed in
+`auto` and opens the dialog in `ask`. *+ File* commits its empty template in `auto`, but does not ask in `ask` — the
+file's first save does.
+
 ## Next steps
 
 - [sandbox-api.md](sandbox-api.md) — complete script API reference

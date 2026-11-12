@@ -1293,6 +1293,11 @@ declare const she: {
         await writeScript(name, defaultContent);
         await loadTree();
         await openTabInternal(name, true);
+        // A new file is a change like any other, so the commit mode applies — except that "ask" does not ask
+        // about the bare template: a dialog between naming the file and typing its first line would only be in
+        // the way. The file stays uncommitted (and marked so in the tree), and its first save asks.
+        if (gitCommitMode === 'ask') loadGitStatus();
+        else await afterScriptChange([name], `add ${name}`);
     }
 
     async function newFolder() {
@@ -1601,6 +1606,7 @@ declare const she: {
             await writeScript(name, code);
             await loadTree();
             await openTabInternal(name, true);
+            await afterScriptChange([name], `add ${name}`);
         } catch (e: any) { error = (e as Error).message; }
     }
 
