@@ -16,7 +16,7 @@
  *   GET    /she/matter/devices/:nodeId/health           → one node
  *   GET    /she/matter/thread/datasets                  → the known Thread datasets, redacted
  *   POST   /she/matter/thread/datasets                  → import { tlv, source?, note? }
- *   PUT    /she/matter/thread/datasets/:ext             → { meshcop } MeshCoP diagnostics on/off
+ *   PUT    /she/matter/thread/datasets/:ext             → { meshcop?, meshcopRouter? } MeshCoP diagnostics on/off, the border router they go through
  *   DELETE /she/matter/thread/datasets/:ext             → forget a dataset
  *   POST   /she/matter/thread/datasets/:ext/reveal      → the full TLV (behind a confirmation in the UI)
  *   POST   /she/matter/thread/routers/:ext/import-dataset → read the active dataset from a border router's REST API
@@ -225,11 +225,21 @@ function getDatasets() {
     return require('../matter/thread-datasets');
 }
 
+/** A dataset view plus the border router its MeshCoP query would go through now, or the reason for none. */
+function withMeshcopSelection(view) {
+    try {
+        return { ...view, meshcopSelection: require('../matter/thread-mesh').meshcopSelection(view.extPanId) };
+    } catch {
+        return { ...view, meshcopSelection: null };
+    }
+}
+
 // GET /she/matter/thread/datasets — the known datasets, redacted (never the network key or PSKc)
 router.get('/thread/datasets', (req, res) => {
     if (!isReady()) return notReady(res);
     try {
-        res.json(getDatasets().list());
+        const out = getDatasets().list();
+        res.json({ ...out, datasets: out.datasets.map(withMeshcopSelection) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -248,13 +258,35 @@ router.post('/thread/datasets', (req, res) => {
     }
 });
 
-// PUT /she/matter/thread/datasets/:ext — { meshcop } switch the MeshCoP diagnostics for the network
+// PUT /she/matter/thread/datasets/:ext — { meshcop?, meshcopRouter? } switch the MeshCoP diagnostics for the
+// network, choose the border router they go through (its extended address; null = automatic)
 router.put('/thread/datasets/:ext', (req, res) => {
     if (!isReady()) return notReady(res);
-    const { meshcop } = req.body || {};
-    if (typeof meshcop !== 'boolean') return res.status(400).json({ error: 'body must contain meshcop (boolean)' });
+    const { meshcop, meshcopRouter } = req.body || {};
+    const hasSwitch = meshcop !== undefined;
+    const hasRouter = meshcopRouter !== undefined;
+    if (!hasSwitch && !hasRouter) return res.status(400).json({ error: 'body must contain meshcop (boolean) or meshcopRouter (extended address or null)' });
+    if (hasSwitch && typeof meshcop !== 'boolean') return res.status(400).json({ error: 'meshcop must be a boolean' });
+    if (hasRouter && meshcopRouter !== null && !(typeof meshcopRouter === 'string' && /^[0-9a-fA-F]{16}$/.test(meshcopRouter)))
+        return res.status(400).json({ error: 'meshcopRouter must be the extended address of a border router (16 hex digits), or null for automatic' });
     try {
-        res.json(getDatasets().setMeshcop(req.params.ext, meshcop));
+        const ds = getDatasets();
+        if (!ds.has(req.params.ext)) return res.status(404).json({ error: `no dataset for ${String(req.params.ext).toUpperCase()}` });
+        let choice = null;
+        if (hasRouter && meshcopRouter !== null) {
+            // only a border router that announces this network now can be chosen: its name is stored with the choice
+            const want = meshcopRouter.toUpperCase();
+            const net = getThread()
+                .listNetworks()
+                .networks.find((n) => String(n.extPanId).toUpperCase() === String(req.params.ext).toUpperCase());
+            const br = net?.borderRouters.find((b) => String(b.extAddress).toUpperCase() === want);
+            if (!br) return res.status(400).json({ error: `border router ${want} does not announce this network` });
+            choice = { extAddress: want, name: require('../matter/thread-mesh').routerName(br) };
+        }
+        let view = null;
+        if (hasRouter) view = ds.setMeshcopRouter(req.params.ext, choice);
+        if (hasSwitch) view = ds.setMeshcop(req.params.ext, meshcop);
+        res.json(withMeshcopSelection(view));
     } catch (err) {
         if (/no dataset/.test(err.message)) return res.status(404).json({ error: err.message });
         res.status(500).json({ error: err.message });

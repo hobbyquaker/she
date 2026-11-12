@@ -50,6 +50,7 @@ describe('matter thread datasets', () => {
             source: 'pasted',
             note: 'test net',
             meshcop: false,
+            meshcopRouter: null,
         });
         expect(JSON.stringify(v)).not.toContain(KEY_HEX);
         expect(JSON.stringify(ds.list())).not.toContain(PSKC_HEX.toUpperCase());
@@ -88,6 +89,47 @@ describe('matter thread datasets', () => {
         expect(ds.has('DEAD00BEEF00CAFE')).toBe(false);
         expect(() => ds.remove('DEAD00BEEF00CAFE')).toThrow('no dataset');
         expect(() => ds.reveal('DEAD00BEEF00CAFE')).toThrow('no dataset');
+    });
+
+    test('the border router choice: automatic by default, persisted across a restart, kept by a re-import', () => {
+        expect(ds.add({ tlv: TLV }).meshcopRouter).toBeNull();
+        expect(ds.meshcopRouter('DEAD00BEEF00CAFE')).toBeNull();
+        const v = ds.setMeshcopRouter('dead00beef00cafe', { extAddress: '0011223344556677', name: 'Espressif esp-thread-br' });
+        expect(v.meshcopRouter).toEqual({ extAddress: '0011223344556677', name: 'Espressif esp-thread-br' });
+        // the choice does not switch MeshCoP on, and the switch does not touch the choice
+        expect(v.meshcop).toBe(false);
+        expect(ds.setMeshcop('DEAD00BEEF00CAFE', true).meshcopRouter).toEqual({ extAddress: '0011223344556677', name: 'Espressif esp-thread-br' });
+        expect(() => ds.setMeshcopRouter('DEAD00BEEF00CAFE', { extAddress: 'nope' })).toThrow('extended address');
+        expect(() => ds.setMeshcopRouter('0000000000000000', null)).toThrow('no dataset');
+
+        const restart = () => {
+            jest.resetModules();
+            require('../../src/lib/secrets').init({ file: path.join(dir, 'secrets.enc'), keyFile: path.join(dir, 'secrets.key'), env: {} });
+            const again = require('../../src/matter/thread-datasets');
+            again._reset();
+            again.init({ storageDir: dir, log });
+            return again;
+        };
+        let again = restart();
+        expect(again.meshcopRouter('dead00beef00cafe')).toEqual({ extAddress: '0011223344556677', name: 'Espressif esp-thread-br' });
+        expect(again.list().datasets[0]).toMatchObject({ meshcop: true, meshcopRouter: { extAddress: '0011223344556677', name: 'Espressif esp-thread-br' } });
+        // importing the dataset again replaces the TLV, not the choice
+        expect(again.add({ tlv: TLV, source: 'router' }).meshcopRouter).toEqual({ extAddress: '0011223344556677', name: 'Espressif esp-thread-br' });
+        // back to automatic: the field is gone from the store
+        expect(again.setMeshcopRouter('DEAD00BEEF00CAFE', null).meshcopRouter).toBeNull();
+        again = restart();
+        expect(again.meshcopRouter('DEAD00BEEF00CAFE')).toBeNull();
+        expect(again.list().datasets[0].meshcop).toBe(true);
+    });
+
+    test('a store written before the choice existed reads as automatic', () => {
+        const { writeEncryptedFile } = require('../../src/lib/secrets');
+        writeEncryptedFile(path.join(dir, 'thread-datasets.enc'), { v: 1, datasets: { DEAD00BEEF00CAFE: { tlv: TLV, source: 'pasted', note: '', added: 1, meshcop: true } } });
+        ds._reset();
+        ds.init({ storageDir: dir, log });
+        expect(ds.meshcopRouter('DEAD00BEEF00CAFE')).toBeNull();
+        expect(ds.list().datasets[0]).toMatchObject({ meshcop: true, meshcopRouter: null });
+        expect(ds.credentialsFor('DEAD00BEEF00CAFE')).not.toBeNull();
     });
 
     test('without a key file the store reports itself unavailable', () => {
