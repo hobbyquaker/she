@@ -32,6 +32,11 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const _sessions = new Map(); // sha256(token) (hex64) → { createdAt: number }
 const SESSION_FILE_VERSION = 1;
 
+/** Ties the session file to the password: a new password, also one set in config.json by hand, ends every session. */
+function _passwordTag() {
+    return _passwordHash ? crypto.createHash('sha256').update(_passwordHash).digest('hex') : null;
+}
+
 let _mode = 'none';
 let _passwordHash = null; // bcrypt hash, only used in 'password' mode
 let _proxyHeader = 'x-remote-user'; // lowercase for req.headers lookup
@@ -100,7 +105,15 @@ function _loadSessions() {
     let entries;
     try {
         const data = JSON.parse(fs.readFileSync(_sessionFile, 'utf8'));
-        if (!data || data.version !== SESSION_FILE_VERSION || !data.sessions || typeof data.sessions !== 'object' || Array.isArray(data.sessions)) return;
+        if (
+            !data ||
+            data.version !== SESSION_FILE_VERSION ||
+            data.password !== _passwordTag() ||
+            !data.sessions ||
+            typeof data.sessions !== 'object' ||
+            Array.isArray(data.sessions)
+        )
+            return;
         entries = Object.entries(data.sessions);
     } catch {
         return;
@@ -132,7 +145,7 @@ function _saveSessions() {
     try {
         fs.mkdirSync(path.dirname(_sessionFile), { recursive: true });
         fs.rmSync(tmp, { force: true }); // a leftover would keep its own permissions
-        fs.writeFileSync(tmp, JSON.stringify({ version: SESSION_FILE_VERSION, sessions }) + '\n', { mode: 0o600 });
+        fs.writeFileSync(tmp, JSON.stringify({ version: SESSION_FILE_VERSION, password: _passwordTag(), sessions }) + '\n', { mode: 0o600 });
         fs.renameSync(tmp, _sessionFile);
     } catch {
         try {
@@ -280,8 +293,16 @@ router.post('/setup', async (req, res) => {
         _proxyHeader = (cfg.proxyHeader || 'X-Remote-User').toLowerCase();
         _proxyLogoutUrl = cfg.proxyLogoutUrl || null;
 
-        // Invalidate all existing sessions when switching away from password mode
-        if (mode !== 'password') _clearSessions();
+        // Leaving password mode ends every session; a new password ends every session but the caller's
+        if (mode !== 'password') {
+            _clearSessions();
+        } else {
+            const own = _getSessionToken(req);
+            const keep = own && _sessions.get(_hashToken(own));
+            _sessions.clear();
+            if (keep) _sessions.set(_hashToken(own), keep);
+            _saveSessions();
+        }
 
         res.json({ ok: true });
     } catch (err) {

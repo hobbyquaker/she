@@ -375,7 +375,10 @@ describe('auth HTTP endpoints', () => {
             const dead = 'b'.repeat(64);
             const now = Date.now();
             fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
-            fs.writeFileSync(sessionFile, JSON.stringify({ version: 1, sessions: { [sha256(live)]: now - 1000, [sha256(dead)]: now - SESSION_TTL_MS - 1000 } }));
+            fs.writeFileSync(
+                sessionFile,
+                JSON.stringify({ version: 1, password: sha256(TEST_HASH), sessions: { [sha256(live)]: now - 1000, [sha256(dead)]: now - SESSION_TTL_MS - 1000 } }),
+            );
 
             start();
             expect(checkAuth(makeReq({ cookie: 'she_session=' + live }))).toBe(true);
@@ -456,13 +459,42 @@ describe('auth HTTP endpoints', () => {
             expect(restarted().checkAuth(makeReq({ cookie }))).toBe(true);
         });
 
+        it('a password changed in config.json by hand ends every stored session', async () => {
+            start();
+            const cookie = await login(port);
+            const otherHash = bcrypt.hashSync('another password', 1);
+
+            expect(restarted({ password: otherHash }).checkAuth(makeReq({ cookie }))).toBe(false);
+        });
+
+        it('a new password from the web UI keeps only the caller logged in', async () => {
+            const configPath = path.join(dir, 'config.json');
+            start({ configPath });
+            const mine = await login(port);
+            const theirs = await login(port);
+
+            const res = await httpReq(port, 'POST', '/she/auth/setup', { mode: 'password', password: 'a new one' }, { cookie: mine });
+            expect(res.status).toBe(200);
+            expect(checkAuth(makeReq({ cookie: mine }))).toBe(true);
+            expect(checkAuth(makeReq({ cookie: theirs }))).toBe(false);
+            expect(Object.keys(stored())).toEqual([sha256(tokenOf(mine))]);
+
+            // and the file belongs to the new password: a restart with it keeps the caller's session
+            const newHash = JSON.parse(fs.readFileSync(configPath, 'utf8')).password;
+            expect(restarted({ password: newHash }).checkAuth(makeReq({ cookie: mine }))).toBe(true);
+        });
+
         it('skips malformed entries and keeps the good ones', () => {
             const good = 'd'.repeat(64);
             const now = Date.now();
             fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
             fs.writeFileSync(
                 sessionFile,
-                JSON.stringify({ version: 1, sessions: { [sha256(good)]: now, 'not-a-hash': now, ['e'.repeat(64)]: 'yesterday', ['f'.repeat(64)]: null } }),
+                JSON.stringify({
+                    version: 1,
+                    password: sha256(TEST_HASH),
+                    sessions: { [sha256(good)]: now, 'not-a-hash': now, ['e'.repeat(64)]: 'yesterday', ['f'.repeat(64)]: null },
+                }),
             );
 
             start();

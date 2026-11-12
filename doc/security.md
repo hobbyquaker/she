@@ -28,7 +28,8 @@ A successful login in `password` mode sets the HttpOnly cookie `she_session`, a 
 - **Switching away from `password` mode** — in the web UI or in `config.json` — discards all sessions and deletes the file.
 - **Expired sessions** are dropped whenever the file is read or written.
 - **A missing, unreadable or damaged file** means that nobody is logged in; the daemon starts regardless. If the file cannot be written (a read-only data directory), sessions last until the daemon stops.
-- **To log everyone out**, stop the daemon, delete the file and start it again. Changing the password does not end the existing sessions.
+- **A new password** ends every other session: set in the web UI, only the browser that changed it stays logged in; changed in `config.json` by hand, everybody logs in again after the restart.
+- **To log everyone out**, set a new password, or stop the daemon, delete the file and start it again.
 
 ## HTTPS
 
