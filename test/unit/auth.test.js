@@ -1,17 +1,27 @@
 'use strict';
 
 const express = require('express');
+const fs = require('fs');
 const http = require('http');
+const os = require('os');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 
 const TEST_PASS = 'test-password-42';
 // 1 bcrypt round — fast enough for tests, still exercises the real hash check
 const TEST_HASH = bcrypt.hashSync(TEST_PASS, 1);
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 let { init, checkAuth, getMode, router } = require('../../src/web/auth');
 
 function makeReq(headers = {}) {
     return { headers };
+}
+
+/** Log in and return the cookie header value ("she_session=<hex>"). */
+async function login(port, password = TEST_PASS) {
+    const res = await httpReq(port, 'POST', '/she/auth/login', { password });
+    return res.cookies.find((c) => c.startsWith('she_session=')).split(';')[0];
 }
 
 function httpReq(port, method, urlPath, body, extraHeaders = {}) {
@@ -169,5 +179,127 @@ describe('auth HTTP endpoints', () => {
         init({ auth: 'none' });
         const res = await httpReq(port, 'POST', '/she/auth/login', { password: TEST_PASS });
         expect(res.status).toBe(400);
+    });
+
+    describe('session lifetime', () => {
+        afterEach(() => jest.restoreAllMocks());
+
+        it('accepts a session up to SESSION_TTL_MS after login and rejects it afterwards', async () => {
+            const cookie = await login(port);
+            const t0 = Date.now();
+            const now = jest.spyOn(Date, 'now');
+
+            now.mockReturnValue(t0 + SESSION_TTL_MS - 60_000);
+            expect(checkAuth(makeReq({ cookie }))).toBe(true);
+
+            now.mockReturnValue(t0 + SESSION_TTL_MS + 60_000);
+            expect(checkAuth(makeReq({ cookie }))).toBe(false);
+        });
+
+        it('forgets an expired session for good', async () => {
+            const cookie = await login(port);
+            const t0 = Date.now();
+            const now = jest.spyOn(Date, 'now').mockReturnValue(t0 + SESSION_TTL_MS + 60_000);
+            expect(checkAuth(makeReq({ cookie }))).toBe(false);
+
+            // the clock going back must not revive it
+            now.mockReturnValue(t0);
+            expect(checkAuth(makeReq({ cookie }))).toBe(false);
+        });
+    });
+
+    describe('POST /she/auth/setup', () => {
+        let dir, configPath;
+        const readCfg = () => JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+        beforeEach(() => {
+            dir = fs.mkdtempSync(path.join(os.tmpdir(), 'she-auth-'));
+            configPath = path.join(dir, 'config', 'config.json');
+        });
+
+        afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+        it('switches from none to password mode and stores a bcrypt hash, not the password', async () => {
+            fs.mkdirSync(path.dirname(configPath), { recursive: true });
+            fs.writeFileSync(configPath, JSON.stringify({ port: 8080, name: 'kept' }));
+            init({ auth: 'none', configPath });
+
+            const res = await httpReq(port, 'POST', '/she/auth/setup', { mode: 'password', password: 'new-secret' });
+            expect(res.status).toBe(200);
+
+            const cfg = readCfg();
+            expect(cfg.auth).toBe('password');
+            expect(cfg.password).not.toBe('new-secret');
+            expect(bcrypt.compareSync('new-secret', cfg.password)).toBe(true);
+            // unrelated settings survive
+            expect(cfg).toMatchObject({ port: 8080, name: 'kept' });
+
+            // applied without a restart
+            expect(getMode()).toBe('password');
+            expect((await httpReq(port, 'POST', '/she/auth/login', { password: TEST_PASS })).status).toBe(401);
+            expect((await httpReq(port, 'POST', '/she/auth/login', { password: 'new-secret' })).status).toBe(200);
+        });
+
+        it('creates the config file when there is none yet', async () => {
+            init({ auth: 'none', configPath });
+            const res = await httpReq(port, 'POST', '/she/auth/setup', { mode: 'proxy' });
+            expect(res.status).toBe(200);
+            expect(readCfg()).toEqual({ auth: 'proxy', proxyHeader: 'X-Remote-User' });
+        });
+
+        it('requires a session in password mode', async () => {
+            init({ auth: 'password', password: TEST_HASH, configPath });
+            const res = await httpReq(port, 'POST', '/she/auth/setup', { mode: 'none' });
+            expect(res.status).toBe(401);
+            expect(getMode()).toBe('password');
+            expect(fs.existsSync(configPath)).toBe(false);
+        });
+
+        it('changes the password for a logged-in caller', async () => {
+            init({ auth: 'password', password: TEST_HASH, configPath });
+            const cookie = await login(port);
+
+            const res = await httpReq(port, 'POST', '/she/auth/setup', { mode: 'password', password: 'changed' }, { cookie });
+            expect(res.status).toBe(200);
+            expect(bcrypt.compareSync('changed', readCfg().password)).toBe(true);
+            expect((await httpReq(port, 'POST', '/she/auth/login', { password: TEST_PASS })).status).toBe(401);
+            expect((await httpReq(port, 'POST', '/she/auth/login', { password: 'changed' })).status).toBe(200);
+        });
+
+        it('switches to proxy mode, stores the header and drops the password hash', async () => {
+            init({ auth: 'password', password: TEST_HASH, configPath });
+            const cookie = await login(port);
+
+            const res = await httpReq(port, 'POST', '/she/auth/setup', { mode: 'proxy', proxyHeader: 'X-Auth-User', proxyLogoutUrl: 'https://sso.example/logout' }, { cookie });
+            expect(res.status).toBe(200);
+            expect(readCfg()).toEqual({ auth: 'proxy', proxyHeader: 'X-Auth-User', proxyLogoutUrl: 'https://sso.example/logout' });
+
+            expect(checkAuth(makeReq({ 'x-auth-user': 'alice' }))).toBe(true);
+            expect(checkAuth(makeReq({ 'x-remote-user': 'alice' }))).toBe(false);
+            const mode = await httpReq(port, 'GET', '/she/auth/mode');
+            expect(mode.body).toEqual({ mode: 'proxy', proxyLogoutUrl: 'https://sso.example/logout' });
+        });
+
+        it('invalidates every session when leaving password mode', async () => {
+            init({ auth: 'password', password: TEST_HASH, configPath });
+            const cookie = await login(port);
+            expect(checkAuth(makeReq({ cookie }))).toBe(true);
+
+            expect((await httpReq(port, 'POST', '/she/auth/setup', { mode: 'none' }, { cookie })).status).toBe(200);
+            expect(readCfg().password).toBeUndefined();
+
+            // back in password mode the old cookie must not work any more
+            expect((await httpReq(port, 'POST', '/she/auth/setup', { mode: 'password', password: TEST_PASS })).status).toBe(200);
+            expect(checkAuth(makeReq({ cookie }))).toBe(false);
+        });
+
+        it('rejects an unknown mode and a password mode without a password', async () => {
+            init({ auth: 'none', configPath });
+            expect((await httpReq(port, 'POST', '/she/auth/setup', { mode: 'ldap' })).status).toBe(400);
+            expect((await httpReq(port, 'POST', '/she/auth/setup', { mode: 'password' })).status).toBe(400);
+            expect((await httpReq(port, 'POST', '/she/auth/setup', { mode: 'password', password: '' })).status).toBe(400);
+            expect(getMode()).toBe('none');
+            expect(fs.existsSync(configPath)).toBe(false);
+        });
     });
 });
