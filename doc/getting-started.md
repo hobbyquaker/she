@@ -72,7 +72,7 @@ The web UI is served on port **8080** by default. It provides:
 | **Logs** | Live structured log stream |
 | **Config** | All daemon settings — MQTT broker settings, authentication, ... |
 
-> **Note:** The **Broker** and **Matter** tabs are hidden by default. Enable them in **Config → Mosquitto** and **Config → Matter controller** respectively. The **DB** tab is visible by default and can be hidden the same way.
+> **Note:** The **Broker** and **Matter** tabs are hidden by default. Enable them in **Config → Mosquitto** and **Config → Matter controller** respectively. The **DB** tab is visible by default and can be hidden the same way. Pairing Matter devices and using them in scripts is described in the [Matter guide](matter.md).
 
 ## Your first script
 
@@ -141,4 +141,5 @@ truncated to about 12 000 characters; nothing else of the installation goes into
 - [sandbox-api.md](sandbox-api.md) — complete script API reference
 - [http-api.md](http-api.md) — HTTP server, REST endpoints, and WebSocket
 - [examples.md](examples.md) — real-world script examples
+- [matter.md](matter.md) — pair Matter devices and use them in scripts
 - [cli.md](cli.md) — all command-line flags (advanced)

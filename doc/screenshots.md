@@ -116,7 +116,7 @@ The managed hosts with their Node.js version, which can be updated from here, an
 ## Matter
 
 she is a Matter controller: it pairs devices, reads and writes their attributes and makes them available to scripts
-and on MQTT.
+and on MQTT. The [Matter guide](matter.md) walks through it.
 
 ### Devices
 

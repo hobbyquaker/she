@@ -10,6 +10,7 @@ Examples are organised by topic. Each file contains self-contained, copy-paste-r
 | [HTTP & webhooks](examples/http-and-webhooks.md) | Fetch external APIs, expose endpoints, receive webhooks, push notifications |
 | [Cross-script patterns](examples/cross-script.md) | Shared state, event bus, library scripts |
 | [sheDB](examples/shedb.md) | Device registry, config, counters, reactive queries |
+| [Matter](examples/matter.md) | Buttons, plugs, sensors and groups on the built-in Matter controller, with and without MQTT |
 
 ---
 
@@ -23,6 +24,24 @@ she.mqtt.sub('home/remote/button1', { change: true }, (topic, val) => {
         const current = she.mqtt.get('home/light/kitchen');
         she.mqtt.pub('home/light/kitchen', current ? 0 : 1);
     }
+});
+```
+
+---
+
+## A Matter button switches an MQTT light
+
+A device paired on the Matter page is addressed by its name. Buttons report presses as events — see the
+[Matter guide](matter.md) for pairing and the [Matter examples](examples/matter.md) for more.
+
+```js
+she.matter.sub('hallway-button', 1, 'switch', 'multiPressComplete', (ev) => {
+    if (ev.totalNumberOfPressesCounted === 1) {
+        she.mqtt.pub('home/set/hallway-light', !she.mqtt.get('home/status/hallway-light'));
+    }
+});
+she.matter.sub('hallway-button', 1, 'switch', 'longPress', () => {
+    she.mqtt.pub('home/set/hallway-light', false);
 });
 ```
 
