@@ -698,6 +698,10 @@ export interface ThreadDataset {
     note: string | null;
     added: number | null;
     meshcop: boolean;
+    /** the border router chosen for the MeshCoP queries; null = automatic (one that is not Apple's) */
+    meshcopRouter: { extAddress: string; name: string | null } | null;
+    /** the border router a query would go through now, or the reason there would be none */
+    meshcopSelection?: { mode: 'automatic' | 'chosen'; router: { extAddress: string; name: string } | null; reason: string | null } | null;
 }
 export interface ThreadDatasets { available: boolean; error: string | null; datasets: ThreadDataset[] }
 
@@ -709,6 +713,10 @@ export function addThreadDataset(tlv: string, source = 'pasted', note = ''): Pro
 }
 export function setThreadDatasetMeshcop(extPanId: string, meshcop: boolean): Promise<ThreadDataset> {
     return request('PUT', `/she/matter/thread/datasets/${extPanId}`, { meshcop });
+}
+/** Choose the border router the network's MeshCoP queries go through (its extended address), or null for automatic. */
+export function setThreadDatasetMeshcopRouter(extPanId: string, extAddress: string | null): Promise<ThreadDataset> {
+    return request('PUT', `/she/matter/thread/datasets/${extPanId}`, { meshcopRouter: extAddress });
 }
 export function removeThreadDataset(extPanId: string): Promise<{ ok: boolean }> {
     return request('DELETE', `/she/matter/thread/datasets/${extPanId}`);

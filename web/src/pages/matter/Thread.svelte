@@ -6,7 +6,7 @@
      */
     import { onDestroy, untrack } from 'svelte';
     import { subscribeWs } from '../../lib/ws.js';
-    import { getThreadNetworks, refreshThreadNetworks, probeThreadRouter, getThreadMesh, refreshThreadMesh, getThreadDatasets, addThreadDataset, setThreadDatasetMeshcop, removeThreadDataset, revealThreadDataset, importThreadDatasetFromRouter, type ThreadNetworks, type ThreadBorderRouter, type ThreadMesh, type MeshNode, type MeshLink, type ThreadDatasets, type ThreadDataset } from '../../lib/api.js';
+    import { getThreadNetworks, refreshThreadNetworks, probeThreadRouter, getThreadMesh, refreshThreadMesh, getThreadDatasets, addThreadDataset, setThreadDatasetMeshcop, setThreadDatasetMeshcopRouter, removeThreadDataset, revealThreadDataset, importThreadDatasetFromRouter, type ThreadNetworks, type ThreadBorderRouter, type ThreadMesh, type MeshNode, type MeshLink, type ThreadDatasets, type ThreadDataset } from '../../lib/api.js';
     import jsQR from 'jsqr';
     import { getThreadHealth, checkThreadHealth, clearThreadHealthHistory, type ThreadHealth } from '../../lib/api.js';
     import ConfirmDialog from '../../lib/ConfirmDialog.svelte';
@@ -54,7 +54,7 @@
     $effect(() => {
         if (active && !loaded) untrack(load);
     });
-    const unsub = subscribeWs('matter:thread', () => { if (loaded) load(); });
+    const unsub = subscribeWs('matter:thread', () => { if (loaded) load(); if (datasets && !dsBusy) loadDatasets(); });
     onDestroy(unsub);
 
     function ago(ts: number | null): string {
@@ -147,6 +147,18 @@
             if (!ok) return;
         }
         await dsAction(() => setThreadDatasetMeshcop(d.extPanId, !d.meshcop));
+    }
+    /** The border routers announcing the dataset's network now — what the MeshCoP query can go through. */
+    function routersOf(d: ThreadDataset): ThreadBorderRouter[] {
+        return data?.networks.find((n) => n.extPanId.toUpperCase() === d.extPanId.toUpperCase())?.borderRouters ?? [];
+    }
+    function routerLabel(br: ThreadBorderRouter): string {
+        const name = `${br.vendorName ?? ''} ${br.modelName ?? ''}`.trim() || 'border router';
+        const host = br.hostname ? br.hostname.replace(/\.local\.?$/i, '') : `…${br.extAddress.slice(-4)}`;
+        return `${name} (${host})`;
+    }
+    async function chooseRouter(d: ThreadDataset, value: string) {
+        await dsAction(() => setThreadDatasetMeshcopRouter(d.extPanId, value || null));
     }
     async function reveal(d: ThreadDataset) {
         const ok = await dialog.show(`Show the full dataset of "${d.networkName ?? d.extPanId}" — including the network key and the PSKc — on screen? Anyone who sees it can join the network.`, { confirm: 'Reveal', danger: true });
@@ -574,13 +586,32 @@
                         <thead><tr><th>Network</th><th>Channel · PAN</th><th>Mesh-local prefix</th><th>Keys</th><th>Source</th><th>MeshCoP</th><th></th></tr></thead>
                         <tbody>
                             {#each datasets.datasets as d (d.extPanId)}
+                                {@const brs = routersOf(d)}
+                                {@const chosen = d.meshcopRouter}
+                                {@const sel = d.meshcopSelection}
                                 <tr>
                                     <td><div class="br-name">{d.networkName ?? '—'}</div><div class="dim mono">ext PAN ID {d.extPanId}</div></td>
                                     <td>{d.channel ?? '—'} · {d.panId !== null ? '0x' + d.panId.toString(16).padStart(4, '0') : '—'}</td>
                                     <td class="mono">{d.meshLocalPrefix ?? '—'}</td>
                                     <td class="dim">{d.hasNetworkKey ? 'network key' : 'no key'} · {d.hasPskc ? 'PSKc' : 'no PSKc'}</td>
                                     <td class="dim">{d.source ?? '—'}{d.note ? ` · ${d.note}` : ''}</td>
-                                    <td><label class="chk"><input type="checkbox" checked={d.meshcop} disabled={dsBusy || !d.hasPskc} onchange={() => toggleMeshcop(d)} /><span class="checkmark"></span> {d.meshcop ? 'on' : 'off'}</label></td>
+                                    <td class="c-meshcop">
+                                        <div class="mc-row">
+                                            <label class="chk"><input type="checkbox" checked={d.meshcop} disabled={dsBusy || !d.hasPskc} onchange={() => toggleMeshcop(d)} /><span class="checkmark"></span> {d.meshcop ? 'on' : 'off'}</label>
+                                            <label class="mc-router" title="The border router she asks as the network's commissioner. Automatic takes one that is not Apple's — an Apple TV or HomePod only when it is chosen here.">Border router:
+                                                <select value={chosen?.extAddress ?? ''} disabled={dsBusy || !d.hasPskc} onchange={(e) => chooseRouter(d, (e.currentTarget as HTMLSelectElement).value)}>
+                                                    <option value="">automatic</option>
+                                                    {#each brs as br (br.extAddress)}<option value={br.extAddress}>{routerLabel(br)}</option>{/each}
+                                                    {#if chosen && !brs.some((b) => b.extAddress.toUpperCase() === chosen.extAddress)}<option value={chosen.extAddress} disabled>{chosen.name ?? chosen.extAddress} — not on the LAN</option>{/if}
+                                                </select>
+                                            </label>
+                                        </div>
+                                        {#if d.hasPskc && sel?.reason}
+                                            <div class="mc-reason" class:off={!d.meshcop}>No query: {sel.reason}</div>
+                                        {:else if d.hasPskc && d.meshcop && sel?.router}
+                                            <div class="dim">through {sel.router.name}</div>
+                                        {/if}
+                                    </td>
                                     <td class="c-act"><button class="ghost sm" onclick={() => reveal(d)}>reveal</button> <button class="ghost sm" disabled={dsBusy} onclick={() => forget(d)}>forget</button></td>
                                 </tr>
                             {/each}
@@ -728,6 +759,11 @@
     .row { display: flex; align-items: center; gap: 8px; }
     .scan-btn { display: inline-flex; align-items: center; background: none; border: 1px solid var(--border); color: var(--fg-muted); padding: 2px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; }
     .note-in { background: var(--bg-app); border: 1px solid var(--border); color: var(--fg-text); padding: 3px 6px; border-radius: 3px; font-size: 12px; flex: 1; max-width: 320px; }
+    .mc-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .mc-router { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-muted); font-size: 11px; }
+    .mc-router select { background: var(--bg-app); border: 1px solid var(--border); color: var(--fg-text); padding: 2px 4px; border-radius: 3px; font-size: 11px; max-width: 240px; }
+    .mc-reason { margin-top: 3px; font-size: 11px; color: #e67e22; }
+    .mc-reason.off { color: var(--fg-muted); }
     .revealed { margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .tlv { word-break: break-all; background: var(--bg-app); padding: 2px 6px; border-radius: 3px; }
     /* the mesh graph (M16) */
