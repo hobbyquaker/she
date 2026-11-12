@@ -1058,7 +1058,7 @@ she.schedule('*/1 * * * *', () => {
 
 ## she.matter -- Matter integration
 
-Available when `--matter-storage` is configured. Methods throw or log errors if the Matter controller is not running.
+Available when `--matter-storage` is configured. Methods throw or log errors if the Matter controller is not running. Enabling the controller, pairing devices and troubleshooting are in the [Matter guide](matter.md); complete scripts in the [Matter examples](examples/matter.md).
 
 ### she.matter.sub(nodeId, endpointId, clusterName, attrName, callback)
 

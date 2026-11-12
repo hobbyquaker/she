@@ -31,6 +31,7 @@ Your home, your rules - written in plain JavaScript.
 - [Script Engine](doc/script-engine.md) — execution model, hot-reload, module system, ESM limitations
 - [Sandbox API](doc/sandbox-api.md) — everything available inside a script (`she.mqtt`, `she.schedule`, `she.db`, …)
 - [Examples](doc/examples.md) — real-world script patterns
+- [Matter](doc/matter.md) — enabling the controller, pairing devices, Thread, `she.matter` in scripts, troubleshooting
 
 ### sheDB
 - [sheDB overview](doc/db/README.md) — when and why to use the embedded document store
