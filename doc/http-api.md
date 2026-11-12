@@ -512,7 +512,9 @@ Probe every border router's REST API again, or one. **Response (HTTP 200):** as 
 
 The Thread datasets (network credentials) she knows, one per extended PAN ID, kept encrypted in the Matter storage (`thread-datasets.enc`, the secrets store's key) and never handed to scripts. Listed **redacted**: name, channel, PAN ID, mesh-local prefix, active timestamp, channel mask, security policy, whether a network key and a PSKc are present — never the key or the PSKc. A known dataset marks its network on the Thread tab and, with `meshcop` switched on, lets she ask the network's nodes for their diagnostics through a border router (as the network's commissioner — one at a time per network, so it is off by default).
 
-**Response (HTTP 200):** `{ "available": true, "error": null, "datasets": [ { "extPanId": "DEAD00BEEF00CAFE", "networkName": "Lab", "channel": 25, "panId": 4660, "meshLocalPrefix": "FD00DEAD00BEEF00", "activeTimestamp": "0000000000010000", "channelMask": null, "securityPolicy": null, "hasNetworkKey": true, "hasPskc": true, "source": "pasted", "note": "", "added": 1760000000000, "meshcop": false } ] }`
+**Response (HTTP 200):** `{ "available": true, "error": null, "datasets": [ { "extPanId": "DEAD00BEEF00CAFE", "networkName": "Lab", "channel": 25, "panId": 4660, "meshLocalPrefix": "FD00DEAD00BEEF00", "activeTimestamp": "0000000000010000", "channelMask": null, "securityPolicy": null, "hasNetworkKey": true, "hasPskc": true, "source": "pasted", "note": "", "added": 1760000000000, "meshcop": false, "meshcopRouter": null, "meshcopSelection": { "mode": "automatic", "router": { "extAddress": "0011223344556677", "name": "Espressif esp-thread-br" }, "reason": null } } ] }`
+
+`meshcopRouter` is the border router chosen for the MeshCoP queries (`{ extAddress, name }`), `null` for **automatic**: a border router that is not Apple's. A Thread network has one commissioner at a time, so an Apple TV or HomePod is asked only when it is chosen. `meshcopSelection` is what a query would do now — the `router` it goes through, or `router: null` with the `reason`: `only Apple border routers — choose one explicitly`, the chosen router is not on the LAN (there is no fallback to another one), no border router announces a MeshCoP port with a routable address.
 
 ### POST /she/matter/thread/datasets
 
@@ -520,7 +522,7 @@ Import a dataset: `{ "tlv": "0e080000…", "source": "pasted", "note": "" }` —
 
 ### PUT /she/matter/thread/datasets/:extPanId · DELETE /she/matter/thread/datasets/:extPanId
 
-`{ "meshcop": true }` switches the MeshCoP diagnostics for that network on or off; `DELETE` forgets the dataset.
+`{ "meshcop": true }` switches the MeshCoP diagnostics for that network on or off; `{ "meshcopRouter": "0011223344556677" }` chooses the border router they go through by its extended address (one that announces the network now), `{ "meshcopRouter": null }` is automatic. Both may be sent together. **Response (HTTP 200):** the redacted entry with its `meshcopSelection`. **HTTP 400** for a border router that does not announce the network, **HTTP 404** for an unknown dataset. `DELETE` forgets the dataset.
 
 ### POST /she/matter/thread/datasets/:extPanId/reveal
 
@@ -548,7 +550,7 @@ The Thread mesh as a graph: every Thread device in she's fabric (role, RLOC16, e
 
 ### POST /she/matter/thread/mesh/refresh · POST /she/matter/thread/mesh/refresh/:nodeId
 
-Re-read the neighbour and route tables of every online Thread device, or of one (sleepy devices answer slowly); for every network whose dataset is known with `meshcop` on, the nodes are also asked through a border router (MeshCoP) — those appear as `meshcop` nodes with `meshcop.{vendorName, vendorModel, version, children}`, non-Matter nodes included. **Response (HTTP 200):** as `GET …/mesh`, with `meshcop: { nodes, networks: [ { extPanId, nodes, readAt, via, error } ], enabled: [extPanId…] }`. The tables are also re-read once a day.
+Re-read the neighbour and route tables of every online Thread device, or of one (sleepy devices answer slowly); for every network whose dataset is known with `meshcop` on, the nodes are also asked through a border router (MeshCoP; the network's chosen one, else one that is not Apple's — with none, the network's `error` says why) — those appear as `meshcop` nodes with `meshcop.{vendorName, vendorModel, version, children}`, non-Matter nodes included. **Response (HTTP 200):** as `GET …/mesh`, with `meshcop: { nodes, networks: [ { extPanId, nodes, readAt, via, error } ], enabled: [extPanId…] }`. The tables are also re-read once a day.
 
 ### GET /she/matter/bridge
 

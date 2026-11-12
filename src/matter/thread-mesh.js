@@ -362,22 +362,98 @@ function _datasets() {
     return require('./thread-datasets');
 }
 
+/** What a border router is called where one has to be picked: vendor and model, else its extended address. */
+function routerName(br) {
+    return `${br?.vendorName ?? ''} ${br?.modelName ?? ''}`.trim() || br?.extAddress || 'border router';
+}
+
+/**
+ * Apple's border routers (Apple TV, HomePod), by what they announce: the vendor name ("Apple",
+ * "Apple Inc."), else the model identifier ("AppleTV14,1", "AudioAccessory6,1", "HomePod…").
+ */
+function isAppleRouter(br) {
+    if (/^apple\b/i.test(String(br?.vendorName ?? '').trim())) return true;
+    return /^(appletv|audioaccessory|homepod)/i.test(String(br?.modelName ?? '').trim());
+}
+
+/** A border router a commissioner can reach: it announces a MeshCoP port and an address that is not link-local. */
+function _reachable(br) {
+    return !!br?.meshcopPort && (br.addresses ?? []).some((a) => !/^fe80:/i.test(a));
+}
+
+/**
+ * Which border router a network's MeshCoP query goes through (pure).
+ *
+ * Automatic (no choice): one that is not Apple's — a Thread network has a single commissioner at a
+ * time, and petitioning an Apple TV or HomePod takes that role away from Apple Home, so they are
+ * never picked without being asked for. With only Apple's on the LAN there is no query.
+ * A choice (by extended address) is used as it is; when that router is gone or cannot be reached
+ * there is no query either — never a silent fallback to another one.
+ *
+ * @param {object[]} borderRouters  the network's border routers, as `listNetworks()` gives them
+ * @param {{ extAddress: string, name?: string|null } | null} [choice]  the stored choice, null for automatic
+ * @returns {{ mode: 'automatic'|'chosen', router: object|null, reason: string|null }}  `reason` says why there is no router
+ */
+function selectMeshcopRouter(borderRouters, choice = null) {
+    const brs = borderRouters ?? [];
+    if (choice?.extAddress) {
+        const want = String(choice.extAddress).toUpperCase();
+        const br = brs.find((b) => String(b.extAddress ?? '').toUpperCase() === want);
+        const label = br ? `${routerName(br)} (${want})` : choice.name && choice.name !== want ? `${choice.name} (${want})` : want;
+        if (!br) return { mode: 'chosen', router: null, reason: `the chosen border router ${label} is not on the LAN — choose another one or automatic` };
+        if (!_reachable(br)) return { mode: 'chosen', router: null, reason: `the chosen border router ${label} announces no MeshCoP port with a routable address` };
+        return { mode: 'chosen', router: br, reason: null };
+    }
+    if (!brs.length) return { mode: 'automatic', router: null, reason: 'no border router of this network is on the LAN' };
+    const usable = brs.filter(_reachable);
+    if (!usable.length) return { mode: 'automatic', router: null, reason: 'no border router of this network announces a MeshCoP port with a routable address' };
+    const own = usable.find((b) => !isAppleRouter(b));
+    if (!own) return { mode: 'automatic', router: null, reason: 'only Apple border routers — choose one explicitly' };
+    return { mode: 'automatic', router: own, reason: null };
+}
+
+/** The border routers of a network that are on the LAN now. */
+function _routersOf(extPanId) {
+    const want = String(extPanId).toUpperCase();
+    const net = _registry()
+        .listNetworks()
+        .networks.find((n) => String(n.extPanId).toUpperCase() === want);
+    return net?.borderRouters ?? [];
+}
+
+/**
+ * The selection for a network as the Datasets row shows it: the stored choice, the border router a
+ * query would go through now, or the reason there would be none.
+ * @returns {{ mode: 'automatic'|'chosen', router: { extAddress: string, name: string }|null, reason: string|null }}
+ */
+function meshcopSelection(extPanId) {
+    let routers = [];
+    try {
+        routers = _routersOf(extPanId);
+    } catch {
+        /* the registry is optional */
+    }
+    const sel = selectMeshcopRouter(routers, _datasets().meshcopRouter?.(extPanId) ?? null);
+    return { mode: sel.mode, router: sel.router ? { extAddress: sel.router.extAddress, name: routerName(sel.router) } : null, reason: sel.reason };
+}
+
 /**
  * Ask the network's nodes for their diagnostics through a border router, as the network's
  * commissioner (CoAP over DTLS with the PSKc) — only for networks whose dataset is known and whose
  * MeshCoP switch is on. One commissioner per network at a time: the petition fails when another
- * app holds it. Returns the nodes seen.
+ * app holds it. The border router is the network's chosen one, else one that is not Apple's
+ * (`selectMeshcopRouter`); without one the query is refused with the reason. Returns the nodes seen.
  */
 async function meshcopQuery(extPanId, { entry } = {}) {
     const creds = _datasets().credentialsFor(extPanId);
     if (!creds) throw new Error('MeshCoP is off for this network, or its dataset has no PSKc');
     const reg = _registry();
-    const nets = reg.listNetworks();
-    const net = nets.networks.find((n) => n.extPanId.toUpperCase() === String(extPanId).toUpperCase());
-    if (!net) throw new Error('no border router of this network is on the LAN');
-    const brs = net.borderRouters.filter((b) => b.meshcopPort && b.addresses.some((a) => !/^fe80:/i.test(a)));
-    if (!brs.length) throw new Error('no border router of this network announces a MeshCoP port with a routable address');
-    const br = entry ?? brs[0];
+    let br = entry ?? null;
+    if (!br) {
+        const sel = selectMeshcopRouter(_routersOf(extPanId), _datasets().meshcopRouter?.(extPanId) ?? null);
+        if (!sel.router) throw new Error(sel.reason);
+        br = sel.router;
+    }
     const raw = reg._registryEntry ? reg._registryEntry(br.extAddress) : null;
     const { connectMeshcop, DefaultTlvSet } = require('@matter/thread-br-client');
     const env = reg._env ? reg._env() : null;
@@ -401,7 +477,7 @@ async function meshcopQuery(extPanId, { entry } = {}) {
         await handle.close().catch(() => {});
     }
     _meshcop.set(String(extPanId).toUpperCase(), { nodes: seen, readAt: Date.now(), error: null, via: br.extAddress });
-    _log?.info(`matter thread: MeshCoP through ${br.vendorName ?? br.extAddress}: ${seen.length} node(s) answered`);
+    _log?.info(`matter thread: MeshCoP through ${routerName(br)}: ${seen.length} node(s) answered`);
     _broadcast?.({ type: 'matter:thread' });
     return seen;
 }
@@ -532,4 +608,24 @@ function stop() {
     _lastRefresh = null;
 }
 
-module.exports = { _ipv6, partitionHex, buildGraph, getMesh, refresh, meshcopQuery, start, stop, hex64, lqiQuality, rssiQuality, ROLES, _tables, _meshcop, _meshcopNode };
+module.exports = {
+    _ipv6,
+    partitionHex,
+    buildGraph,
+    getMesh,
+    refresh,
+    meshcopQuery,
+    selectMeshcopRouter,
+    meshcopSelection,
+    isAppleRouter,
+    routerName,
+    start,
+    stop,
+    hex64,
+    lqiQuality,
+    rssiQuality,
+    ROLES,
+    _tables,
+    _meshcop,
+    _meshcopNode,
+};

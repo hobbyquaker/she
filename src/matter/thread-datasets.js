@@ -15,7 +15,7 @@ const path = require('path');
 let _log = null;
 let _broadcast = null;
 let _dir = null;
-/** extPanIdHex → { tlv, source, added, note, meshcop } */
+/** extPanIdHex → { tlv, source, added, note, meshcop, meshcopRouter? } — no `meshcopRouter` means automatic */
 let _data = null;
 let _error = null;
 
@@ -179,7 +179,18 @@ function _view(extPanId, entry) {
         note: entry.note ?? null,
         added: entry.added ?? null,
         meshcop: entry.meshcop === true,
+        meshcopRouter: _routerChoice(entry),
     };
+}
+
+/**
+ * The border router chosen for the network's MeshCoP queries, or null for "automatic" — which is
+ * also what an entry written before the choice existed means.
+ */
+function _routerChoice(entry) {
+    const c = entry?.meshcopRouter;
+    if (!c || typeof c !== 'object' || typeof c.extAddress !== 'string' || !/^[0-9a-fA-F]{16}$/.test(c.extAddress)) return null;
+    return { extAddress: c.extAddress.toUpperCase(), name: typeof c.name === 'string' && c.name ? c.name : null };
 }
 
 function decodeSafe(tlv) {
@@ -210,13 +221,17 @@ function add({ tlv, source = 'pasted', note = '' } = {}) {
     const ds = decode(clean);
     const key = _hex(ds.extPanId);
     const existed = !!data[key];
-    data[key] = {
+    const entry = {
         tlv: clean,
         source: SOURCES.includes(source) ? source : 'pasted',
         note: String(note ?? '').slice(0, 200),
         added: Date.now(),
         meshcop: data[key]?.meshcop === true,
     };
+    // a replaced dataset keeps the network's border router choice
+    const choice = _routerChoice(existed ? data[key] : null);
+    if (choice) entry.meshcopRouter = choice;
+    data[key] = entry;
     _save();
     _log?.info(`matter thread: dataset for "${ds.networkName ?? key}" ${existed ? 'replaced' : 'added'} (${source})`);
     _broadcast?.({ type: 'matter:thread' });
@@ -243,6 +258,35 @@ function setMeshcop(extPanId, enabled) {
     _save();
     _broadcast?.({ type: 'matter:thread' });
     return _view(key, data[key]);
+}
+
+/**
+ * Choose the border router the network's MeshCoP queries go through, or null for "automatic".
+ * The router is remembered by its extended address — the key of its mDNS announcement and the one
+ * identifier every border router announces; it survives restarts and address changes, and changes
+ * only with a factory reset. The name is kept so a router that is gone can still be named.
+ * @param {string} extPanId
+ * @param {{ extAddress: string, name?: string } | null} choice
+ */
+function setMeshcopRouter(extPanId, choice) {
+    const data = _require();
+    const key = String(extPanId).toUpperCase();
+    if (!data[key]) throw new Error(`no dataset for ${key}`);
+    if (choice === null || choice === undefined) {
+        delete data[key].meshcopRouter;
+    } else {
+        const clean = _routerChoice({ meshcopRouter: { extAddress: String(choice.extAddress ?? ''), name: String(choice.name ?? '').slice(0, 200) } });
+        if (!clean) throw new Error('the border router must be named by its extended address (16 hex digits)');
+        data[key].meshcopRouter = clean;
+    }
+    _save();
+    _broadcast?.({ type: 'matter:thread' });
+    return _view(key, data[key]);
+}
+
+/** The chosen border router of a network: `{ extAddress, name }`, or null for automatic. */
+function meshcopRouter(extPanId) {
+    return _routerChoice(_data?.[String(extPanId).toUpperCase()]);
 }
 
 /** The full TLV — behind the UI's explicit reveal with a confirmation. Never logged. */
@@ -282,4 +326,23 @@ function _reset() {
     _dir = null;
 }
 
-module.exports = { init, list, has, add, remove, setMeshcop, reveal, dataset, credentialsFor, normaliseTlv, decode, redact, fileFor, SOURCES, TLV_TYPES, _reset };
+module.exports = {
+    init,
+    list,
+    has,
+    add,
+    remove,
+    setMeshcop,
+    setMeshcopRouter,
+    meshcopRouter,
+    reveal,
+    dataset,
+    credentialsFor,
+    normaliseTlv,
+    decode,
+    redact,
+    fileFor,
+    SOURCES,
+    TLV_TYPES,
+    _reset,
+};

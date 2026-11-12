@@ -177,6 +177,8 @@ describe('thread mesh: MeshCoP through a border router (M17)', () => {
         jest.doMock('@matter/thread-br-client', () => ({ connectMeshcop: jest.fn().mockResolvedValue(handle), DefaultTlvSet: [0, 1] }));
         jest.doMock('../../src/matter/thread-datasets', () => ({
             credentialsFor: (pan) => (pan === 'DEAD00BEEF00CAFE' ? { pskc: new Uint8Array(16), networkName: 'Lab', extPanId: new Uint8Array(8) } : null),
+            // the Apple TV is the network's only border router: it is asked because it was chosen
+            meshcopRouter: () => ({ extAddress: 'AABBCCDDEEFF0011', name: 'Apple TV' }),
         }));
         const mesh = require('../../src/matter/thread-mesh');
         const thread = {
@@ -317,5 +319,129 @@ describe('thread mesh: networks and addresses', () => {
         expect(mesh._ipv6(hex('fdd84f888a2f0000526ac5311b8cbbc5'))).toBe('fdd8:4f88:8a2f:0:526a:c531:1b8c:bbc5');
         expect(mesh._ipv6(Uint8Array.from(Buffer.from('00000000000000000000000000000001', 'hex')))).toBe('::1');
         expect(mesh._ipv6(hex('0102'))).toBeNull();
+    });
+});
+
+describe('thread mesh: which border router a MeshCoP query goes through', () => {
+    const mesh = require('../../src/matter/thread-mesh');
+    const appleTv = { extAddress: 'AABBCCDDEEFF0011', vendorName: 'Apple Inc.', modelName: 'AppleTV14,1', meshcopPort: 49153, addresses: ['192.168.1.20', 'fe80::1'] };
+    const homePod = { extAddress: 'AABBCCDDEEFF0022', vendorName: null, modelName: 'AudioAccessory6,1', meshcopPort: 49154, addresses: ['192.168.1.21'] };
+    const otbr = { extAddress: '0011223344556677', vendorName: 'Espressif', modelName: 'esp-thread-br', meshcopPort: 49191, addresses: ['192.168.1.30'] };
+
+    test('Apple is recognised by vendor name, else by model identifier', () => {
+        expect(mesh.isAppleRouter(appleTv)).toBe(true);
+        expect(mesh.isAppleRouter({ vendorName: 'Apple', modelName: 'BorderRouter' })).toBe(true);
+        expect(mesh.isAppleRouter(homePod)).toBe(true);
+        expect(mesh.isAppleRouter(otbr)).toBe(false);
+        expect(mesh.isAppleRouter({ vendorName: 'Applesauce Labs', modelName: 'BR' })).toBe(false);
+        expect(mesh.isAppleRouter({})).toBe(false);
+    });
+
+    test('automatic: Apple and an OpenThread router → the OpenThread router, whatever the order', () => {
+        expect(mesh.selectMeshcopRouter([appleTv, otbr])).toEqual({ mode: 'automatic', router: otbr, reason: null });
+        expect(mesh.selectMeshcopRouter([otbr, homePod, appleTv], null).router).toBe(otbr);
+    });
+
+    test('automatic: only Apple border routers → no query, and the reason says to choose', () => {
+        expect(mesh.selectMeshcopRouter([appleTv, homePod])).toEqual({ mode: 'automatic', router: null, reason: 'only Apple border routers — choose one explicitly' });
+    });
+
+    test('automatic: a router that cannot be reached does not count; without any there is a reason', () => {
+        const linkLocalOnly = { ...otbr, addresses: ['fe80::2'] };
+        const noPort = { ...otbr, meshcopPort: null };
+        expect(mesh.selectMeshcopRouter([appleTv, linkLocalOnly])).toMatchObject({ router: null, reason: 'only Apple border routers — choose one explicitly' });
+        expect(mesh.selectMeshcopRouter([noPort])).toMatchObject({ router: null, reason: expect.stringContaining('announces a MeshCoP port') });
+        expect(mesh.selectMeshcopRouter([])).toMatchObject({ router: null, reason: 'no border router of this network is on the LAN' });
+    });
+
+    test('a chosen border router is used — an Apple one too, and over an OpenThread router', () => {
+        expect(mesh.selectMeshcopRouter([appleTv, homePod], { extAddress: 'AABBCCDDEEFF0011' })).toEqual({ mode: 'chosen', router: appleTv, reason: null });
+        expect(mesh.selectMeshcopRouter([appleTv, otbr], { extAddress: 'aabbccddeeff0011' }).router).toBe(appleTv);
+    });
+
+    test('a chosen border router that is gone → no query with a reason, never another one', () => {
+        const r = mesh.selectMeshcopRouter([appleTv, otbr], { extAddress: '0011223344559999', name: 'Espressif esp-thread-br' });
+        expect(r).toEqual({
+            mode: 'chosen',
+            router: null,
+            reason: 'the chosen border router Espressif esp-thread-br (0011223344559999) is not on the LAN — choose another one or automatic',
+        });
+        expect(mesh.selectMeshcopRouter([], { extAddress: '0011223344559999' }).reason).toContain('0011223344559999 is not on the LAN');
+        // on the LAN, but without a MeshCoP port: no query either
+        expect(mesh.selectMeshcopRouter([appleTv, { ...otbr, meshcopPort: null }], { extAddress: otbr.extAddress })).toMatchObject({
+            router: null,
+            reason: expect.stringContaining('announces no MeshCoP port'),
+        });
+    });
+
+    describe('meshcopQuery and meshcopSelection', () => {
+        let m;
+        let connectMeshcop;
+        let choice;
+        let routers;
+        beforeEach(() => {
+            jest.resetModules();
+            choice = null;
+            routers = [
+                { ...appleTv, networkName: 'Lab', extPanId: 'DEAD00BEEF00CAFE' },
+                { ...otbr, networkName: 'Lab', extPanId: 'DEAD00BEEF00CAFE' },
+            ];
+            const handle = {
+                source: { queryMulticast: jest.fn(() => ({ onNode: { on: jest.fn() }, onError: { on: jest.fn() }, done: Promise.resolve() })) },
+                close: jest.fn().mockResolvedValue(undefined),
+            };
+            connectMeshcop = jest.fn().mockResolvedValue(handle);
+            jest.doMock('@matter/thread-br-client', () => ({ connectMeshcop, DefaultTlvSet: [0] }));
+            jest.doMock('../../src/matter/thread-datasets', () => ({
+                credentialsFor: () => ({ pskc: new Uint8Array(16), networkName: 'Lab', extPanId: new Uint8Array(8) }),
+                meshcopRouter: () => choice,
+            }));
+            m = require('../../src/matter/thread-mesh');
+            const thread = {
+                listNetworks: () => ({
+                    networks: routers.length ? [{ extPanId: 'DEAD00BEEF00CAFE', networkName: 'Lab', datasetKnown: true, borderRouters: routers }] : [],
+                    unknown: [],
+                }),
+                _registryEntry: () => null,
+                _env: () => ({}),
+            };
+            m.start({ log: { info: jest.fn(), debug: jest.fn(), warn: jest.fn() }, broadcast: jest.fn(), controller: { _peers: () => [] }, thread });
+        });
+        afterEach(() => m.stop());
+
+        test('the query goes through the OpenThread router, not the Apple TV listed first', async () => {
+            expect(m.meshcopSelection('dead00beef00cafe')).toEqual({
+                mode: 'automatic',
+                router: { extAddress: '0011223344556677', name: 'Espressif esp-thread-br' },
+                reason: null,
+            });
+            await m.meshcopQuery('DEAD00BEEF00CAFE');
+            expect(connectMeshcop).toHaveBeenCalledTimes(1);
+            expect(connectMeshcop.mock.calls[0][0].br).toMatchObject({ extAddressHex: '0011223344556677', meshcopPort: 49191 });
+            expect(m._meshcop.get('DEAD00BEEF00CAFE').via).toBe('0011223344556677');
+        });
+
+        test('only Apple border routers: the query is refused and nothing connects', async () => {
+            routers = routers.slice(0, 1);
+            expect(m.meshcopSelection('DEAD00BEEF00CAFE')).toEqual({ mode: 'automatic', router: null, reason: 'only Apple border routers — choose one explicitly' });
+            await expect(m.meshcopQuery('DEAD00BEEF00CAFE')).rejects.toThrow('only Apple border routers — choose one explicitly');
+            expect(connectMeshcop).not.toHaveBeenCalled();
+        });
+
+        test('the chosen router is gone: refused with the reason, the other router is not asked', async () => {
+            choice = { extAddress: '0011223344559999', name: 'OpenThread OTBR' };
+            expect(m.meshcopSelection('DEAD00BEEF00CAFE')).toMatchObject({
+                mode: 'chosen',
+                router: null,
+                reason: expect.stringContaining('OpenThread OTBR (0011223344559999) is not on the LAN'),
+            });
+            await expect(m.meshcopQuery('DEAD00BEEF00CAFE')).rejects.toThrow('is not on the LAN');
+            expect(connectMeshcop).not.toHaveBeenCalled();
+        });
+
+        test('no border router of the network on the LAN', async () => {
+            routers = [];
+            await expect(m.meshcopQuery('DEAD00BEEF00CAFE')).rejects.toThrow('no border router of this network is on the LAN');
+        });
     });
 });

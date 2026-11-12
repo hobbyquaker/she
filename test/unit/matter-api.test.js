@@ -447,3 +447,65 @@ describe('POST /she/matter/devices/:nodeId/forget', () => {
         expect(res.status).toBe(404);
     });
 });
+
+describe('PUT /she/matter/thread/datasets/:ext — the MeshCoP switch and the border router choice', () => {
+    let srv, port;
+    const view = { extPanId: 'DEAD00BEEF00CAFE', networkName: 'Lab', meshcop: false, meshcopRouter: null };
+    const datasets = {
+        has: jest.fn((ext) => String(ext).toUpperCase() === 'DEAD00BEEF00CAFE'),
+        list: jest.fn(() => ({ available: true, error: null, datasets: [view] })),
+        setMeshcop: jest.fn((ext, on) => ({ ...view, meshcop: on })),
+        setMeshcopRouter: jest.fn((ext, choice) => ({ ...view, meshcopRouter: choice })),
+    };
+    const selection = { mode: 'automatic', router: null, reason: 'only Apple border routers — choose one explicitly' };
+    const mesh = { meshcopSelection: jest.fn(() => selection), routerName: (br) => `${br.vendorName} ${br.modelName}` };
+    const thread = {
+        listNetworks: () => ({
+            networks: [{ extPanId: 'DEAD00BEEF00CAFE', borderRouters: [{ extAddress: 'AABBCCDDEEFF0011', vendorName: 'Apple Inc.', modelName: 'AppleTV14,1' }] }],
+            unknown: [],
+        }),
+    };
+
+    beforeEach(async () => {
+        jest.clearAllMocks();
+        const app = await _makeApp({ isStarted: () => true });
+        jest.doMock('../../src/matter/thread-datasets', () => datasets);
+        jest.doMock('../../src/matter/thread-mesh', () => mesh);
+        jest.doMock('../../src/matter/thread', () => thread);
+        srv = await startApp(app);
+        port = srv.address().port;
+    });
+    afterEach(() => new Promise((resolve) => srv.close(resolve)));
+
+    test('the list carries the selection (the router a query would use, or the reason for none)', async () => {
+        const res = await httpRequest('GET', port, '/she/matter/thread/datasets');
+        expect(res.status).toBe(200);
+        expect(res.body.datasets).toEqual([{ ...view, meshcopSelection: selection }]);
+    });
+
+    test('a border router of the network is stored by extended address with its name', async () => {
+        const res = await httpRequest('PUT', port, '/she/matter/thread/datasets/dead00beef00cafe', { meshcopRouter: 'aabbccddeeff0011' });
+        expect(res.status).toBe(200);
+        expect(datasets.setMeshcopRouter).toHaveBeenCalledWith('dead00beef00cafe', { extAddress: 'AABBCCDDEEFF0011', name: 'Apple Inc. AppleTV14,1' });
+        expect(datasets.setMeshcop).not.toHaveBeenCalled();
+        expect(res.body).toMatchObject({ meshcopRouter: { extAddress: 'AABBCCDDEEFF0011' }, meshcopSelection: selection });
+    });
+
+    test('null is automatic; the switch alone still works', async () => {
+        expect((await httpRequest('PUT', port, '/she/matter/thread/datasets/DEAD00BEEF00CAFE', { meshcopRouter: null })).status).toBe(200);
+        expect(datasets.setMeshcopRouter).toHaveBeenCalledWith('DEAD00BEEF00CAFE', null);
+        const res = await httpRequest('PUT', port, '/she/matter/thread/datasets/DEAD00BEEF00CAFE', { meshcop: true });
+        expect(res.body.meshcop).toBe(true);
+        expect(datasets.setMeshcopRouter).toHaveBeenCalledTimes(1);
+    });
+
+    test('refused: a router that does not announce the network, a malformed address, an empty body, an unknown dataset', async () => {
+        expect((await httpRequest('PUT', port, '/she/matter/thread/datasets/DEAD00BEEF00CAFE', { meshcopRouter: '0011223344556677' })).status).toBe(400);
+        expect((await httpRequest('PUT', port, '/she/matter/thread/datasets/DEAD00BEEF00CAFE', { meshcopRouter: 'auto' })).status).toBe(400);
+        expect((await httpRequest('PUT', port, '/she/matter/thread/datasets/DEAD00BEEF00CAFE', {})).status).toBe(400);
+        expect((await httpRequest('PUT', port, '/she/matter/thread/datasets/DEAD00BEEF00CAFE', { meshcop: 'yes' })).status).toBe(400);
+        expect((await httpRequest('PUT', port, '/she/matter/thread/datasets/0000000000000000', { meshcop: true })).status).toBe(404);
+        expect(datasets.setMeshcopRouter).not.toHaveBeenCalled();
+        expect(datasets.setMeshcop).not.toHaveBeenCalled();
+    });
+});
