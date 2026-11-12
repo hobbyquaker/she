@@ -11,10 +11,12 @@
         currentScript?: AiCurrentScript | null;
         onApply?: (code: string) => void;
         onCreateFile?: (suggestedName: string, code: string) => void;
+        /** A draft card wrote a script other than the open one (a new script, or a change to another file). */
+        onDraftApplied?: (path: string, content: string, isNew: boolean) => void;
         extraFiles?: AiExtraFile[];
     }
 
-    let { currentScript = null, onApply, onCreateFile, extraFiles = $bindable<AiExtraFile[]>([]) }: Props = $props();
+    let { currentScript = null, onApply, onCreateFile, onDraftApplied, extraFiles = $bindable<AiExtraFile[]>([]) }: Props = $props();
 
     // ── State ────────────────────────────────────────────────────────────────
     let messages = $state<AiMessage[]>([]);
@@ -181,6 +183,7 @@
             await writeScript(d.path, d.content);
             await setAiDraftStatus(ev.id, 'applied');
             if (currentScript?.path === d.path) onApply?.(d.content);
+            else onDraftApplied?.(d.path, d.content, !!ev.isNew);
             patchEvent(ev.id, { status: 'applied' });
             void persistConversation();
         } catch (e: any) { error = e.message; }

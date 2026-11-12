@@ -1616,6 +1616,19 @@ declare const she: {
         } catch (e: any) { error = (e as Error).message; }
     }
 
+    /** The chat wrote a script that is not the open one: show it in the tree, refresh its tab, and commit as configured. */
+    async function onDraftApplied(path: string, content: string, isNew: boolean) {
+        await loadTree();
+        const tab = tabs.find(t => t.path === path);
+        if (tab?.model && !tab.dirty) {
+            suppressChange = true;
+            tab.model.setValue(content);
+            suppressChange = false;
+            tab.savedContent = content;
+        }
+        await afterScriptChange([path], `${isNew ? 'add' : 'update'} ${path}`);
+    }
+
     async function onApply(code: string) {
         if (autoAccept && activeTab) {
             // Skip the diff view and apply directly
@@ -2305,7 +2318,7 @@ declare const she: {
     </div>
 
     <div class="chat-container" bind:this={hostChat}>
-        <Chat currentScript={chatScript} {onApply} {onCreateFile} bind:extraFiles={chatExtraFiles} />
+        <Chat currentScript={chatScript} {onApply} {onCreateFile} {onDraftApplied} bind:extraFiles={chatExtraFiles} />
     </div>
     </div>
 </div>
