@@ -213,6 +213,13 @@
     let influxDatabase = $state('');
     let influxUsername = $state('');
     let influxPassword = $state('');
+    // Elasticsearch: the connection she.elastic and the AI's message tools use; other keys of the block are kept
+    let elasticNode     = $state('');
+    let elasticAuth     = $state<'none' | 'apiKey' | 'basic'>('none');
+    let elasticApiKey   = $state('');
+    let elasticUsername = $state('');
+    let elasticPassword = $state('');
+    let elasticRest: Record<string, unknown> = {};
 
     // AI Assistant
     interface AiPreset {
@@ -286,6 +293,7 @@
         'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
         'redis',
         'influx',
+        'elastic', // handled explicitly: node and auth, the rest of the block is kept
         'ai',
         'broker', // handled explicitly in load/save for broker.enabled
         'services', // handled explicitly in load/save for services.enabled
@@ -365,6 +373,7 @@
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
         { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
         { id: 'influx',     label: 'InfluxDB',     terms: ['influx','influxdb','time series','history','token','org','bucket','database','flux','influxql'] },
+        { id: 'elastic',    label: 'Elasticsearch', terms: ['elastic','elasticsearch','search','index','messages','api key','she.elastic'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
         { id: 'engine',     label: 'Script engine', terms: ['heartbeat','event loop','lag','blocking','performance','safe mode','recovery','timeout'] },
         { id: 'ai',         label: 'AI Assistant', terms: ['llm','ollama','openai','anthropic','model','provider','base url'] },
@@ -466,6 +475,19 @@
                 if (typeof inf.database === 'string') influxDatabase = inf.database;
                 if (typeof inf.username === 'string') influxUsername = inf.username;
                 if (typeof inf.password === 'string') influxPassword = inf.password;
+            }
+            const el = cfg.elastic as Record<string, unknown> | undefined;
+            if (el) {
+                const { node, auth, ...rest } = el;
+                elasticRest = rest;
+                if (typeof node === 'string') elasticNode = node;
+                const a = (auth ?? {}) as Record<string, unknown>;
+                if (typeof a.apiKey === 'string') { elasticAuth = 'apiKey'; elasticApiKey = a.apiKey; }
+                else if (typeof a.username === 'string') {
+                    elasticAuth = 'basic';
+                    elasticUsername = a.username;
+                    if (typeof a.password === 'string') elasticPassword = a.password;
+                }
             }
             const brokerCfg = cfg.broker as Record<string, unknown> | undefined;
             brokerEnabled = brokerCfg?.enabled === true;
@@ -688,6 +710,12 @@
                     ...(influxOrg    ? { org:    influxOrg }    : {}),
                     ...(influxBucket ? { bucket: influxBucket } : {}),
                 };
+        }
+        if (elasticNode.trim()) {
+            const auth = elasticAuth === 'apiKey' && elasticApiKey ? { apiKey: elasticApiKey }
+                : elasticAuth === 'basic' && elasticUsername ? { username: elasticUsername, ...(elasticPassword ? { password: elasticPassword } : {}) }
+                : null;
+            cfg.elastic = { ...elasticRest, node: elasticNode.trim(), ...(auth ? { auth } : {}) };
         }
         // broker.enabled — merge into the existing broker config block (preserves dynsec, ssh, etc.)
         const brokerExtra = (extra.broker as Record<string, unknown> | undefined) ?? {};
@@ -1501,6 +1529,55 @@
                             {@render tip('InfluxDB 1.x password. Stored in plain text in config.json.')}
                         </label>
                         <input type="password" bind:value={influxPassword} placeholder="(optional)" autocomplete="new-password" />
+                    </div>
+                    {/if}
+                </section>
+                {/if}
+
+                <!-- ── Elasticsearch ─────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'elastic')}
+                <section id="sec-elastic">
+                    <h3>Elasticsearch</h3>
+                    <div class="field">
+                        <label>
+                            URL
+                            {@render tip('URL of the Elasticsearch server, e.g. http://localhost:9200. Scripts reach it with she.elastic.*, and the AI assistant reads the raw MQTT messages from it (get_topic_messages, data.messages in analyses; index pattern ai.elasticIndex, default mqtt-*). she does not write to it on its own. Leave empty to disable. Requires daemon restart.')}
+                        </label>
+                        <input type="text" bind:value={elasticNode} placeholder="leave empty to disable" spellcheck="false" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Authentication
+                            {@render tip('None for a server without security, an API key, or a user name and password.')}
+                        </label>
+                        <select bind:value={elasticAuth}>
+                            <option value="none">none</option>
+                            <option value="apiKey">API key</option>
+                            <option value="basic">user name and password</option>
+                        </select>
+                    </div>
+                    {#if elasticAuth === 'apiKey'}
+                    <div class="field">
+                        <label>
+                            API key
+                            {@render tip('The encoded API key (base64 of id:api_key). Stored in plain text in config.json.')}
+                        </label>
+                        <input type="password" bind:value={elasticApiKey} placeholder="API key" autocomplete="off" />
+                    </div>
+                    {:else if elasticAuth === 'basic'}
+                    <div class="field">
+                        <label>
+                            User name
+                            {@render tip('Elasticsearch user, e.g. one with read access to the mqtt-* indices.')}
+                        </label>
+                        <input type="text" bind:value={elasticUsername} placeholder="elastic" autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label>
+                            Password
+                            {@render tip('Stored in plain text in config.json.')}
+                        </label>
+                        <input type="password" bind:value={elasticPassword} placeholder="(optional)" autocomplete="new-password" />
                     </div>
                     {/if}
                 </section>

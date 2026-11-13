@@ -54,7 +54,7 @@ The following integrations are activated only when configured:
 | `brokers` | Additional MQTT brokers next to the primary `url`: `{ "<name>": { url, username, password, ca, cert, key, mqttVersion, mirror } }`. Scripts reach them with `she.mqtt('<name>')`; `mirror` rules copy topics into the primary and back. See [brokers.md](brokers.md) |
 | `redis.url` | Redis URL — enables write-through cache for the state store |
 | `influx` | InfluxDB connection config — enables time-series write-through. 2.x: `url`, `token`, `org`, `bucket`. 1.x: `url`, `database`, optional `username`, `password`, `retentionPolicy`, `timeout` (ms, default 10000; version inferred from the keys, or forced with `version: 1`) |
-| `elastic` | Elasticsearch connection config — enables search index write-through |
+| `elastic` | Elasticsearch connection: `node` (URL) and optional `auth` (`{ apiKey }` or `{ username, password }`; further keys go to the client as they are). Enables `she.elastic.*` and the AI assistant's message tools; she writes nothing to it on its own. Also in the web UI under Config → Elasticsearch |
 | `services.enabled` | Shows the Services page — management of xyz2mqtt adapter instances (MQTT inventory, systemd via the `she-servicectl` helper); `services.hosts[]` lists managed hosts, default the she host. See [services.md](services.md) |
 
 ## Environment variables
