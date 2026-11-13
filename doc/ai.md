@@ -57,8 +57,9 @@ click away with **Approve** in the chat bar (see [below](#approve-what-goes-thro
   is refused; the journal logs every publish.
 - **Analyses** — `run_analysis` runs a short JavaScript the model writes in a worker sandbox with a read-only
   `data` object (the state store, Influx history, Elastic messages, the log files, script sources) and no
-  `require`, network, `she` object or publishing; ten seconds and the usual result cap. The chat shows the code and
-  the result, so you see what was computed.
+  `require`, network, `she` object or publishing; ten seconds and the usual result cap. The chat shows one line per
+  analysis: what the model looks at, in one or two sentences in your language; a click on it shows the code and
+  the result.
 
 | Tool | Reads |
 | --- | --- |
@@ -78,7 +79,7 @@ click away with **Approve** in the chat bar (see [below](#approve-what-goes-thro
 | `she_fetch` | a public web page as text |
 | `remember`, `forget` | the facts about the installation the user confirmed (the 🧠 panel in the chat; stored in the data directory) |
 | `propose_script` | a script draft with a diff and an Apply button |
-| `run_analysis` | a short JavaScript the model writes, run in a sandbox over read-only data (state store, Influx, Elastic, log files, scripts); the chat shows the code and the result |
+| `run_analysis` | a short JavaScript the model writes, run in a sandbox over read-only data (state store, Influx, Elastic, log files, scripts); the chat shows one line with the model's description, the code and the result on a click |
 | `publish_mqtt` | a command topic, behind the Publish switch |
 
 ### Approve: what goes through without a click

@@ -569,11 +569,16 @@ const TOOL_DEFINITIONS = [
             parameters: {
                 type: 'object',
                 properties: {
+                    description: {
+                        type: 'string',
+                        description:
+                            'What this analysis looks at, for the user: one or two short sentences in the language the user writes in (not the code, no result). The chat shows only this line.',
+                    },
                     code: { type: 'string', description: 'The JavaScript to run, as the body of an async function; must `return` the result.' },
                     from: { type: 'string', description: 'Optional window start handed to the code as data.from ("-24h").' },
                     to: { type: 'string', description: 'Optional window end handed to the code as data.to.' },
                 },
-                required: ['code'],
+                required: ['description', 'code'],
             },
         },
     },
@@ -1489,7 +1494,7 @@ function analysisLoaders(ctx) {
     };
 }
 
-async function toolRunAnalysis({ code, from, to } = {}, ctx = {}) {
+async function toolRunAnalysis({ code, from, to, description } = {}, ctx = {}) {
     if (!code || typeof code !== 'string' || !code.trim()) return 'code is required: the body of an async function that returns the result.';
     const { runAnalysis } = require('./ai-sandbox');
     const cap = Math.max(500, Number(ctx.resultChars) || DEFAULT_RESULT_CHARS);
@@ -1503,7 +1508,9 @@ async function toolRunAnalysis({ code, from, to } = {}, ctx = {}) {
         result = json.length > cap ? json.slice(0, cap) + `\n… cut after ${cap} characters (${json.length} total); return less from the code.` : json;
         text = `Result after ${r.ms} ms and ${r.calls} data call${r.calls === 1 ? '' : 's'}:\n${result}${logText}`;
     }
-    return { text, event: { type: 'analysis', code, result, error: r.error || null, logs: r.logs, ms: r.ms } };
+    // the chat shows the model's description as one line; a missing one stays empty and the chat names the tool only
+    const desc = typeof description === 'string' ? description.trim().slice(0, 300) : '';
+    return { text, event: { type: 'analysis', description: desc, code, result, error: r.error || null, logs: r.logs, ms: r.ms } };
 }
 
 function toolListServices({ filter = '' } = {}, ctx = {}) {

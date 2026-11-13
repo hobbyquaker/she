@@ -223,6 +223,12 @@
     const requestBytes = $derived(promptBytes + new TextEncoder().encode(input).length);
     const activeScript = $derived(includeCurrentScript ? currentScript : null);
 
+    // a finished analysis is shown by its own line: the call line before it goes, so one analysis is one line
+    function shownEvents(evs: AiToolEvent[]): AiToolEvent[] {
+        let finished = evs.filter(ev => ev.type === 'analysis').length;
+        return evs.filter(ev => !(ev.type === 'tool_call' && ev.name === 'run_analysis' && finished-- > 0));
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────────────────
     // the open script is part of the context again whenever it changes
     $effect(() => {
@@ -656,7 +662,14 @@
 
 <!-- one tool event: a call, a result, a script draft or a publish request (the latter two with their buttons) -->
 {#snippet toolEventView(ev: AiToolEvent)}
-            {#if ev.type === 'tool_call'}
+            {#if ev.type === 'tool_call' && ev.name === 'run_analysis'}
+                <!-- an analysis still running: its description only, the code would fill the chat -->
+                <div class="tool-event tool-call">
+                    <span class="tool-icon">🧮</span>
+                    <span class="tool-name">run analysis</span>
+                    {#if typeof ev.args?.description === 'string' && ev.args.description}<span class="analysis-desc">{ev.args.description}</span>{/if}
+                </div>
+            {:else if ev.type === 'tool_call'}
                 <div class="tool-event tool-call">
                     <span class="tool-icon">🔧</span>
                     <span class="tool-name">{ev.name.replace(/_/g, ' ')}</span>
@@ -683,15 +696,19 @@
                     {/if}
                 </div>
             {:else if ev.type === 'analysis'}
-                <div class="tool-event analysis-card">
-                    <details>
-                        <summary><span class="tool-icon">🧮</span> Analysis {ev.error ? 'failed' : 'ran'}{#if ev.ms !== undefined} in {ev.ms} ms{/if} <span class="draft-state">— show code</span></summary>
-                        <pre class="analysis-code">{ev.code}</pre>
-                    </details>
+                <!-- one line: what the model analysed; code, result and console lines on a click -->
+                <details class="tool-event analysis-line">
+                    <summary>
+                        <span class="tool-icon">🧮</span>
+                        <span class="tool-name">run analysis</span>
+                        {#if ev.description}<span class="analysis-desc">{ev.description}</span>{/if}
+                        <span class="analysis-meta" class:err={!!ev.error}>{ev.error ? 'failed' : 'ran'}{#if ev.ms !== undefined} · {ev.ms} ms{/if}</span>
+                    </summary>
+                    <pre class="analysis-code">{ev.code}</pre>
                     {#if ev.error}<div class="analysis-err">{ev.error}</div>
                     {:else}<pre class="analysis-result">{ev.result}</pre>{/if}
                     {#if ev.logs?.length}<pre class="analysis-logs">{ev.logs.join('\n')}</pre>{/if}
-                </div>
+                </details>
             {:else if ev.type === 'publish_request'}
                 <div class="tool-event publish-card" class:pending={!ev.decided}>
                     <div class="publish-head"><span class="tool-icon">📡</span> The assistant wants to publish{#if ev.retain} (retained){/if}</div>
@@ -786,7 +803,7 @@
                     {@const blocks = parseBlocks(msg.content)}
                     {#if msg.toolEvents?.length}
                         <div class="tool-events">
-                            {#each msg.toolEvents as ev}{@render toolEventView(ev)}{/each}
+                            {#each shownEvents(msg.toolEvents) as ev}{@render toolEventView(ev)}{/each}
                         </div>
                     {/if}
                     <div class="msg-content">
@@ -830,7 +847,7 @@
         <!-- Tool call events (shown live during request, then attached to the message) -->
         {#if toolEvents.length > 0}
             <div class="tool-events">
-                {#each toolEvents as ev}{@render toolEventView(ev)}{/each}
+                {#each shownEvents(toolEvents) as ev}{@render toolEventView(ev)}{/each}
             </div>
         {/if}
 
@@ -1723,10 +1740,12 @@
     .tool-event.publish-card { border-left: 3px solid var(--fg-brand); background: var(--bg-widget); gap: 3px; }
     .tool-event.publish-card.pending { border-color: var(--fg-warn, #d7ba7d); box-shadow: 0 0 0 1px var(--fg-warn, #d7ba7d) inset; }
     .publish-head { font-weight: 600; color: var(--fg); }
-    .tool-event.analysis-card { border-left: 3px solid var(--fg-muted); }
-    .analysis-card summary { cursor: pointer; color: var(--fg); list-style: none; }
-    .analysis-card summary::-webkit-details-marker { display: none; }
-    .analysis-card details[open] summary .draft-state { visibility: hidden; }
+    .tool-event.analysis-line { display: block; color: var(--fg-brand); opacity: 1; }
+    .analysis-line summary { display: flex; align-items: baseline; gap: 5px; cursor: pointer; list-style: none; }
+    .analysis-line summary::-webkit-details-marker { display: none; }
+    .analysis-desc { color: var(--fg-text); font-family: 'Segoe UI', system-ui, sans-serif; white-space: normal; }
+    .analysis-meta { color: var(--fg-dim); white-space: nowrap; }
+    .analysis-meta.err { color: var(--fg-err); }
     .analysis-code, .analysis-result, .analysis-logs {
         margin: 4px 0 0; padding: 6px 8px; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
         font-family: monospace; font-size: 10.5px; line-height: 1.35; background: var(--bg-app); border: 1px solid var(--border-sub); border-radius: 3px; color: var(--fg);

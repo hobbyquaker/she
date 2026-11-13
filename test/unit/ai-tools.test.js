@@ -842,11 +842,18 @@ describe('run_analysis (I42)', () => {
             {
                 code: "const t = await data.topics('radar-x/status/#'); console.log('n', t.length); return { count: t.length, on: t.filter((x) => x.value === true).map((x) => x.topic), from: data.from };",
                 from: '-6h',
+                description: '  Zählt die Radar-Topics, die gerade melden.  ',
             },
             { store },
         );
         expect(out.text).toMatch(/^Result after \d+ ms and 1 data call:\n\{"count":2,"on":\["radar-x\/status\/pir"\],"from":"-6h"\}\nconsole \(1 line\):\nn 2$/);
-        expect(out.event).toMatchObject({ type: 'analysis', result: '{"count":2,"on":["radar-x/status/pir"],"from":"-6h"}', error: null, logs: ['n 2'] });
+        expect(out.event).toMatchObject({
+            type: 'analysis',
+            description: 'Zählt die Radar-Topics, die gerade melden.',
+            result: '{"count":2,"on":["radar-x/status/pir"],"from":"-6h"}',
+            error: null,
+            logs: ['n 2'],
+        });
     }, 20000);
 
     it('reads history through the same loader as get_topic_history', async () => {
@@ -868,6 +875,7 @@ describe('run_analysis (I42)', () => {
             { store },
         );
         expect(out.event.result).toBe('{"points":3,"onFor":4000}');
+        expect(out.event.description).toBe(''); // none given: the chat names the tool only
     }, 20000);
 
     it('reports errors, refuses what the sandbox does not have, and stops a runaway loop', async () => {

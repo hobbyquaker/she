@@ -1127,7 +1127,8 @@ export interface AiToolEvent {
     payload?: string;
     retain?: boolean;
     decided?: 'published' | 'skipped' | 'timeout';
-    /** analysis (I42): the code the model ran, its JSON result or error, the console lines */
+    /** analysis (I42): the model's one-line description, the code it ran, its JSON result or error, the console lines */
+    description?: string;
     code?: string;
     result?: string | null;
     error?: string | null;
