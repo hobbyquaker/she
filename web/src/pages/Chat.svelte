@@ -222,6 +222,11 @@
     const canChat = $derived(configured || (!!aiConfig?.provider && !!selectedModel));
     const requestBytes = $derived(promptBytes + new TextEncoder().encode(input).length);
     const activeScript = $derived(includeCurrentScript ? currentScript : null);
+    // the newest prompt stays at the top of the message list while its answer scrolls under it
+    const lastPromptIdx = $derived.by(() => {
+        for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'user') return i;
+        return -1;
+    });
 
     // a finished analysis is shown by its own line: the call line before it goes, so one analysis is one line
     function shownEvents(evs: AiToolEvent[]): AiToolEvent[] {
@@ -796,7 +801,7 @@
         {/if}
 
         {#each messages as msg, msgIdx}
-            <div class="message {msg.role}">
+            <div class="message {msg.role}" class:pinned={msgIdx === lastPromptIdx}>
                 {#if msg.role === 'user'}
                     <div class="msg-content user-text">{msg.content}</div>
                 {:else}
@@ -1186,6 +1191,20 @@
         padding: 0 10px;
     }
     .message.user { align-self: flex-end; max-width: 90%; }
+    /* the newest prompt sticks to the top while a long answer scrolls under it; a long prompt scrolls inside */
+    .message.user.pinned {
+        position: sticky;
+        top: -8px; /* flush with the list's top edge, above its padding */
+        z-index: 2;
+        align-self: stretch;
+        max-width: none;
+        display: flex;
+        justify-content: flex-end;
+        padding: 4px 10px 6px;
+        background: var(--bg-panel);
+        box-shadow: 0 4px 6px -4px rgba(0, 0, 0, 0.35);
+    }
+    .message.user.pinned .user-text { max-width: 90%; max-height: 7.5em; overflow-y: auto; }
     .message.assistant { align-self: flex-start; width: 100%; }
 
     .msg-content { font-size: 12px; line-height: 1.5; }
