@@ -201,8 +201,6 @@
     let dbPublish      = $state(false);
     let dbRetain       = $state(false);
 
-    // Redis
-    let redisUrl       = $state('');
 
     // InfluxDB
     let influxVersion  = $state<'1' | '2'>('2');
@@ -291,7 +289,6 @@
         'updateChannel',
         'verbosity',
         'dbPath', 'dbPrefix', 'dbPublish', 'dbRetain',
-        'redis',
         'influx',
         'elastic', // handled explicitly: node and auth, the rest of the block is kept
         'ai',
@@ -371,7 +368,6 @@
         { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository','commit message','ai','ask'] },
         { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule','locale','holidays','holiday','feiertag','she.time'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
-        { id: 'redis',      label: 'Redis',        terms: ['redis','cache'] },
         { id: 'influx',     label: 'InfluxDB',     terms: ['influx','influxdb','time series','history','token','org','bucket','database','flux','influxql'] },
         { id: 'elastic',    label: 'Elasticsearch', terms: ['elastic','elasticsearch','search','index','messages','api key','she.elastic'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
@@ -463,8 +459,6 @@
             if (typeof cfg.dbPrefix         === 'string')  dbPrefix     = cfg.dbPrefix;
             if (typeof cfg.dbPublish        === 'boolean') dbPublish    = cfg.dbPublish;
             if (typeof cfg.dbRetain         === 'boolean') dbRetain     = cfg.dbRetain;
-            const redis = cfg.redis as { url?: string } | undefined;
-            if (redis?.url) redisUrl = redis.url;
             const inf = cfg.influx as Record<string, unknown> | undefined;
             if (inf) {
                 influxVersion = (Number(inf.version) === 1 || (!!inf.database && !inf.token)) ? '1' : '2';
@@ -694,7 +688,6 @@
         } else {
             cfg.dbPath = ''; // explicitly disable sheDB
         }
-        if (redisUrl) cfg.redis = { url: redisUrl };
         if (influxUrl) {
             cfg.influx = influxVersion === '1'
                 ? {
@@ -1446,20 +1439,6 @@
                     </div>
                     {/if}
                     {/if}
-                </section>
-                {/if}
-
-                <!-- ── Redis ─────────────────────────────────────── -->
-                {#if visibleSections.some(s => s.id === 'redis')}
-                <section id="sec-redis">
-                    <h3>Redis</h3>
-                    <div class="field">
-                        <label>
-                            Redis URL
-                            {@render tip('redis:// URL for the optional Redis write-through cache. All state store changes are written to the she:state hash. Leave empty to disable.')}
-                        </label>
-                        <input type="text" bind:value={redisUrl} placeholder="leave empty to disable" />
-                    </div>
                 </section>
                 {/if}
 

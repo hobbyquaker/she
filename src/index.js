@@ -1160,11 +1160,9 @@ if (config.dbPath) {
     });
 }
 
-// Redis write-through cache â€” only init when config.redis.url is given
-if (config.redis && config.redis.url) {
-    require('./lib/redis')
-        .init({ url: config.redis.url, store, log })
-        .catch((err) => log.error('redis init failed:', err.message));
+// Redis support was removed; a leftover block in config.json is ignored, and the log says so once
+if (config.redis) {
+    log.warn('config "redis" is ignored: the Redis write-through cache was removed from she');
 }
 
 // InfluxDB â€” only init when --influx is set

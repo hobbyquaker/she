@@ -52,7 +52,6 @@ The following integrations are activated only when configured:
 | Config key | Description |
 |---|---|
 | `brokers` | Additional MQTT brokers next to the primary `url`: `{ "<name>": { url, username, password, ca, cert, key, mqttVersion, mirror } }`. Scripts reach them with `she.mqtt('<name>')`; `mirror` rules copy topics into the primary and back. See [brokers.md](brokers.md) |
-| `redis.url` | Redis URL — enables write-through cache for the state store |
 | `influx` | InfluxDB connection config — enables time-series write-through. 2.x: `url`, `token`, `org`, `bucket`. 1.x: `url`, `database`, optional `username`, `password`, `retentionPolicy`, `timeout` (ms, default 10000; version inferred from the keys, or forced with `version: 1`) |
 | `elastic` | Elasticsearch connection: `node` (URL) and optional `auth` (`{ apiKey }` or `{ username, password }`; further keys go to the client as they are). Enables `she.elastic.*` and the AI assistant's message tools; she writes nothing to it on its own. Also in the web UI under Config → Elasticsearch |
 | `services.enabled` | Shows the Services page — management of xyz2mqtt adapter instances (MQTT inventory, systemd via the `she-servicectl` helper); `services.hosts[]` lists managed hosts, default the she host. See [services.md](services.md) |
@@ -95,7 +94,7 @@ SHE_URL=mqtt://192.168.1.10 SHE_PORT=8081 SHE_VERBOSITY=debug she
 | `--stats-interval` | `SHE_STATS_INTERVAL` |
 | `--config` | `SHE_CONFIG` |
 
-Boolean options take `true` / `false` (`SHE_DISABLE_WATCH=false` really is false — an empty value is not a way to unset an option, use the config file default instead). Nested config keys (`heartbeat.enabled`, `redis.url`) have no environment equivalent; use the config file for those.
+Boolean options take `true` / `false` (`SHE_DISABLE_WATCH=false` really is false — an empty value is not a way to unset an option, use the config file default instead). Nested config keys (`heartbeat.enabled`, `influx.url`) have no environment equivalent; use the config file for those.
 
 One environment variable is **not** an option and never becomes part of the config:
 

@@ -25,7 +25,6 @@
 | Frontend | Svelte 5 + Vite 6 + TypeScript |
 | Matter | @matter/main v0.17 |
 | Database | sheDB (built-in JSON document store, `src/web/shedb.js`) |
-| Cache | ioredis v5 (optional Redis write-through) |
 | Time series | @influxdata/influxdb-client v1 (optional) |
 | Search | @elastic/elasticsearch v9 (optional) |
 
