@@ -85,22 +85,23 @@ click away with **Approve** in the chat bar (see [below](#approve-what-goes-thro
 
 The select next to the checkboxes in the chat bar decides how much the assistant may do on its own:
 
-| Approve | Script changes | Publishes | Kept |
+| Approve | Script drafts | Publishes | Kept |
 | --- | --- | --- | --- |
 | *ask* (default) | wait for **Apply** / **Accept** | wait for **Allow** | — |
 | *scripts* | applied at once | wait for **Allow** | in the browser, across reloads |
 | *scripts + publish* | applied at once | published without asking | until the page is reloaded, then *scripts* |
 
 - With *scripts*, a draft is written the moment it arrives; its card still shows the diff and says *applied
-  automatically*. A code block the assistant proposes for the open script, and the editor's diff view, are accepted
-  without the click as well. The hot reload and the commit mode apply as for any save — with
+  automatically*. The hot reload and the commit mode apply as for any save — with
   `gitCommitMode: "auto"` every change is a commit you can revert.
+- A code block in an answer is never applied on its own, in any mode: it may be an excerpt or an example. Its
+  **Apply** takes it to the editor: through the diff view with *ask*, straight in with *scripts*.
 - Only what arrives while you watch is applied: a draft that was still open when you switched, or one in a
   conversation you load later, keeps its **Apply** button.
 - *scripts + publish* is available only while **Publish** is on, and falls back to *scripts* when you switch it off.
   The topic rules above still hold, and the journal logs every publish.
-- The shortcuts set the same select: **always** on a code block and *Always accept script changes* in the diff view
-  choose *scripts*, **Always allow** on a publish card chooses *scripts + publish*.
+- The shortcuts set the same select: *Always accept script changes* in the diff view chooses *scripts*,
+  **Always allow** on a publish card chooses *scripts + publish*.
 - The daemon does not approve anything by itself: the setting lives in the browser tab that runs the chat.
 
 ## Commit messages

@@ -150,8 +150,8 @@
     $effect(() => { if (!publishOn && aiApproval.mode === 'publish') aiApproval.mode = 'scripts'; });
     const APPROVE_TITLES: Record<AiApproval, string> = {
         ask: 'Every script change and every publish waits for your click.',
-        scripts: 'Script changes the assistant proposes are applied at once (the card still shows the diff). Remembered in this browser.',
-        publish: 'Script changes are applied at once and the assistant publishes without asking. Lasts until the page is reloaded, then falls back to "scripts".',
+        scripts: 'Script drafts the assistant proposes are applied at once (the card still shows the diff); code blocks in an answer still need Apply. Remembered in this browser.',
+        publish: 'Script drafts are applied at once and the assistant publishes without asking. Lasts until the page is reloaded, then falls back to "scripts".',
     };
 
     // File context chips
@@ -230,15 +230,6 @@
         void path;
         includeCurrentScript = true;
     });
-
-    // A finished answer's code block for the open script, applied without the click. Called for the answer that
-    // just streamed in, never for a loaded conversation. A block meant as a new file is left to its button, and
-    // an answer that came with a draft is left alone: the draft is the change, the block next to it an excerpt.
-    function autoApplyCodeBlock(content: string, events: AiToolEvent[]) {
-        if (!aiApproval.scripts || !currentScript || events.some(ev => ev.type === 'draft')) return;
-        const jsBlock = parseBlocks(content).find(b => b.type === 'code' && isJsBlock(b.lang) && !getNewFileHint(b.text));
-        if (jsBlock) onApply?.(jsBlock.text);
-    }
 
     async function reloadAiConfig() {
         try {
@@ -435,8 +426,9 @@
         navigator.clipboard.writeText(text).catch(() => {});
     }
 
-    function applyCode(text: string, setAutoApply = false) {
-        if (setAutoApply && !aiApproval.scripts) aiApproval.mode = 'scripts';
+    // a code block is never applied on its own, whatever "Approve" says: an answer's snippet may be an excerpt or an
+    // example, and only a draft (propose_script) is meant as the change
+    function applyCode(text: string) {
         onApply?.(text);
     }
 
@@ -616,7 +608,6 @@
             const events = [...toolEvents];
             messages = [...messages, { role: 'assistant', content: answer, toolEvents: events.length > 0 ? events : undefined }];
             toolEvents = [];
-            autoApplyCodeBlock(answer, events);
         } catch (e: any) {
             if ((e as Error).name === 'AbortError') {
                 // Save partial response if anything was streamed
@@ -817,11 +808,6 @@
                                                 <button class="create-btn" onclick={() => onCreateFile!(hint.filename, hint.code)}>Save as new file…</button>
                                             {:else if isJsBlock(block.lang) && currentScript}
                                                 <button class="apply-btn" onclick={() => applyCode(block.text)}>Apply</button>
-                                                {#if aiApproval.scripts}
-                                                    <span class="auto-badge" title={'Script changes are applied without asking — "Approve" in the chat bar'}>auto ✓</span>
-                                                {:else}
-                                                    <button class="apply-auto-btn" onclick={() => applyCode(block.text, true)} title={'Apply, and apply every further script change without asking (sets "Approve" in the chat bar to "scripts")'}>always</button>
-                                                {/if}
                                             {/if}
                                         </div>
                                     </div>
@@ -1251,20 +1237,6 @@
     .code-actions button:hover { background: var(--bg-hover); color: var(--fg); }
     .apply-btn { color: var(--fg-brand) !important; border-color: var(--fg-brand) !important; }
     .apply-btn:hover { background: rgba(var(--accent-rgb, 31,139,76), 0.15) !important; }
-    .apply-auto-btn {
-        color: var(--fg-muted) !important;
-        border-style: dashed !important;
-        font-size: 10px;
-    }
-    .apply-auto-btn:hover { color: var(--fg-brand) !important; border-color: var(--fg-brand) !important; }
-    .auto-badge {
-        font-size: 10px;
-        color: var(--fg-brand);
-        padding: 1px 4px;
-        border: 1px solid var(--fg-brand);
-        border-radius: 3px;
-        opacity: 0.75;
-    }
     .create-btn { color: var(--accent) !important; border-color: var(--accent) !important; font-weight: 600; }
     .create-btn:hover { background: rgba(var(--accent-rgb, 31,139,76), 0.15) !important; }
 
