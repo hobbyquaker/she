@@ -43,16 +43,18 @@ and the token usage per request.
 
 ## Tools
 
-The model reads the daemon through tools. Two tools change something, both behind a click:
+The model reads the daemon through tools. Two tools change something, both behind a click — unless you take the
+click away with **Approve** in the chat bar (see [below](#approve-what-goes-through-without-a-click)):
 
 - **Script drafts** — `propose_script` writes a draft to `<data-dir>/ai/drafts/`; the chat shows the diff with
   **Apply** (writes the file; the hot reload and the configured commit mode apply as for any save) and **Discard**.
-  Nothing reaches the scripts directory without the click.
+  Nothing reaches the scripts directory without the click while **Approve** is on *ask*.
 - **Publishing** — `publish_mqtt` is offered only with the **Publish** checkbox in the chat bar on (off by default,
   remembered like the other two). Every publish shows a card with the topic and the payload and waits for
-  **Allow**, **Always allow** (the rest of the session without asking) or **Deny** (two minutes, then it counts as
-  denied). Only command topics are accepted (`<name>/set/…`, `var/set/…`, `zigbee2mqtt/<device>/set`, plus the
-  patterns in `ai.publishAllow`); a status topic is refused; the journal logs every publish.
+  **Allow**, **Always allow** (sets **Approve** to *scripts + publish*: no more questions until the page is
+  reloaded) or **Deny** (two minutes, then it counts as denied). Only command topics are accepted
+  (`<name>/set/…`, `var/set/…`, `zigbee2mqtt/<device>/set`, plus the patterns in `ai.publishAllow`); a status topic
+  is refused; the journal logs every publish.
 - **Analyses** — `run_analysis` runs a short JavaScript the model writes in a worker sandbox with a read-only
   `data` object (the state store, Influx history, Elastic messages, the log files, script sources) and no
   `require`, network, `she` object or publishing; ten seconds and the usual result cap. The chat shows the code and
@@ -78,6 +80,28 @@ The model reads the daemon through tools. Two tools change something, both behin
 | `propose_script` | a script draft with a diff and an Apply button |
 | `run_analysis` | a short JavaScript the model writes, run in a sandbox over read-only data (state store, Influx, Elastic, log files, scripts); the chat shows the code and the result |
 | `publish_mqtt` | a command topic, behind the Publish switch |
+
+### Approve: what goes through without a click
+
+The select next to the checkboxes in the chat bar decides how much the assistant may do on its own:
+
+| Approve | Script changes | Publishes | Kept |
+| --- | --- | --- | --- |
+| *ask* (default) | wait for **Apply** / **Accept** | wait for **Allow** | — |
+| *scripts* | applied at once | wait for **Allow** | in the browser, across reloads |
+| *scripts + publish* | applied at once | published without asking | until the page is reloaded, then *scripts* |
+
+- With *scripts*, a draft is written the moment it arrives; its card still shows the diff and says *applied
+  automatically*. A code block the assistant proposes for the open script, and the editor's diff view, are accepted
+  without the click as well. The hot reload and the commit mode apply as for any save — with
+  `gitCommitMode: "auto"` every change is a commit you can revert.
+- Only what arrives while you watch is applied: a draft that was still open when you switched, or one in a
+  conversation you load later, keeps its **Apply** button.
+- *scripts + publish* is available only while **Publish** is on, and falls back to *scripts* when you switch it off.
+  The topic rules above still hold, and the journal logs every publish.
+- The shortcuts set the same select: **always** on a code block and *Always accept script changes* in the diff view
+  choose *scripts*, **Always allow** on a publish card chooses *scripts + publish*.
+- The daemon does not approve anything by itself: the setting lives in the browser tab that runs the chat.
 
 ## Commit messages
 
