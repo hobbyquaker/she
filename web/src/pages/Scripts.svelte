@@ -36,6 +36,7 @@
     import { resolveCommitMode, defaultCommitMessage, type CommitMode } from '../lib/git-commit.js';
     import { generateCommitMessage, getAiConfig } from '../lib/api.js';
     import Chat from './Chat.svelte';
+    import { aiApproval } from '../lib/ai-approval.svelte.js';
     import { registerCompletionProviders } from '../lib/completions.js';
     import { createDock, type Dock, type DockOpenOptions } from '../lib/dock.js';
     import '../lib/dockview.css';
@@ -284,7 +285,8 @@
     // Chat panel & diff view
     let chatOpen = $state(false);
     let proposedCode = $state<string | null>(null);
-    let autoAccept = $state(false);
+    // proposals skip the diff view when the chat's approval select says so (one setting for both)
+    const autoAccept = $derived(aiApproval.scripts);
     let acceptDropOpen = $state(false);
     let diffEditorContainer = $state<HTMLDivElement | undefined>(undefined);
     let diffEditor: monaco.editor.IStandaloneDiffEditor | null = null;
@@ -1659,10 +1661,9 @@ declare const she: {
         resetMonacoHoverServices();
     }
 
-    // Reset auto-accept when the active script changes
+    // the Accept menu does not stay open across a script change
     $effect(() => {
         void activeTab;
-        autoAccept = false;
         acceptDropOpen = false;
     });
 
@@ -2221,9 +2222,9 @@ declare const she: {
                                             <div class="split-backdrop" role="presentation" onclick={() => acceptDropOpen = false}></div>
                                             <div class="split-menu">
                                                 {#if !autoAccept}
-                                                    <button onclick={() => { acceptDropOpen = false; autoAccept = true; acceptProposal(); }}>Always accept in this session</button>
+                                                    <button title={'Sets "Approve" in the chat bar to "scripts": script changes from the assistant are applied without asking'} onclick={() => { acceptDropOpen = false; aiApproval.mode = 'scripts'; acceptProposal(); }}>Always accept script changes</button>
                                                 {:else}
-                                                    <button onclick={() => { acceptDropOpen = false; autoAccept = false; }}>Disable auto-accept</button>
+                                                    <button onclick={() => { acceptDropOpen = false; aiApproval.mode = 'ask'; }}>Disable auto-accept</button>
                                                 {/if}
                                             </div>
                                         {/if}

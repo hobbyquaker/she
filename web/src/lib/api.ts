@@ -1120,6 +1120,8 @@ export interface AiToolEvent {
     added?: number;
     removed?: number;
     status?: 'open' | 'applied' | 'discarded';
+    /** the draft was applied without a click (the chat's auto-approval) */
+    auto?: boolean;
     /** publish_request (I20): what the model wants to publish */
     topic?: string;
     payload?: string;

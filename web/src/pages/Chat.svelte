@@ -1,6 +1,7 @@
 <script lang="ts">
     import { decideAiPublish, getAiDraft, setAiDraftStatus, writeScript, type AiNote, getAiMemory, addAiNote, updateAiNote, deleteAiNote, type AiMessage, type AiContext, type AiCurrentScript, type AiExtraFile, type AiToolEvent, type OllamaModelInfo, type AiConversation, streamChatWithAI, getAiConfig, getAiModels, getOllamaModelInfo, getAiPrompt, listConversations, getConversation, saveConversation, deleteConversation, type AiConfig } from '../lib/api.js';
     import { onMount } from 'svelte';
+    import { aiApproval, type AiApproval } from '../lib/ai-approval.svelte.js';
     import hljs from 'highlight.js/lib/core';
     import javascript from 'highlight.js/lib/languages/javascript';
     import { marked } from 'marked';
@@ -50,12 +51,6 @@
     let selectedProvider = $state<string>(localStorage.getItem('she:selectedProvider') ?? '');
     const providerEntries = $derived(aiConfig?.providers ?? []);
     const activeEntry = $derived(providerEntries.find(p => p.id === selectedProvider) ?? providerEntries.find(p => p.id === aiConfig?.default) ?? null);
-
-    // Always-apply session flag (per script, resets on script change)
-    let autoApplyScript = $state<string | null>(null);
-    const autoApply = $derived(
-        autoApplyScript !== null && currentScript?.path === autoApplyScript,
-    );
 
     // Collapsed/expanded code block tracking
     let expandedBlocks = $state(new Set<string>());
@@ -139,17 +134,25 @@
         '[model] manifesting an answer…',
     ];
 
-    // the three context switches persist across reloads (I40); "always allow" for publishes lasts the session only
+    // the three context switches persist across reloads (I40); publishing without asking lasts the session only
     const ctxStored = (key: string, fallback: boolean) => { const v = localStorage.getItem(key); return v === null ? fallback : v === 'true'; };
     let ctxApiref = $state(ctxStored('she:aiApiref', true));
     let ctxTools  = $state(ctxStored('she:aiTools', true));
     $effect(() => { localStorage.setItem('she:aiApiref', String(ctxApiref)); });
     $effect(() => { localStorage.setItem('she:aiTools', String(ctxTools)); });
     // publishing (I20, D-2, I40): the checkbox is off by default and persisted; with it on, every publish asks in the
-    // chat (Allow / Always allow / Deny); "Always allow" lets the rest of the session through without asking
+    // chat (Allow / Always allow / Deny) unless the approval select says "scripts + publish"
     let ctxPublish = $state(localStorage.getItem('she:aiPublish') === 'true');
     $effect(() => { localStorage.setItem('she:aiPublish', String(ctxPublish)); });
-    let publishAlways = $state(false);
+    // what goes through without a click: one select in the context row, shared with the editor's diff view.
+    // "scripts + publish" needs publishing switched on; without it the select falls back to "scripts"
+    const publishOn = $derived(ctxPublish && ctxTools);
+    $effect(() => { if (!publishOn && aiApproval.mode === 'publish') aiApproval.mode = 'scripts'; });
+    const APPROVE_TITLES: Record<AiApproval, string> = {
+        ask: 'Every script change and every publish waits for your click.',
+        scripts: 'Script changes the assistant proposes are applied at once (the card still shows the diff). Remembered in this browser.',
+        publish: 'Script changes are applied at once and the assistant publishes without asking. Lasts until the page is reloaded, then falls back to "scripts".',
+    };
 
     // File context chips
     let includeCurrentScript = $state(true);
@@ -166,7 +169,7 @@
     const context = $derived<AiContext>({
         apiref: ctxApiref,
         tools:  ctxTools,
-        publish: ctxPublish ? (publishAlways ? 'all' : 'confirm') : 'off',
+        publish: ctxPublish ? (aiApproval.publish ? 'all' : 'confirm') : 'off',
     });
 
     // draft and publish cards (I16, I20)
@@ -175,7 +178,7 @@
         toolEvents = touch(toolEvents) ?? [];
         messages = messages.map(m => m.toolEvents ? { ...m, toolEvents: touch(m.toolEvents) } : m);
     }
-    async function applyDraft(ev: AiToolEvent) {
+    async function applyDraft(ev: AiToolEvent, auto = false) {
         if (!ev.id) return;
         error = '';
         try {
@@ -184,9 +187,17 @@
             await setAiDraftStatus(ev.id, 'applied');
             if (currentScript?.path === d.path) onApply?.(d.content);
             else onDraftApplied?.(d.path, d.content, !!ev.isNew);
-            patchEvent(ev.id, { status: 'applied' });
+            patchEvent(ev.id, auto ? { status: 'applied', auto: true } : { status: 'applied' });
             void persistConversation();
         } catch (e: any) { error = e.message; }
+    }
+    // Drafts applied without a click: only those that arrive from the running stream and are still undecided —
+    // never one from a loaded conversation, so nothing is written twice or behind the user's back after a reload.
+    // One after the other, so two drafts for the same file land in the order the assistant made them.
+    let autoApplyQueue: Promise<void> = Promise.resolve();
+    function autoApplyDraft(ev: AiToolEvent) {
+        if (!ev.id || (ev.status && ev.status !== 'open')) return;
+        autoApplyQueue = autoApplyQueue.then(() => applyDraft(ev, true));
     }
     async function discardDraft(ev: AiToolEvent) {
         if (!ev.id) return;
@@ -196,7 +207,7 @@
     }
     async function decidePublish(ev: AiToolEvent, ok: boolean, always = false) {
         if (!ev.id) return;
-        if (always) publishAlways = true; // the rest of this session goes through without asking
+        if (always) aiApproval.mode = 'publish'; // the rest of this session goes through without asking
         try {
             await decideAiPublish(ev.id, ok);
             patchEvent(ev.id, { decided: ok ? 'published' : 'skipped' });
@@ -213,26 +224,21 @@
     const activeScript = $derived(includeCurrentScript ? currentScript : null);
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
-    // Reset auto-apply when the active script changes
+    // the open script is part of the context again whenever it changes
     $effect(() => {
         const path = currentScript?.path;
         void path;
         includeCurrentScript = true;
-        if (autoApplyScript !== null && path !== autoApplyScript) autoApplyScript = null;
     });
 
-    // Auto-apply last assistant message when flag is set
-    $effect(() => {
-        if (!autoApply) return;
-        const last = messages.at(-1);
-        if (!last || last.role !== 'assistant') return;
-        const blocks = parseBlocks(last.content);
-        const jsBlock = blocks.find(b => b.type === 'code' && isJsBlock(b.lang));
-        if (jsBlock) {
-            const hint = getNewFileHint(jsBlock.text);
-            onApply?.(hint ? hint.code : jsBlock.text);
-        }
-    });
+    // A finished answer's code block for the open script, applied without the click. Called for the answer that
+    // just streamed in, never for a loaded conversation. A block meant as a new file is left to its button, and
+    // an answer that came with a draft is left alone: the draft is the change, the block next to it an excerpt.
+    function autoApplyCodeBlock(content: string, events: AiToolEvent[]) {
+        if (!aiApproval.scripts || !currentScript || events.some(ev => ev.type === 'draft')) return;
+        const jsBlock = parseBlocks(content).find(b => b.type === 'code' && isJsBlock(b.lang) && !getNewFileHint(b.text));
+        if (jsBlock) onApply?.(jsBlock.text);
+    }
 
     async function reloadAiConfig() {
         try {
@@ -430,7 +436,7 @@
     }
 
     function applyCode(text: string, setAutoApply = false) {
-        if (setAutoApply && currentScript) autoApplyScript = currentScript.path;
+        if (setAutoApply && !aiApproval.scripts) aiApproval.mode = 'scripts';
         onApply?.(text);
     }
 
@@ -598,11 +604,19 @@
                 (event) => {
                     // a decision on a publish request (the click, or the timeout) updates its card instead of adding one
                     if (event.type === 'publish_decided' && event.id) patchEvent(event.id, { decided: event.decided });
-                    else toolEvents = [...toolEvents, event];
+                    else {
+                        toolEvents = [...toolEvents, event];
+                        if (event.type === 'draft' && aiApproval.scripts) autoApplyDraft(event);
+                        // a request made before the select was moved to "scripts + publish" still asks: answer it
+                        else if (event.type === 'publish_request' && aiApproval.publish) void decidePublish(event, true);
+                    }
                 },
             );
-            messages = [...messages, { role: 'assistant', content: streamingContent ?? '', toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined }];
+            const answer = streamingContent ?? '';
+            const events = [...toolEvents];
+            messages = [...messages, { role: 'assistant', content: answer, toolEvents: events.length > 0 ? events : undefined }];
             toolEvents = [];
+            autoApplyCodeBlock(answer, events);
         } catch (e: any) {
             if ((e as Error).name === 'AbortError') {
                 // Save partial response if anything was streamed
@@ -665,7 +679,7 @@
                         <span class="tool-icon">📝</span>
                         <strong>{ev.isNew ? 'New script' : 'Change'}: {ev.path}</strong>
                         <span class="draft-stats">+{ev.added ?? 0} −{ev.removed ?? 0}</span>
-                        {#if ev.status === 'applied'}<span class="draft-state ok">applied</span>
+                        {#if ev.status === 'applied'}<span class="draft-state ok" title={ev.auto ? 'Applied without a click: "Approve" in the chat bar is set to apply script changes' : undefined}>{ev.auto ? 'applied automatically' : 'applied'}</span>
                         {:else if ev.status === 'discarded'}<span class="draft-state">discarded</span>
                         {:else}
                             <button class="draft-btn apply" onclick={() => applyDraft(ev)}>Apply</button>
@@ -698,7 +712,7 @@
                         {:else if ev.decided === 'timeout'}<span class="draft-state">not answered in time (two minutes)</span>
                         {:else}
                             <button class="draft-btn apply" onclick={() => decidePublish(ev, true)}>Allow</button>
-                            <button class="draft-btn apply" onclick={() => decidePublish(ev, true, true)} title="Allow this and every further publish in this session without asking">Always allow</button>
+                            <button class="draft-btn apply" onclick={() => decidePublish(ev, true, true)} title={'Allow this and every further publish until the page is reloaded. Sets "Approve" in the chat bar to "scripts + publish", so script changes are applied without asking, too.'}>Always allow</button>
                             <button class="draft-btn" onclick={() => decidePublish(ev, false)}>Deny</button>
                         {/if}
                     </div>
@@ -803,10 +817,10 @@
                                                 <button class="create-btn" onclick={() => onCreateFile!(hint.filename, hint.code)}>Save as new file…</button>
                                             {:else if isJsBlock(block.lang) && currentScript}
                                                 <button class="apply-btn" onclick={() => applyCode(block.text)}>Apply</button>
-                                                {#if autoApply}
-                                                    <span class="auto-badge" title="Auto-applying AI code to this script in this session">auto ✓</span>
+                                                {#if aiApproval.scripts}
+                                                    <span class="auto-badge" title={'Script changes are applied without asking — "Approve" in the chat bar'}>auto ✓</span>
                                                 {:else}
-                                                    <button class="apply-auto-btn" onclick={() => applyCode(block.text, true)} title="Apply and always apply for this script in this session">always</button>
+                                                    <button class="apply-auto-btn" onclick={() => applyCode(block.text, true)} title={'Apply, and apply every further script change without asking (sets "Approve" in the chat bar to "scripts")'}>always</button>
                                                 {/if}
                                             {/if}
                                         </div>
@@ -877,8 +891,16 @@
         <label title="Let the AI query MQTT state, sheDB documents and Matter devices on demand. Disables real-time streaming.">
             <input type="checkbox" bind:checked={ctxTools} /><span class="checkmark"></span> 😎 Agent
         </label>
-        <label title={publishAlways ? 'Publishing allowed for this session without asking (reload to ask again)' : 'Let the assistant publish MQTT messages; every publish asks in the chat first (Allow / Always allow / Deny)'}>
-            <input type="checkbox" bind:checked={ctxPublish} disabled={!ctxTools} /><span class="checkmark"></span> 📡 Publish{#if ctxPublish && publishAlways} <span class="publish-always">always</span>{/if}
+        <label title={aiApproval.publish ? 'Publishing allowed without asking until the page is reloaded ("Approve" is set to "scripts + publish")' : 'Let the assistant publish MQTT messages; every publish asks in the chat first (Allow / Always allow / Deny)'}>
+            <input type="checkbox" bind:checked={ctxPublish} disabled={!ctxTools} /><span class="checkmark"></span> 📡 Publish
+        </label>
+        <label class="approve" title={'What the assistant may do without your click.\n' + APPROVE_TITLES[aiApproval.mode]}>
+            Approve
+            <select class="approve-select" class:on={aiApproval.scripts} class:publish={aiApproval.publish} aria-label="Auto-approval" value={aiApproval.mode} onchange={(e) => { aiApproval.mode = e.currentTarget.value as AiApproval; }}>
+                <option value="ask" title={APPROVE_TITLES.ask}>ask</option>
+                <option value="scripts" title={APPROVE_TITLES.scripts}>scripts</option>
+                <option value="publish" title={publishOn ? APPROVE_TITLES.publish : 'Switch on "Publish" first'} disabled={!publishOn}>scripts + publish</option>
+            </select>
         </label>
         <span class="req-size">{formatBytes(requestBytes)}{#if ollamaInfo?.contextLength}{@const pct = Math.min(100, Math.round(requestBytes / 4 / ollamaInfo.contextLength * 100))}<span class="ctx-indicator" title="~{pct}% of {ollamaInfo.contextLength.toLocaleString()} token context window used"><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="none" stroke="var(--border-sub)" stroke-width="2"/><circle cx="6" cy="6" r="5" fill="none" stroke="{pct > 80 ? 'var(--fg-err)' : pct > 50 ? 'var(--fg-warn)' : 'var(--fg-ok)'}" stroke-width="2" stroke-dasharray="{(pct / 100 * 31.4).toFixed(1)} 31.4" stroke-dashoffset="7.85" stroke-linecap="round"/></svg></span>{/if}</span>
     </div>
@@ -1376,6 +1398,21 @@
         transform: rotate(45deg);
     }
     .context-row label:hover .checkmark { border-color: var(--accent); }
+    .context-row label.approve { gap: 4px; cursor: default; min-width: 0; }
+    .approve-select {
+        min-width: 0;
+        background: var(--bg-app);
+        border: 1px solid var(--border-sub);
+        border-radius: 3px;
+        color: var(--fg-muted);
+        font-size: 10px;
+        padding: 0 2px;
+        cursor: pointer;
+        font-family: inherit;
+    }
+    .approve-select:focus { outline: none; border-color: var(--fg-brand); }
+    .approve-select.on { color: var(--fg-ok); border-color: var(--fg-ok); }
+    .approve-select.publish { color: var(--fg-warn); border-color: var(--fg-warn); }
     .req-size {
         margin-left: auto;
         font-size: 10px;
@@ -1765,7 +1802,6 @@
     .draft-state { font-size: 10px; color: var(--fg-muted); }
     .draft-state.ok { color: var(--fg-ok); }
 
-    .context-row .publish-always { font-size: 9px; color: var(--fg-ok); text-transform: uppercase; letter-spacing: 0.05em; }
     /* the memory panel (I29) */
     .info-popup.memory-popup { max-width: 560px; } /* wider than the info popup: the notes are sentences */
     .memory-popup .info-status { margin-bottom: 6px; }
