@@ -28,6 +28,25 @@ she.schedule('0 6 * * *', async () => {
 });
 ```
 
+### Example: Redis
+
+she has no Redis integration of its own; a script uses a client package. Install [`ioredis`](https://www.npmjs.com/package/ioredis) in the Packages tab and create the client in a library file (see [`.shelib`](#library-directories-shelib) below): a library is loaded once per daemon process, so every script shares one connection, and a hot-reloaded script does not open another one.
+
+```js
+// lib/redis.js (in a directory with a .shelib marker)
+const Redis = require('ioredis');
+module.exports = new Redis('redis://localhost:6379');
+```
+
+```js
+// a script
+const redis = require('./lib/redis');
+
+she.mqtt.sub('home/status/+/temperature', async (topic, val) => {
+    await redis.hset('temperatures', topic, String(val));
+});
+```
+
 ## Hot-reload behaviour
 
 | Action | Effect |
