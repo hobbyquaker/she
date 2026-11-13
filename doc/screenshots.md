@@ -19,7 +19,8 @@ cause in the script and drafts the fix.
 ![AI assistant with its tool calls and a script draft shown as a diff with Apply and Discard](screenshots/ai-script-change.png)
 
 Asked for a change, the assistant reads the script and the topics it needs, then hands over a draft. The chat shows
-every tool call and the draft as a diff; nothing is written until **Apply**.
+every tool call and the draft as a diff; nothing is written until **Apply** (unless **Approve** in the chat bar is
+set to apply script changes at once).
 
 ### The change as a diff in the editor
 
