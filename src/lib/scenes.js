@@ -424,6 +424,10 @@ class SceneEngine extends EventEmitter {
     _publishScene(rt, again = false) {
         const s = rt.state;
         if (!s) return;
+        // The scene is there and its recall has nothing left to send: it has settled, and what changes
+        // from now on is told. This must not wait for a publish — a recall of a scene that is already
+        // true changes nothing that would be published at this point.
+        if (s.val && rt.settleUntil && !rt.sends.length) this._afterDeactivate(rt);
         // while a recall settles, entities that have not answered yet do not make the scene false
         if (!s.val && this.now() < rt.settleUntil && !again) return;
         const body = JSON.stringify({ val: s.val, matched: s.matched, total: s.total, mismatch: s.mismatch, unknown: s.unknown, recalled: rt.recalled });
@@ -436,8 +440,6 @@ class SceneEngine extends EventEmitter {
         if (!this.publish(`${this.name}/status/scene/${rt.id}`, JSON.stringify(payload), { retain: true })) return;
         rt.published = body;
         rt.publishedVal = s.val;
-        // the scene is there: its recall has settled, and what changes from now on is told
-        if (s.val && rt.settleUntil) this._afterDeactivate(rt);
         if (before !== s.val || !again) this.emit('scene', rt.id, this.state(rt.id));
         if (before !== s.val) this._groupsChanged(rt.id);
     }
@@ -642,6 +644,7 @@ class SceneEngine extends EventEmitter {
                 const t = setTimeout(() => {
                     rt.sends = rt.sends.filter((x) => x !== t);
                     send();
+                    if (!rt.sends.length) this._sent(rt);
                 }, at);
                 t.unref?.();
                 rt.sends.push(t);
@@ -655,7 +658,18 @@ class SceneEngine extends EventEmitter {
         rt.settleTimer = setTimeout(() => this._settled(rt), rt.settleUntil - now);
         rt.settleTimer.unref?.();
         this.log.info(`scene ${id}: recalled${all ? ' (every member)' : ''}: ${sent} commanded, ${skipped} already there`);
+        if (!rt.sends.length) this._sent(rt);
         return { ok: true, sent, skipped, problems };
+    }
+
+    /**
+     * Every command of a recall is out. A scene that is in its state already — recalled while true,
+     * or with members that answered at once — has nothing to wait for: its status is told (it carries
+     * the new `recalled`) and the settle time ends. Otherwise the members get their time.
+     */
+    _sent(rt) {
+        this._evaluate(rt);
+        this._publishScene(rt);
     }
 
     /** The settle time of a recall is over: what does not match now is told. */
