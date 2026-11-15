@@ -103,6 +103,7 @@ describe('the standard views on the corpus', () => {
             'she/entities/by-room-function',
             'she/floors',
             'she/rooms',
+            'she/rooms/aggregates',
             'she/topics',
         ]);
         for (const [id, def] of Object.entries(views.DEFINITIONS)) {
@@ -227,7 +228,7 @@ describe('installed into sheDB', () => {
     test('written while the model is on, computed by the worker, kept switches, removed when it goes off', async () => {
         corpusModel();
         home.syncViews(core, noop);
-        expect(Object.keys(core.queries).filter((id) => id.startsWith('she/')).length).toBe(13);
+        expect(Object.keys(core.queries).filter((id) => id.startsWith('she/')).length).toBe(14);
         const computed = new Promise((resolve) => {
             const seen = (id, view) => {
                 if (id === 'she/entities/by-room' && view && view.result) {
