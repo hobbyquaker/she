@@ -75,6 +75,7 @@ const { broadcastLog, broadcast, setWelcomeProvider, onClientMessage, onClientCl
 const shedb = require('./web/shedb');
 const home = require('./web/home');
 const homeEntities = require('./web/home-entities');
+const homeAggregates = require('./web/home-aggregates');
 // One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
 const log = require('./lib/logger').createLogger({
     redact: (s) => secrets.redact(s),
@@ -539,6 +540,8 @@ function _maybeStart() {
     _started = true;
     // before the scripts: they find the home model's documents in line with the retained state
     home.start({ authoritative: _retainedComplete });
+    // what the rooms, the floors and the house are doing, from the entities' state
+    homeAggregates.start();
     start();
     // the Matter ↔ MQTT bridge needs both: the controller and the retained state (M19)
     if (config.matterStorage) {
@@ -979,6 +982,7 @@ if (config.url) {
         mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => _dispatch(c._script, () => c.callback()));
         // discovery configs are published on every broker connect (mqtt-smarthome section 8)
         announcer.republish();
+        homeAggregates.connected();
 
         if (!_started) {
             // Cancel the “broker not connecting” startup timeout — we’re connected.
@@ -1205,6 +1209,19 @@ if (config.dbPath) {
             mqtt.publish(topic, payload, options);
             return true;
         },
+    });
+    // the aggregates of rooms, floors and the house: published retained, announced as she's own devices
+    homeAggregates.init({
+        core: dbCore,
+        store,
+        log,
+        instance: config.name,
+        publish: (topic, payload) => {
+            if (!mqtt || !connected) return false;
+            mqtt.publish(topic, payload, { retain: true });
+            return true;
+        },
+        announce: (entity) => announcer.announce('\0home-aggregates', 'home', entity),
     });
 }
 
@@ -2778,6 +2795,7 @@ async function gracefulShutdown(signal) {
     _clearSentinel();
     log.info(`got ${signal}. exiting.`);
     // the discovery configs stay retained: Home Assistant shows the entities unavailable meanwhile
+    homeAggregates.reset();
     announcer.stop();
     if (config.matterStorage) {
         try {

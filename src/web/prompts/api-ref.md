@@ -129,6 +129,10 @@ she.home.assign(id, { name, rooms, functions, labels, hidden, notes })   id = sh
 Standard views (she.db.getView, read-only, objects): she/floors, she/rooms, she/entities/by-room ({room: [summary]}, "" = no room),
     by-floor, by-function, by-room-function ({room: {function: [summary]}}), by-component, by-label, she/topics ({state topic: [summary]}),
     she/devices/by-adapter, she/devices/unassigned ({devices, entities}), she/devices/gone, she/entities/battery
+Aggregates (retained, while the home model is on): she/status/room/<room>/<aggregate>, she/status/floor/<floor>/…, she/status/home/…
+    aggregate = light (bool) | lights (count) | open (bool) | temperature | humidity (mean, + min, max) | occupied (bool) | power (W, sum)
+    payload {val, ts, lc, members: [{id, name, val}]}; val null = nothing known; "she" is the instance name
+    e.g. she.mqtt.sub('she/status/room/+/open', { change: true }, (topic, open) => …)
 Write scripts against rooms and functions, not topics: she.home.entities({ room: 'bathroom', function: 'openings' }),
     and act on them through she.home.entity(e.id): for (const e of she.home.entities({ room: 'hall', function: 'lighting' })) she.home.entity(e.id).turnOff();
 ```

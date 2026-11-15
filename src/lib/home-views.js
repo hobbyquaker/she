@@ -120,7 +120,8 @@ function byOrder(a, b) {
     return oa - ob || String(a.name || a.id).localeCompare(String(b.name || b.id));
 }
 
-const HELPERS = [entitySummary, deviceSummary, isListed, byName, groupBy, shortId, byOrder];
+/* global aggregatesOf, planScope */
+const HELPERS = [entitySummary, deviceSummary, isListed, byName, groupBy, shortId, byOrder, ...require('./home-aggregate-rules').HELPERS];
 
 // ---------------------------------------------------------------------------
 // The views
@@ -273,6 +274,31 @@ const DEFS = {
                     .map((x) => x.e)
                     .sort(byName),
             };
+        },
+    },
+    'she/rooms/aggregates': {
+        description: 'Per room: the aggregates she publishes for it and the entities each is computed from — {room: {name, floor, aggregates: {light: {entities, excluded}}, off}}',
+        filter: 'she/#',
+        map: function () {
+            const room = shortId(this._id, 'she/room/');
+            if (room && this.kind === 'room' && !this.rejected)
+                emit({ t: 'room', id: room, name: this.name || room, floor: this.floor || null, aggregates: this.aggregates || null });
+            else {
+                const kinds = aggregatesOf(this);
+                if (kinds.length) emit({ t: 'entity', id: this._id, name: (this.eff && this.eff.name) || null, rooms: (this.eff && this.eff.rooms) || [], kinds: kinds });
+            }
+        },
+        reduce: function (result) {
+            const entities = result.filter((x) => x.t === 'entity');
+            const out = {};
+            for (const room of result.filter((x) => x.t === 'room').sort((a, b) => a.id.localeCompare(b.id))) {
+                const plan = planScope(
+                    room,
+                    entities.filter((e) => e.rooms.indexOf(room.id) !== -1),
+                );
+                out[room.id] = { name: room.name, floor: room.floor, aggregates: plan.aggregates, off: plan.off };
+            }
+            return out;
         },
     },
     'she/devices/gone': {

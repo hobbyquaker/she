@@ -1249,6 +1249,7 @@ While the model is on, she keeps these sheDB views under `she/…`. They are rec
 | `she/devices/unassigned` | `{devices: [device summary], entities: [summary]}` — without a room, not hidden; an entity only when its device has a room (or there is none) |
 | `she/devices/gone` | `[device summary]` no longer announced, the most recent `gone_since` first |
 | `she/entities/battery` | `[summary + device_name]` — `device_class` battery, hidden ones too, by room and name |
+| `she/rooms/aggregates` | `{room: {name, floor, aggregates: {light: {entities: [{id, name}], excluded: [ids]}, …}, off: [names]}}` — which aggregates a room publishes and from which entities (below) |
 
 A **device summary** is `{id, name, rooms, floors, labels, adapter, manufacturer, model, present, gone_since, entities}` (`entities` = how many). The by-… views list entities that are announced and not hidden.
 
@@ -1260,6 +1261,45 @@ she.mqtt.sub('zigbee2mqtt/#', (topic, val) => {
     }
 });
 ```
+
+#### Aggregates: what a room, a floor and the house are doing
+
+While the home model is on, she computes these from the entities and publishes them retained (`<name>` is the instance name, `she` by default):
+
+```
+<name>/status/room/<room>/<aggregate>
+<name>/status/floor/<floor>/<aggregate>
+<name>/status/home/<aggregate>
+```
+
+| Aggregate | `val` | Computed from |
+|---|---|---|
+| `light` | is a light on | lights and switches with the function `lighting` |
+| `lights` | how many are on | the same |
+| `open` | is something open | contacts and covers with the function `openings` |
+| `temperature` | the mean, in °C, with `min` and `max` | temperature sensors with the function `climate` |
+| `humidity` | the mean, in %, with `min` and `max` | humidity sensors with the function `climate` |
+| `occupied` | does a sensor see somebody | occupancy, presence and motion sensors |
+| `power` | the sum, in W | power sensors with the function `energy` |
+
+A payload is `{val, ts, lc, members: [{id, name, val}]}` (plus `min`, `max`, `unit` where it applies): `lc` is the last change of `val`, `members` are the entities it was computed from with what each contributed — `null` for one that is unavailable or has not reported. `val` is `null` when no member is known. An aggregate nothing counts in is not published. Hidden entities do not count; an entity in two rooms counts in both, and once on its floor and in the house. Changes are collected for a quarter of a second, so a device that reports several values makes one publish.
+
+```js
+// heating down while a window is open, for every room that has both
+for (const room of she.home.rooms()) {
+    she.mqtt.sub(`she/status/room/${room.id}/open`, { change: true }, (topic, open) => {
+        for (const e of she.home.entities({ room: room.id, function: 'heating' })) she.home.entity(e.id).setTemperature(open ? 12 : 21);
+    });
+}
+```
+
+A room, a floor and the house (`she/home`) can carry `aggregates` to switch one off or to leave an entity out; what a room leaves out is left out of its floor and the house too:
+
+```js
+she.db.extend('she/room/kitchen', { aggregates: { humidity: false, temperature: { exclude: ['she/entity/fridge_temperature'] } } });
+```
+
+Rooms, floors and the house are also announced through Home Assistant discovery as devices of she, one entity per aggregate, so Home Assistant sees them. In the home model those devices and entities are hidden.
 
 ---
 
