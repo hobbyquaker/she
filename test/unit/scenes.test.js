@@ -499,6 +499,63 @@ describe('recall', () => {
         expect(status('scene', 's').val).toBe(false);
     });
 
+    test('a recall of a scene that is already true opens no settle time: a change by hand is told after the debounce', () => {
+        makeEngine();
+        engine.save('s', {
+            name: 'S',
+            settle: 60,
+            members: [
+                { entity: A, attributes: { state: 'ON' } },
+                { entity: PLUG, attributes: { state: 'ON' } },
+            ],
+        });
+        engine.recall('s');
+        jest.advanceTimersByTime(1000);
+        expect(status('scene', 's').val).toBe(true);
+        const first = status('scene', 's').recalled;
+        // the repair recall: every member is commanded, and all of them are where they should be
+        jest.advanceTimersByTime(5000);
+        expect(engine.recall('s')).toMatchObject({ ok: true, sent: 2, skipped: 0 });
+        expect(engine.state('s').settling).toBe(false);
+        // the status tells the new recall at once, still true
+        expect(status('scene', 's')).toMatchObject({ val: true });
+        expect(status('scene', 's').recalled).toBeGreaterThan(first);
+        const told = statusCount('scene', 's');
+        feed('z/plug', 'OFF');
+        jest.advanceTimersByTime(999);
+        expect(statusCount('scene', 's')).toBe(told);
+        jest.advanceTimersByTime(1);
+        expect(status('scene', 's')).toMatchObject({ val: false, mismatch: [{ entity: PLUG, attribute: 'state', is: 'OFF', want: 'ON' }] });
+    });
+
+    test('a recall with delayed members settles when the last of them was sent, not before', () => {
+        answering = false;
+        makeEngine();
+        engine.save('s', {
+            name: 'S',
+            settle: 60,
+            members: [
+                { entity: A, attributes: { state: 'OFF' } },
+                { entity: PLUG, attributes: { state: 'OFF' }, delay: 5 },
+            ],
+        });
+        expect(status('scene', 's').val).toBe(true);
+        engine.recall('s');
+        // the plug has not been commanded yet: the time to settle is still running
+        expect(engine.state('s').settling).toBe(true);
+        feed('z/a', { state: 'ON' });
+        jest.advanceTimersByTime(4000);
+        expect(status('scene', 's').val).toBe(true);
+        feed('z/a', { state: 'OFF', brightness: 50 });
+        jest.advanceTimersByTime(1000);
+        // the last command went out and everything is in place
+        expect(commands().at(-1)).toEqual(['z/plug/set', 'OFF']);
+        expect(engine.state('s').settling).toBe(false);
+        feed('z/a', { state: 'ON' });
+        jest.advanceTimersByTime(1000);
+        expect(status('scene', 's').val).toBe(false);
+    });
+
     test('a member that is gone or offline is a problem of the recall, not an exception', () => {
         makeEngine();
         engine.save('s', {
