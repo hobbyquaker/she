@@ -17,6 +17,8 @@
  *   (the switches set by the user are kept), and removes she's views that no longer exist.
  * - **Versioned**: every definition carries `version`; a change here raises `VERSION`.
  *
+ * The two `she/scenes/…` views list the scene documents (lib/scenes.js) by room and by member.
+ *
  * What the by-… views list: entities that are present and not hidden. `she/topics` and
  * `she/entities/battery` also list hidden ones (a battery sensor is often diagnostic).
  */
@@ -120,8 +122,28 @@ function byOrder(a, b) {
     return oa - ob || String(a.name || a.id).localeCompare(String(b.name || b.id));
 }
 
+/**
+ * The scene summary: what a list of scenes shows. Whether a scene is active is not in it — that is
+ * computed from the devices and published on `<name>/status/scene/<id>`; a view sees documents.
+ * @param {object} doc  a scene document
+ * @returns {object|null} null for anything else under `she/scene/` (a restore point)
+ */
+function sceneSummary(doc) {
+    const id = shortId(doc && doc._id, 'she/scene/');
+    if (!id || doc.kind !== 'scene' || !Array.isArray(doc.members)) return null;
+    return {
+        id: id,
+        name: doc.name || id,
+        area: typeof doc.area === 'string' && doc.area ? doc.area : null,
+        icon: doc.icon || null,
+        deactivate: doc.deactivate || 'none',
+        sensitive: !!doc.sensitive,
+        members: doc.members.length,
+    };
+}
+
 /* global aggregatesOf, planScope */
-const HELPERS = [entitySummary, deviceSummary, isListed, byName, groupBy, shortId, byOrder, ...require('./home-aggregate-rules').HELPERS];
+const HELPERS = [entitySummary, deviceSummary, sceneSummary, isListed, byName, groupBy, shortId, byOrder, ...require('./home-aggregate-rules').HELPERS];
 
 // ---------------------------------------------------------------------------
 // The views
@@ -299,6 +321,36 @@ const DEFS = {
                 out[room.id] = { name: room.name, floor: room.floor, aggregates: plan.aggregates, off: plan.off };
             }
             return out;
+        },
+    },
+    'she/scenes/by-room': {
+        description: 'Scene summaries by room — {room: [{id, name, area, icon, deactivate, sensitive, members}]}, those without a room under ""',
+        filter: 'she/scene/#',
+        map: function () {
+            const s = sceneSummary(this);
+            if (s) emit(s);
+        },
+        reduce: function (result) {
+            return groupBy(result, (s) => (s.area ? [s.area] : []), '');
+        },
+    },
+    'she/scenes/by-entity': {
+        description: 'The scenes an entity is a member of — {entity document id: [scene ids]}',
+        filter: 'she/scene/#',
+        map: function () {
+            const s = sceneSummary(this);
+            if (!s) return;
+            for (const m of this.members) if (m && typeof m.entity === 'string') emit({ entity: m.entity, scene: s.id });
+        },
+        reduce: function (result) {
+            const out = {};
+            for (const x of result) {
+                const list = (out[x.entity] = out[x.entity] || []);
+                if (list.indexOf(x.scene) === -1) list.push(x.scene);
+            }
+            const sorted = {};
+            for (const k of Object.keys(out).sort()) sorted[k] = out[k].sort();
+            return sorted;
         },
     },
     'she/devices/gone': {

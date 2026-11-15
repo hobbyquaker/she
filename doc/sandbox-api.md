@@ -1251,6 +1251,8 @@ While the model is on, she keeps these sheDB views under `she/…`. They are rec
 | `she/devices/gone` | `[device summary]` no longer announced, the most recent `gone_since` first |
 | `she/entities/battery` | `[summary + device_name]` — `device_class` battery, hidden ones too, by room and name |
 | `she/rooms/aggregates` | `{room: {name, floor, aggregates: {light: {entities: [{id, name}], excluded: [ids]}, …}, off: [names]}}` — which aggregates a room publishes and from which entities (below) |
+| `she/scenes/by-room` | `{room: [scene summary]}` — `{id, name, area, icon, deactivate, sensitive, members}` by name; scenes without a room under `""`. Whether a scene is active is on `she/status/scene/<id>`, not in the view |
+| `she/scenes/by-entity` | `{entity id: [scene ids]}` — the scenes an entity is a member of |
 
 A **device summary** is `{id, name, rooms, floors, labels, adapter, manufacturer, model, present, gone_since, entities}` (`entities` = how many). The by-… views list entities that are announced and not hidden.
 
