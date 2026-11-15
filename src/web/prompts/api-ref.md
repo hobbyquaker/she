@@ -129,6 +129,7 @@ she.home.assign(id, { name, rooms, functions, labels, hidden, notes })   id = sh
 Standard views (she.db.getView, read-only, objects): she/floors, she/rooms, she/entities/by-room ({room: [summary]}, "" = no room),
     by-floor, by-function, by-room-function ({room: {function: [summary]}}), by-component, by-label, she/topics ({state topic: [summary]}),
     she/devices/by-adapter, she/devices/unassigned ({devices, entities}), she/devices/gone, she/entities/battery
+    she/scenes/by-room ({room: [{ id, name, area, deactivate, members }]}, "" = no room), she/scenes/by-entity ({'she/entity/…': [scene ids]})
 Aggregates (retained, while the home model is on): she/status/room/<room>/<aggregate>, she/status/floor/<floor>/…, she/status/home/…
     aggregate = light (bool) | lights (count) | open (bool) | temperature | humidity (mean, + min, max) | occupied (bool) | power (W, sum)
     payload {val, ts, lc, members: [{id, name, val}]}; val null = nothing known; "she" is the instance name
