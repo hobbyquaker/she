@@ -11,6 +11,8 @@ Your home, your rules - written in plain JavaScript.
 - **Timing and time** — debounce, throttle, restartable timeouts, retry; cron expressions and solar events (`sunrise`, `sunset`, …); `she.time` for time windows, weekends, public holidays and formatting, correct across daylight-saving changes
 - **Matter** — a built-in Matter controller: control devices from scripts, device health, bindings and groups, multi-admin, firmware updates from the CSA ledger, a Matter ↔ MQTT bridge, and Thread network insight
 - **sheDB** — lightweight document store with map/reduce views, right in the daemon
+- **Home model** — every device announced through Home Assistant MQTT discovery (zigbee2mqtt, ESPHome, Tasmota, Shelly, Z-Wave JS UI, the mqtt-smarthome adapters, Matter devices through she's bridge) in floors, rooms, functions and labels; scripts address rooms and functions (`she.home`), read and command entities in Home Assistant's terms, and get per-room aggregates (light on, window open, temperature, power)
+- **Scenes** — stored states of entities that are datapoints themselves: `true` while everything is as stored, recalled by sending only what differs, with deactivate modes, groups and Home Assistant discovery
 - **Script HTTP routes** — scripts can register their own REST endpoints under `/api/<scriptName>/`
 - **`require()`** — load npm packages from `~/.she/node_modules/` (installed from the Packages page) or relative files inside scripts
 - **InfluxDB and Elasticsearch** — query and write time series (`she.influx`) and search indices (`she.elastic`) from scripts
@@ -32,6 +34,8 @@ Your home, your rules - written in plain JavaScript.
 - [Sandbox API](doc/sandbox-api.md) — everything available inside a script (`she.mqtt`, `she.schedule`, `she.db`, …)
 - [Examples](doc/examples.md) — real-world script patterns
 - [Matter](doc/matter.md) — enabling the controller, pairing devices, Thread, `she.matter` in scripts, troubleshooting
+- [Home model](doc/home-model.md) — devices and entities from Home Assistant discovery in floors, rooms, functions and labels; `she.home`, standard views, room aggregates
+- [Scenes](doc/scenes.md) — stored states of entities that are datapoints themselves: matching, recall, deactivate, groups, topics
 
 ### sheDB
 - [sheDB overview](doc/db/README.md) — when and why to use the embedded document store

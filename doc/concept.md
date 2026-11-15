@@ -56,52 +56,52 @@ Storing this as retained MQTT messages works, but it's awkward: MQTT topics have
 
 **sheDB** is the right home for this class of data. It is a lightweight embedded document store, built into the daemon, with no external dependencies.
 
-### Example: device registry
+### The home model: devices, rooms and functions
+
+The structure of a home is mostly announced already: zigbee2mqtt, ESPHome, Tasmota, Shelly, Z-Wave JS UI and the
+mqtt-smarthome adapters publish Home Assistant discovery configs that say which devices and entities exist and which
+topics belong to them. she keeps a copy of those in sheDB — the [home model](home-model.md) — with one document per
+device and per entity (`she/device/…`, `she/entity/…`), and lets you organise them in floors, rooms, functions and
+labels on the Home page. You do not write a device registry by hand.
 
 ```js
-// Create device records once (e.g. from the DB tab in the web UI or from a script)
-she.db.set('device/thermostat-livingroom', {
-    name: 'Living Room Thermostat',
-    type: 'thermostat',
-    room: 'living-room',
-    mqttBase: 'home/thermostat/livingroom',
-    calibrationOffset: -0.5,
-});
+// every window contact in the bathroom, whatever adapter it comes from
+for (const e of she.home.entities({ room: 'bathroom', function: 'openings' })) {
+    she.mqtt.sub(e.state_topic, { change: true }, () => she.log(e.name, she.home.entity(e.id).state().state));
+}
 
-she.db.set('device/light-kitchen', {
-    name: 'Kitchen Light',
-    type: 'light',
-    room: 'kitchen',
-    mqttBase: 'home/light/kitchen',
-});
+// the rooms with their floor and how many entities they have
+she.log(she.home.rooms().map((r) => r.name).join(', '));
 ```
 
-Scripts can then query this structure:
+A room is a document `she/room/<id>` (name, floor, aliases, order); the lists of rooms, floors and entities per room
+or function are [standard views](sandbox-api.md#standard-views) that she keeps up to date (`she/rooms`,
+`she/entities/by-room-function`, …). A list of rooms is never hard-coded.
+
+### Your own documents
+
+What she does not know is yours to store: calibration offsets, thresholds, a schedule per room, the members of a
+group only you care about. Keep it **outside `she/…`** — that namespace is she's — and refer to she's documents by
+their id:
 
 ```js
-// Find all thermostats and subscribe to their temperature topics
-const thermostats = she.db.query((doc) => doc.type === 'thermostat');
+// a correction per temperature sensor, keyed by the entity's id
+she.db.set('calibration/temperature', {
+    'she/entity/shellyht-abc123-temperature': -0.5,
+});
 
-thermostats.forEach((doc) => {
-    she.mqtt.sub(doc.mqttBase + '/temperature', { change: true }, (topic, val) => {
-        she.info(doc.name, 'temperature:', val + (doc.calibrationOffset || 0));
+const offsets = she.db.get('calibration/temperature') ?? {};
+for (const e of she.home.entities({ function: 'climate', component: 'sensor' })) {
+    if (e.device_class !== 'temperature') continue;
+    she.home.entity(e.id).sub((now) => {
+        const value = now.state.value;
+        if (typeof value === 'number') she.log(e.name, value + (offsets[e.id] ?? 0));
     });
-});
+}
 ```
 
-### Example: room and type enumerations
-
-```js
-she.db.set('enum/rooms', {
-    members: ['living-room', 'kitchen', 'bedroom', 'bathroom', 'hall'],
-});
-
-she.db.set('enum/device-types', {
-    members: ['light', 'switch', 'thermostat', 'blind', 'sensor', 'lock'],
-});
-```
-
-This example hard-codes the member list for illustration. In practice, use a sheDB view to derive such lists dynamically from your device documents.
+A room can carry fields of your own too (`she.db.extend('she/room/kitchen', { facade: 'south' })`): she keeps
+fields she does not know.
 
 ### When to use MQTT vs. sheDB
 
@@ -109,7 +109,7 @@ This example hard-codes the member list for illustration. In practice, use a she
 |---|---|---|
 | **Change frequency** | Seconds to minutes | Hours, days, or never |
 | **Produced by** | Devices, bridges, scripts | You, manually or via scripts |
-| **Typical content** | Temperature, switch state, power, presence | Device names, room assignments, config params, enums |
+| **Typical content** | Temperature, switch state, power, presence | The home model (devices, rooms, functions), config params, your own lists |
 | **Querying** | By topic / wildcard | Map/reduce views, ad-hoc `db.query()` |
 | **Script access** | `she.mqtt.get()`, `she.mqtt.sub()` | `she.db.get()`, `she.db.query()` |
 | **Persistence** | Broker-managed (retained flag) | JSON file on disk (`--db-path`) |

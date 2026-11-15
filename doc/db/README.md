@@ -6,6 +6,9 @@ notifies your scripts in real time when documents change.
 
 No separate process or install is needed — sheDB starts automatically when `she` runs.
 
+The ids under `she/…` are she's own: the [home model](../home-model.md) (devices, entities, rooms, floors, functions,
+labels), [scenes](../scenes.md) and their standard views. Keep your own documents outside that namespace.
+
 ---
 
 ## Contents
