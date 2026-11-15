@@ -20,6 +20,7 @@ Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox m
 - [she.api — Script HTTP routes](#sheapi----script-http-routes)
 - [she.db — sheDB document store](#shedb----shedb-document-store)
 - [she.home — Home model](#shehome----home-model)
+- [she.scene — Scenes](#shescene----scenes)
 - [she.matter — Matter integration](#shematter----matter-integration)
 - [she.influx — InfluxDB integration](#sheinflux----influxdb-integration)
 - [she.elastic — Elasticsearch integration](#sheelastic----elasticsearch-integration)
@@ -1300,6 +1301,82 @@ she.db.extend('she/room/kitchen', { aggregates: { humidity: false, temperature: 
 ```
 
 Rooms, floors and the house are also announced through Home Assistant discovery as devices of she, one entity per aggregate, so Home Assistant sees them. In the home model those devices and entities are hidden.
+
+---
+
+## she.scene -- Scenes
+
+A **scene** is a stored state of selected entities of the home model — the floor lamp on at 40 %, the blind at 30 %, the amplifier on — and a datapoint of its own: **`true` while every member is in that state, whoever brought it there**, `false` as soon as one is not. Somebody dims the lamp by hand: `false`. The lamp is dimmed back, or the scene is recalled: `true` again. Scenes are documents in sheDB (`she/scene/<id>`), so they need sheDB and the home model.
+
+On MQTT (`she` is the instance name):
+
+| Topic | | Payload |
+|---|---|---|
+| `she/status/scene/<id>` | retained | `{ "val": true, "ts", "lc", "matched": 4, "total": 4, "mismatch": [], "unknown": [], "recalled" }` — `mismatch`: `[{ entity, name, attribute, is, want }]`, `unknown`: `[{ entity, name, attribute?, reason }]` with reason `no value`, `unavailable` or `missing` |
+| `she/set/scene/<id>` | | `true` recalls, `false` deactivates, `"toggle"`; `{ "val": true, "force": true }` commands every member |
+| `she/status/scenegroup/<id>` | retained | `{ "val": "movie", "ts", "lc" }` — the id of the scene of the group that matches now (the first of its list when several do), or `""` |
+| `she/set/scenegroup/<id>` | | a scene id recalls it; `"none"` or `false` is the group's deactivation |
+
+Every scene is also announced through Home Assistant discovery as a `switch`, every group as a `select` (device "Scenes"), so Home Assistant, a Matter bridge or a dashboard get them without configuration.
+
+**Matching.** Numbers match within a tolerance (brightness ±2 of 255, position ±2 %, temperature ±0.25; a member can set its own), everything else exactly. A light that is to be off is not asked for its brightness. A member without a value, one that is offline, and one that is no longer announced count as not matching and are listed under `unknown`. A change is told after a second of quiet, so a recall whose answers arrive one by one does not flap.
+
+**Recall.** Only the members that differ are commanded — that spares radio traffic and flicker. `force`, and a recall of a scene that is already `true`, command every member: that repairs a device whose state is wrong. Members are commanded in their `order`, each after its `delay` (seconds). For the scene's `settle` time (10 s by default) a member that has not answered yet does not make the scene `false`; after it every mismatch is in the log (`scene movie: Floor lamp brightness is 80, expected 102`). A newer recall in the same group drops what an older one has not sent yet. More than 5 recalls of a scene within 10 s are dropped (a loop).
+
+**Deactivate** — what `false` does — is the scene's `deactivate` setting:
+
+| `deactivate` | `false` … |
+|---|---|
+| `none` (default) | is ignored; the log says so. A scene is a state, not a switch |
+| `restore` | brings the members back to the state they had before the recall — **only those nobody touched since**: a lamp you dimmed during the movie stays as you set it |
+| `off` | switches the scene's lights, switches and fans off; other members are left alone (a member can carry its own `off` attributes, or `off: false`) |
+| `scene:<id>` | recalls that scene — only while this one is `true` |
+
+**Members** are `{ entity: 'she/entity/…', attributes, tolerance?, role?, order?, delay? }`. `role` is `recall+match` (default), `match` (a condition that is never commanded: "the TV is on") or `recall` (commanded, but does not decide the state: a blind the sun program moves anyway). A button or a Home Assistant scene as a member is triggered by the recall. A lock or an alarm panel is only commanded when the member is confirmed (`confirmed: true`, set by the editor after asking).
+
+### she.scene.list()
+
+Every scene with its state, by name: `[{ id, name, area, icon, deactivate, sensitive, groups, members, val, matched, total }]`.
+
+### she.scene.state(id)
+
+Why a scene is on or off: `{ id, name, val, matched, total, mismatch, unknown, recalled, settling }`, or `null`.
+
+```js
+const s = she.scene.state('movie');
+if (!s.val) for (const m of s.mismatch) she.log(m.name, m.attribute, 'is', m.is, 'wants', m.want);
+```
+
+### she.scene.recall(id, [{ force }]) / deactivate(id) / toggle(id)
+
+The same as the set topic. `recall` returns `{ ok, sent, skipped, problems }` (`ok: false` with a `reason` for an unknown scene or the loop guard), `deactivate` `{ ok, mode, sent, reason? }`.
+
+```js
+she.schedule('sunset', () => she.scene.recall('evening'));
+```
+
+### she.scene.snapshot(id, [entities], [fields])
+
+Create a scene from the present state of entities, or — without `entities` — take the states of its members again ("update from the current state"). `entities` are ids, `unique_id`s or topics, as for `she.home.entity()`; `fields` are `name`, `area` (a room id), `deactivate`, `settle`. An entity that only tells (a sensor) becomes a condition. Returns the scene document.
+
+```js
+// set the lights by hand, then:
+she.scene.snapshot('reading', she.home.entities({ room: 'living-room', function: 'lighting' }).map((e) => e.id), { name: 'Reading', area: 'living-room', deactivate: 'restore' });
+```
+
+A scene that would command a lock or an alarm panel throws unless `fields.confirmSensitive` is `true`.
+
+### she.scene.get(id) / remove(id)
+
+The scene document (a copy), or `null`; delete a scene (it is taken out of its groups).
+
+### she.scene.sub([id], callback)
+
+`callback(id, state)` when a scene's published state changes (after the debounce); `state` is `null` when the scene was deleted. Without an id: every scene. Cancelled on unload; returns a function that cancels it.
+
+### she.scene.groups([{ area }]) / group(id) / setGroup(id, sceneId)
+
+A **scene group** (`she/scenegroup/<id>`: `{ name, area?, scenes: [ids], default? }`) is an ordered list of scenes, usually the moods of one room: `off, evening, movie, reading`. `groups()` returns `[{ id, name, area, scenes, default, val }]`, `val` being the scene that matches now. `setGroup(id, sceneId)` recalls a scene of the group; `setGroup(id, '')` is the group's deactivation: its `default` scene when it has one, else the deactivation of the scene that is active.
 
 ---
 

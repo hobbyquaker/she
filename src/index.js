@@ -76,6 +76,8 @@ const shedb = require('./web/shedb');
 const home = require('./web/home');
 const homeEntities = require('./web/home-entities');
 const homeAggregates = require('./web/home-aggregates');
+const scenes = require('./web/scenes');
+const { ENVELOPE: parsePayloadEnvelope } = require('./lib/parse-payload');
 // One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
 const log = require('./lib/logger').createLogger({
     redact: (s) => secrets.redact(s),
@@ -542,6 +544,8 @@ function _maybeStart() {
     home.start({ authoritative: _retainedComplete });
     // what the rooms, the floors and the house are doing, from the entities' state
     homeAggregates.start();
+    // the scenes read their members from that retained state
+    scenes.start();
     start();
     // the Matter ↔ MQTT bridge needs both: the controller and the retained state (M19)
     if (config.matterStorage) {
@@ -983,6 +987,8 @@ if (config.url) {
         // discovery configs are published on every broker connect (mqtt-smarthome section 8)
         announcer.republish();
         homeAggregates.connected();
+        // … and the scenes' retained states
+        if (_started) scenes.getEngine()?.republish();
 
         if (!_started) {
             // Cancel the “broker not connecting” startup timeout — we’re connected.
@@ -1079,6 +1085,15 @@ if (config.url) {
         }
 
         const state = require('./lib/parse-payload')(payload);
+
+        // <name>/set/scene/<id> and <name>/set/scenegroup/<id>: recall, deactivate, toggle (the message is still stored below)
+        if (_started && topic.startsWith(config.name + '/set/scene')) {
+            try {
+                scenes.getEngine()?.onMessage(topic, state && state[parsePayloadEnvelope] ? state : state && state.val);
+            } catch (err) {
+                log.warn('scenes:', err.message);
+            }
+        }
 
         const topicArr = topic.split('/');
         let oldState;
@@ -1222,6 +1237,17 @@ if (config.dbPath) {
             return true;
         },
         announce: (entity) => announcer.announce('\0home-aggregates', 'home', entity),
+    // scenes: stored states of entities that are datapoints themselves (<name>/status|set/scene/<id>)
+    scenes.init({
+        core: dbCore,
+        log,
+        name: config.name,
+        announcer,
+        publish: (topic, payload, options) => {
+            if (!mqtt || !connected) return false;
+            mqtt.publish(topic, payload, options);
+            return true;
+        },
     });
 }
 
@@ -2796,6 +2822,7 @@ async function gracefulShutdown(signal) {
     log.info(`got ${signal}. exiting.`);
     // the discovery configs stay retained: Home Assistant shows the entities unavailable meanwhile
     homeAggregates.reset();
+    scenes.reset();
     announcer.stop();
     if (config.matterStorage) {
         try {

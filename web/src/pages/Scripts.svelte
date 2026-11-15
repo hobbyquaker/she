@@ -597,6 +597,21 @@ interface SheMqtt {
 }
 /** room: an id, name or alias ('' = without a room); floor, function, label: ids; component: light, cover, sensor, … */
 interface SheSelection { room?: string; floor?: string; function?: string; label?: string; component?: string; hidden?: boolean }
+interface SheSceneState {
+    id: string;
+    name: string;
+    /** true while every member is in the scene's state */
+    val: boolean;
+    matched: number;
+    total: number;
+    mismatch: { entity: string; name: string; attribute: string; is: any; want: any }[];
+    /** members without a value, offline, or no longer announced: they count as not matching */
+    unknown: { entity: string; name: string; attribute?: string; reason: 'no value' | 'unavailable' | 'missing' }[];
+    recalled: number | null;
+    /** a recall is still waiting for its members */
+    settling: boolean;
+}
+interface SheSceneGroup { id: string; name: string; area: string | null; scenes: string[]; default: string | null; val: string }
 /** what an entity tells (read) and takes (write) of one attribute */
 interface SheAttribute { read: boolean; write: boolean; min?: number; max?: number; step?: number; unit?: string; options?: string[] }
 /** a state in Home Assistant's terms; which attributes there are depends on the component */
@@ -795,6 +810,33 @@ declare const she: {
         sub(selection: SheSelection, opts: { change?: boolean }, cb: (entity: SheEntity, val: any, obj: any, prev: any, topic: string) => void): { entities(): SheEntity[]; cancel(): void };
         /** Assign name, rooms, functions (entities), labels, hidden, notes; null inherits again, [] = none on purpose. id: she/entity/…, she/device/… or a unique_id. */
         assign(id: string, patch: { name?: string | null; rooms?: string[] | null; functions?: string[] | null; labels?: string[] | null; hidden?: boolean | null; notes?: string | null }): any;
+    };
+    scene: {
+        /** Every scene with its state, by name. */
+        list(): { id: string; name: string; area: string | null; icon: string | null; deactivate: string; sensitive: boolean; groups: string[]; members: number; val: boolean; matched: number; total: number }[];
+        /** Why a scene is on or off; null when there is none. */
+        state(id: string): SheSceneState | null;
+        /** Bring the members into the scene's state. Only members that differ are commanded; force (or a scene that is already true) commands all. */
+        recall(id: string, options?: { force?: boolean }): { ok: boolean; reason?: string; sent: number; skipped: number; problems: string[] };
+        /** What false means for the scene: none (ignored), restore, off, or scene:<id>. */
+        deactivate(id: string): { ok: boolean; mode?: string; reason?: string; sent: number };
+        /** Recall when the scene is false, deactivate when it is true. */
+        toggle(id: string, options?: { force?: boolean }): { ok: boolean; reason?: string; sent: number };
+        /** The scene document (a copy), or null. */
+        get(id: string): any;
+        /** Create a scene from the present state of entities (ids, unique_ids or topics), or — without entities — take its members' states again. */
+        snapshot(id: string, entities?: string[], fields?: { name?: string; area?: string; deactivate?: string; settle?: number; confirmSensitive?: boolean }): any;
+        snapshot(id: string, fields?: { name?: string; area?: string; deactivate?: string; settle?: number }): any;
+        /** Delete a scene; it is taken out of its groups. */
+        remove(id: string): boolean;
+        /** cb when a scene's published state changes (after the debounce); state is null for a deleted scene. Cancelled on unload. */
+        sub(id: string, cb: (id: string, state: SheSceneState | null) => void): () => void;
+        sub(cb: (id: string, state: SheSceneState | null) => void): () => void;
+        /** The scene groups; val is the id of the scene that matches now, or ''. */
+        groups(filter?: { area?: string }): SheSceneGroup[];
+        group(id: string): SheSceneGroup | null;
+        /** A scene id recalls that scene of the group; '' is the group's deactivation. */
+        setGroup(id: string, sceneId: string | false | null, options?: { force?: boolean }): { ok: boolean; reason?: string; sent: number };
     };
     matter: {
         sub(nodeId: string, endpointId: number, cluster: string, attr: string, cb: (val: any, old: any) => void): number;

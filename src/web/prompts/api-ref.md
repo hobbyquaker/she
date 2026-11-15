@@ -137,6 +137,24 @@ Write scripts against rooms and functions, not topics: she.home.entities({ room:
     and act on them through she.home.entity(e.id): for (const e of she.home.entities({ room: 'hall', function: 'lighting' })) she.home.entity(e.id).turnOff();
 ```
 
+### Scenes (she.scene — stored states of home-model entities that are datapoints themselves; needs sheDB + home model)
+```
+A scene is TRUE while every member is in its stored state (whoever set it), false as soon as one is not. Computed, not remembered.
+Topics: she/status/scene/<id> retained { val, matched, total, mismatch: [{ entity, name, attribute, is, want }], unknown: [...] };
+        she/set/scene/<id>: true = recall, false = deactivate, "toggle", { val: true, force: true };
+        she/status/scenegroup/<id> { val: active scene id | "" }; she/set/scenegroup/<id>: a scene id | "none"
+she.scene.list()                       [{ id, name, area, deactivate, groups, members, val, matched, total }]
+she.scene.state(id)                    { val, matched, total, mismatch, unknown, recalled, settling } | null — WHY a scene is off
+she.scene.recall(id, [{ force }])      commands only members that differ (force / already-true scene: all) → { ok, sent, skipped, problems }
+she.scene.deactivate(id) / toggle(id)  deactivate per the scene's setting: none (ignored, default) | restore (members untouched since the recall
+                                        go back to their state before it) | off (its lights, switches, fans) | scene:<id> (fallback)
+she.scene.snapshot(id, [entities], [{ name, area, deactivate, settle }])   create from the entities' present state, or (no entities) re-take
+she.scene.get(id) / remove(id);  she.scene.sub([id], (id, state) => …)   state changes as published (1 s debounce)
+she.scene.groups([{ area }]) / group(id) / setGroup(id, sceneId | '')    a group = ordered scenes of a room; val = the one that matches
+Members: { entity: 'she/entity/…', attributes, tolerance?, role: 'recall+match' | 'match' (condition) | 'recall', order?, delay? (s) }.
+A lock or alarm panel is only commanded when its member is confirmed. Scenes are also announced to HA as switch, groups as select.
+```
+
 ### Matter (use names for node, endpoint and cluster)
 ```
 she.matter.sub(node, endpoint, cluster, attr, cb)   → listenerId;  she.matter.unsub(listenerId)
