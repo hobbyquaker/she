@@ -1213,6 +1213,8 @@ if (config.matterStorage) {
         log,
         storageDir: matterStoragePath,
         broadcast,
+        // her last will: a discovery consumer sees the Matter devices go unavailable when she dies
+        sheTopic: config.name + '/connected',
     });
     // Scripts wait for the controller (see _maybeStart) — but never forever:
     // a hanging start must not block the whole script engine.

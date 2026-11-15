@@ -211,7 +211,37 @@ const MAPPED = {
     'windowCovering/currentPositionLiftPercent100ths': (val) => ({ command: 'goToLiftPercentage', args: { liftPercent100thsValue: Number(val) } }),
     'windowCovering/currentPositionTiltPercent100ths': (val) => ({ command: 'goToTiltPercentage', args: { tiltPercent100thsValue: Number(val) } }),
     'colorControl/colorTemperatureMireds': (val) => ({ command: 'moveToColorTemperature', args: { colorTemperatureMireds: Number(val), transitionTime: 0 } }),
+    // the movement of a cover: OPEN / CLOSE / STOP (Home Assistant's cover payloads)
+    'windowCovering/operationalStatus': (val) => {
+        const v = word(val);
+        if (['open', 'up'].includes(v)) return { command: 'upOrOpen' };
+        if (['close', 'down'].includes(v)) return { command: 'downOrClose' };
+        if (v === 'stop') return { command: 'stopMotion' };
+        throw new Error(`window_covering/operational_status takes OPEN, CLOSE or STOP, not "${val}"`);
+    },
+    // LOCK / UNLOCK / OPEN (Home Assistant's lock payloads), or true / false
+    'doorLock/lockState': (val) => {
+        const v = word(val);
+        if (['lock', 'locked', 'true', '1'].includes(v)) return { command: 'lockDoor' };
+        if (['unlock', 'unlocked', 'false', '0', '2'].includes(v)) return { command: 'unlockDoor' };
+        if (['open', 'unbolt', 'unlatched', '3'].includes(v)) return { command: 'unboltDoor' };
+        throw new Error(`door_lock/lock_state takes LOCK, UNLOCK or OPEN, not "${val}"`);
+    },
+    // a robot vacuum: start (resumes), pause, stop (pauses), return_to_base
+    'rvcOperationalState/operationalState': (val) => {
+        const v = word(val);
+        if (['start', 'resume'].includes(v)) return { command: 'resume' };
+        if (['pause', 'stop'].includes(v)) return { command: 'pause' };
+        if (['return_to_base', 'return_home', 'home', 'dock'].includes(v)) return { command: 'goHome' };
+        throw new Error(`rvc_operational_state/operational_state takes start, pause, stop or return_to_base, not "${val}"`);
+    },
 };
+
+function word(val) {
+    return String(val ?? '')
+        .trim()
+        .toLowerCase();
+}
 
 function truthy(val) {
     if (typeof val === 'string') return !['', '0', 'false', 'off', 'no'].includes(val.trim().toLowerCase());

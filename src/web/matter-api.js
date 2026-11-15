@@ -393,13 +393,15 @@ router.get('/bridge', (req, res) => {
     }
 });
 
-// PUT /she/matter/bridge — { enabled?, format?, templates? }
+// PUT /she/matter/bridge — { enabled?, format?, templates?, discovery?, discoveryPrefix? }
 router.put('/bridge', (req, res) => {
     if (!isReady()) return notReady(res);
-    const { enabled, format, templates } = req.body || {};
+    const { enabled, format, templates, discovery, discoveryPrefix } = req.body || {};
     if (enabled !== undefined && typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+    if (discovery !== undefined && typeof discovery !== 'boolean') return res.status(400).json({ error: 'discovery must be a boolean' });
+    if (discoveryPrefix !== undefined && typeof discoveryPrefix !== 'string') return res.status(400).json({ error: 'discoveryPrefix must be a string' });
     try {
-        res.json(getBridge().updateSettings({ enabled, format, templates }));
+        res.json(getBridge().updateSettings({ enabled, format, templates, discovery, discoveryPrefix }));
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
