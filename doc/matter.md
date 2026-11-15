@@ -230,7 +230,58 @@ The full reference is in the [Sandbox API](sandbox-api.md#shematter----matter-in
   one command. Both devices must be paired with she.
 - **MQTT** — the Matter ↔ MQTT bridge publishes every device as topics (`matter/status/<device>/<endpoint>/<cluster>/<attribute>`)
   and accepts commands on `matter/set/…`. It is off until you press **Switch on**. Topics and payload are described in
-  the [HTTP API](http-api.md#get-shematterbridge).
+  the [HTTP API](http-api.md#get-shematterbridge). On top of it, the bridge can announce the devices through
+  Home Assistant discovery — see below.
+
+## Announce the devices through Home Assistant discovery
+
+With the bridge on, the **Home Assistant discovery** switch on the MQTT tab announces every bridged device the way
+other adapters do: one retained config per device on `homeassistant/device/she_matter_<id>/config`, in the device form
+of Home Assistant's MQTT discovery (mqtt-smarthome §8). Home Assistant, dashboards that read discovery and she's own
+home model then see the Matter devices as lights, switches, covers and sensors, without anything Matter-specific. The
+entities point at the bridge's own topics: their state comes from `matter/status/…`, their commands go to
+`matter/set/…`.
+
+- **Off by default**, and a switch of its own: the bridge can run without announcing anything. The announcement works
+  only while the bridge is on — its entities would have no topics otherwise. Pressing **Switch on** while the bridge is
+  off stores the choice; it starts with the bridge.
+- **Switching off clears** the configs (an empty retained message each), so Home Assistant removes the devices. So does
+  switching the bridge off. A device that is unpaired, or whose **Bridged** box is unticked, has its config cleared.
+- **The prefix** is she's `--ha-prefix` (`SHE_HA_PREFIX`, default `homeassistant`, see [CLI](cli.md)), the same that
+  `she.mqtt.announce()` uses. When it changes, she clears the configs under the old prefix at the next start.
+- **The ids belong to the device**, not to its pairing: the device's unique ID (Basic Information `uniqueId`), else its
+  vendor ID, product ID and serial number. A device that is reset and paired again — under a new node ID and MQTT
+  name — keeps its Home Assistant entities, its rooms and its scenes. A device that reports neither (rare; Matter 1.3
+  made the unique ID mandatory) falls back to its node ID, with a warning in the log.
+- **A Matter bridge** (a hub that brings other devices into Matter: Hue, IKEA, Aqara, …) becomes one device per
+  bridged device, each linked to the hub with `via_device`, with the hub's own device listed as their parent. A hub
+  without functions of its own gets a *Connectivity* entity, so it shows up as a device too.
+- **Availability**: a device is available while `matter/connected` is `2`, she's own `<name>/connected` is `2` (her
+  last will — after a crash the devices go unavailable) and the device is online
+  (`matter/status/<device>/online`); a bridged device also needs its hub to report it reachable.
+
+What is announced, per endpoint:
+
+| Matter device type | Home Assistant | Notes |
+| --- | --- | --- |
+| On/Off, Dimmable, Color Temperature, Extended Color Light; Dimmable Plug-in Unit | `light` | brightness: Matter's 0–254 scaled to Home Assistant's 0–255; colour temperature in mireds within the device's range; an extended colour light takes a colour (xy) but cannot report one back — the colour is on two topics |
+| On/Off Plug-in Unit, Mounted On/Off Control | `switch` | `outlet` / `switch` |
+| Window Covering | `cover` | the class from the covering's type (shutter, awning, curtain, blind, shade); Matter's 0–10000 (0 = open) becomes 0–100 (100 = open); tilt; open / close / stop |
+| Thermostat, Room Air Conditioner | `climate` | centi-degrees → °C; the mode from `systemMode`; heating and cooling together as a range |
+| Fan | `fan` | on / off and the percentage |
+| Door Lock | `lock` | lock / unlock; open with the unbolting feature |
+| Contact Sensor | `binary_sensor` `opening` | Matter's `true` is the closed contact, Home Assistant's "on" the open one |
+| Occupancy Sensor | `binary_sensor` `occupancy` | |
+| Water Leak, Rain, Water Freeze Detector | `binary_sensor` `moisture` / `cold` | |
+| Smoke CO Alarm | `binary_sensor` `smoke`, `carbon_monoxide` | |
+| Robotic Vacuum Cleaner | `vacuum` | commands only (start, pause, stop, return to base): Home Assistant reads a vacuum's state only in its own JSON |
+| Generic Switch (a button) | `event` | press, release, long press, multi-press (`multi_press_2`, …), the position of a latching switch |
+| any endpoint with a measurement | `sensor` | temperature (°C), humidity (%), pressure (hPa), illuminance (lx), air quality, CO₂ / PM / VOC and other concentrations, power (W), voltage (V), current (A), energy (kWh), battery (%) |
+
+Not announced: endpoint 0 (the battery of a device that reports it only there, too), hue and saturation, a vacuum's
+state, and the Matter clusters with no Home Assistant counterpart — those remain on the bridge's topics. A Matter device
+that also reaches Home Assistant another way (paired with it directly, or exposed by mqtt2matter) appears twice; if your
+Home Assistant pairs the Matter devices itself, leave the announcement off.
 
 ## Troubleshooting
 

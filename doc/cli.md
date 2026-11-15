@@ -29,7 +29,7 @@ Usage: she [options]
 | | `--bind-address` | `0.0.0.0` | Interface the HTTP server binds to. Use `127.0.0.1` when behind nginx. |
 | | `--db-path` | — | Path to sheDB storage file. sheDB is disabled when omitted. |
 | | `--db-retain` | `false` | Publish sheDB document changes as retained MQTT messages. |
-| | `--ha-prefix` | `homeassistant` | Home Assistant discovery prefix of the entities scripts announce with [`she.mqtt.announce()`](sandbox-api.md#shemqttannounceentity). |
+| | `--ha-prefix` | `homeassistant` | Home Assistant discovery prefix of the entities scripts announce with [`she.mqtt.announce()`](sandbox-api.md#shemqttannounceentity) and of the Matter devices the bridge announces ([Matter](matter.md#announce-the-devices-through-home-assistant-discovery)). |
 | | `--matter-storage` | — | Enable the Matter controller. Pass a directory path or `true` (uses `~/.she/matter`). |
 | | `--matter-dcl-offline` | `false` | Never contact the CSA Distributed Compliance Ledger. Vendor names then come from the bundled snapshot, product details from the cache only. |
 | | `--safe-mode` | `false` | Start without loading any user script — recovery from a script that blocks the event loop. See [safe mode](script-engine.md#safe-mode). |

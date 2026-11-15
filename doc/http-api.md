@@ -565,18 +565,21 @@ The Matter ↔ MQTT bridge: every paired node's application attributes (endpoint
   "defaults": { "…": "the same set" },
   "placeholders": ["device", "nodeId", "endpoint", "cluster", "attribute", "event", "attributeOrCommand"],
   "formats": ["plain", "basic", "extended"],
-  "devices": [ { "nodeId": "4", "deviceName": "Bad Licht", "online": true, "name": "bad_licht", "publish": true, "assigned": true } ],
+  "devices": [ { "nodeId": "4", "deviceName": "Bad Licht", "online": true, "name": "bad_licht", "publish": true, "assigned": true, "announced": 1 } ],
+  "discovery": { "enabled": true, "prefix": "homeassistant", "active": true, "announced": 1 },
   "status": { "started": true, "connected": true, "published": 23 }
 }
 ```
 
+`discovery` is the Home Assistant discovery announcement of the bridged devices ([Matter](matter.md#announce-the-devices-through-home-assistant-discovery)): `enabled` the switch, `active` whether it announces (the switch and the bridge both on), `announced` the device configs published this run under `<prefix>/device/she_matter_<id>/config` (`prefix`: she's `--ha-prefix`); a device's `announced` counts its configs (one, or one per bridged device of a Matter bridge).
+
 ### PUT /she/matter/bridge
 
-`{ "enabled": true, "format": "basic", "templates": { "attribute": "…" } }` — any subset. Formats: `plain` (the value; structs and lists as JSON), `basic` (`{ val, ts, lc }`, the default), `extended` (`{ val, ts, lc, matter: { nodeId, device, endpoint, cluster, attribute | event } }`). Inbound payloads are accepted plain or as `{ "val": … }` in every format. A template is validated (known placeholders only, no wildcards, an inbound template must not overlap an outbound one; an empty template disables that topic); a changed template or format clears the bridge's old retained topics and republishes. On `set`, an attribute with a mapped command runs the command (`on_off/on_off` true/false → `on`/`off`, `"toggle"` → `toggle`; `level_control/current_level` → `moveToLevel`; `window_covering/current_position_lift_percent100ths` → `goToLiftPercentage`; `color_control/color_temperature_mireds` → `moveToColorTemperature`), a command name runs that command with the payload object as its fields, anything else is an attribute write (the device refuses non-writable ones — logged at warn). **Response (HTTP 200):** as `GET`. **HTTP 400** with the validation problems.
+`{ "enabled": true, "format": "basic", "templates": { "attribute": "…" }, "discovery": true }` — any subset. `discovery` switches the announcement on or off (off clears the configs; so does switching the bridge off). The prefix is she's `--ha-prefix`. Formats: `plain` (the value; structs and lists as JSON), `basic` (`{ val, ts, lc }`, the default), `extended` (`{ val, ts, lc, matter: { nodeId, device, endpoint, cluster, attribute | event } }`). Inbound payloads are accepted plain or as `{ "val": … }` in every format. A template is validated (known placeholders only, no wildcards, an inbound template must not overlap an outbound one; an empty template disables that topic); a changed template or format clears the bridge's old retained topics and republishes. On `set`, an attribute with a mapped command runs the command (`on_off/on_off` true/false → `on`/`off`, `"toggle"` → `toggle`; `level_control/current_level` → `moveToLevel`; `window_covering/current_position_lift_percent100ths` → `goToLiftPercentage`; `color_control/color_temperature_mireds` → `moveToColorTemperature`; `window_covering/operational_status` `OPEN` / `CLOSE` / `STOP` → `upOrOpen` / `downOrClose` / `stopMotion`; `door_lock/lock_state` `LOCK` / `UNLOCK` / `OPEN` → `lockDoor` / `unlockDoor` / `unboltDoor`; `rvc_operational_state/operational_state` `start` / `pause` / `stop` / `return_to_base` → `resume` / `pause` / `pause` / `goHome`), a command name runs that command with the payload object as its fields, anything else is an attribute write (the device refuses non-writable ones — logged at warn). **Response (HTTP 200):** as `GET`. **HTTP 400** with the validation problems.
 
 ### PUT /she/matter/bridge/devices/:nodeId
 
-`{ "name": "licht_bad", "publish": false }` — the MQTT name (lower-case letters, digits, underscores, unique) and whether the node is bridged at all. A rename moves the topics and clears the old retained ones. **Response (HTTP 200):** as `GET`.
+`{ "name": "licht_bad", "publish": false }` — the MQTT name (lower-case letters, digits, underscores, unique) and whether the node is bridged at all. A rename moves the topics and clears the old retained ones; the discovery config keeps its id and points at the new topics. `publish: false` also clears the node's discovery config. **Response (HTTP 200):** as `GET`.
 
 Note: she's MQTT last will covers her own `<name>/connected` topic only; after a crash `matter/connected` keeps its `2` until she is back.
 

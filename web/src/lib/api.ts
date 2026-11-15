@@ -806,7 +806,9 @@ export function refreshThreadMesh(nodeId?: string): Promise<ThreadMesh> {
 // ---- Matter MQTT bridge (M19) ----
 
 export interface MatterBridgeTemplates { connected: string; attribute: string; event: string; online: string; set: string; get: string }
-export interface MatterBridgeDevice { nodeId: string; deviceName: string | null; online: boolean; name: string; publish: boolean; assigned: boolean; gone?: boolean }
+export interface MatterBridgeDevice { nodeId: string; deviceName: string | null; online: boolean; name: string; publish: boolean; assigned: boolean; gone?: boolean; announced?: number }
+/** Home Assistant discovery of the bridged devices: a switch of its own, effective while the bridge is on */
+export interface MatterBridgeDiscovery { enabled: boolean; prefix: string; active: boolean; announced: number }
 export interface MatterBridgeSettings {
     enabled: boolean;
     format: 'plain' | 'basic' | 'extended';
@@ -815,13 +817,14 @@ export interface MatterBridgeSettings {
     placeholders: string[];
     formats: string[];
     devices: MatterBridgeDevice[];
+    discovery: MatterBridgeDiscovery;
     status: { started: boolean; connected: boolean; published: number };
 }
 
 export function getMatterBridge(): Promise<MatterBridgeSettings> {
     return request('GET', '/she/matter/bridge');
 }
-export function updateMatterBridge(patch: { enabled?: boolean; format?: string; templates?: Partial<MatterBridgeTemplates> }): Promise<MatterBridgeSettings> {
+export function updateMatterBridge(patch: { enabled?: boolean; format?: string; templates?: Partial<MatterBridgeTemplates>; discovery?: boolean }): Promise<MatterBridgeSettings> {
     return request('PUT', '/she/matter/bridge', patch);
 }
 export function setMatterBridgeDevice(nodeId: string, patch: { name?: string; publish?: boolean }): Promise<MatterBridgeSettings> {
