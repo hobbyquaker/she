@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const { isDeepStrictEqual } = require('util');
 const express = require('express');
 const SheDBCore = require('../../src/lib/shedb-core');
 const StateStore = require('../../src/lib/state-store');
@@ -17,6 +18,7 @@ const { expandConfig } = require('../../src/lib/ha-configs');
 const { HomeModel, escapeId, unescapeId, slug, matchRule } = require('../../src/lib/home-model');
 const { DEFAULT_FUNCTIONS } = require('../../src/lib/home-defaults');
 const home = require('../../src/web/home');
+const haEntities = require('../../src/lib/ha-entities');
 
 const noop = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 const FIXTURES = path.join(__dirname, 'fixtures', 'ha-discovery');
@@ -28,6 +30,9 @@ function corpus(...files) {
 }
 
 let tmpDir, core, model, clock, retained, updates, logged;
+
+// the expansion is mqtt-ha-entities', an ES module the daemon loads before the model starts
+beforeAll(() => haEntities.load());
 
 /** a lamp with a light and a diagnostic sensor, as an adapter announces it entity by entity */
 const lampLight = (over = {}) => ({
@@ -189,7 +194,8 @@ describe('expandConfig', () => {
             'avty_t': '~/status',
             'qos': 1,
             'cmps': {
-                temp: { p: 'sensor', uniq_id: 'dev1_temp', stat_t: '~/temp', dev_cla: 'temperature' },
+                // the root's ~ applies to the root's own topics; a component substitutes its own ~ only
+                temp: { 'p': 'sensor', 'uniq_id': 'dev1_temp', '~': 'bla/dev1', 'stat_t': '~/temp', 'dev_cla': 'temperature' },
                 sw: { 'p': 'switch', 'uniq_id': 'dev1_sw', '~': 'other', 'stat_t': '~/sw', 'cmd_t': '~/sw/set', 'qos': 0 },
                 old: { p: 'sensor' },
             },
@@ -208,6 +214,45 @@ describe('expandConfig', () => {
         });
         expect(list[1].config).toMatchObject({ state_topic: 'other/sw', command_topic: 'other/sw/set', availability_topic: 'bla/dev1/status', qos: 0 });
         expect(list[1].origin).toEqual({ name: 'bla2mqtt' });
+    });
+
+    test('before the library is loaded it throws: an empty result would mark every device as gone', () => {
+        jest.isolateModules(() => {
+            jest.doMock('../../src/lib/ha-entities', () => ({ get: () => null, load: async () => null }));
+            const { expandConfig: early } = require('../../src/lib/ha-configs');
+            expect(() => early('homeassistant/light/x/config', { name: 'x' })).toThrow(/not loaded/);
+        });
+        jest.dontMock('../../src/lib/ha-entities');
+    });
+
+    test("a component does not take the root's ~", () => {
+        const [e] = expandConfig('homeassistant/device/dev2/config', {
+            '~': 'bla/dev2',
+            'dev': { ids: 'dev2' },
+            'avty_t': '~/status',
+            'cmps': { temp: { p: 'sensor', uniq_id: 'dev2_temp', stat_t: '~/temp' } },
+        });
+        expect(e.config).toMatchObject({ state_topic: '~/temp', availability_topic: 'bla/dev2/status' });
+    });
+
+    test("the corpus expands as it did with she's own tables, except where Home Assistant would refuse the config", () => {
+        // what the home model's own expansion gave for every config of the corpus, before it used the library
+        const before = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'ha-expanded-own-tables.json'), 'utf8'));
+        const messages = corpus();
+        expect(messages.length).toBe(Object.keys(before).length);
+        const differ = [];
+        for (const [topic, obj] of messages) {
+            const now = JSON.parse(JSON.stringify(expandConfig(topic, obj.val)));
+            if (!isDeepStrictEqual(now, before[topic])) differ.push(topic);
+        }
+        // nut2mqtt's availability entries carry `avty_tpl`, which is not a key of a list entry (Home
+        // Assistant rejects the whole device for it); the library keeps only the four keys an entry has
+        expect(differ).toEqual(['homeassistant/device/nut2mqtt_nut_nutdev1/config']);
+        const [nowNut] = expandConfig(differ[0], new Map(messages).get(differ[0]).val);
+        const [beforeNut] = before[differ[0]];
+        expect(beforeNut.config.availability[0]).toHaveProperty('availability_template');
+        expect(nowNut.config.availability).toEqual(beforeNut.config.availability.map(({ topic }) => ({ topic })));
+        expect({ ...nowNut.config, availability: null }).toEqual({ ...beforeNut.config, availability: null });
     });
 
     test('what is not a config yields nothing', () => {

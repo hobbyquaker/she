@@ -16,6 +16,7 @@ const { HomeModel } = require('../../src/lib/home-model');
 const views = require('../../src/lib/home-views');
 const { compileView, runView, resultLength } = require('../../src/lib/shedb-view');
 const home = require('../../src/web/home');
+const haEntities = require('../../src/lib/ha-entities');
 const homeSandbox = require('../../src/sandbox/home-sandbox');
 
 const noop = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -57,6 +58,9 @@ function corpusModel() {
     model.assign('she/entity/0x00124b0000000001_light_zigbee2mqtt', { rooms: ['living-room', 'Küche'], labels: ['evening'] });
     return model;
 }
+
+// the model expands discovery with mqtt-ha-entities, loaded before it starts
+beforeAll(() => haEntities.load());
 
 beforeEach(newCore);
 

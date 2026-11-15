@@ -5,57 +5,27 @@
  * entities it announces, each with its full config in long key names.
  *
  * `ha-discovery.js` answers "which devices are announced and which topics belong to them" for the
- * discovery page. This module answers "what exactly is announced" for the home model: every
- * abbreviation expanded, `~` substituted, the device-based form (`<prefix>/device/…` with
- * `components`) split into its components with the root's shared options inherited.
+ * discovery page. This module answers "what exactly is announced" for the home model. The expansion
+ * itself — every abbreviation, `~`, the device-based form (`<prefix>/device/…` with `components`)
+ * split into its components with the root's shared options inherited — is mqtt-ha-entities', the
+ * library behind the entity layer, so Home Assistant's tables exist once. What is she's here: the
+ * record per entity (the key without a `unique_id`, the device key, the topics by role).
+ *
+ * The library is an ES module and loaded asynchronously (`ha-entities.js`); the daemon starts the
+ * home model only after it is there. Before that, expanding throws — an empty result would make the
+ * mirror take every device for gone.
  */
 
-const { ABBREVIATIONS, DEVICE_ABBREVIATIONS, ORIGIN_ABBREVIATIONS } = require('./ha-abbreviations');
-const { parseConfigTopic, DEFAULT_PREFIX } = require('./ha-discovery');
+const haEntities = require('./ha-entities');
+const { DEFAULT_PREFIX } = require('./ha-discovery');
 
 const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isTopicKey = (k) => k === 'topic' || k.endsWith('_topic');
 
-/** Expand the keys of one object (not recursive: every block has a table of its own). */
-function expandKeys(obj, table) {
-    const out = {};
-    for (const [k, v] of Object.entries(obj)) out[Object.hasOwn(table, k) ? table[k] : k] = v;
-    return out;
-}
-
-/** `~` at the start or the end of a topic stands for the base topic. */
-function substituteBase(value, base) {
-    if (typeof value !== 'string' || typeof base !== 'string') return value;
-    if (value.startsWith('~')) return base + value.slice(1);
-    if (value.endsWith('~')) return value.slice(0, -1) + base;
-    return value;
-}
-
-/**
- * One entity block with long key names and `~` substituted. `device`, `origin` and `availability`
- * entries have abbreviation tables of their own.
- * @param {object} raw
- * @param {string} [fallbackBase] the root's `~` in the device-based form
- */
-function expandBlock(raw, fallbackBase) {
-    const expanded = expandKeys(raw, ABBREVIATIONS);
-    const base = typeof expanded['~'] === 'string' ? expanded['~'] : fallbackBase;
-    delete expanded['~'];
-    const out = {};
-    for (const [key, value] of Object.entries(expanded)) {
-        if (key === 'device' && isRecord(value)) out.device = expandKeys(value, DEVICE_ABBREVIATIONS);
-        else if (key === 'origin' && isRecord(value)) out.origin = expandKeys(value, ORIGIN_ABBREVIATIONS);
-        else if (key === 'availability') {
-            const list = (Array.isArray(value) ? value : [value]).filter(isRecord).map((item) => {
-                const entry = expandKeys(item, ABBREVIATIONS);
-                entry.topic = substituteBase(entry.topic, base);
-                return entry;
-            });
-            if (list.length) out.availability = list;
-        } else if (isTopicKey(key)) out[key] = substituteBase(value, base);
-        else out[key] = value;
-    }
-    return { config: out, base };
+function library() {
+    const lib = haEntities.get();
+    if (!lib) throw new Error('mqtt-ha-entities is not loaded (lib/ha-entities.js load())');
+    return lib;
 }
 
 /**
@@ -111,10 +81,10 @@ function deviceKey(device) {
  *   `key` identifies the entity within the discovery prefix when it has no `unique_id`.
  */
 function expandConfig(topic, payload, prefix = DEFAULT_PREFIX) {
-    const parsed = parseConfigTopic(topic, prefix);
+    const lib = library();
+    const parsed = lib.parseDiscoveryTopic(prefix, topic);
     if (!parsed || !isRecord(payload)) return [];
     const path = topic.slice(prefix.length + 1, -'/config'.length);
-    const { config: root, base: rootBase } = expandBlock(payload);
 
     const record = (config, component, objectId, key) => {
         const device = isRecord(config.device) ? config.device : null;
@@ -138,24 +108,19 @@ function expandConfig(topic, payload, prefix = DEFAULT_PREFIX) {
     };
 
     if (parsed.component === 'device') {
-        if (!isRecord(root.components)) return [];
         // the root's device, origin, availability, state and command topic, qos and encoding apply to
-        // every component that does not set them itself
-        const shared = { ...root };
-        delete shared.components;
+        // every component that does not set them itself; a component reduced to its platform is the
+        // device form's way of removing it, and the library leaves it out
+        const { components } = lib.expandDevicePayload(payload);
         const out = [];
-        for (const [cid, comp] of Object.entries(root.components)) {
-            if (!isRecord(comp)) continue;
-            const { config } = expandBlock(comp, rootBase);
-            // a component reduced to its platform is the device form's way of removing it
-            if (typeof config.platform !== 'string' || Object.keys(config).length < 2) continue;
-            for (const [k, v] of Object.entries(shared)) if (!(k in config)) config[k] = v;
+        for (const [cid, config] of Object.entries(components)) {
+            if (typeof config.platform !== 'string' || !config.platform) continue;
             out.push(record(config, config.platform, cid, path + '/' + cid));
         }
         return out;
     }
 
-    return [record(root, parsed.component, parsed.objectId, path)];
+    return [record(lib.expandEntity(payload), parsed.component, parsed.objectId, path)];
 }
 
-module.exports = { expandConfig, classifyTopics, identifierList, deviceKey, substituteBase };
+module.exports = { expandConfig, classifyTopics, identifierList, deviceKey };
