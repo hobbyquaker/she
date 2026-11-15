@@ -47,6 +47,15 @@ module.exports = function (she, ctx = {}) {
              * { val, ms, tries }; rejects with an Error carrying reason timeout | offline | superseded | unloaded.
              */
             command: (...args) => api.command(...args),
+            /**
+             * Announce an entity of this script through Home Assistant MQTT discovery (device form):
+             * { component, name, state_topic, command_topic, …, id?, device?, rooms? }. Returns
+             * { id, device, topic, remove() }; the entity is dropped when the script stops. Primary broker only.
+             */
+            announce: (...args) => {
+                if (!api.announce) throw new TypeError(`she.mqtt("${broker}").announce: entities are announced on the primary broker only — use she.mqtt.announce`);
+                return api.announce(...args);
+            },
             /** Get the last-known value for a topic. */
             get: (topic) => api.get(topic),
             /** Get a specific property from a topic's state object. */
@@ -193,6 +202,7 @@ module.exports = function (she, ctx = {}) {
                 sub: (...args) => she.mqttsub(...args),
                 pub: (...args) => she.mqttpub(...args),
                 command: (...args) => she.mqttcommand(...args),
+                announce: (...args) => she.mqttannounce(...args),
                 get: (topic) => she.getValue(topic),
                 getProp: (...args) => she.getProp(...args),
                 set: (topic, val) => she.setValue(topic, val),

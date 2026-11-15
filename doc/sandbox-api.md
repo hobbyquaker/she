@@ -404,7 +404,49 @@ await she.mqtt.command('tasmota/cmnd/POWER', 'ON', { confirm: 'tasmota/tele/STAT
 she.mqtt.pub('hm/set/lamp/STATE', true);
 ```
 
-**Lint.** When a script is loaded, its literal publish topics are checked: a `she.mqtt.pub` (or `setValue`, `command`) to `<inst>/status/…`, or to a topic zigbee2mqtt publishes as a device's state, is logged as a warning with the script name and line — the command would never reach the device. The same check runs once per topic at runtime for topics built dynamically.
+**Lint.** When a script is loaded, its literal publish topics are checked: a `she.mqtt.pub` (or `setValue`, `command`) to `<inst>/status/…`, or to a topic zigbee2mqtt publishes as a device's state, is logged as a warning with the script name and line — the command would never reach the device. The same check runs once per topic at runtime for topics built dynamically. A state topic the script announces with [`she.mqtt.announce()`](#shemqttannounceentity) is its own and not warned about.
+
+---
+
+### she.mqtt.announce(entity)
+
+Announce an entity of this script through **Home Assistant MQTT discovery**, so that Home Assistant, she's home model, mqtt2matter and every other consumer of the format see it like a device of an adapter. she publishes the config in the device form of the [mqtt-smarthome convention](https://github.com/mqtt-smarthome/mqtt-smarthome) (section 8): one retained `homeassistant/device/<id>/config` per device, with `origin` she and she's own availability (`<name>/connected`, online while she runs).
+
+| Field | Type | Description |
+|---|---|---|
+| `component` | `string` | The Home Assistant MQTT platform: `switch`, `sensor`, `binary_sensor`, `number`, `select`, `button`, `light`, `cover`, `climate`, … |
+| `name` | `string \| null` | The entity's name, short and relative to the device ("Pump", not "Garden pump"). `null` makes it the device's main entity (then pass an `id`). |
+| `id` | `string` | The entity's id within the device (default: derived from `name`). Keep it stable: Home Assistant knows the entity by it. |
+| `state_topic`, `command_topic`, … | `string` | The topics, and any other option of the platform (`unit_of_measurement`, `device_class`, `value_template`, `payload_on`, `min`, `max`, `options`, `icon`, …), passed on as they are. A `sensor` and a `binary_sensor` need a `state_topic`; a `switch`, `number`, `select`, `button`, … a `command_topic`. |
+| `device` | `string \| object` | Default: the script is the device (named after the script). A name (`'Garden'`) or an object `{ name, model, manufacturer, sw_version, id, rooms, … }` puts the entity on a named device, which several scripts may fill together. `device.id` keeps the device's identity when its name changes. |
+| `rooms` | `string \| string[]` | Where the device is. The first room becomes the device's `suggested_area`, from which Home Assistant and she's home model take the room; `device.rooms` wins over the entity's. |
+| `availability` | `object[]` | Extra availability entries `{ topic, payload_available, payload_not_available, value_template }` (exactly these keys — Home Assistant rejects the whole device over any other). They come after she's own; the entity is then available when all of them are. Every topic must be retained and have a value before you announce it. |
+
+she sets `unique_id`, `platform`, the device's `identifiers` and the `origin` itself; passing them is an error. Every mistake throws a `TypeError` at the call, with what is wrong.
+
+Returns `{ id, device, topic, remove() }`: the entity's `unique_id`, the device id, the config topic, and `remove()`, which takes the entity back (a device left without entities has its config cleared).
+
+```js
+// the script is the device; the switch is the script's own logic, its state the script's own topic
+const base = 'garden';
+she.mqtt.announce({ component: 'switch', name: 'Irrigation', state_topic: `${base}/status/irrigation`, command_topic: `${base}/set/irrigation`, rooms: 'Garten' });
+she.mqtt.announce({ component: 'sensor', name: 'Water today', state_topic: `${base}/status/water`, unit_of_measurement: 'L', device_class: 'water', state_class: 'total_increasing' });
+
+she.mqtt.sub(`${base}/set/irrigation`, (topic, val) => {
+    // … switch the valve …
+    she.mqtt.pub(`${base}/status/irrigation`, val ? 'ON' : 'OFF', { retain: true });
+});
+
+// a named device several scripts share
+she.mqtt.announce({ component: 'binary_sensor', name: 'Rain', device: { name: 'Weather station', model: 'derived' }, state_topic: 'weather/status/rain', payload_on: 'true', payload_off: 'false' });
+```
+
+- **Payloads.** The entity reads what you publish. A `switch` expects `ON`/`OFF` unless you set `payload_on`/`state_on`; for `{ val, ts, lc }` objects give a `value_template`: `"{{ value_json.val }}"`.
+- **When it is published.** Calls in the same tick go out as one config per device. On a change, and on every connect to the broker, the configs are published again; an announcement identical to the published one is not sent twice. The primary broker only; `she.mqtt('<name>').announce` throws.
+- **When it goes.** When the script stops (disabled, deleted, renamed) its entities are dropped, and a device left without entities has its config cleared — after 5 seconds, so a reload that announces the same entities again changes nothing in Home Assistant. An entity the reloaded script no longer announces disappears. When she shuts down, the configs stay: Home Assistant shows the entities unavailable until she is back.
+- **Ids.** The device id is `she_<name>_script_<script>` for the script's device and `she_<name>_<device>` for a named one (`<name>` is she's instance name, `--name`); the entity's `unique_id` is `<device id>_<id>`. Renaming the script or the device (without `device.id`) makes a new device in Home Assistant.
+- **The status-topic lint** does not warn about a publish to a state topic the script announces: the script is that entity's adapter. Announce before you publish — a literal topic in the announcement counts at load, a computed one from the call on.
+- The prefix is `homeassistant`; `--ha-prefix` changes it.
 
 ---
 

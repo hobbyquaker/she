@@ -30,6 +30,19 @@ she.mqtt.command(topic, payload, [opts])  → Promise<{ val, ms, tries, already?
     and counted in get_health; a rejection nobody catches is NOT an unhandled rejection. A new command to the same topic supersedes the running one. Pending commands are listed by list_timers.
     Use it for commands whose effect matters (heating, gates, switching off); she.mqtt.pub stays fire-and-forget. Callbacks that await it become async: wrap in try/catch.
     Lint: a pub/command to <inst>/status/… or to a zigbee2mqtt device topic is warned about at load (with the line) — commands go to the set topic.
+she.mqtt.announce({ component, name, state_topic, command_topic, …, id?, device?, rooms? })  → { id, device, topic, remove() }
+    announces an entity the SCRIPT provides through Home Assistant MQTT discovery (device form: homeassistant/device/<id>/config, retained, origin she,
+    available while she is connected); Home Assistant, she's home model and mqtt2matter then see it like an adapter's device. Primary broker only.
+    component: an HA MQTT platform (switch, sensor, binary_sensor, number, select, button, light, cover, …); every other HA option (unit_of_measurement,
+    device_class, value_template, payload_on, min, max, options, icon, …) is passed on. sensor/binary_sensor need state_topic; switch/number/select/button… command_topic.
+    name: short, device-relative; id: stable entity id (default from the name). device: default the script itself; 'Garden' or { name, model, id, rooms, … }
+    = a named device several scripts may share. rooms: 'Bad' or ['Bad', …] → the device's suggested_area (the first room).
+    she sets unique_id, platform, identifiers, origin and availability herself (passing them throws); extra availability entries carry ONLY topic,
+    payload_available, payload_not_available, value_template. Mistakes throw a TypeError at the call.
+    Calls in one tick → one config per device; re-announcing the same id replaces the entity; republished on every broker connect; remove() takes it back.
+    When the script stops its entities go (cleared after 5 s, so a reload changes nothing); one a reloaded script no longer announces disappears.
+    The script publishes the state itself: she.mqtt.pub(state_topic, val, { retain: true }) — an announced state topic is NOT warned about by the
+    status-topic lint (announce first). A switch expects ON/OFF unless payload_on/state_on are set; { val } objects need value_template "{{ value_json.val }}".
 she.mqtt('<name>')                     The same API (sub, pub, get, getProp, age, link, or/and/max/min, timer, command) on an additional broker configured under "brokers" (3.0)
     she.mqtt stays the primary broker; she.mqtt('shed').sub('tele/#', cb), she.mqtt('shed').pub('set/x', 1); .broker is the name (null on the primary)
     an unknown name throws at load; helpers work within one broker — across brokers use the mirror rules of the config, or sub on one side and pub on the other
