@@ -458,6 +458,23 @@ const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: 'list_scenes',
+            description:
+                'The scenes of the scene controller: stored states of entities (lamp at 40 %, blind at 30 %) that are datapoints themselves — true while every member is in the stored state, whoever brought it there. ' +
+                'Without id: every scene with its state (active or not, how many members match), its room, its deactivate mode and its groups, and the scene groups with the scene that is active in each. ' +
+                'With id: why that scene is on or off — the members, and for each mismatch what the entity is and what the scene wants; "unknown" lists members without a value, offline or no longer announced. ' +
+                'Use it for "which scenes are active", "why is evening off". To recall or deactivate a scene, publish_mqtt true, false or "toggle" to the set topic the result names (a group takes a scene id, or "none").',
+            parameters: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: 'A scene id for the details of one scene; omit for the list.' },
+                },
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: 'describe_room',
             description:
                 'Everything about a room in one call: every device whose topics carry the room word (grouped per device with values and change ages), the variables with the word, the scripts that subscribe to or publish any of it, and the discovery devices. ' +
@@ -678,6 +695,8 @@ async function runTool(name, args, ctx) {
                 return toolWhoPublishes(args, ctx);
             case 'describe_device':
                 return toolDescribeDevices(args, ctx);
+            case 'list_scenes':
+                return toolListScenes(args);
             case 'describe_room':
                 return toolDescribeRoom(args, ctx);
             case 'list_services':
@@ -1319,6 +1338,57 @@ function toolDescribeDevices({ name, names, limit } = {}, ctx = {}) {
     const out = unique.slice(0, cap).map((n) => `# ${n}\n${toolDescribeDevice({ name: n, limit }, ctx)}`);
     if (unique.length > cap) out.push(`… ${unique.length - cap} more names not shown; call again with them.`);
     return out.join('\n\n');
+}
+
+/**
+ * The scenes and scene groups with their states; with an id, why one scene is on or off.
+ */
+function toolListScenes({ id } = {}) {
+    const engine = require('./scenes').getEngine();
+    if (!engine) return 'Scenes are not available: they need sheDB and the home model.';
+    const base = engine.name;
+    if (id) {
+        const state = engine.state(String(id));
+        const doc = engine.get(String(id));
+        if (!state || !doc)
+            return `No scene "${id}". Scenes: ${
+                engine
+                    .list()
+                    .map((s) => s.id)
+                    .join(', ') || 'none'
+            }.`;
+        const lines = [
+            `Scene ${id} "${state.name}": ${state.val ? 'ACTIVE' : 'not active'} (${state.matched} of ${state.total} members match)${state.settling ? ', a recall is settling' : ''}`,
+            `set topic: ${base}/set/scene/${id} (true = recall, false = deactivate, "toggle"); status topic: ${base}/status/scene/${id}`,
+            `deactivate (what false does): ${doc.deactivate}${doc.area ? `; room: ${doc.area}` : ''}${state.recalled ? `; last recalled ${new Date(state.recalled).toISOString()}` : ''}`,
+        ];
+        if (state.mismatch.length) {
+            lines.push('Mismatches:');
+            for (const m of state.mismatch) lines.push(`  ${m.name} (${m.entity}): ${m.attribute} is ${JSON.stringify(m.is)}, the scene wants ${JSON.stringify(m.want)}`);
+        }
+        if (state.unknown.length) {
+            lines.push('Unknown (counts as not matching):');
+            for (const u of state.unknown) lines.push(`  ${u.name} (${u.entity})${u.attribute ? ' ' + u.attribute : ''}: ${u.reason}`);
+        }
+        lines.push('Members:');
+        for (const m of doc.members) lines.push(`  ${m.entity} ${JSON.stringify(m.attributes)}${m.role !== 'recall+match' ? ` [${m.role}]` : ''}`);
+        return lines.join('\n');
+    }
+    const list = engine.list();
+    const groups = engine.groups();
+    if (!list.length && !groups.length) return 'There are no scenes yet.';
+    const lines = [`${list.length} scene${list.length === 1 ? '' : 's'} (set topic ${base}/set/scene/<id>: true, false or "toggle"):`];
+    for (const s of list) {
+        lines.push(
+            `  ${s.id} "${s.name}": ${s.val ? 'ACTIVE' : 'not active'} (${s.matched}/${s.total})${s.area ? `, room ${s.area}` : ''}, deactivate: ${s.deactivate}${s.groups.length ? `, group ${s.groups.join(', ')}` : ''}${s.sensitive ? ', commands a lock or alarm panel' : ''}`,
+        );
+    }
+    if (groups.length) {
+        lines.push(`${groups.length} scene group${groups.length === 1 ? '' : 's'} (set topic ${base}/set/scenegroup/<id>: a scene id, or "none"):`);
+        for (const g of groups)
+            lines.push(`  ${g.id} "${g.name}": ${g.val ? `active scene ${g.val}` : 'no scene active'}; scenes ${g.scenes.join(', ')}${g.default ? `; default ${g.default}` : ''}`);
+    }
+    return lines.join('\n');
 }
 
 /**

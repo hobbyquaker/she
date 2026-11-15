@@ -6,6 +6,7 @@
  *   she.home.floors()                       → [{id, name, level, order, rooms: [ids]}]
  *   she.home.rooms()                        → [{id, name, floor, order, icon, aliases, entities}]
  *   she.home.entities([selection])          → [entity summary]
+ *   she.home.entity(idOrTopic)              → the summary plus state(), turnOn(), set(), sub(), … (lib/home-entity-api.js)
  *   she.home.sub(selection, [opts], cb)     → handle {entities(), cancel()}; cb(entity, val, obj, prev, topic)
  *   she.home.assign(id, patch)              → the summary of the device or entity afterwards
  *
@@ -19,6 +20,7 @@
 
 const home = require('../web/home');
 const { entitySummary, deviceSummary, byName } = require('../lib/home-views');
+const createEntityApi = require('../lib/home-entity-api');
 
 const SELECTION_KEYS = ['room', 'floor', 'function', 'label', 'component', 'hidden'];
 
@@ -107,6 +109,13 @@ module.exports = function (she, ctx = {}) {
     const { scriptDomain, store, onUnload, warn } = ctx;
 
     she.home = {
+        /**
+         * One entity with its live state and commands in Home Assistant's terms
+         * (lib/home-entity-api.js): she.home.entity(idOrTopic) → the summary plus state(),
+         * turnOn(), set(), sub(), …; null when there is no such entity.
+         */
+        entity: createEntityApi(ctx),
+
         /** Floors with the ids of their rooms, by order. */
         floors() {
             const m = model('floors');

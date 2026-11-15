@@ -16,6 +16,7 @@ const { HomeModel } = require('../../src/lib/home-model');
 const views = require('../../src/lib/home-views');
 const { compileView, runView, resultLength } = require('../../src/lib/shedb-view');
 const home = require('../../src/web/home');
+const haEntities = require('../../src/lib/ha-entities');
 const homeSandbox = require('../../src/sandbox/home-sandbox');
 
 const noop = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
@@ -57,6 +58,9 @@ function corpusModel() {
     model.assign('she/entity/0x00124b0000000001_light_zigbee2mqtt', { rooms: ['living-room', 'Küche'], labels: ['evening'] });
     return model;
 }
+
+// the model expands discovery with mqtt-ha-entities, loaded before it starts
+beforeAll(() => haEntities.load());
 
 beforeEach(newCore);
 
@@ -103,6 +107,9 @@ describe('the standard views on the corpus', () => {
             'she/entities/by-room-function',
             'she/floors',
             'she/rooms',
+            'she/rooms/aggregates',
+            'she/scenes/by-entity',
+            'she/scenes/by-room',
             'she/topics',
         ]);
         for (const [id, def] of Object.entries(views.DEFINITIONS)) {
@@ -223,11 +230,62 @@ describe('the standard views on the corpus', () => {
     });
 });
 
+describe('the scene views', () => {
+    const A = 'she/entity/lamp_a';
+    const B = 'she/entity/lamp_b';
+    const scene = (name, extra, ...entities) => ({ schema: 1, kind: 'scene', name, deactivate: 'none', members: entities.map((entity) => ({ entity, attributes: {} })), ...extra });
+
+    beforeEach(async () => {
+        await newCore();
+        core.set('she/scene/movie', scene('Movie', { area: 'living-room', icon: 'mdi:movie', deactivate: 'restore' }, A, B));
+        core.set('she/scene/evening', scene('Evening', { area: 'living-room' }, A));
+        core.set('she/scene/leave', scene('Leave', { sensitive: true }, B, 'she/entity/door'));
+        // not scenes: a restore point, a group, something a script put there
+        core.set('she/scene/movie/restore', { recalled: 1, members: [{ entity: A, before: {}, scene: {} }] });
+        core.set('she/scenegroup/living', { kind: 'scenegroup', name: 'Living room', scenes: ['evening', 'movie'] });
+        core.set('she/scene/notes', { text: 'not a scene' });
+    });
+
+    test('she/scenes/by-room: the scene summaries per room, by name; without a room under ""', () => {
+        expect(run('she/scenes/by-room')).toEqual({
+            '': [{ id: 'leave', name: 'Leave', area: null, icon: null, deactivate: 'none', sensitive: true, members: 2 }],
+            'living-room': [
+                { id: 'evening', name: 'Evening', area: 'living-room', icon: null, deactivate: 'none', sensitive: false, members: 1 },
+                { id: 'movie', name: 'Movie', area: 'living-room', icon: 'mdi:movie', deactivate: 'restore', sensitive: false, members: 2 },
+            ],
+        });
+    });
+
+    test('she/scenes/by-entity: the scenes an entity takes part in', () => {
+        expect(run('she/scenes/by-entity')).toEqual({
+            [A]: ['evening', 'movie'],
+            [B]: ['leave', 'movie'],
+            'she/entity/door': ['leave'],
+        });
+    });
+
+    test('no scenes: empty objects', () => {
+        expect(run('she/scenes/by-room', {})).toEqual({});
+        expect(run('she/scenes/by-entity', {})).toEqual({});
+    });
+
+    test('a room merge moves the scenes with it', async () => {
+        const model = new HomeModel({ core, entries: () => new Map(), log: noop, goneDelay: 0 });
+        model.enable({ language: 'en' });
+        model.start({ authoritative: true });
+        model.createRoom({ id: 'living-room', name: 'Living room' });
+        model.createRoom({ id: 'lounge', name: 'Lounge' });
+        model.mergeRooms('lounge', ['living-room']);
+        expect(Object.keys(run('she/scenes/by-room')).sort()).toEqual(['', 'lounge']);
+        model.stop();
+    });
+});
+
 describe('installed into sheDB', () => {
     test('written while the model is on, computed by the worker, kept switches, removed when it goes off', async () => {
         corpusModel();
         home.syncViews(core, noop);
-        expect(Object.keys(core.queries).filter((id) => id.startsWith('she/')).length).toBe(13);
+        expect(Object.keys(core.queries).filter((id) => id.startsWith('she/')).length).toBe(16);
         const computed = new Promise((resolve) => {
             const seen = (id, view) => {
                 if (id === 'she/entities/by-room' && view && view.result) {

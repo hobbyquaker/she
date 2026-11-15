@@ -20,6 +20,7 @@ Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox m
 - [she.api — Script HTTP routes](#sheapi----script-http-routes)
 - [she.db — sheDB document store](#shedb----shedb-document-store)
 - [she.home — Home model](#shehome----home-model)
+- [she.scene — Scenes](#shescene----scenes)
 - [she.matter — Matter integration](#shematter----matter-integration)
 - [she.influx — InfluxDB integration](#sheinflux----influxdb-integration)
 - [she.elastic — Elasticsearch integration](#sheelastic----elasticsearch-integration)
@@ -1153,7 +1154,74 @@ she.home.sub({ room: 'living-room', function: 'lighting' }, { change: true }, (e
 });
 ```
 
-`val` is the raw payload of the topic. Reading a state the way Home Assistant does (`value_template`, `state_on`, …) and HA-level commands are a later part of `she.home`.
+`val` is the raw payload of the topic. To read a state the way Home Assistant does (`value_template`, `state_on`, …), ask the entity: `she.home.entity(e.id).state()`.
+
+### she.home.entity(idOrTopic)
+
+One entity with its **live state and commands in Home Assistant's terms**. The discovery config says which topic carries which attribute, through which template, and which publishes set it; `she.home.entity()` does that reading and writing, so a script deals with `{ state: 'ON', brightness: 102 }` whatever the device puts on the wire. `idOrTopic` is the entity's id (`she/entity/…` or the part behind it), its `unique_id`, or a topic it reads or writes — when several entities share a topic, the one that can be commanded wins over the sensors. Returns `null` when there is no such entity.
+
+```js
+const lamp = she.home.entity('zigbee2mqtt/floor_lamp');
+lamp.state(); // { state: 'ON', brightness: 102, color_mode: 'color_temp', color_temp: 370 }
+lamp.turnOn({ brightness: 128 });
+lamp.turnOff();
+
+she.home.entity('blind_kitchen_cover').setPosition(30);
+she.home.entity('thermostat_bath').setTemperature(21);
+she.home.entity('amp_input').set({ option: 'HDMI 1' });
+
+// every light in the living room off
+for (const e of she.home.entities({ room: 'living-room', function: 'lighting' })) she.home.entity(e.id).turnOff();
+```
+
+The object carries the entity summary (`id`, `name`, `rooms`, `functions`, `component`, …) and:
+
+| Member | Meaning |
+|---|---|
+| `present`, `hidden` | still announced; hidden in the model |
+| `supported` | `true` for the components below; of any other component only the topics are known |
+| `stateless` | `true` for `button` and `scene` |
+| `primary` | the attribute that is the state in one word: `state`, `position`, `mode`, `option`, `value` |
+| `attributes` | what this entity tells and takes: `{ brightness: { read, write, min, max }, … }` with `unit`, `step` and `options` where the config has them |
+| `topics` | `{ state: […], command: […], availability: […] }` |
+| `state()` | the state; an attribute nothing has been received for is left out |
+| `available()` | `true`, `false`, or `undefined` while the availability topics have said nothing; an entity without availability is available |
+| `snapshot()` | the part of the state that can be set again — what a scene stores |
+| `matches(expected, [{ tolerances }])` | is the entity in this state? → `{ match, available, unknown, mismatches, state }`; numbers within a tolerance (brightness ±2, position ±2 %, temperature ±0.25, …), an entity that is offline never matches |
+| `set(attributes)` | set any attributes; returns the publishes that were sent (`[{ topic, payload, retain, qos }]`) |
+| `turnOn([attributes])`, `turnOff()` | on and off; a cover opens and closes, a button or a scene is triggered by `turnOn()`. A lock is not turned on or off: `set({ state: 'UNLOCKED' })` |
+| `setPosition(percent)`, `setTemperature(value)` | a cover's position (100 = open), a thermostat's setpoint |
+| `trigger()` | press a button, activate a scene |
+| `sub(callback)` | `callback(now, before)` with `{ state, available, present }` when the state or the availability **changes** — not for every message; cancelled on unload; returns a function that cancels it |
+
+Attributes per component — the same names whatever scale or words the device uses:
+
+| Component | Attributes |
+|---|---|
+| `light` | `state` (`ON`, `OFF`), `brightness` (0–255), `color_temp` (mireds), `hs`, `xy`, `rgb`, `rgbw`, `rgbww`, `effect`, `color_mode` (read only) |
+| `switch`, `binary_sensor` | `state` (`ON`, `OFF`) |
+| `cover` | `state` (`open`, `closed`, `opening`, `closing`, `stopped`), `position`, `tilt` (percent, 100 = open) |
+| `climate` | `mode`, `temperature`, `temperature_low`, `temperature_high`, `target_humidity`, `fan_mode`, `swing_mode`, `preset_mode`; read only: `current_temperature`, `current_humidity`, `action` |
+| `fan` | `state`, `percentage` (0–100), `preset_mode`, `oscillation`, `direction` |
+| `lock` | `state` (`LOCKED`, `UNLOCKED`, `LOCKING`, `UNLOCKING`, `JAMMED`) |
+| `select` | `option` |
+| `number`, `sensor` | `value` |
+
+A command the entity cannot take is not sent and not thrown: the script log says why (`she.home.entity('…'): light: volume cannot be set`). A light that is set with a `color_mode` gets only the colour of that mode, so a state that was read with `snapshot()` can be handed back to `set()` as it is.
+
+```js
+// remember the scene of the room, bring it back later
+const before = she.home.entities({ room: 'living-room', function: 'lighting' }).map((e) => [e.id, she.home.entity(e.id).snapshot()]);
+// …
+for (const [id, state] of before) she.home.entity(id).set(state);
+
+// tell when the window is opened, whatever payloads its sensor uses
+she.home.entity('window_bath_contact').sub((now, before) => {
+    if (now.state.state === 'ON' && before.state.state !== 'ON') she.log('window open');
+});
+```
+
+The state is read at the call from the last message of each topic; there is no optimistic state, and `expire_after` is not applied. Jinja templates are rendered with Home Assistant's filters; what they cannot do here (`states()`, `now()`, regular expressions) leaves the attribute out.
 
 ### she.home.assign(id, patch)
 
@@ -1182,6 +1250,9 @@ While the model is on, she keeps these sheDB views under `she/…`. They are rec
 | `she/devices/unassigned` | `{devices: [device summary], entities: [summary]}` — without a room, not hidden; an entity only when its device has a room (or there is none) |
 | `she/devices/gone` | `[device summary]` no longer announced, the most recent `gone_since` first |
 | `she/entities/battery` | `[summary + device_name]` — `device_class` battery, hidden ones too, by room and name |
+| `she/rooms/aggregates` | `{room: {name, floor, aggregates: {light: {entities: [{id, name}], excluded: [ids]}, …}, off: [names]}}` — which aggregates a room publishes and from which entities (below) |
+| `she/scenes/by-room` | `{room: [scene summary]}` — `{id, name, area, icon, deactivate, sensitive, members}` by name; scenes without a room under `""`. Whether a scene is active is on `she/status/scene/<id>`, not in the view |
+| `she/scenes/by-entity` | `{entity id: [scene ids]}` — the scenes an entity is a member of |
 
 A **device summary** is `{id, name, rooms, floors, labels, adapter, manufacturer, model, present, gone_since, entities}` (`entities` = how many). The by-… views list entities that are announced and not hidden.
 
@@ -1193,6 +1264,124 @@ she.mqtt.sub('zigbee2mqtt/#', (topic, val) => {
     }
 });
 ```
+
+#### Aggregates: what a room, a floor and the house are doing
+
+While the home model is on, she computes these from the entities and publishes them retained (`<name>` is the instance name, `she` by default):
+
+```
+<name>/status/room/<room>/<aggregate>
+<name>/status/floor/<floor>/<aggregate>
+<name>/status/home/<aggregate>
+```
+
+| Aggregate | `val` | Computed from |
+|---|---|---|
+| `light` | is a light on | lights and switches with the function `lighting` |
+| `lights` | how many are on | the same |
+| `open` | is something open | contacts and covers with the function `openings` |
+| `temperature` | the mean, in °C, with `min` and `max` | temperature sensors with the function `climate` |
+| `humidity` | the mean, in %, with `min` and `max` | humidity sensors with the function `climate` |
+| `occupied` | does a sensor see somebody | occupancy, presence and motion sensors |
+| `power` | the sum, in W | power sensors with the function `energy` |
+| `scene` | the id of the scene the room is in, `''` when none matches | the room's scene groups (rooms only) |
+
+A payload is `{val, ts, lc, members: [{id, name, val}]}` (plus `min`, `max`, `unit` where it applies): `lc` is the last change of `val`, `members` are the entities it was computed from with what each contributed — `null` for one that is unavailable or has not reported. `val` is `null` when no member is known. An aggregate nothing counts in is not published. Hidden entities do not count; an entity in two rooms counts in both, and once on its floor and in the house. Changes are collected for a quarter of a second, so a device that reports several values makes one publish.
+
+`scene` is there for a room that has a scene group (a group whose `area` is the room). Its payload is `{val, ts, lc, group, groups}`: with several groups in a room, `val` is the scene of the first group — by name — in which a scene matches, `group` is that group, and `groups` has the value of each (`{lights: 'evening', blinds: ''}`). Scenes outside a group are not looked at. It is not announced through discovery; the group announces itself.
+
+```js
+// heating down while a window is open, for every room that has both
+for (const room of she.home.rooms()) {
+    she.mqtt.sub(`she/status/room/${room.id}/open`, { change: true }, (topic, open) => {
+        for (const e of she.home.entities({ room: room.id, function: 'heating' })) she.home.entity(e.id).setTemperature(open ? 12 : 21);
+    });
+}
+```
+
+A room, a floor and the house (`she/home`) can carry `aggregates` to switch one off or to leave an entity out; what a room leaves out is left out of its floor and the house too:
+
+```js
+she.db.extend('she/room/kitchen', { aggregates: { humidity: false, temperature: { exclude: ['she/entity/fridge_temperature'] } } });
+```
+
+Rooms, floors and the house are also announced through Home Assistant discovery as devices of she, one entity per aggregate, so Home Assistant sees them. In the home model those devices and entities are hidden.
+
+---
+
+## she.scene -- Scenes
+
+A **scene** is a stored state of selected entities of the home model — the floor lamp on at 40 %, the blind at 30 %, the amplifier on — and a datapoint of its own: **`true` while every member is in that state, whoever brought it there**, `false` as soon as one is not. Somebody dims the lamp by hand: `false`. The lamp is dimmed back, or the scene is recalled: `true` again. Scenes are documents in sheDB (`she/scene/<id>`), so they need sheDB and the home model.
+
+On MQTT (`she` is the instance name):
+
+| Topic | | Payload |
+|---|---|---|
+| `she/status/scene/<id>` | retained | `{ "val": true, "ts", "lc", "matched": 4, "total": 4, "mismatch": [], "unknown": [], "recalled" }` — `mismatch`: `[{ entity, name, attribute, is, want }]`, `unknown`: `[{ entity, name, attribute?, reason }]` with reason `no value`, `unavailable` or `missing` |
+| `she/set/scene/<id>` | | `true` recalls, `false` deactivates, `"toggle"`; `{ "val": true, "force": true }` commands every member |
+| `she/status/scenegroup/<id>` | retained | `{ "val": "movie", "ts", "lc" }` — the id of the scene of the group that matches now (the first of its list when several do), or `""` |
+| `she/set/scenegroup/<id>` | | a scene id recalls it; `"none"` or `false` is the group's deactivation |
+
+Every scene is also announced through Home Assistant discovery as a `switch`, every group as a `select` (device "Scenes"), so Home Assistant, a Matter bridge or a dashboard get them without configuration.
+
+**Matching.** Numbers match within a tolerance (brightness ±2 of 255, position ±2 %, temperature ±0.25; a member can set its own), everything else exactly. A light that is to be off is not asked for its brightness. A member without a value, one that is offline, and one that is no longer announced count as not matching and are listed under `unknown`. A change is told after a second of quiet, so a recall whose answers arrive one by one does not flap.
+
+**Recall.** Only the members that differ are commanded — that spares radio traffic and flicker. `force`, and a recall of a scene that is already `true`, command every member: that repairs a device whose state is wrong. Members are commanded in their `order`, each after its `delay` (seconds). For the scene's `settle` time (10 s by default) a member that has not answered yet does not make the scene `false`; after it every mismatch is in the log (`scene movie: Floor lamp brightness is 80, expected 102`). A newer recall in the same group drops what an older one has not sent yet. More than 5 recalls of a scene within 10 s are dropped (a loop).
+
+**Deactivate** — what `false` does — is the scene's `deactivate` setting:
+
+| `deactivate` | `false` … |
+|---|---|
+| `none` (default) | is ignored; the log says so. A scene is a state, not a switch |
+| `restore` | brings the members back to the state they had before the recall — **only those nobody touched since**: a lamp you dimmed during the movie stays as you set it |
+| `off` | switches the scene's lights, switches and fans off; other members are left alone (a member can carry its own `off` attributes, or `off: false`) |
+| `scene:<id>` | recalls that scene — only while this one is `true` |
+
+**Members** are `{ entity: 'she/entity/…', attributes, tolerance?, role?, order?, delay? }`. `role` is `recall+match` (default), `match` (a condition that is never commanded: "the TV is on") or `recall` (commanded, but does not decide the state: a blind the sun program moves anyway). A button or a Home Assistant scene as a member is triggered by the recall. A lock or an alarm panel is only commanded when the member is confirmed (`confirmed: true`, set by the editor after asking).
+
+### she.scene.list()
+
+Every scene with its state, by name: `[{ id, name, area, icon, deactivate, sensitive, groups, members, val, matched, total }]`.
+
+### she.scene.state(id)
+
+Why a scene is on or off: `{ id, name, val, matched, total, mismatch, unknown, recalled, settling }`, or `null`.
+
+```js
+const s = she.scene.state('movie');
+if (!s.val) for (const m of s.mismatch) she.log(m.name, m.attribute, 'is', m.is, 'wants', m.want);
+```
+
+### she.scene.recall(id, [{ force }]) / deactivate(id) / toggle(id)
+
+The same as the set topic. `recall` returns `{ ok, sent, skipped, problems }` (`ok: false` with a `reason` for an unknown scene or the loop guard), `deactivate` `{ ok, mode, sent, reason? }`.
+
+```js
+she.schedule('sunset', () => she.scene.recall('evening'));
+```
+
+### she.scene.snapshot(id, [entities], [fields])
+
+Create a scene from the present state of entities, or — without `entities` — take the states of its members again ("update from the current state"). `entities` are ids, `unique_id`s or topics, as for `she.home.entity()`; `fields` are `name`, `area` (a room id), `deactivate`, `settle`. An entity that only tells (a sensor) becomes a condition. Returns the scene document.
+
+```js
+// set the lights by hand, then:
+she.scene.snapshot('reading', she.home.entities({ room: 'living-room', function: 'lighting' }).map((e) => e.id), { name: 'Reading', area: 'living-room', deactivate: 'restore' });
+```
+
+A scene that would command a lock or an alarm panel throws unless `fields.confirmSensitive` is `true`.
+
+### she.scene.get(id) / remove(id)
+
+The scene document (a copy), or `null`; delete a scene (it is taken out of its groups).
+
+### she.scene.sub([id], callback)
+
+`callback(id, state)` when a scene's published state changes (after the debounce); `state` is `null` when the scene was deleted. Without an id: every scene. Cancelled on unload; returns a function that cancels it.
+
+### she.scene.groups([{ area }]) / group(id) / setGroup(id, sceneId)
+
+A **scene group** (`she/scenegroup/<id>`: `{ name, area?, scenes: [ids], default? }`) is an ordered list of scenes, usually the moods of one room: `off, evening, movie, reading`. `groups()` returns `[{ id, name, area, scenes, default, val }]`, `val` being the scene that matches now. `setGroup(id, sceneId)` recalls a scene of the group; `setGroup(id, '')` is the group's deactivation: its `default` scene when it has one, else the deactivation of the scene that is active.
 
 ---
 

@@ -37,6 +37,7 @@ const { EventEmitter } = require('events');
 const { expandConfig, identifierList } = require('./ha-configs');
 const { parseConfigTopic, DEFAULT_PREFIX } = require('./ha-discovery');
 const { DEFAULT_FUNCTIONS, normaliseLanguage } = require('./home-defaults');
+const { isAggregateEntity } = require('./home-aggregate-rules');
 
 const SCHEMA = 1;
 
@@ -105,6 +106,12 @@ function slug(name) {
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
+}
+
+/** a room, a floor or the house as she announces it for its aggregates (lib/home-aggregates.js) */
+function isAggregateDevice(doc) {
+    const ha = doc.ha || {};
+    return ha.manufacturer === 'she' && ['Room', 'Floor', 'Home'].includes(ha.model) && (ha.identifiers || []).some((i) => /^she_.+_(room_.+|floor_.+|home)$/.test(i));
 }
 
 const humanise = (s) => {
@@ -694,7 +701,8 @@ class HomeModel extends EventEmitter {
             rooms,
             floors: this._floorsOf(rooms, ctx),
             labels: unique((Array.isArray(user.labels) ? user.labels : []).filter((l) => typeof l === 'string')),
-            hidden: typeof user.hidden === 'boolean' ? user.hidden : false,
+            // she's own room, floor and house devices (the aggregates) are not devices of the house
+            hidden: typeof user.hidden === 'boolean' ? user.hidden : isAggregateDevice(doc),
             adapter: doc.ha.origin?.name ?? null,
         };
     }
@@ -723,7 +731,10 @@ class HomeModel extends EventEmitter {
         let hidden;
         if (typeof user.hidden === 'boolean') hidden = user.hidden;
         else if (typeof deviceUser.hidden === 'boolean') hidden = deviceUser.hidden;
-        else hidden = ha.entity_category === 'diagnostic' || ha.entity_category === 'config' || (isRecord(ha.config) && ha.config.enabled_by_default === false);
+        else {
+            hidden =
+                ha.entity_category === 'diagnostic' || ha.entity_category === 'config' || (isRecord(ha.config) && ha.config.enabled_by_default === false) || isAggregateEntity(doc);
+        }
 
         return {
             name,

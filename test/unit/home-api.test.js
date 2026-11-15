@@ -14,6 +14,7 @@ const express = require('express');
 const SheDBCore = require('../../src/lib/shedb-core');
 const StateStore = require('../../src/lib/state-store');
 const home = require('../../src/web/home');
+const haEntities = require('../../src/lib/ha-entities');
 
 const noop = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
@@ -63,6 +64,9 @@ function request(method, url, body) {
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+// the model expands discovery with mqtt-ha-entities, loaded before it starts
+beforeAll(() => haEntities.load());
 
 beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'home-api-test-'));

@@ -74,6 +74,10 @@ const _pino = require('pino')(
 const { broadcastLog, broadcast, setWelcomeProvider, onClientMessage, onClientClose, sendWs } = require('./web/log-ws');
 const shedb = require('./web/shedb');
 const home = require('./web/home');
+const homeEntities = require('./web/home-entities');
+const homeAggregates = require('./web/home-aggregates');
+const scenes = require('./web/scenes');
+const { ENVELOPE: parsePayloadEnvelope } = require('./lib/parse-payload');
 // One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
 const log = require('./lib/logger').createLogger({
     redact: (s) => secrets.redact(s),
@@ -517,9 +521,19 @@ const _SENTINEL_TIMEOUT_MS = config.sentinelTimeout; // ms to wait for sentinel 
 let _mqttGate = false;
 let _matterGate = !config.matterStorage; // pre-open when matter is disabled
 let _matterStoragePath = null;
+// … and on a third: the library behind she.home.entity() is an ES module and arrives asynchronously.
+// A failure opens the gate too — the scripts run, she.home.entity() returns null.
+let _entityGate = false;
+require('./lib/ha-entities')
+    .load()
+    .catch((err) => log.error('home model: the entity layer is not available: ' + err.message))
+    .finally(() => {
+        _entityGate = true;
+        _maybeStart();
+    });
 
 function _maybeStart() {
-    if (_started || !_mqttGate || !_matterGate) {
+    if (_started || !_mqttGate || !_matterGate || !_entityGate) {
         if (!_started && _mqttGate && !_matterGate) {
             log.info('waiting for matter controller before starting scripts');
         }
@@ -528,6 +542,10 @@ function _maybeStart() {
     _started = true;
     // before the scripts: they find the home model's documents in line with the retained state
     home.start({ authoritative: _retainedComplete });
+    // what the rooms, the floors and the house are doing, from the entities' state
+    homeAggregates.start();
+    // the scenes read their members from that retained state
+    scenes.start();
     start();
     // the Matter ↔ MQTT bridge needs both: the controller and the retained state (M19)
     if (config.matterStorage) {
@@ -968,6 +986,9 @@ if (config.url) {
         mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => _dispatch(c._script, () => c.callback()));
         // discovery configs are published on every broker connect (mqtt-smarthome section 8)
         announcer.republish();
+        homeAggregates.connected();
+        // … and the scenes' retained states
+        if (_started) scenes.getEngine()?.republish();
 
         if (!_started) {
             // Cancel the “broker not connecting” startup timeout — we’re connected.
@@ -1064,6 +1085,15 @@ if (config.url) {
         }
 
         const state = require('./lib/parse-payload')(payload);
+
+        // <name>/set/scene/<id> and <name>/set/scenegroup/<id>: recall, deactivate, toggle (the message is still stored below)
+        if (_started && topic.startsWith(config.name + '/set/scene')) {
+            try {
+                scenes.getEngine()?.onMessage(topic, state && state[parsePayloadEnvelope] ? state : state && state.val);
+            } catch (err) {
+                log.warn('scenes:', err.message);
+            }
+        }
 
         const topicArr = topic.split('/');
         let oldState;
@@ -1184,6 +1214,42 @@ if (config.dbPath) {
     });
     // the home model: she's own documents about devices, rooms and functions
     home.init({ core: dbCore, store, log, fresh: homeFresh, prefix: config.haPrefix || undefined });
+    // its entity layer: the live state of the entities, and commands in Home Assistant's terms
+    homeEntities.init({
+        core: dbCore,
+        store,
+        log,
+        publish: (topic, payload, options) => {
+            if (!mqtt || !connected) return false;
+            mqtt.publish(topic, payload, options);
+            return true;
+        },
+    });
+    // the aggregates of rooms, floors and the house: published retained, announced as she's own devices
+    homeAggregates.init({
+        core: dbCore,
+        store,
+        log,
+        instance: config.name,
+        publish: (topic, payload) => {
+            if (!mqtt || !connected) return false;
+            mqtt.publish(topic, payload, { retain: true });
+            return true;
+        },
+        announce: (entity) => announcer.announce('\0home-aggregates', 'home', entity),
+    });
+    // scenes: stored states of entities that are datapoints themselves (<name>/status|set/scene/<id>)
+    scenes.init({
+        core: dbCore,
+        log,
+        name: config.name,
+        announcer,
+        publish: (topic, payload, options) => {
+            if (!mqtt || !connected) return false;
+            mqtt.publish(topic, payload, options);
+            return true;
+        },
+    });
 }
 
 // Redis support was removed; a leftover block in config.json is ignored, and the log says so once
@@ -2756,6 +2822,8 @@ async function gracefulShutdown(signal) {
     _clearSentinel();
     log.info(`got ${signal}. exiting.`);
     // the discovery configs stay retained: Home Assistant shows the entities unavailable meanwhile
+    homeAggregates.reset();
+    scenes.reset();
     announcer.stop();
     if (config.matterStorage) {
         try {

@@ -15,14 +15,16 @@
     import Devices from './home/Devices.svelte';
     import Functions from './home/Functions.svelte';
     import Labels from './home/Labels.svelte';
+    import Scenes from './home/Scenes.svelte';
     import type { HomeCtx } from './home/ctx.js';
 
     let { active = false, sub = null, onsub }: { active?: boolean; sub?: string | null; onsub?: (s: string) => void } = $props();
 
-    type Tab = 'rooms' | 'devices' | 'functions' | 'labels';
+    type Tab = 'rooms' | 'devices' | 'scenes' | 'functions' | 'labels';
     const TABS: { id: Tab; label: string }[] = [
         { id: 'rooms', label: 'Rooms' },
         { id: 'devices', label: 'Devices' },
+        { id: 'scenes', label: 'Scenes' },
         { id: 'functions', label: 'Functions' },
         { id: 'labels', label: 'Labels' },
     ];
@@ -174,6 +176,8 @@
                 <Rooms {data} {ctx} {busy} bind:focus={focusRequest} />
             {:else if tab === 'devices'}
                 <Devices {data} {ctx} {busy} bind:focus={focusRequest} />
+            {:else if tab === 'scenes'}
+                <Scenes {data} {ctx} {busy} active={active && tab === 'scenes'} />
             {:else if tab === 'functions'}
                 <Functions {data} {ctx} {busy} />
             {:else}
@@ -207,7 +211,7 @@
     .home :global(select), .home :global(input[type='text']), .home :global(input[type='number']), .home :global(input[type='search']), .home :global(textarea) {
         background: var(--bg-input, var(--bg-app)); border: 1px solid var(--border); color: var(--fg-text, var(--fg)); padding: 3px 6px; border-radius: 3px; font-size: 12px; font-family: inherit;
     }
-    .home :global(button) { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
+    .home :global(button:not(.cancel)) { background: var(--accent); border: none; color: #fff; padding: 3px 10px; font-size: 12px; border-radius: 3px; cursor: pointer; }
     .home :global(button:disabled) { opacity: 0.5; cursor: default; }
     .home :global(button.ghost) { background: none; border: 1px solid var(--border); color: var(--fg-muted); }
     .home :global(button.ghost:hover:not(:disabled)) { color: var(--fg); border-color: var(--fg-muted); }

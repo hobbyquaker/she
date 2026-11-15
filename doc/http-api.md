@@ -15,7 +15,7 @@ The built-in web UI is served from the same port as an SPA (Single-Page Applicat
 
 | Prefix | Purpose |
 |---|---|
-| `/she/*` | System endpoints: scripts, MQTT, Matter, DB, home model, config, WebSocket |
+| `/she/*` | System endpoints: scripts, MQTT, Matter, DB, home model, scenes, config, WebSocket |
 
 ---
 
@@ -360,6 +360,56 @@ adding a second room keeps the first. Rooms may be named by id, name or alias; a
 
 `{ "ids": [ … ] }` deletes devices (with their entities) and entities that are gone from discovery; what is still
 announced is refused. **Response:** `{ "removed": [ … ], "errors": [ … ] }`.
+
+---
+
+## Scenes — `/she/scenes`
+
+A scene stores the state of some entities of the home model and is itself a datapoint: `true` while every member is in
+that state (see [`she.scene`](sandbox-api.md) for the documents, the topics and what recall and deactivate do). These
+routes are what the **Scenes** tab of the Home page uses; without sheDB and the home model they answer **HTTP 503**
+(`GET /she/scenes` says `available: false`).
+
+### GET /she/scenes
+
+`{ available, scenes, groups }`. A scene: `{ id, name, area, icon, deactivate, sensitive, groups, members, val, matched,
+total }`; a group: `{ id, name, area, scenes, default, val }` (`val` the active scene's id, or `""`).
+
+### GET /she/scenes/:id
+
+`{ doc, state, members }`: the document; the state now — `{ val, matched, total, mismatch: [{ entity, name, attribute,
+is, want }], unknown: [{ entity, name, attribute?, reason }], recalled, settling }`, `reason` being `missing`,
+`unavailable` or `no value`; and per member entity what it is now — `{ component, stateless, attributes, state,
+snapshot, available }` (`attributes` says what it tells and takes, `snapshot` what a scene would store now), `null` for an
+entity that is not announced.
+
+### PUT /she/scenes/:id · POST /she/scenes/:id/snapshot · DELETE /she/scenes/:id
+
+`PUT { "doc": { name, area?, icon?, deactivate, settle, members: [{ entity, attributes, tolerance?, role?, order?,
+delay? }] }, "confirmSensitive": false }` creates or replaces a scene. A scene that commands a lock or an alarm panel is
+refused with **HTTP 409** `{ error, confirm: [names] }` until it is sent with `"confirmSensitive": true`, which marks
+those members confirmed. `snapshot { entities?, fields?, confirmSensitive? }` takes the members' states now (all of the
+scene's members when `entities` is left out). Both answer with the stored document, **HTTP 400** with what is wrong.
+`DELETE` removes the scene (and takes it out of its groups).
+
+### POST /she/scenes/:id/recall · /deactivate · /toggle
+
+`recall { "force": true }` commands every member; without `force` only those that differ. **Response:** `{ ok, sent,
+skipped, problems }` or, for deactivate, `{ ok, mode, reason?, sent }`; **HTTP 409** when the engine refused (the loop
+guard).
+
+### POST /she/scenes/entities
+
+`{ "ids": [ … ] }` → `{ <entity id>: { component, stateless, attributes, state, snapshot, available } | null }` — the
+editor's view of entities that are not members yet.
+
+### PUT /she/scenes/groups/:id · DELETE /she/scenes/groups/:id · POST /she/scenes/groups/:id/set
+
+`PUT { "doc": { name, area?, scenes: [ids], default? } }`; `set { "scene": "evening" }` recalls that scene of the group,
+`{ "scene": "" }` is the group's deactivation (its default scene, else the active scene's deactivation).
+
+**Live:** the WebSocket carries `{ type: "scenes:scene", id, state }` (as `GET /she/scenes/:id` gives `state`; `null`
+when the scene was deleted) and `{ type: "scenes:group", id, state }`.
 
 ---
 

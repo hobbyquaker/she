@@ -11,6 +11,7 @@ Examples are organised by topic. Each file contains self-contained, copy-paste-r
 | [Cross-script patterns](examples/cross-script.md) | Shared state, event bus, library scripts |
 | [sheDB](examples/shedb.md) | Device registry, config, counters, reactive queries |
 | [Matter](examples/matter.md) | Buttons, plugs, sensors and groups on the built-in Matter controller, with and without MQTT |
+| [Home model](examples/home-model.md) | Window → heating per room, leaving home, battery report, readable event log, motion light — written against rooms and functions, not topics |
 
 ---
 
