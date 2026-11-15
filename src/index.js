@@ -73,6 +73,7 @@ const _pino = require('pino')(
 // Lazy import â€” log-ws exports a no-op broadcastLog when the HTTP server is not started.
 const { broadcastLog, broadcast, setWelcomeProvider, onClientMessage, onClientClose, sendWs } = require('./web/log-ws');
 const shedb = require('./web/shedb');
+const home = require('./web/home');
 // One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
 const log = require('./lib/logger').createLogger({
     redact: (s) => secrets.redact(s),
@@ -525,6 +526,8 @@ function _maybeStart() {
         return;
     }
     _started = true;
+    // before the scripts: they find the home model's documents in line with the retained state
+    home.start({ authoritative: _retainedComplete });
     start();
     // the Matter ↔ MQTT bridge needs both: the controller and the retained state (M19)
     if (config.matterStorage) {
@@ -562,6 +565,9 @@ function _maybeStart() {
         }
     }
 }
+
+// true once the sentinel proved that every retained message of the broker has arrived
+let _retainedComplete = false;
 
 function matterGateOpen() {
     if (_matterGate) return;
@@ -1015,6 +1021,7 @@ if (config.url) {
             let _retainedCount = 0;
             // eslint-disable-next-line no-unused-vars
             for (const _ of store.mqttEntries()) _retainedCount++;
+            _retainedComplete = true;
             startOnce('mqtt: retained state ready, starting scripts (' + _retainedCount + ' retained topics loaded)');
             return; // sentinel is internal — don’t process further
         }
@@ -1163,7 +1170,9 @@ function handleSecondaryMessage(name, topic, payload, msg) {
 // sheDB â€” only init when --db-path is given
 if (config.dbPath) {
     const dbPathResolved = config.dbPath.replace(/^~(?=[/\\]|$)/, require('os').homedir());
-    shedb.init({
+    // decided before sheDB touches its files: is there anything of an installation yet?
+    const homeFresh = home.isFreshInstall({ configPath: config.config, dbPath: dbPathResolved, scriptDirs: config.dir ? [].concat(config.dir) : [] });
+    const dbCore = shedb.init({
         dbPath: dbPathResolved,
         dbPublish: config.dbPublish || false,
         dbRetain: config.dbRetain || false,
@@ -1173,6 +1182,8 @@ if (config.dbPath) {
         log,
         broadcast,
     });
+    // the home model: she's own documents about devices, rooms and functions
+    home.init({ core: dbCore, store, log, fresh: homeFresh });
 }
 
 // Redis support was removed; a leftover block in config.json is ignored, and the log says so once

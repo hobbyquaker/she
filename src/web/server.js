@@ -56,6 +56,9 @@ app.use('/she/scripts', scriptsRouter);
 // sheDB document store REST API: /she/db/*
 app.use('/she/db', shedbRouter);
 
+// Home model (rooms, functions, the mirror of HA discovery in sheDB): /she/home
+app.use('/she/home', require('./home-api').router);
+
 // Matter controller REST API: /she/matter/*
 app.use('/she/matter', matterRouter);
 

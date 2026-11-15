@@ -54,9 +54,22 @@ function init({ dbPath, dbPublish, dbRetain, dbPrefix, mqttName, mqtt, log, broa
         _broadcast({ type: 'db:viewIds', ids: Object.keys(_core.queries).sort() });
     });
 
+    // The id list goes out once per turn of the event loop, not once per document: a writer of many
+    // documents (the home model's first mirror writes hundreds) would otherwise send the whole
+    // sorted list for each of them.
+    let idsQueued = false;
+    const broadcastIds = () => {
+        if (idsQueued) return;
+        idsQueued = true;
+        setImmediate(() => {
+            idsQueued = false;
+            _broadcast({ type: 'db:ids', ids: Object.keys(_core.docs).sort() });
+        });
+    };
+
     _core.on('update', (id, doc) => {
         _broadcast({ type: 'db:change', id, doc: doc || null });
-        _broadcast({ type: 'db:ids', ids: Object.keys(_core.docs).sort() });
+        broadcastIds();
 
         if (_dbPublish && _mqtt) {
             _mqtt.publish(_dbPrefix + 'doc/' + id, doc ? JSON.stringify(doc) : '', { retain: _dbRetain });
