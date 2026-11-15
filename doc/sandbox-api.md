@@ -1282,8 +1282,11 @@ While the home model is on, she computes these from the entities and publishes t
 | `humidity` | the mean, in %, with `min` and `max` | humidity sensors with the function `climate` |
 | `occupied` | does a sensor see somebody | occupancy, presence and motion sensors |
 | `power` | the sum, in W | power sensors with the function `energy` |
+| `scene` | the id of the scene the room is in, `''` when none matches | the room's scene groups (rooms only) |
 
 A payload is `{val, ts, lc, members: [{id, name, val}]}` (plus `min`, `max`, `unit` where it applies): `lc` is the last change of `val`, `members` are the entities it was computed from with what each contributed — `null` for one that is unavailable or has not reported. `val` is `null` when no member is known. An aggregate nothing counts in is not published. Hidden entities do not count; an entity in two rooms counts in both, and once on its floor and in the house. Changes are collected for a quarter of a second, so a device that reports several values makes one publish.
+
+`scene` is there for a room that has a scene group (a group whose `area` is the room). Its payload is `{val, ts, lc, group, groups}`: with several groups in a room, `val` is the scene of the first group — by name — in which a scene matches, `group` is that group, and `groups` has the value of each (`{lights: 'evening', blinds: ''}`). Scenes outside a group are not looked at. It is not announced through discovery; the group announces itself.
 
 ```js
 // heating down while a window is open, for every room that has both

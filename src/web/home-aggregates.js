@@ -8,9 +8,44 @@
 
 const { HomeAggregates } = require('../lib/home-aggregates');
 const homeEntities = require('./home-entities');
+const scenes = require('./scenes');
 
 let _deps = null;
 let _aggregates = null;
+/** the scene engine whose groups are followed, and the listener on it */
+let _engine = null;
+const _onGroup = () => {
+    // a group may have changed its room as well: every room is looked at, only what differs is published
+    if (_aggregates) _aggregates.sceneChanged();
+};
+
+/**
+ * The scene of a room, from its scene groups: `{val, group, groups}`, or undefined for a room
+ * without a group.
+ *
+ * A group is a set of scenes of which one applies at a time ("off, evening, movie"), and `val` is
+ * the id of that scene, or '' when none matches. A room with several groups (the lights, the
+ * blinds) publishes the first group — by name — that has a matching scene; `groups` has them all.
+ * Scenes outside a group are not looked at: several of them can apply at once.
+ * @param {object} engine  the scene engine
+ * @param {string} roomId
+ */
+function roomScene(engine, roomId) {
+    const groups = engine.groups({ area: roomId });
+    if (!groups.length) return undefined;
+    const active = groups.find((g) => g.val);
+    return { val: active ? active.val : '', group: active ? active.id : null, groups: Object.fromEntries(groups.map((g) => [g.id, g.val])) };
+}
+
+/** Listen to the scene engine there is now; it may be built after the aggregates, or again. */
+function followEngine() {
+    const engine = scenes.getEngine();
+    if (engine === _engine) return engine;
+    if (_engine) _engine.off('group', _onGroup);
+    _engine = engine;
+    if (engine) engine.on('group', _onGroup);
+    return engine;
+}
 
 /**
  * @param {object} deps
@@ -44,6 +79,12 @@ function start() {
     });
     try {
         _aggregates.start();
+        // the rooms' scenes come from the scene engine, whenever it is there
+        _aggregates.setSceneSource((roomId) => {
+            const engine = followEngine();
+            return engine ? roomScene(engine, roomId) : undefined;
+        });
+        followEngine();
     } catch (err) {
         _deps.log.error('home aggregates: start failed: ' + err.message);
     }
@@ -63,8 +104,10 @@ function connected() {
 /** Drop the instance (shutdown, tests). */
 function reset() {
     if (_aggregates) _aggregates.stop();
+    if (_engine) _engine.off('group', _onGroup);
+    _engine = null;
     _aggregates = null;
     _deps = null;
 }
 
-module.exports = { init, start, getAggregates, connected, reset };
+module.exports = { init, start, getAggregates, connected, reset, roomScene };

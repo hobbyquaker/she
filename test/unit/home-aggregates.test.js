@@ -23,6 +23,7 @@ const { createAnnouncer } = require('../../src/lib/announce');
 const haEntities = require('../../src/lib/ha-entities');
 const homeEntities = require('../../src/web/home-entities');
 const homeAggregates = require('../../src/web/home-aggregates');
+const scenesWeb = require('../../src/web/scenes');
 
 const noop = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 const J = JSON.stringify;
@@ -192,6 +193,7 @@ afterEach(async () => {
     if (model) model.stop();
     agg = announcer = layer = model = null;
     homeAggregates.reset();
+    scenesWeb.reset();
     homeEntities.reset();
     clearTimeout(core._saveTimer);
     clearTimeout(core._saveViewsTimer);
@@ -794,5 +796,124 @@ describe('in the daemon', () => {
         homeAggregates.connected();
         agg.flush();
         expect(store.getObject('mqtt::lab/status/room/wohnzimmer/light')).toMatchObject({ val: false });
+    });
+    describe('the scene of a room, from the scene engine', () => {
+        const scene = (name, entity, state) => ({ name, members: [{ entity: E(entity), attributes: { state } }] });
+        let engine;
+
+        /** the web modules as index.js wires them: the aggregates first, the scenes after */
+        async function daemon() {
+            house();
+            agg.stop();
+            homeEntities.init({ core, store, log: noop, publish: () => true });
+            homeAggregates.init({ core, store, log: noop, instance: 'she', publish, announce: (cfg) => announcer.announce('\0home-aggregates', 'home', cfg) });
+            scenesWeb.init({ core, publish, name: 'she', log: noop, debounce: 1 });
+            agg = homeAggregates.start();
+            await settle();
+        }
+
+        /** the engine looks at a scene a moment after its members spoke; then the aggregates follow */
+        async function settled() {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            await settle();
+        }
+
+        function livingRoomGroup() {
+            scenesWeb.start();
+            engine = scenesWeb.getEngine();
+            engine.save('wz_off', scene('Off', 'l1_light', 'OFF'));
+            engine.save('wz_on', scene('On', 'l1_light', 'ON'));
+            engine.saveGroup('wz', { name: 'Wohnzimmer', area: 'wohnzimmer', scenes: ['wz_off', 'wz_on'] });
+        }
+
+        test('a room without a scene group has no scene; the engine may come after the aggregates', async () => {
+            await daemon();
+            expect(at('room/wohnzimmer/scene')).toBeUndefined();
+            livingRoomGroup();
+            await settled();
+            // nothing matches yet: the lamp has not said anything
+            expect(at('room/wohnzimmer/scene')).toEqual({ val: '', ts: expect.any(Number), lc: expect.any(Number), group: null, groups: { wz: '' } });
+            expect(at('room/kueche/scene')).toBeUndefined();
+
+            feed('l1', 'ON');
+            await settled();
+            expect(at('room/wohnzimmer/scene')).toEqual({ val: 'wz_on', ts: expect.any(Number), lc: expect.any(Number), group: 'wz', groups: { wz: 'wz_on' } });
+            feed('l1', 'OFF');
+            await settled();
+            expect(at('room/wohnzimmer/scene')).toMatchObject({ val: 'wz_off', group: 'wz' });
+            // the scene is not announced a second time: the group announces itself
+            expect(Object.keys(store.get('mqtt::homeassistant/device/she_she_room_wohnzimmer/config').components)).not.toContain('scene');
+            // floors and the house have none
+            expect(at('floor/ground/scene')).toBeUndefined();
+            expect(at('home/scene')).toBeUndefined();
+        });
+
+        test('several groups in a room: the first by name that has a matching scene', async () => {
+            await daemon();
+            livingRoomGroup();
+            engine.save('accent', scene('Accent', 'l2_light', 'ON'));
+            engine.saveGroup('acc', { name: 'Akzent', area: 'wohnzimmer', scenes: ['accent'] });
+            feed('l1', 'ON');
+            feed('l2', 'OFF');
+            feed('l2/online', 'online');
+            await settled();
+            expect(at('room/wohnzimmer/scene')).toMatchObject({ val: 'wz_on', group: 'wz', groups: { acc: '', wz: 'wz_on' } });
+            feed('l2', 'ON');
+            await settled();
+            expect(at('room/wohnzimmer/scene')).toMatchObject({ val: 'accent', group: 'acc', groups: { acc: 'accent', wz: 'wz_on' } });
+        });
+
+        test('a group that moves, a room that is merged, a group that goes', async () => {
+            await daemon();
+            livingRoomGroup();
+            engine.save('k_on', scene('On', 'l3_light', 'ON'));
+            engine.saveGroup('k', { name: 'Küche', area: 'kueche', scenes: ['k_on'] });
+            feed('l1', 'ON');
+            feed('l3', 'ON');
+            await settled();
+            expect(val('room/kueche/scene')).toBe('k_on');
+
+            // the group is given to another room
+            engine.saveGroup('k', { name: 'Küche', area: 'schlafzimmer', scenes: ['k_on'] });
+            await settled();
+            expect(at('room/kueche/scene')).toBeUndefined();
+            expect(val('room/schlafzimmer/scene')).toBe('k_on');
+
+            // the bedroom is merged into the living room: its group comes along
+            model.mergeRooms('wohnzimmer', ['schlafzimmer']);
+            await settled();
+            expect(core.get('she/scenegroup/k').area).toBe('wohnzimmer');
+            expect(at('room/schlafzimmer/scene')).toBeUndefined();
+            expect(at('room/wohnzimmer/scene')).toMatchObject({ val: 'k_on', group: 'k', groups: { k: 'k_on', wz: 'wz_on' } });
+
+            engine.removeGroup('k');
+            await settled();
+            expect(at('room/wohnzimmer/scene')).toMatchObject({ val: 'wz_on', group: 'wz', groups: { wz: 'wz_on' } });
+            engine.removeGroup('wz');
+            await settled();
+            expect(at('room/wohnzimmer/scene')).toBeUndefined();
+
+            // switched off for a room
+            engine.saveGroup('wz', { name: 'Wohnzimmer', area: 'wohnzimmer', scenes: ['wz_off', 'wz_on'] });
+            await settled();
+            expect(val('room/wohnzimmer/scene')).toBe('wz_on');
+            model.updateRoom('wohnzimmer', { aggregates: { scene: false } });
+            await settled();
+            expect(at('room/wohnzimmer/scene')).toBeUndefined();
+        });
+
+        test('an engine that is built again is followed', async () => {
+            await daemon();
+            livingRoomGroup();
+            feed('l1', 'ON');
+            await settled();
+            expect(val('room/wohnzimmer/scene')).toBe('wz_on');
+            scenesWeb.reset();
+            scenesWeb.init({ core, publish, name: 'she', log: noop, debounce: 1 });
+            scenesWeb.start();
+            feed('l1', 'OFF');
+            await settled();
+            expect(val('room/wohnzimmer/scene')).toBe('wz_off');
+        });
     });
 });
