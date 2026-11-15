@@ -1153,7 +1153,74 @@ she.home.sub({ room: 'living-room', function: 'lighting' }, { change: true }, (e
 });
 ```
 
-`val` is the raw payload of the topic. Reading a state the way Home Assistant does (`value_template`, `state_on`, …) and HA-level commands are a later part of `she.home`.
+`val` is the raw payload of the topic. To read a state the way Home Assistant does (`value_template`, `state_on`, …), ask the entity: `she.home.entity(e.id).state()`.
+
+### she.home.entity(idOrTopic)
+
+One entity with its **live state and commands in Home Assistant's terms**. The discovery config says which topic carries which attribute, through which template, and which publishes set it; `she.home.entity()` does that reading and writing, so a script deals with `{ state: 'ON', brightness: 102 }` whatever the device puts on the wire. `idOrTopic` is the entity's id (`she/entity/…` or the part behind it), its `unique_id`, or a topic it reads or writes — when several entities share a topic, the one that can be commanded wins over the sensors. Returns `null` when there is no such entity.
+
+```js
+const lamp = she.home.entity('zigbee2mqtt/floor_lamp');
+lamp.state(); // { state: 'ON', brightness: 102, color_mode: 'color_temp', color_temp: 370 }
+lamp.turnOn({ brightness: 128 });
+lamp.turnOff();
+
+she.home.entity('blind_kitchen_cover').setPosition(30);
+she.home.entity('thermostat_bath').setTemperature(21);
+she.home.entity('amp_input').set({ option: 'HDMI 1' });
+
+// every light in the living room off
+for (const e of she.home.entities({ room: 'living-room', function: 'lighting' })) she.home.entity(e.id).turnOff();
+```
+
+The object carries the entity summary (`id`, `name`, `rooms`, `functions`, `component`, …) and:
+
+| Member | Meaning |
+|---|---|
+| `present`, `hidden` | still announced; hidden in the model |
+| `supported` | `true` for the components below; of any other component only the topics are known |
+| `stateless` | `true` for `button` and `scene` |
+| `primary` | the attribute that is the state in one word: `state`, `position`, `mode`, `option`, `value` |
+| `attributes` | what this entity tells and takes: `{ brightness: { read, write, min, max }, … }` with `unit`, `step` and `options` where the config has them |
+| `topics` | `{ state: […], command: […], availability: […] }` |
+| `state()` | the state; an attribute nothing has been received for is left out |
+| `available()` | `true`, `false`, or `undefined` while the availability topics have said nothing; an entity without availability is available |
+| `snapshot()` | the part of the state that can be set again — what a scene stores |
+| `matches(expected, [{ tolerances }])` | is the entity in this state? → `{ match, available, unknown, mismatches, state }`; numbers within a tolerance (brightness ±2, position ±2 %, temperature ±0.25, …), an entity that is offline never matches |
+| `set(attributes)` | set any attributes; returns the publishes that were sent (`[{ topic, payload, retain, qos }]`) |
+| `turnOn([attributes])`, `turnOff()` | on and off; a cover opens and closes, a button or a scene is triggered by `turnOn()`. A lock is not turned on or off: `set({ state: 'UNLOCKED' })` |
+| `setPosition(percent)`, `setTemperature(value)` | a cover's position (100 = open), a thermostat's setpoint |
+| `trigger()` | press a button, activate a scene |
+| `sub(callback)` | `callback(now, before)` with `{ state, available, present }` when the state or the availability **changes** — not for every message; cancelled on unload; returns a function that cancels it |
+
+Attributes per component — the same names whatever scale or words the device uses:
+
+| Component | Attributes |
+|---|---|
+| `light` | `state` (`ON`, `OFF`), `brightness` (0–255), `color_temp` (mireds), `hs`, `xy`, `rgb`, `rgbw`, `rgbww`, `effect`, `color_mode` (read only) |
+| `switch`, `binary_sensor` | `state` (`ON`, `OFF`) |
+| `cover` | `state` (`open`, `closed`, `opening`, `closing`, `stopped`), `position`, `tilt` (percent, 100 = open) |
+| `climate` | `mode`, `temperature`, `temperature_low`, `temperature_high`, `target_humidity`, `fan_mode`, `swing_mode`, `preset_mode`; read only: `current_temperature`, `current_humidity`, `action` |
+| `fan` | `state`, `percentage` (0–100), `preset_mode`, `oscillation`, `direction` |
+| `lock` | `state` (`LOCKED`, `UNLOCKED`, `LOCKING`, `UNLOCKING`, `JAMMED`) |
+| `select` | `option` |
+| `number`, `sensor` | `value` |
+
+A command the entity cannot take is not sent and not thrown: the script log says why (`she.home.entity('…'): light: volume cannot be set`). A light that is set with a `color_mode` gets only the colour of that mode, so a state that was read with `snapshot()` can be handed back to `set()` as it is.
+
+```js
+// remember the scene of the room, bring it back later
+const before = she.home.entities({ room: 'living-room', function: 'lighting' }).map((e) => [e.id, she.home.entity(e.id).snapshot()]);
+// …
+for (const [id, state] of before) she.home.entity(id).set(state);
+
+// tell when the window is opened, whatever payloads its sensor uses
+she.home.entity('window_bath_contact').sub((now, before) => {
+    if (now.state.state === 'ON' && before.state.state !== 'ON') she.log('window open');
+});
+```
+
+The state is read at the call from the last message of each topic; there is no optimistic state, and `expire_after` is not applied. Jinja templates are rendered with Home Assistant's filters; what they cannot do here (`states()`, `now()`, regular expressions) leaves the attribute out.
 
 ### she.home.assign(id, patch)
 

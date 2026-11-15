@@ -597,6 +597,76 @@ interface SheMqtt {
 }
 /** room: an id, name or alias ('' = without a room); floor, function, label: ids; component: light, cover, sensor, … */
 interface SheSelection { room?: string; floor?: string; function?: string; label?: string; component?: string; hidden?: boolean }
+/** what an entity tells (read) and takes (write) of one attribute */
+interface SheAttribute { read: boolean; write: boolean; min?: number; max?: number; step?: number; unit?: string; options?: string[] }
+/** a state in Home Assistant's terms; which attributes there are depends on the component */
+interface SheEntityState {
+    /** light, switch, fan, binary_sensor: 'ON' | 'OFF'; cover: 'open' | 'closed' | 'opening' | 'closing' | 'stopped'; lock: 'LOCKED' | 'UNLOCKED' | … */
+    state?: string;
+    /** light: 0–255 */
+    brightness?: number;
+    /** light: mireds */
+    color_temp?: number;
+    color_mode?: string;
+    /** light: [hue 0–360, saturation 0–100] */
+    hs?: [number, number];
+    xy?: [number, number];
+    rgb?: [number, number, number];
+    effect?: string;
+    /** cover: percent, 100 = open */
+    position?: number;
+    tilt?: number;
+    /** climate */
+    mode?: string;
+    temperature?: number;
+    current_temperature?: number;
+    /** fan: 0–100 */
+    percentage?: number;
+    preset_mode?: string;
+    /** select */
+    option?: string;
+    /** number, sensor */
+    value?: number | string;
+    [attribute: string]: any;
+}
+interface ShePublish { topic: string; payload: string; retain: boolean; qos: number }
+interface SheEntityNow { state: SheEntityState; available: boolean | undefined; present: boolean }
+interface SheHomeEntity extends SheEntity {
+    hidden: boolean;
+    /** still announced */
+    present: boolean;
+    /** false: a component of which only the topics are known */
+    supported: boolean;
+    /** button, scene: triggered, never read */
+    stateless: boolean;
+    /** the attribute that is the state in one word: state, position, mode, option, value */
+    primary: string | null;
+    /** what this entity tells and takes */
+    attributes: Record<string, SheAttribute>;
+    topics: { state: string[]; command: string[]; availability: string[] };
+    /** The state, read through the discovery config and its templates; attributes nothing was received for are left out. */
+    state(): SheEntityState;
+    /** true, false, or undefined while the availability topics have said nothing. */
+    available(): boolean | undefined;
+    /** The part of the state that can be set again — hand it to set() to restore it. */
+    snapshot(): SheEntityState;
+    /** Is the entity in this state? Numbers within a tolerance; an entity that is offline never matches. */
+    matches(expected: SheEntityState, options?: { tolerances?: Record<string, number | number[]> }): { match: boolean; available: boolean | undefined; unknown: string[]; mismatches: { attribute: string; expected: any; actual: any }[]; state: SheEntityState };
+    /** Set any attributes; returns the publishes that were sent. What the entity cannot take is said in the log, not thrown. */
+    set(attributes: SheEntityState): ShePublish[];
+    /** On — a light takes attributes: turnOn({ brightness: 128 }). A cover opens, a button or scene is triggered; a lock wants set({ state: 'UNLOCKED' }). */
+    turnOn(attributes?: SheEntityState): ShePublish[];
+    /** Off; a cover closes. */
+    turnOff(): ShePublish[];
+    /** A cover's position in percent, 100 = open. */
+    setPosition(position: number): ShePublish[];
+    /** A thermostat's setpoint. */
+    setTemperature(temperature: number): ShePublish[];
+    /** Press a button, activate a scene. */
+    trigger(): ShePublish[];
+    /** callback(now, before) when the state or the availability changes (not on every message). Cancelled on unload; returns a function that cancels it. */
+    sub(callback: (now: SheEntityNow, before: SheEntityNow) => void): () => void;
+}
 interface SheEntity {
     /** the document id, she/entity/… */
     id: string;
@@ -706,6 +776,11 @@ declare const she: {
     };
     /** The home model: floors, rooms and the entities announced through HA discovery (needs sheDB). */
     home: {
+        /**
+         * One entity with its live state and commands in Home Assistant's terms; null when there is none.
+         * idOrTopic: the id (she/entity/…), the unique_id, or a topic the entity reads or writes.
+         */
+        entity(idOrTopic: string): SheHomeEntity | null;
         /** Floors by order, each with the ids of its rooms. */
         floors(): SheFloor[];
         /** Rooms by floor and order; entities = how many present, not hidden entities are in it. */
