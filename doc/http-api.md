@@ -15,7 +15,7 @@ The built-in web UI is served from the same port as an SPA (Single-Page Applicat
 
 | Prefix | Purpose |
 |---|---|
-| `/she/*` | System endpoints: scripts, MQTT, Matter, DB, config, WebSocket |
+| `/she/*` | System endpoints: scripts, MQTT, Matter, DB, home model, config, WebSocket |
 
 ---
 
@@ -305,6 +305,61 @@ Delete a view.
 Execute a view and return its results.
 
 **Response (HTTP 200):** `[{ "name": "Hall PIR" }, { "name": "Kitchen Light" }]`
+
+---
+
+## Home model — `/she/home`
+
+The home model keeps a document in sheDB for every device and entity announced through Home Assistant MQTT discovery
+(`she/device/…`, `she/entity/…`) and the floors, rooms, functions and labels they are organised in. It needs sheDB;
+without it every route answers that it is not available. Changes are refused with **HTTP 409** while the model is
+switched off. The web UI's **Home** page is built on these routes.
+
+### GET /she/home · PUT /she/home
+
+The status: `{ available, enabled, decided, language, enabled_at, live, counts: { devices, entities, floors, rooms,
+functions, labels, gone } }`. `decided: false` is an installation that has never switched the model on or off (it existed
+before the model did, and is asked). `PUT { "enabled": true, "language": "en" }` switches it on; `language` (`en` or
+`de`) names the ten default functions and is required until they exist. `PUT { "enabled": false }` switches it off and
+keeps every document.
+
+### GET /she/home/model
+
+Everything at once: `{ status, floors, rooms, rejected, functions, labels, devices, entities }`. Floors, rooms,
+functions and labels carry their short `id`; `rejected` lists the deleted discovery areas. Devices and entities come as
+`{ id, ha, user, eff }` — `ha` what discovery announced (without the entity's full config), `user` what was assigned,
+`eff` the effective values (rooms inherited from the device or its announced area, functions from the rules).
+
+### POST /she/home/:kind · PATCH /she/home/:kind/:id · DELETE /she/home/:kind/:id
+
+`kind` is `floors`, `rooms`, `functions` or `labels`. `POST { "name": "Kitchen", "floor": "ground", "aliases": [] }` →
+**HTTP 201** `{ "id": "kitchen" }` (the id is made from the name unless given; **HTTP 409** when it exists). `PATCH` sets
+the fields given; `null` clears `floor`, `icon`, `order` and `level`. A floor has `name`, `level`, `order`, `icon`; a
+room `name`, `floor`, `order`, `icon`, `aliases`; a function `name`, `icon`, `order`, `rules`
+(`[{ component, device_class?, entity_category?, not? }]`, each field a value or a list, `null` = not set); a label
+`name`, `icon`, `order`. `DELETE` on a room keeps its names as a rejected area, so discovery does not create it again;
+`?purge=1` forgets it. Deleting a floor leaves its rooms without one; deleting a function or a label removes the
+assignments of it.
+
+### POST /she/home/rooms/merge · POST /she/home/rooms/restore
+
+`merge { "keep": "kitchen", "others": ["kueche"] }`: the others' names and ids become aliases of the kept room, and
+every device, entity and scene in them moves over. **Response:** the kept room. `restore { "id": "bath" }` turns a
+rejected area back into a room.
+
+### POST /she/home/assign
+
+`{ "ids": ["she/entity/…", "she/device/…"], "set": { … }, "add": { … }, "remove": { … } }` — one or more of the three.
+`set` writes the `user` fields as given: `name`, `rooms`, `functions` (entities only), `labels`, `hidden`, `notes`;
+`null` removes the assignment, so the value is inherited again; `[]` is "none, on purpose". `add` and `remove` take
+`rooms`, `functions` and `labels` lists and start from what the item has now (its own list, or the inherited one), so
+adding a second room keeps the first. Rooms may be named by id, name or alias; a label that does not exist is created.
+**Response:** `{ "updated": 2, "errors": [ { "id": "…", "error": "…" } ] }` — HTTP 400 when nothing could be changed.
+
+### POST /she/home/remove
+
+`{ "ids": [ … ] }` deletes devices (with their entities) and entities that are gone from discovery; what is still
+announced is refused. **Response:** `{ "removed": [ … ], "errors": [ … ] }`.
 
 ---
 
