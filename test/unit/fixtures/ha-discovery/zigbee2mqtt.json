@@ -1,0 +1,1549 @@
+[
+    {
+        "topic": "homeassistant/binary_sensor/0x00124b0000000003/replace_filter/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "binary_sensor.starkvind_replace_filter",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "entity_category": "diagnostic",
+            "name": "Replace filter",
+            "object_id": "starkvind_replace_filter",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_off": false,
+            "payload_on": true,
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_replace_filter_zigbee2mqtt",
+            "value_template": "{{ value_json.replace_filter }}"
+        }
+    },
+    {
+        "topic": "homeassistant/button/0x00124b0000000002/identify/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/blind_kitchen/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/blind_kitchen/set/identify",
+            "default_entity_id": "button.blind_kitchen_identify",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000002"],
+                "manufacturer": "IKEA",
+                "model": "FYRTUR roller blind, block-out",
+                "model_id": "E1757",
+                "name": "blind_kitchen",
+                "sw_version": "24.4.13",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "identify",
+            "entity_category": "config",
+            "object_id": "blind_kitchen_identify",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_press": "identify",
+            "unique_id": "0x00124b0000000002_identify_zigbee2mqtt"
+        }
+    },
+    {
+        "topic": "homeassistant/button/0x00124b0000000003/identify/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/starkvind/set/identify",
+            "default_entity_id": "button.starkvind_identify",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "identify",
+            "entity_category": "config",
+            "object_id": "starkvind_identify",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_press": "identify",
+            "unique_id": "0x00124b0000000003_identify_zigbee2mqtt"
+        }
+    },
+    {
+        "topic": "homeassistant/cover/0x00124b0000000002/cover/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/blind_kitchen/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/blind_kitchen/set",
+            "default_entity_id": "cover.blind_kitchen",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000002"],
+                "manufacturer": "IKEA",
+                "model": "FYRTUR roller blind, block-out",
+                "model_id": "E1757",
+                "name": "blind_kitchen",
+                "sw_version": "24.4.13",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "name": null,
+            "object_id": "blind_kitchen",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "position_template": "{{ value_json.position }}",
+            "position_topic": "zigbee2mqtt/blind_kitchen",
+            "set_position_template": "{ \"position\": {{ position }} }",
+            "set_position_topic": "zigbee2mqtt/blind_kitchen/set",
+            "state_closed": "CLOSE",
+            "state_open": "OPEN",
+            "state_stopped": "STOP",
+            "state_topic": "zigbee2mqtt/blind_kitchen",
+            "unique_id": "0x00124b0000000002_cover_zigbee2mqtt",
+            "value_template": "{{ value_json.state }}"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_brightness_step_down/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "TuYa",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.33.0",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "brightness_step_down",
+            "subtype": "brightness_step_down",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_brightness_step_up/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "TuYa",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.33.0",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "brightness_step_up",
+            "subtype": "brightness_step_up",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_color_temperature_step_down/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "TuYa",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.33.0",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "color_temperature_step_down",
+            "subtype": "color_temperature_step_down",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_color_temperature_step_up/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "TuYa",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.33.0",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "color_temperature_step_up",
+            "subtype": "color_temperature_step_up",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_rotate_left/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.40.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "rotate_left",
+            "subtype": "rotate_left",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_rotate_right/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.40.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "rotate_right",
+            "subtype": "rotate_right",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_single/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.40.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "single",
+            "subtype": "single",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/0x00124b0000000004/action_toggle/config",
+        "payload": {
+            "automation_type": "trigger",
+            "device": {
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "TuYa",
+                "model": "Smart knob (ERS-10TZBVK-AA)",
+                "name": "knob_workshop"
+            },
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "1.33.0",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload": "toggle",
+            "subtype": "toggle",
+            "topic": "zigbee2mqtt/knob_workshop/action",
+            "type": "action"
+        }
+    },
+    {
+        "topic": "homeassistant/fan/0x00124b0000000003/fan/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/starkvind/set/fan_state",
+            "default_entity_id": "fan.starkvind",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "name": null,
+            "object_id": "starkvind",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "percentage_command_template": "{{ {0:'off', 1:'1', 2:'2', 3:'3', 4:'4', 5:'5', 6:'6', 7:'7', 8:'8', 9:'9'}[value] | default('') }}",
+            "percentage_command_topic": "zigbee2mqtt/starkvind/set/fan_mode",
+            "percentage_state_topic": "zigbee2mqtt/starkvind",
+            "percentage_value_template": "{{ {'off':0, '1':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9}[value_json.fan_mode] | default('None') }}",
+            "preset_mode_command_topic": "zigbee2mqtt/starkvind/set/fan_mode",
+            "preset_mode_state_topic": "zigbee2mqtt/starkvind",
+            "preset_mode_value_template": "{{ value_json.fan_mode if value_json.fan_mode in ['auto'] else 'None' | default('None') }}",
+            "preset_modes": ["auto"],
+            "speed_range_max": 9,
+            "speed_range_min": 1,
+            "state_topic": "zigbee2mqtt/starkvind",
+            "state_value_template": "{{ value_json.fan_state }}",
+            "unique_id": "0x00124b0000000003_fan_zigbee2mqtt"
+        }
+    },
+    {
+        "topic": "homeassistant/light/0x00124b0000000001/light/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_cellar_1/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "brightness": true,
+            "brightness_scale": 254,
+            "command_topic": "zigbee2mqtt/light_cellar_1/set",
+            "default_entity_id": "light.light_cellar_1",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000001"],
+                "manufacturer": "Philips",
+                "model": "Hue white and color ambiance E26/E27/E14",
+                "model_id": "9290012573A",
+                "name": "light_cellar_1",
+                "sw_version": "67.93.11",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "effect": true,
+            "effect_list": ["blink", "breathe", "okay", "channel_change", "candle", "fireplace", "colorloop", "finish_effect", "stop_effect", "stop_hue_effect"],
+            "max_mireds": 500,
+            "min_mireds": 153,
+            "name": null,
+            "object_id": "light_cellar_1",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "schema": "json",
+            "state_topic": "zigbee2mqtt/light_cellar_1",
+            "supported_color_modes": ["xy", "color_temp"],
+            "unique_id": "0x00124b0000000001_light_zigbee2mqtt"
+        }
+    },
+    {
+        "topic": "homeassistant/light/1000000000000000000000000000001_2/light/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_garden_group/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "brightness": true,
+            "brightness_scale": 254,
+            "command_topic": "zigbee2mqtt/light_garden_group/set",
+            "default_entity_id": "light.light_garden_group",
+            "device": {
+                "identifiers": ["zigbee2mqtt_1000000000000000000000000000001_2"],
+                "manufacturer": "Zigbee2MQTT",
+                "model": "Group",
+                "name": "light_garden_group",
+                "sw_version": "Zigbee2MQTT 2.9.2",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "effect": true,
+            "effect_list": ["blink", "breathe", "okay", "channel_change", "candle", "fireplace", "colorloop", "finish_effect", "stop_effect", "stop_hue_effect"],
+            "max_mireds": 500,
+            "min_mireds": 153,
+            "name": null,
+            "object_id": "light_garden_group",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "schema": "json",
+            "state_topic": "zigbee2mqtt/light_garden_group",
+            "supported_color_modes": ["xy", "color_temp"],
+            "unique_id": "2_light_zigbee2mqtt"
+        }
+    },
+    {
+        "topic": "homeassistant/scene/1000000000000000000000000000001_2/scene_1/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_garden_group/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/light_garden_group/set",
+            "default_entity_id": "scene.light_garden_group_1_color1",
+            "device": {
+                "identifiers": ["zigbee2mqtt_1000000000000000000000000000001_2"],
+                "manufacturer": "Zigbee2MQTT",
+                "model": "Group",
+                "name": "light_garden_group",
+                "sw_version": "Zigbee2MQTT 2.9.2",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "name": "color1",
+            "object_id": "light_garden_group_1_color1",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_on": "{ \"scene_recall\": 1 }",
+            "unique_id": "2_scene_1_zigbee2mqtt"
+        }
+    },
+    {
+        "topic": "homeassistant/select/0x00124b0000000001/effect/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_cellar_1/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/light_cellar_1/set/effect",
+            "default_entity_id": "select.light_cellar_1_effect",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000001"],
+                "manufacturer": "Philips",
+                "model": "Hue white and color ambiance E26/E27/E14",
+                "model_id": "9290012573A",
+                "name": "light_cellar_1",
+                "sw_version": "67.93.11",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "icon": "mdi:palette",
+            "name": "Effect",
+            "object_id": "light_cellar_1_effect",
+            "options": ["blink", "breathe", "okay", "channel_change", "candle", "fireplace", "colorloop", "finish_effect", "stop_effect", "stop_hue_effect"],
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "unique_id": "0x00124b0000000001_effect_zigbee2mqtt"
+        }
+    },
+    {
+        "topic": "homeassistant/select/0x00124b0000000001/power_on_behavior/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_cellar_1/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/light_cellar_1/set/power_on_behavior",
+            "default_entity_id": "select.light_cellar_1_power_on_behavior",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000001"],
+                "manufacturer": "Philips",
+                "model": "Hue white and color ambiance E26/E27/E14",
+                "model_id": "9290012573A",
+                "name": "light_cellar_1",
+                "sw_version": "67.93.11",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "entity_category": "config",
+            "icon": "mdi:power-settings",
+            "name": "Power-on behavior",
+            "object_id": "light_cellar_1_power_on_behavior",
+            "options": ["off", "on", "toggle", "previous"],
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/light_cellar_1",
+            "unique_id": "0x00124b0000000001_power_on_behavior_zigbee2mqtt",
+            "value_template": "{{ value_json.power_on_behavior }}"
+        }
+    },
+    {
+        "topic": "homeassistant/select/0x00124b0000000004/operation_mode/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/knob_workshop/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/knob_workshop/set/operation_mode",
+            "default_entity_id": "select.knob_workshop_operation_mode",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob",
+                "model_id": "ERS-10TZBVK-AA",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "entity_category": "config",
+            "icon": "mdi:tune",
+            "name": "Operation mode",
+            "object_id": "knob_workshop_operation_mode",
+            "options": ["command", "event"],
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/knob_workshop",
+            "unique_id": "0x00124b0000000004_operation_mode_zigbee2mqtt",
+            "value_template": "{{ value_json.operation_mode }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000001/last_seen/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_cellar_1/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.light_cellar_1_last_seen",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000001"],
+                "manufacturer": "Philips",
+                "model": "Hue white and color ambiance E26/E27/E14",
+                "model_id": "9290012573A",
+                "name": "light_cellar_1",
+                "sw_version": "67.93.11",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:clock",
+            "name": "Last seen",
+            "object_id": "light_cellar_1_last_seen",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/light_cellar_1",
+            "unique_id": "0x00124b0000000001_last_seen_zigbee2mqtt",
+            "value_template": "{{ value_json.last_seen }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000001/linkquality/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_cellar_1/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.light_cellar_1_linkquality",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000001"],
+                "manufacturer": "Philips",
+                "model": "Hue white and color ambiance E26/E27/E14",
+                "model_id": "9290012573A",
+                "name": "light_cellar_1",
+                "sw_version": "67.93.11",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:signal",
+            "name": "Linkquality",
+            "object_id": "light_cellar_1_linkquality",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/light_cellar_1",
+            "unique_id": "0x00124b0000000001_linkquality_zigbee2mqtt",
+            "unit_of_measurement": "lqi",
+            "value_template": "{{ value_json.linkquality }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000002/battery/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/blind_kitchen/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.blind_kitchen_battery",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000002"],
+                "manufacturer": "IKEA",
+                "model": "FYRTUR roller blind, block-out",
+                "model_id": "E1757",
+                "name": "blind_kitchen",
+                "sw_version": "24.4.13",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "battery",
+            "enabled_by_default": true,
+            "entity_category": "diagnostic",
+            "object_id": "blind_kitchen_battery",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/blind_kitchen",
+            "unique_id": "0x00124b0000000002_battery_zigbee2mqtt",
+            "unit_of_measurement": "%",
+            "value_template": "{{ value_json.battery }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000002/last_seen/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/blind_kitchen/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.blind_kitchen_last_seen",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000002"],
+                "manufacturer": "IKEA",
+                "model": "FYRTUR roller blind, block-out",
+                "model_id": "E1757",
+                "name": "blind_kitchen",
+                "sw_version": "24.4.13",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:clock",
+            "name": "Last seen",
+            "object_id": "blind_kitchen_last_seen",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/blind_kitchen",
+            "unique_id": "0x00124b0000000002_last_seen_zigbee2mqtt",
+            "value_template": "{{ value_json.last_seen }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000002/linkquality/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/blind_kitchen/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.blind_kitchen_linkquality",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000002"],
+                "manufacturer": "IKEA",
+                "model": "FYRTUR roller blind, block-out",
+                "model_id": "E1757",
+                "name": "blind_kitchen",
+                "sw_version": "24.4.13",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:signal",
+            "name": "Linkquality",
+            "object_id": "blind_kitchen_linkquality",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/blind_kitchen",
+            "unique_id": "0x00124b0000000002_linkquality_zigbee2mqtt",
+            "unit_of_measurement": "lqi",
+            "value_template": "{{ value_json.linkquality }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000003/air_quality/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.starkvind_air_quality",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "name": "Air quality",
+            "object_id": "starkvind_air_quality",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_air_quality_zigbee2mqtt",
+            "value_template": "{{ value_json.air_quality }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000003/device_age/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.starkvind_device_age",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": true,
+            "entity_category": "diagnostic",
+            "name": "Device age",
+            "object_id": "starkvind_device_age",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_device_age_zigbee2mqtt",
+            "unit_of_measurement": "minutes",
+            "value_template": "{{ value_json.device_age }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000003/fan_speed/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.starkvind_fan_speed",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": true,
+            "name": "Fan speed",
+            "object_id": "starkvind_fan_speed",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_fan_speed_zigbee2mqtt",
+            "value_template": "{{ value_json.fan_speed }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000003/filter_age/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.starkvind_filter_age",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": true,
+            "entity_category": "diagnostic",
+            "name": "Filter age",
+            "object_id": "starkvind_filter_age",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_filter_age_zigbee2mqtt",
+            "unit_of_measurement": "minutes",
+            "value_template": "{{ value_json.filter_age }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000003/last_seen/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.starkvind_last_seen",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:clock",
+            "name": "Last seen",
+            "object_id": "starkvind_last_seen",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_last_seen_zigbee2mqtt",
+            "value_template": "{{ value_json.last_seen }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000003/linkquality/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.starkvind_linkquality",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:signal",
+            "name": "Linkquality",
+            "object_id": "starkvind_linkquality",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_linkquality_zigbee2mqtt",
+            "unit_of_measurement": "lqi",
+            "value_template": "{{ value_json.linkquality }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000003/pm25/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.starkvind_pm25",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "pm25",
+            "enabled_by_default": true,
+            "object_id": "starkvind_pm25",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_pm25_zigbee2mqtt",
+            "unit_of_measurement": "µg/m³",
+            "value_template": "{{ value_json.pm25 }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000004/action_rate/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/knob_workshop/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.knob_workshop_action_rate",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob",
+                "model_id": "ERS-10TZBVK-AA",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": true,
+            "name": "Action rate",
+            "object_id": "knob_workshop_action_rate",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/knob_workshop",
+            "unique_id": "0x00124b0000000004_action_rate_zigbee2mqtt",
+            "value_template": "{{ value_json.action_rate }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000004/action_step_size/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/knob_workshop/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.knob_workshop_action_step_size",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob",
+                "model_id": "ERS-10TZBVK-AA",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": true,
+            "name": "Action step size",
+            "object_id": "knob_workshop_action_step_size",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/knob_workshop",
+            "unique_id": "0x00124b0000000004_action_step_size_zigbee2mqtt",
+            "value_template": "{{ value_json.action_step_size }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000004/action_transition_time/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/knob_workshop/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.knob_workshop_action_transition_time",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob",
+                "model_id": "ERS-10TZBVK-AA",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": true,
+            "name": "Action transition time",
+            "object_id": "knob_workshop_action_transition_time",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/knob_workshop",
+            "unique_id": "0x00124b0000000004_action_transition_time_zigbee2mqtt",
+            "unit_of_measurement": "s",
+            "value_template": "{{ value_json.action_transition_time }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000004/battery/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/knob_workshop/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.knob_workshop_battery",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob",
+                "model_id": "ERS-10TZBVK-AA",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "battery",
+            "enabled_by_default": true,
+            "entity_category": "diagnostic",
+            "object_id": "knob_workshop_battery",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/knob_workshop",
+            "unique_id": "0x00124b0000000004_battery_zigbee2mqtt",
+            "unit_of_measurement": "%",
+            "value_template": "{{ value_json.battery }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000004/last_seen/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/knob_workshop/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.knob_workshop_last_seen",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob",
+                "model_id": "ERS-10TZBVK-AA",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:clock",
+            "name": "Last seen",
+            "object_id": "knob_workshop_last_seen",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_topic": "zigbee2mqtt/knob_workshop",
+            "unique_id": "0x00124b0000000004_last_seen_zigbee2mqtt",
+            "value_template": "{{ value_json.last_seen }}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/0x00124b0000000004/linkquality/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/knob_workshop/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "default_entity_id": "sensor.knob_workshop_linkquality",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000004"],
+                "manufacturer": "Tuya",
+                "model": "Smart knob",
+                "model_id": "ERS-10TZBVK-AA",
+                "name": "knob_workshop",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "enabled_by_default": false,
+            "entity_category": "diagnostic",
+            "icon": "mdi:signal",
+            "name": "Linkquality",
+            "object_id": "knob_workshop_linkquality",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "state_class": "measurement",
+            "state_topic": "zigbee2mqtt/knob_workshop",
+            "unique_id": "0x00124b0000000004_linkquality_zigbee2mqtt",
+            "unit_of_measurement": "lqi",
+            "value_template": "{{ value_json.linkquality }}"
+        }
+    },
+    {
+        "topic": "homeassistant/switch/0x00124b0000000003/switch_child_lock/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/starkvind/set/child_lock",
+            "default_entity_id": "switch.starkvind_child_lock",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "entity_category": "config",
+            "icon": "mdi:account-lock",
+            "name": "Child lock",
+            "object_id": "starkvind_child_lock",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_off": "UNLOCK",
+            "payload_on": "LOCK",
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_switch_child_lock_zigbee2mqtt",
+            "value_template": "{{ value_json.child_lock }}"
+        }
+    },
+    {
+        "topic": "homeassistant/switch/0x00124b0000000003/switch_led_enable/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/starkvind/set/led_enable",
+            "default_entity_id": "switch.starkvind_led_enable",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "entity_category": "config",
+            "icon": "mdi:led-on",
+            "name": "Led enable",
+            "object_id": "starkvind_led_enable",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_off": "false",
+            "payload_on": "true",
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_switch_led_enable_zigbee2mqtt",
+            "value_template": "{% if value_json.led_enable %}true{% else %}false{% endif %}"
+        }
+    },
+    {
+        "topic": "homeassistant/update/0x00124b0000000001/update/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/light_cellar_1/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/bridge/request/device/ota_update/update",
+            "default_entity_id": "update.light_cellar_1",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000001"],
+                "manufacturer": "Philips",
+                "model": "Hue white and color ambiance E26/E27/E14",
+                "model_id": "9290012573A",
+                "name": "light_cellar_1",
+                "sw_version": "67.93.11",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "firmware",
+            "entity_category": "config",
+            "entity_picture": "https://github.com/Koenkk/zigbee2mqtt/raw/master/images/logo.png",
+            "name": null,
+            "object_id": "light_cellar_1",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_install": "{\"id\": \"0x00124b0000000001\"}",
+            "state_topic": "zigbee2mqtt/light_cellar_1",
+            "unique_id": "0x00124b0000000001_update_zigbee2mqtt",
+            "value_template": "{\"latest_version\":\"{{ value_json['update']['latest_version'] }}\",\"installed_version\":\"{{ value_json['update']['installed_version'] }}\",\"update_percentage\":{{ value_json['update'].get('progress', 'null') }},\"in_progress\":{{ (value_json['update']['state'] == 'updating')|lower }}}"
+        }
+    },
+    {
+        "topic": "homeassistant/update/0x00124b0000000002/update/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/blind_kitchen/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/bridge/request/device/ota_update/update",
+            "default_entity_id": "update.blind_kitchen",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000002"],
+                "manufacturer": "IKEA",
+                "model": "FYRTUR roller blind, block-out",
+                "model_id": "E1757",
+                "name": "blind_kitchen",
+                "sw_version": "24.4.13",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "firmware",
+            "entity_category": "config",
+            "entity_picture": "https://github.com/Koenkk/zigbee2mqtt/raw/master/images/logo.png",
+            "name": null,
+            "object_id": "blind_kitchen",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_install": "{\"id\": \"0x00124b0000000002\"}",
+            "state_topic": "zigbee2mqtt/blind_kitchen",
+            "unique_id": "0x00124b0000000002_update_zigbee2mqtt",
+            "value_template": "{\"latest_version\":\"{{ value_json['update']['latest_version'] }}\",\"installed_version\":\"{{ value_json['update']['installed_version'] }}\",\"update_percentage\":{{ value_json['update'].get('progress', 'null') }},\"in_progress\":{{ (value_json['update']['state'] == 'updating')|lower }}}"
+        }
+    },
+    {
+        "topic": "homeassistant/update/0x00124b0000000003/update/config",
+        "payload": {
+            "availability": [
+                {
+                    "topic": "zigbee2mqtt/bridge/state",
+                    "value_template": "{{ value_json.state }}"
+                },
+                {
+                    "topic": "zigbee2mqtt/starkvind/availability",
+                    "value_template": "{{ value_json.state }}"
+                }
+            ],
+            "availability_mode": "all",
+            "command_topic": "zigbee2mqtt/bridge/request/device/ota_update/update",
+            "default_entity_id": "update.starkvind",
+            "device": {
+                "hw_version": 1,
+                "identifiers": ["zigbee2mqtt_0x00124b0000000003"],
+                "manufacturer": "IKEA",
+                "model": "STARKVIND air purifier table",
+                "model_id": "E2006",
+                "name": "starkvind",
+                "sw_version": "1.1.001",
+                "via_device": "zigbee2mqtt_bridge_0x00124b0000000000"
+            },
+            "device_class": "firmware",
+            "entity_category": "config",
+            "entity_picture": "https://github.com/Koenkk/zigbee2mqtt/raw/master/images/logo.png",
+            "name": null,
+            "object_id": "starkvind",
+            "origin": {
+                "name": "Zigbee2MQTT",
+                "sw": "2.9.2",
+                "url": "https://www.zigbee2mqtt.io"
+            },
+            "payload_install": "{\"id\": \"0x00124b0000000003\"}",
+            "state_topic": "zigbee2mqtt/starkvind",
+            "unique_id": "0x00124b0000000003_update_zigbee2mqtt",
+            "value_template": "{\"latest_version\":\"{{ value_json['update']['latest_version'] }}\",\"installed_version\":\"{{ value_json['update']['installed_version'] }}\",\"update_percentage\":{{ value_json['update'].get('progress', 'null') }},\"in_progress\":{{ (value_json['update']['state'] == 'updating')|lower }}}"
+        }
+    }
+]

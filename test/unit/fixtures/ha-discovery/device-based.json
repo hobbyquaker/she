@@ -1,0 +1,1671 @@
+[
+    {
+        "topic": "homeassistant/device/aa0000000008/config",
+        "payload": {
+            "avty_t": "awtrix/availability",
+            "pl_avail": "online",
+            "pl_not_avail": "offline",
+            "dev": {
+                "ids": "aa0000000008",
+                "name": "awtrix-ng",
+                "sw": "1.2.2",
+                "mf": "Blueforcer",
+                "mdl": "AWTRIX NG"
+            },
+            "o": {
+                "name": "awtrix-ng",
+                "sw": "1.2.2"
+            },
+            "cmps": {
+                "mat": {
+                    "~": "awtrix",
+                    "p": "light",
+                    "name": "Matrix",
+                    "ic": "mdi:clock-digital",
+                    "cmd_t": "~/cmd/display",
+                    "pl_on": "{\"power\":true}",
+                    "pl_off": "{\"power\":false}",
+                    "stat_t": "~/state/device",
+                    "stat_val_tpl": "{% if value_json.matrixPower %}{\"power\":true}{% else %}{\"power\":false}{% endif %}",
+                    "bri_cmd_t": "~/cmd/settings",
+                    "bri_cmd_tpl": "{\"brightness\":{{ value }}}",
+                    "bri_stat_t": "~/state/device",
+                    "bri_val_tpl": "{{ value_json.brightness }}",
+                    "rgb_cmd_t": "~/cmd/settings",
+                    "rgb_cmd_tpl": "{\"textColor\":[{{ red }},{{ green }},{{ blue }}]}",
+                    "rgb_stat_t": "~/state/settings",
+                    "rgb_val_tpl": "{{ value_json.textColor[1:3]|int(base=16) }},{{ value_json.textColor[3:5]|int(base=16) }},{{ value_json.textColor[5:7]|int(base=16) }}",
+                    "uniq_id": "aa0000000008_mat"
+                },
+                "ind1": {
+                    "~": "awtrix",
+                    "p": "light",
+                    "name": "Indicator 1",
+                    "ic": "mdi:arrow-top-right-thick",
+                    "on_cmd_type": "first",
+                    "cmd_t": "~/cmd/indicators/1",
+                    "pl_on": "{\"color\":[255,255,255]}",
+                    "pl_off": "{\"color\":[0,0,0]}",
+                    "stat_t": "~/state/device",
+                    "stat_val_tpl": "{% if value_json.indicators[0].on %}{\"color\":[255,255,255]}{% else %}{\"color\":[0,0,0]}{% endif %}",
+                    "rgb_cmd_t": "~/cmd/indicators/1",
+                    "rgb_cmd_tpl": "{\"color\":[{{ red }},{{ green }},{{ blue }}]}",
+                    "rgb_stat_t": "~/state/device",
+                    "rgb_val_tpl": "{{ value_json.indicators[0].color[1:3]|int(base=16) }},{{ value_json.indicators[0].color[3:5]|int(base=16) }},{{ value_json.indicators[0].color[5:7]|int(base=16) }}",
+                    "uniq_id": "aa0000000008_ind1"
+                },
+                "ind2": {
+                    "~": "awtrix",
+                    "p": "light",
+                    "name": "Indicator 2",
+                    "ic": "mdi:arrow-right-thick",
+                    "on_cmd_type": "first",
+                    "cmd_t": "~/cmd/indicators/2",
+                    "pl_on": "{\"color\":[255,255,255]}",
+                    "pl_off": "{\"color\":[0,0,0]}",
+                    "stat_t": "~/state/device",
+                    "stat_val_tpl": "{% if value_json.indicators[1].on %}{\"color\":[255,255,255]}{% else %}{\"color\":[0,0,0]}{% endif %}",
+                    "rgb_cmd_t": "~/cmd/indicators/2",
+                    "rgb_cmd_tpl": "{\"color\":[{{ red }},{{ green }},{{ blue }}]}",
+                    "rgb_stat_t": "~/state/device",
+                    "rgb_val_tpl": "{{ value_json.indicators[1].color[1:3]|int(base=16) }},{{ value_json.indicators[1].color[3:5]|int(base=16) }},{{ value_json.indicators[1].color[5:7]|int(base=16) }}",
+                    "uniq_id": "aa0000000008_ind2"
+                },
+                "ind3": {
+                    "~": "awtrix",
+                    "p": "light",
+                    "name": "Indicator 3",
+                    "ic": "mdi:arrow-bottom-right-thick",
+                    "on_cmd_type": "first",
+                    "cmd_t": "~/cmd/indicators/3",
+                    "pl_on": "{\"color\":[255,255,255]}",
+                    "pl_off": "{\"color\":[0,0,0]}",
+                    "stat_t": "~/state/device",
+                    "stat_val_tpl": "{% if value_json.indicators[2].on %}{\"color\":[255,255,255]}{% else %}{\"color\":[0,0,0]}{% endif %}",
+                    "rgb_cmd_t": "~/cmd/indicators/3",
+                    "rgb_cmd_tpl": "{\"color\":[{{ red }},{{ green }},{{ blue }}]}",
+                    "rgb_stat_t": "~/state/device",
+                    "rgb_val_tpl": "{{ value_json.indicators[2].color[1:3]|int(base=16) }},{{ value_json.indicators[2].color[3:5]|int(base=16) }},{{ value_json.indicators[2].color[5:7]|int(base=16) }}",
+                    "uniq_id": "aa0000000008_ind3"
+                },
+                "brimode": {
+                    "~": "awtrix",
+                    "p": "select",
+                    "name": "Brightness mode",
+                    "ic": "mdi:brightness-auto",
+                    "ops": ["Manual", "Auto"],
+                    "cmd_t": "~/cmd/settings",
+                    "cmd_tpl": "{\"autoBrightness\":{{ 'true' if value == 'Auto' else 'false' }}}",
+                    "stat_t": "~/state/settings",
+                    "val_tpl": "{{ 'Auto' if value_json.autoBrightness else 'Manual' }}",
+                    "uniq_id": "aa0000000008_brimode"
+                },
+                "transeff": {
+                    "~": "awtrix",
+                    "p": "select",
+                    "name": "Transition effect",
+                    "ic": "mdi:auto-fix",
+                    "cmd_t": "~/cmd/settings",
+                    "cmd_tpl": "{\"transitionEffect\":\"{{ value }}\"}",
+                    "stat_t": "~/state/settings",
+                    "val_tpl": "{{ value_json.transitionEffect }}",
+                    "ops": [
+                        "Random",
+                        "Slide",
+                        "Dim",
+                        "Zoom",
+                        "Rotate",
+                        "Pixelate",
+                        "Curtain",
+                        "Ripple",
+                        "Blink",
+                        "Reload",
+                        "Fade",
+                        "Cover",
+                        "Uncover",
+                        "Split",
+                        "Blinds",
+                        "Blocks",
+                        "Flash",
+                        "Diamond",
+                        "Wave",
+                        "Rain",
+                        "Melt",
+                        "Interlace"
+                    ],
+                    "uniq_id": "aa0000000008_transeff"
+                },
+                "trans": {
+                    "~": "awtrix",
+                    "p": "switch",
+                    "name": "Transition",
+                    "ic": "mdi:swap-horizontal",
+                    "cmd_t": "~/cmd/settings",
+                    "pl_on": "{\"autoTransition\":true}",
+                    "pl_off": "{\"autoTransition\":false}",
+                    "stat_t": "~/state/settings",
+                    "val_tpl": "{{ 'ON' if value_json.autoTransition else 'OFF' }}",
+                    "stat_on": "ON",
+                    "stat_off": "OFF",
+                    "uniq_id": "aa0000000008_trans"
+                },
+                "vol": {
+                    "~": "awtrix",
+                    "p": "number",
+                    "name": "Volume",
+                    "ic": "mdi:volume-high",
+                    "min": 0,
+                    "max": 100,
+                    "step": 5,
+                    "unit_of_meas": "%",
+                    "cmd_t": "~/cmd/settings",
+                    "cmd_tpl": "{\"volume\":{{ value | int }}}",
+                    "stat_t": "~/state/settings",
+                    "val_tpl": "{{ value_json.volume }}",
+                    "uniq_id": "aa0000000008_vol"
+                },
+                "appvol": {
+                    "~": "awtrix",
+                    "p": "number",
+                    "name": "App volume",
+                    "ic": "mdi:gamepad-variant",
+                    "min": 0,
+                    "max": 100,
+                    "step": 5,
+                    "unit_of_meas": "%",
+                    "cmd_t": "~/cmd/settings",
+                    "cmd_tpl": "{\"appVolume\":{{ value | int }}}",
+                    "stat_t": "~/state/settings",
+                    "val_tpl": "{{ value_json.appVolume }}",
+                    "uniq_id": "aa0000000008_appvol"
+                },
+                "alrtvol": {
+                    "~": "awtrix",
+                    "p": "number",
+                    "name": "Alert volume",
+                    "ic": "mdi:bell-ring",
+                    "min": 0,
+                    "max": 100,
+                    "step": 5,
+                    "unit_of_meas": "%",
+                    "cmd_t": "~/cmd/settings",
+                    "cmd_tpl": "{\"alertVolume\":{{ value | int }}}",
+                    "stat_t": "~/state/settings",
+                    "val_tpl": "{{ value_json.alertVolume }}",
+                    "uniq_id": "aa0000000008_alrtvol"
+                },
+                "stopsnd": {
+                    "~": "awtrix",
+                    "p": "button",
+                    "name": "Stop sound",
+                    "ic": "mdi:stop",
+                    "cmd_t": "~/cmd/audio/stop",
+                    "pl_prs": "{}",
+                    "uniq_id": "aa0000000008_stopsnd"
+                },
+                "next": {
+                    "~": "awtrix",
+                    "p": "button",
+                    "name": "Next app",
+                    "ic": "mdi:arrow-right-bold",
+                    "cmd_t": "~/cmd/apps/next",
+                    "pl_prs": "{}",
+                    "uniq_id": "aa0000000008_next"
+                },
+                "prev": {
+                    "~": "awtrix",
+                    "p": "button",
+                    "name": "Previous app",
+                    "ic": "mdi:arrow-left-bold",
+                    "cmd_t": "~/cmd/apps/previous",
+                    "pl_prs": "{}",
+                    "uniq_id": "aa0000000008_prev"
+                },
+                "dismiss": {
+                    "~": "awtrix",
+                    "p": "button",
+                    "name": "Dismiss notification",
+                    "ic": "mdi:bell-off",
+                    "cmd_t": "~/cmd/notify/dismiss",
+                    "pl_prs": "{}",
+                    "uniq_id": "aa0000000008_dismiss"
+                },
+                "app": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "Current app",
+                    "ic": "mdi:apps",
+                    "stat_t": "~/state/apps/active",
+                    "uniq_id": "aa0000000008_app"
+                },
+                "ver": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "Version",
+                    "ic": "mdi:tag",
+                    "ent_cat": "diagnostic",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.version }}",
+                    "uniq_id": "aa0000000008_ver"
+                },
+                "ip": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "IP address",
+                    "ic": "mdi:wifi",
+                    "ent_cat": "diagnostic",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.ipAddress }}",
+                    "uniq_id": "aa0000000008_ip"
+                },
+                "prefix": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "MQTT prefix",
+                    "ic": "mdi:tag-text",
+                    "ent_cat": "diagnostic",
+                    "stat_t": "~/state/prefix",
+                    "uniq_id": "aa0000000008_prefix"
+                },
+                "rssi": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "WiFi strength",
+                    "dev_cla": "signal_strength",
+                    "unit_of_meas": "dBm",
+                    "ent_cat": "diagnostic",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.wifiRssi }}",
+                    "uniq_id": "aa0000000008_rssi"
+                },
+                "uptime": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "Uptime",
+                    "dev_cla": "duration",
+                    "unit_of_meas": "s",
+                    "ent_cat": "diagnostic",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.uptimeSeconds }}",
+                    "uniq_id": "aa0000000008_uptime"
+                },
+                "ram": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "Free RAM",
+                    "dev_cla": "data_size",
+                    "unit_of_meas": "B",
+                    "ic": "mdi:memory",
+                    "ent_cat": "diagnostic",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.freeHeapBytes }}",
+                    "uniq_id": "aa0000000008_ram"
+                },
+                "light": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "Light level",
+                    "unit_of_meas": "%",
+                    "ic": "mdi:brightness-percent",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.lightLevel }}",
+                    "uniq_id": "aa0000000008_light"
+                },
+                "bat": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "Battery",
+                    "dev_cla": "battery",
+                    "unit_of_meas": "%",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.batteryPercent }}",
+                    "uniq_id": "aa0000000008_bat"
+                },
+                "batv": {
+                    "~": "awtrix",
+                    "p": "sensor",
+                    "name": "Battery voltage",
+                    "dev_cla": "voltage",
+                    "unit_of_meas": "V",
+                    "ent_cat": "diagnostic",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ value_json.batteryVoltage }}",
+                    "uniq_id": "aa0000000008_batv"
+                },
+                "lowbat": {
+                    "~": "awtrix",
+                    "p": "binary_sensor",
+                    "name": "Low battery",
+                    "dev_cla": "battery",
+                    "stat_t": "~/state/device",
+                    "val_tpl": "{{ 'ON' if value_json.lowBattery else 'OFF' }}",
+                    "uniq_id": "aa0000000008_lowbat"
+                },
+                "btnl": {
+                    "~": "awtrix",
+                    "p": "binary_sensor",
+                    "name": "Button left",
+                    "ic": "mdi:gesture-tap-button",
+                    "stat_t": "~/state/buttons/left",
+                    "pl_on": "1",
+                    "pl_off": "0",
+                    "uniq_id": "aa0000000008_btnl"
+                },
+                "btnm": {
+                    "~": "awtrix",
+                    "p": "binary_sensor",
+                    "name": "Button select",
+                    "ic": "mdi:gesture-tap-button",
+                    "stat_t": "~/state/buttons/select",
+                    "pl_on": "1",
+                    "pl_off": "0",
+                    "uniq_id": "aa0000000008_btnm"
+                },
+                "btnr": {
+                    "~": "awtrix",
+                    "p": "binary_sensor",
+                    "name": "Button right",
+                    "ic": "mdi:gesture-tap-button",
+                    "stat_t": "~/state/buttons/right",
+                    "pl_on": "1",
+                    "pl_off": "0",
+                    "uniq_id": "aa0000000008_btnr"
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/cul2mqtt_cul/config",
+        "payload": {
+            "dev": {
+                "ids": ["cul2mqtt_cul"],
+                "name": "cul",
+                "mf": "Busware",
+                "mdl": "CUL"
+            },
+            "o": {
+                "name": "cul2mqtt",
+                "sw": "1.2.1",
+                "url": "https://github.com/hobbyquaker/cul2mqtt"
+            },
+            "avty": [
+                {
+                    "t": "cul/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 1 else 'offline' }}"
+                }
+            ],
+            "qos": 0,
+            "cmps": {
+                "connected": {
+                    "p": "binary_sensor",
+                    "uniq_id": "cul2mqtt_cul_connected",
+                    "name": "Connected",
+                    "stat_t": "cul/connected",
+                    "val_tpl": "{{ 'ON' if (value | int(0)) >= 2 else 'OFF' }}",
+                    "ent_cat": "diagnostic",
+                    "dev_cla": "connectivity"
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/cul2mqtt_cul_Bell/config",
+        "payload": {
+            "dev": {
+                "ids": ["cul2mqtt_cul_Bell"],
+                "name": "Bell",
+                "via_device": "cul2mqtt_cul",
+                "mf": "ELV",
+                "mdl": "FS20"
+            },
+            "o": {
+                "name": "cul2mqtt",
+                "sw": "1.2.1",
+                "url": "https://github.com/hobbyquaker/cul2mqtt"
+            },
+            "avty": [
+                {
+                    "t": "cul/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                }
+            ],
+            "qos": 0,
+            "cmps": {
+                "Bell": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_Bell_Bell",
+                    "name": "Bell",
+                    "stat_t": "cul/status/Bell",
+                    "val_tpl": "{{ value_json.val }}"
+                },
+                "rssi": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_Bell_rssi",
+                    "name": "rssi",
+                    "stat_t": "cul/status/Bell/rssi",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "dev_cla": "signal_strength",
+                    "unit_of_meas": "dBm",
+                    "stat_cla": "measurement"
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/cul2mqtt_cul_hms_4334/config",
+        "payload": {
+            "dev": {
+                "ids": ["cul2mqtt_cul_hms_4334"],
+                "name": "hms/4334",
+                "via_device": "cul2mqtt_cul",
+                "mf": "ELV",
+                "mdl": "HMS100T"
+            },
+            "o": {
+                "name": "cul2mqtt",
+                "sw": "1.2.1",
+                "url": "https://github.com/hobbyquaker/cul2mqtt"
+            },
+            "avty": [
+                {
+                    "t": "cul/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                }
+            ],
+            "qos": 0,
+            "cmps": {
+                "battery_state": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_hms_4334_battery_state",
+                    "name": "battery_state",
+                    "stat_t": "cul/status/hms/4334/battery_state",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:battery",
+                    "ent_cat": "diagnostic"
+                },
+                "battery_low": {
+                    "p": "binary_sensor",
+                    "uniq_id": "cul2mqtt_cul_hms_4334_battery_low",
+                    "name": "battery_low",
+                    "stat_t": "cul/status/hms/4334/battery_low",
+                    "val_tpl": "{{ 'ON' if value_json.val else 'OFF' }}",
+                    "ent_cat": "diagnostic",
+                    "dev_cla": "battery"
+                },
+                "temperature": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_hms_4334_temperature",
+                    "name": "temperature",
+                    "stat_t": "cul/status/hms/4334/temperature",
+                    "val_tpl": "{{ value_json.val }}",
+                    "dev_cla": "temperature",
+                    "unit_of_meas": "°C",
+                    "stat_cla": "measurement"
+                },
+                "rssi": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_hms_4334_rssi",
+                    "name": "rssi",
+                    "stat_t": "cul/status/hms/4334/rssi",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "dev_cla": "signal_strength",
+                    "unit_of_meas": "dBm",
+                    "stat_cla": "measurement"
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/cul2mqtt_cul_ws_2/config",
+        "payload": {
+            "dev": {
+                "ids": ["cul2mqtt_cul_ws_2"],
+                "name": "ws/2",
+                "via_device": "cul2mqtt_cul",
+                "mf": "ELV",
+                "mdl": "S300TH"
+            },
+            "o": {
+                "name": "cul2mqtt",
+                "sw": "1.2.1",
+                "url": "https://github.com/hobbyquaker/cul2mqtt"
+            },
+            "avty": [
+                {
+                    "t": "cul/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                },
+                {
+                    "t": "cul/status/ws/2/online",
+                    "val_tpl": "{{ 'online' if value_json.val else 'offline' }}"
+                }
+            ],
+            "avty_mode": "all",
+            "qos": 0,
+            "cmps": {
+                "temperature": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_ws_2_temperature",
+                    "name": "temperature",
+                    "stat_t": "cul/status/ws/2/temperature",
+                    "val_tpl": "{{ value_json.val }}",
+                    "dev_cla": "temperature",
+                    "unit_of_meas": "°C",
+                    "stat_cla": "measurement"
+                },
+                "humidity": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_ws_2_humidity",
+                    "name": "humidity",
+                    "stat_t": "cul/status/ws/2/humidity",
+                    "val_tpl": "{{ value_json.val }}",
+                    "dev_cla": "humidity",
+                    "unit_of_meas": "%",
+                    "stat_cla": "measurement"
+                },
+                "rssi": {
+                    "p": "sensor",
+                    "uniq_id": "cul2mqtt_cul_ws_2_rssi",
+                    "name": "rssi",
+                    "stat_t": "cul/status/ws/2/rssi",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "dev_cla": "signal_strength",
+                    "unit_of_meas": "dBm",
+                    "stat_cla": "measurement"
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/ecoflow2mqtt_ecoflow/config",
+        "payload": {
+            "dev": {
+                "ids": ["ecoflow2mqtt_ecoflow"],
+                "name": "ecoflow",
+                "mf": "EcoFlow",
+                "mdl": "STREAM Microinverter"
+            },
+            "o": {
+                "name": "ecoflow2mqtt",
+                "sw": "0.3.3",
+                "url": "https://github.com/hobbyquaker/ecoflow2mqtt"
+            },
+            "avty": [
+                {
+                    "t": "ecoflow/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                }
+            ],
+            "qos": 0,
+            "cmps": {
+                "pv1_watts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_pv1_watts",
+                    "name": "PV 1",
+                    "stat_t": "ecoflow/status/pv1_watts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:solar-power-variant",
+                    "unit_of_meas": "W",
+                    "dev_cla": "power",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 1
+                },
+                "pv2_watts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_pv2_watts",
+                    "name": "PV 2",
+                    "stat_t": "ecoflow/status/pv2_watts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:solar-power-variant",
+                    "unit_of_meas": "W",
+                    "dev_cla": "power",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 1
+                },
+                "pv_watts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_pv_watts",
+                    "name": "PV total",
+                    "stat_t": "ecoflow/status/pv_watts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:solar-power-variant",
+                    "unit_of_meas": "W",
+                    "dev_cla": "power",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 1
+                },
+                "grid_watts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_grid_watts",
+                    "name": "Grid",
+                    "stat_t": "ecoflow/status/grid_watts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:transmission-tower",
+                    "unit_of_meas": "W",
+                    "dev_cla": "power",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 1
+                },
+                "grid_status": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_grid_status",
+                    "name": "Grid status",
+                    "stat_t": "ecoflow/status/grid_status",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:transmission-tower-export",
+                    "dev_cla": "enum",
+                    "options": ["invalid", "grid_in", "offline", "feed_grid"]
+                },
+                "pv1_volts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_pv1_volts",
+                    "name": "PV 1 voltage",
+                    "stat_t": "ecoflow/status/pv1_volts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "V",
+                    "dev_cla": "voltage",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 2
+                },
+                "pv1_amps": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_pv1_amps",
+                    "name": "PV 1 current",
+                    "stat_t": "ecoflow/status/pv1_amps",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "A",
+                    "dev_cla": "current",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 2
+                },
+                "pv2_volts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_pv2_volts",
+                    "name": "PV 2 voltage",
+                    "stat_t": "ecoflow/status/pv2_volts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "V",
+                    "dev_cla": "voltage",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 2
+                },
+                "pv2_amps": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_pv2_amps",
+                    "name": "PV 2 current",
+                    "stat_t": "ecoflow/status/pv2_amps",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "A",
+                    "dev_cla": "current",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 2
+                },
+                "grid_volts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_grid_volts",
+                    "name": "Grid voltage",
+                    "stat_t": "ecoflow/status/grid_volts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "V",
+                    "dev_cla": "voltage",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 1
+                },
+                "grid_amps": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_grid_amps",
+                    "name": "Grid current",
+                    "stat_t": "ecoflow/status/grid_amps",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "A",
+                    "dev_cla": "current",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 2
+                },
+                "grid_hz": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_grid_hz",
+                    "name": "Grid frequency",
+                    "stat_t": "ecoflow/status/grid_hz",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "Hz",
+                    "dev_cla": "frequency",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 2
+                },
+                "feed_limit_watts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_feed_limit_watts",
+                    "name": "Feed-in limit",
+                    "stat_t": "ecoflow/status/feed_limit_watts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:speedometer-slow",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "W",
+                    "dev_cla": "power"
+                },
+                "feed_limit_max_watts": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_feed_limit_max_watts",
+                    "name": "Feed-in limit maximum",
+                    "stat_t": "ecoflow/status/feed_limit_max_watts",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:speedometer",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "W",
+                    "dev_cla": "power"
+                },
+                "wifi_rssi": {
+                    "p": "sensor",
+                    "uniq_id": "ecoflow2mqtt_ecoflow_wifi_rssi",
+                    "name": "Wi-Fi signal",
+                    "stat_t": "ecoflow/status/wifi_rssi",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:wifi",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "dBm",
+                    "dev_cla": "signal_strength",
+                    "stat_cla": "measurement",
+                    "sug_dsp_prc": 0
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/fritz2mqtt_fritz/config",
+        "payload": {
+            "dev": {
+                "ids": ["fritz2mqtt_fritz"],
+                "name": "fritz",
+                "mf": "AVM",
+                "mdl": "FRITZ!Box 7590",
+                "sw": "154.08.21",
+                "sn": "SN00000001",
+                "hw": "FRITZ!Box 7590"
+            },
+            "o": {
+                "name": "fritz2mqtt",
+                "sw": "1.1.5",
+                "url": "https://github.com/hobbyquaker/fritz2mqtt#readme"
+            },
+            "avty": [
+                {
+                    "t": "fritz/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                }
+            ],
+            "qos": 0,
+            "cmps": {
+                "dsl_status": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_status",
+                    "name": "DSL status",
+                    "stat_t": "fritz/status/dsl/status",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:swap-vertical",
+                    "ent_cat": "diagnostic"
+                },
+                "dsl_downstream_curr_rate": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_downstream_curr_rate",
+                    "name": "DSL downstream rate",
+                    "stat_t": "fritz/status/dsl/downstream_curr_rate",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:download-network",
+                    "unit_of_meas": "kbit/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "dsl_upstream_curr_rate": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_upstream_curr_rate",
+                    "name": "DSL upstream rate",
+                    "stat_t": "fritz/status/dsl/upstream_curr_rate",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:upload-network",
+                    "unit_of_meas": "kbit/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "dsl_downstream_max_rate": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_downstream_max_rate",
+                    "name": "DSL downstream max rate",
+                    "stat_t": "fritz/status/dsl/downstream_max_rate",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:download-network-outline",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "kbit/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "dsl_upstream_max_rate": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_upstream_max_rate",
+                    "name": "DSL upstream max rate",
+                    "stat_t": "fritz/status/dsl/upstream_max_rate",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:upload-network-outline",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "kbit/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "dsl_downstream_noise_margin": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_downstream_noise_margin",
+                    "name": "DSL downstream noise margin",
+                    "stat_t": "fritz/status/dsl/downstream_noise_margin",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:sine-wave",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "dB",
+                    "stat_cla": "measurement"
+                },
+                "dsl_upstream_noise_margin": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_upstream_noise_margin",
+                    "name": "DSL upstream noise margin",
+                    "stat_t": "fritz/status/dsl/upstream_noise_margin",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:sine-wave",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "dB",
+                    "stat_cla": "measurement"
+                },
+                "dsl_downstream_attenuation": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_downstream_attenuation",
+                    "name": "DSL downstream attenuation",
+                    "stat_t": "fritz/status/dsl/downstream_attenuation",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:signal",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "dB",
+                    "stat_cla": "measurement"
+                },
+                "dsl_upstream_attenuation": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_upstream_attenuation",
+                    "name": "DSL upstream attenuation",
+                    "stat_t": "fritz/status/dsl/upstream_attenuation",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:signal",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "dB",
+                    "stat_cla": "measurement"
+                },
+                "dsl_downstream_power": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_downstream_power",
+                    "name": "DSL downstream power",
+                    "stat_t": "fritz/status/dsl/downstream_power",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:flash",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "dBm",
+                    "stat_cla": "measurement"
+                },
+                "dsl_upstream_power": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_upstream_power",
+                    "name": "DSL upstream power",
+                    "stat_t": "fritz/status/dsl/upstream_power",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:flash",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "dBm",
+                    "stat_cla": "measurement"
+                },
+                "dsl_crc_errors": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_crc_errors",
+                    "name": "DSL CRC errors",
+                    "stat_t": "fritz/status/dsl/crc_errors",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:alert-circle-outline",
+                    "ent_cat": "diagnostic",
+                    "stat_cla": "total_increasing"
+                },
+                "dsl_fec_errors": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_dsl_fec_errors",
+                    "name": "DSL FEC errors",
+                    "stat_t": "fritz/status/dsl/fec_errors",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:alert-circle-outline",
+                    "ent_cat": "diagnostic",
+                    "stat_cla": "total_increasing"
+                },
+                "wan_connected": {
+                    "p": "binary_sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_connected",
+                    "name": "Internet",
+                    "stat_t": "fritz/status/wan/connected",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "connectivity"
+                },
+                "wan_status": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_status",
+                    "name": "WAN status",
+                    "stat_t": "fritz/status/wan/status",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:web",
+                    "ent_cat": "diagnostic"
+                },
+                "wan_external_ip": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_external_ip",
+                    "name": "External IP",
+                    "stat_t": "fritz/status/wan/external_ip",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:ip-network",
+                    "ent_cat": "diagnostic"
+                },
+                "wan_external_ipv6": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_external_ipv6",
+                    "name": "External IPv6",
+                    "stat_t": "fritz/status/wan/external_ipv6",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:ip-network-outline",
+                    "ent_cat": "diagnostic"
+                },
+                "wan_uptime": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_uptime",
+                    "name": "WAN uptime",
+                    "stat_t": "fritz/status/wan/uptime",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:timer-outline",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "s",
+                    "dev_cla": "duration",
+                    "stat_cla": "total_increasing"
+                },
+                "wan_link_downstream_max_bitrate": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_link_downstream_max_bitrate",
+                    "name": "WAN downstream max bitrate",
+                    "stat_t": "fritz/status/wan/link/downstream_max_bitrate",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:download-network-outline",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "bit/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "wan_link_upstream_max_bitrate": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_link_upstream_max_bitrate",
+                    "name": "WAN upstream max bitrate",
+                    "stat_t": "fritz/status/wan/link/upstream_max_bitrate",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:upload-network-outline",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "bit/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "wan_reconnect": {
+                    "p": "button",
+                    "uniq_id": "fritz2mqtt_fritz_wan_reconnect",
+                    "name": "Reconnect",
+                    "cmd_t": "fritz/set/wan/reconnect",
+                    "ic": "mdi:restart",
+                    "ent_cat": "config",
+                    "pl_prs": "true"
+                },
+                "wan_bytes_received": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_bytes_received",
+                    "name": "Bytes received",
+                    "stat_t": "fritz/status/wan/bytes_received",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:download",
+                    "unit_of_meas": "B",
+                    "dev_cla": "data_size",
+                    "stat_cla": "total_increasing"
+                },
+                "wan_bytes_sent": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_bytes_sent",
+                    "name": "Bytes sent",
+                    "stat_t": "fritz/status/wan/bytes_sent",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:upload",
+                    "unit_of_meas": "B",
+                    "dev_cla": "data_size",
+                    "stat_cla": "total_increasing"
+                },
+                "wan_rate_down": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_rate_down",
+                    "name": "Download rate",
+                    "stat_t": "fritz/status/wan/rate_down",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:download-network",
+                    "unit_of_meas": "B/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "wan_rate_up": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wan_rate_up",
+                    "name": "Upload rate",
+                    "stat_t": "fritz/status/wan/rate_up",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:upload-network",
+                    "unit_of_meas": "B/s",
+                    "stat_cla": "measurement",
+                    "dev_cla": "data_rate"
+                },
+                "wlan_1_enabled": {
+                    "p": "switch",
+                    "uniq_id": "fritz2mqtt_fritz_wlan_1_enabled",
+                    "name": "WLAN interzone-perimeter 2.4 GHz",
+                    "stat_t": "fritz/status/wlan/1/enabled",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "cmd_t": "fritz/set/wlan/1/enabled",
+                    "ic": "mdi:wifi",
+                    "ent_cat": "config",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "stat_on": "true",
+                    "stat_off": "false"
+                },
+                "wlan_1_associations": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wlan_1_associations",
+                    "name": "WLAN interzone-perimeter 2.4 GHz clients",
+                    "stat_t": "fritz/status/wlan/1/associations",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:account-multiple",
+                    "ent_cat": "diagnostic",
+                    "stat_cla": "measurement"
+                },
+                "wlan_2_enabled": {
+                    "p": "switch",
+                    "uniq_id": "fritz2mqtt_fritz_wlan_2_enabled",
+                    "name": "WLAN interzone-perimeter 5 GHz",
+                    "stat_t": "fritz/status/wlan/2/enabled",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "cmd_t": "fritz/set/wlan/2/enabled",
+                    "ic": "mdi:wifi",
+                    "ent_cat": "config",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "stat_on": "true",
+                    "stat_off": "false"
+                },
+                "wlan_2_associations": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wlan_2_associations",
+                    "name": "WLAN interzone-perimeter 5 GHz clients",
+                    "stat_t": "fritz/status/wlan/2/associations",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:account-multiple",
+                    "ent_cat": "diagnostic",
+                    "stat_cla": "measurement"
+                },
+                "wlan_3_enabled": {
+                    "p": "switch",
+                    "uniq_id": "fritz2mqtt_fritz_wlan_3_enabled",
+                    "name": "WLAN FRITZ!Box Gastzugang",
+                    "stat_t": "fritz/status/wlan/3/enabled",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "cmd_t": "fritz/set/wlan/3/enabled",
+                    "ic": "mdi:wifi-lock-open",
+                    "ent_cat": "config",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "stat_on": "true",
+                    "stat_off": "false"
+                },
+                "wlan_3_associations": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_wlan_3_associations",
+                    "name": "WLAN FRITZ!Box Gastzugang clients",
+                    "stat_t": "fritz/status/wlan/3/associations",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:account-multiple",
+                    "ent_cat": "diagnostic",
+                    "stat_cla": "measurement"
+                },
+                "tam_0_enabled": {
+                    "p": "switch",
+                    "uniq_id": "fritz2mqtt_fritz_tam_0_enabled",
+                    "name": "Answering machine Anrufbeantworter",
+                    "stat_t": "fritz/status/tam/0/enabled",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "cmd_t": "fritz/set/tam/0/enabled",
+                    "ic": "mdi:voicemail",
+                    "ent_cat": "config",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "stat_on": "true",
+                    "stat_off": "false"
+                },
+                "tam_0_new_messages": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_tam_0_new_messages",
+                    "name": "Answering machine Anrufbeantworter new messages",
+                    "stat_t": "fritz/status/tam/0/new_messages",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:message-badge",
+                    "stat_cla": "measurement"
+                },
+                "host_count": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_host_count",
+                    "name": "Hosts",
+                    "stat_t": "fritz/status/host_count",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:lan",
+                    "stat_cla": "measurement"
+                },
+                "host_count_active": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_host_count_active",
+                    "name": "Hosts active",
+                    "stat_t": "fritz/status/host_count/active",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:lan-connect",
+                    "stat_cla": "measurement"
+                },
+                "call_active": {
+                    "p": "binary_sensor",
+                    "uniq_id": "fritz2mqtt_fritz_call_active",
+                    "name": "Call",
+                    "stat_t": "fritz/status/call/active",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:phone-in-talk",
+                    "pl_on": "true",
+                    "pl_off": "false"
+                },
+                "call_ringing": {
+                    "p": "binary_sensor",
+                    "uniq_id": "fritz2mqtt_fritz_call_ringing",
+                    "name": "Ringing",
+                    "stat_t": "fritz/status/call/ringing",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:phone-ring",
+                    "pl_on": "true",
+                    "pl_off": "false"
+                },
+                "call_last_caller": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_call_last_incoming",
+                    "name": "Last caller",
+                    "stat_t": "fritz/status/call/last_incoming",
+                    "val_tpl": "{{ value_json.val.number }}",
+                    "ic": "mdi:phone-incoming"
+                },
+                "call_last_callee": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_call_last_outgoing",
+                    "name": "Last called",
+                    "stat_t": "fritz/status/call/last_outgoing",
+                    "val_tpl": "{{ value_json.val.number }}",
+                    "ic": "mdi:phone-outgoing"
+                },
+                "uptime": {
+                    "p": "sensor",
+                    "uniq_id": "fritz2mqtt_fritz_device_uptime",
+                    "name": "Uptime",
+                    "stat_t": "fritz/status/device/uptime",
+                    "val_tpl": "{{ ('true' if value_json.val else 'false') if value_json.val is boolean else value_json.val }}",
+                    "ic": "mdi:timer-outline",
+                    "ent_cat": "diagnostic",
+                    "unit_of_meas": "s",
+                    "dev_cla": "duration",
+                    "stat_cla": "total_increasing"
+                },
+                "reboot": {
+                    "p": "button",
+                    "uniq_id": "fritz2mqtt_fritz_device_reboot",
+                    "name": "Reboot",
+                    "cmd_t": "fritz/set/device/reboot",
+                    "ic": "mdi:power-cycle",
+                    "ent_cat": "config",
+                    "pl_prs": "true",
+                    "dev_cla": "restart"
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/govee2mqtt_govee-bridge_h606a_0001/config",
+        "payload": {
+            "dev": {
+                "ids": ["govee2mqtt_govee-bridge_h606a_0001"],
+                "name": "h606a_0001",
+                "mf": "Govee",
+                "mdl": "H606A",
+                "via_device": "govee2mqtt_govee-bridge",
+                "sw": "1.06.24"
+            },
+            "o": {
+                "name": "govee2mqtt",
+                "sw": "0.2.1",
+                "url": "https://github.com/hobbyquaker/govee2mqtt"
+            },
+            "avty": [
+                {
+                    "t": "govee-bridge/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                },
+                {
+                    "t": "govee-bridge/status/h606a_0001/online",
+                    "val_tpl": "{{ 'online' if value_json.val else 'offline' }}"
+                }
+            ],
+            "avty_mode": "all",
+            "qos": 0,
+            "cmps": {
+                "light": {
+                    "p": "light",
+                    "uniq_id": "govee2mqtt_govee-bridge_h606a_0001_power",
+                    "name": "Light",
+                    "stat_t": "govee-bridge/status/h606a_0001/power",
+                    "cmd_t": "govee-bridge/set/h606a_0001/power",
+                    "stat_val_tpl": "{{ 'ON' if value_json.val else 'OFF' }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "bri_stat_t": "govee-bridge/status/h606a_0001/brightness",
+                    "bri_val_tpl": "{{ value_json.val }}",
+                    "bri_cmd_t": "govee-bridge/set/h606a_0001/brightness",
+                    "bri_scl": 100,
+                    "rgb_stat_t": "govee-bridge/status/h606a_0001/color",
+                    "rgb_val_tpl": "{{ value_json.val.r }},{{ value_json.val.g }},{{ value_json.val.b }}",
+                    "rgb_cmd_t": "govee-bridge/set/h606a_0001/color",
+                    "clr_temp_stat_t": "govee-bridge/status/h606a_0001/color_temp",
+                    "clr_temp_val_tpl": "{{ value_json.val if value_json.val else None }}",
+                    "clr_temp_cmd_t": "govee-bridge/set/h606a_0001/color_temp",
+                    "clr_temp_kelvin": true,
+                    "min_kelvin": 2000,
+                    "max_kelvin": 9000,
+                    "fx_stat_t": "govee-bridge/status/h606a_0001/scene",
+                    "fx_val_tpl": "{{ value_json.val if value_json.val else None }}",
+                    "fx_cmd_t": "govee-bridge/set/h606a_0001/scene",
+                    "fx_list": [
+                        "matrix",
+                        "crawl",
+                        "cubic",
+                        "phantom",
+                        "layering",
+                        "breathe",
+                        "illusion",
+                        "glistening",
+                        "heat_wave",
+                        "rubiks_cube",
+                        "cyber",
+                        "split",
+                        "vision",
+                        "evolution",
+                        "spin",
+                        "kaleidoscope",
+                        "circuit",
+                        "profound",
+                        "arcane_light",
+                        "speeding",
+                        "emerald",
+                        "honeycomb",
+                        "ocean",
+                        "forest",
+                        "sunset_glow",
+                        "rainbow",
+                        "aurora",
+                        "fire",
+                        "flower_field",
+                        "ripple",
+                        "starry_sky",
+                        "firefly",
+                        "spring",
+                        "summer",
+                        "fall",
+                        "winter",
+                        "meteor_shower",
+                        "desert",
+                        "rustling_leaves",
+                        "glacier",
+                        "waves",
+                        "lotus_pond",
+                        "leisure",
+                        "movie",
+                        "night_light",
+                        "morning",
+                        "afternoon",
+                        "night",
+                        "romantic",
+                        "dance_party",
+                        "game",
+                        "sports",
+                        "candy",
+                        "colorful",
+                        "christmas",
+                        "halloween",
+                        "mothers_day",
+                        "fathers_day",
+                        "easter",
+                        "valentines_day",
+                        "carnival",
+                        "birthday",
+                        "energetic",
+                        "soothing",
+                        "dreamlike",
+                        "meditation",
+                        "sleep",
+                        "excited",
+                        "sweet",
+                        "mysterious",
+                        "refreshing",
+                        "quiet"
+                    ]
+                },
+                "online": {
+                    "p": "binary_sensor",
+                    "uniq_id": "govee2mqtt_govee-bridge_h606a_0001_online",
+                    "name": "Online",
+                    "stat_t": "govee-bridge/status/h606a_0001/online",
+                    "val_tpl": "{{ 'ON' if value_json.val else 'OFF' }}",
+                    "ent_cat": "diagnostic",
+                    "dev_cla": "connectivity"
+                },
+                "ip": {
+                    "p": "sensor",
+                    "uniq_id": "govee2mqtt_govee-bridge_h606a_0001_ip",
+                    "name": "IP address",
+                    "stat_t": "govee-bridge/status/h606a_0001/ip",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ic": "mdi:ip-network",
+                    "ent_cat": "diagnostic"
+                },
+                "refresh": {
+                    "p": "button",
+                    "uniq_id": "govee2mqtt_govee-bridge_h606a_0001_refresh",
+                    "name": "Refresh",
+                    "cmd_t": "govee-bridge/set/h606a_0001/refresh",
+                    "ic": "mdi:refresh",
+                    "ent_cat": "diagnostic"
+                },
+                "music": {
+                    "p": "select",
+                    "uniq_id": "govee2mqtt_govee-bridge_h606a_0001_music",
+                    "name": "Music mode",
+                    "stat_t": "govee-bridge/status/h606a_0001/music",
+                    "val_tpl": "{{ value_json.val if value_json.val else None }}",
+                    "cmd_t": "govee-bridge/set/h606a_0001/music",
+                    "ic": "mdi:music",
+                    "options": ["rhythm", "pulsating", "energy", "windmill", "divide", "beat"]
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/nut2mqtt_nut_nutdev1/config",
+        "payload": {
+            "dev": {
+                "ids": ["nut2mqtt_nut_nutdev1"],
+                "name": "nutdev1",
+                "via_device": "nut2mqtt_nut",
+                "mf": "American Power Conversion",
+                "mdl": "Back-UPS BX950MI",
+                "sw": "295202G -302202G",
+                "sn": "SN00000002"
+            },
+            "o": {
+                "name": "nut2mqtt",
+                "sw": "0.1.0",
+                "url": "https://github.com/hobbyquaker/nut2mqtt"
+            },
+            "avty": [
+                {
+                    "t": "nut/connected",
+                    "avty_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                },
+                {
+                    "t": "nut/status/nutdev1/online",
+                    "avty_tpl": "{{ 'online' if value_json.val else 'offline' }}"
+                }
+            ],
+            "avty_mode": "all",
+            "qos": 0,
+            "cmps": {
+                "state_on_line": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_on_line",
+                    "name": "On line",
+                    "stat_t": "nut/status/nutdev1/state/on_line",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "power"
+                },
+                "state_on_battery": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_on_battery",
+                    "name": "On battery",
+                    "stat_t": "nut/status/nutdev1/state/on_battery",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false"
+                },
+                "state_low_battery": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_low_battery",
+                    "name": "Low battery",
+                    "stat_t": "nut/status/nutdev1/state/low_battery",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "battery"
+                },
+                "state_replace_battery": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_replace_battery",
+                    "name": "Replace battery",
+                    "stat_t": "nut/status/nutdev1/state/replace_battery",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "problem"
+                },
+                "state_charging": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_charging",
+                    "name": "Charging",
+                    "stat_t": "nut/status/nutdev1/state/charging",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "battery_charging"
+                },
+                "state_bypass": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_bypass",
+                    "name": "Bypass",
+                    "stat_t": "nut/status/nutdev1/state/bypass",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "problem"
+                },
+                "state_overloaded": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_overloaded",
+                    "name": "Overloaded",
+                    "stat_t": "nut/status/nutdev1/state/overloaded",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "problem"
+                },
+                "state_off": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_off",
+                    "name": "Off",
+                    "stat_t": "nut/status/nutdev1/state/off",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "problem"
+                },
+                "state_shutdown": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_shutdown",
+                    "name": "Forced shutdown",
+                    "stat_t": "nut/status/nutdev1/state/shutdown",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "problem"
+                },
+                "state_alarm": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_state_alarm",
+                    "name": "Alarm",
+                    "stat_t": "nut/status/nutdev1/state/alarm",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "problem"
+                },
+                "battery_charge": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_battery_charge",
+                    "name": "Battery charge",
+                    "stat_t": "nut/status/nutdev1/battery/charge",
+                    "val_tpl": "{{ value_json.val }}",
+                    "unit_of_meas": "%",
+                    "dev_cla": "battery",
+                    "stat_cla": "measurement"
+                },
+                "battery_runtime": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_battery_runtime",
+                    "name": "Battery runtime",
+                    "stat_t": "nut/status/nutdev1/battery/runtime",
+                    "val_tpl": "{{ value_json.val }}",
+                    "unit_of_meas": "s",
+                    "dev_cla": "duration",
+                    "stat_cla": "measurement"
+                },
+                "battery_voltage": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_battery_voltage",
+                    "name": "Battery voltage",
+                    "stat_t": "nut/status/nutdev1/battery/voltage",
+                    "val_tpl": "{{ value_json.val }}",
+                    "unit_of_meas": "V",
+                    "dev_cla": "voltage",
+                    "stat_cla": "measurement"
+                },
+                "device_type": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_device_type",
+                    "name": "Device type",
+                    "stat_t": "nut/status/nutdev1/device/type",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic"
+                },
+                "driver_name": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_driver_name",
+                    "name": "Driver name",
+                    "stat_t": "nut/status/nutdev1/driver/name",
+                    "val_tpl": "{{ value_json.val }}",
+                    "ent_cat": "diagnostic"
+                },
+                "input_voltage": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_input_voltage",
+                    "name": "Input voltage",
+                    "stat_t": "nut/status/nutdev1/input/voltage",
+                    "val_tpl": "{{ value_json.val }}",
+                    "unit_of_meas": "V",
+                    "dev_cla": "voltage",
+                    "stat_cla": "measurement"
+                },
+                "ups_load": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_ups_load",
+                    "name": "Load on UPS",
+                    "stat_t": "nut/status/nutdev1/ups/load",
+                    "val_tpl": "{{ value_json.val }}",
+                    "unit_of_meas": "%",
+                    "stat_cla": "measurement"
+                },
+                "ups_status": {
+                    "p": "sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_ups_status",
+                    "name": "UPS status",
+                    "stat_t": "nut/status/nutdev1/ups/status",
+                    "val_tpl": "{{ value_json.val }}"
+                },
+                "stale": {
+                    "p": "binary_sensor",
+                    "uniq_id": "nut2mqtt_nut_nutdev1_stale",
+                    "name": "Data stale",
+                    "stat_t": "nut/status/nutdev1/stale",
+                    "val_tpl": "{{ value_json.val | lower }}",
+                    "ent_cat": "diagnostic",
+                    "pl_on": "true",
+                    "pl_off": "false",
+                    "dev_cla": "problem"
+                }
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/device/unifi2mqtt_unifi_client_aa0000000009/config",
+        "payload": {
+            "dev": {
+                "ids": ["unifi2mqtt_unifi_client_aa0000000009"],
+                "name": "cam-terrace",
+                "cns": [["mac", "aa:00:00:00:00:09"]],
+                "via_device": "unifi2mqtt_unifi"
+            },
+            "o": {
+                "name": "unifi2mqtt",
+                "sw": "2.0.6",
+                "url": "https://github.com/hobbyquaker/unifi2mqtt#readme"
+            },
+            "avty": [
+                {
+                    "t": "unifi/connected",
+                    "val_tpl": "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}"
+                }
+            ],
+            "qos": 0,
+            "cmps": {
+                "present": {
+                    "p": "device_tracker",
+                    "uniq_id": "unifi2mqtt_unifi_client_aa0000000009_client_cam-terrace_present",
+                    "name": "Presence",
+                    "stat_t": "unifi/status/client/cam-terrace/present",
+                    "val_tpl": "{{ 'home' if value_json.val else 'not_home' }}",
+                    "ic": "mdi:wifi",
+                    "pl_home": "home",
+                    "pl_not_home": "not_home",
+                    "src_type": "router",
+                    "json_attr_t": "unifi/status/client/cam-terrace/details",
+                    "json_attr_tpl": "{{ value_json.val | tojson }}"
+                }
+            }
+        }
+    }
+]

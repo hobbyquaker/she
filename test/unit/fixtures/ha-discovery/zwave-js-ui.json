@@ -1,0 +1,154 @@
+[
+    {
+        "topic": "homeassistant/switch/nodeID_7/switch_binary/config",
+        "payload": {
+            "state_topic": "zwave/7/37/0/currentValue",
+            "command_topic": "zwave/7/37/0/targetValue/set",
+            "value_template": "{{ value_json.value }}",
+            "payload_on": "true",
+            "payload_off": "false",
+            "device": {
+                "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node7"],
+                "manufacturer": "Fibargroup",
+                "model": "FGS213 Single Switch 2",
+                "name": "nodeID_7",
+                "sw_version": "3.3"
+            },
+            "name": "nodeID_7_switch_binary",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_7-37-0-currentValue"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/nodeID_8/sensor_multilevel_air_temperature/config",
+        "payload": {
+            "state_topic": "zwave/8/49/0/Air_temperature",
+            "value_template": "{{ value_json.value }}",
+            "device_class": "temperature",
+            "unit_of_measurement": "°C",
+            "state_class": "measurement",
+            "device": {
+                "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node8"],
+                "manufacturer": "AEON Labs",
+                "model": "ZW100 MultiSensor 6",
+                "name": "nodeID_8",
+                "sw_version": "1.10"
+            },
+            "name": "nodeID_8_sensor_multilevel_air_temperature",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_8-49-0-Air_temperature"
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/nodeID_8/sensor_binary_any/config",
+        "payload": {
+            "state_topic": "zwave/8/48/0/Any",
+            "value_template": "{{ value_json.value }}",
+            "payload_on": "true",
+            "payload_off": "false",
+            "device_class": "motion",
+            "device": { "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node8"] },
+            "name": "nodeID_8_sensor_binary_any",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_8-48-0-Any"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/nodeID_8/battery_level/config",
+        "payload": {
+            "state_topic": "zwave/8/128/0/level",
+            "value_template": "{{ value_json.value }}",
+            "device_class": "battery",
+            "unit_of_measurement": "%",
+            "device": { "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node8"] },
+            "name": "nodeID_8_battery_level",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_8-128-0-level"
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/nodeID_9/notification_access_control_door_state_simple/config",
+        "payload": {
+            "state_topic": "zwave/9/113/0/Access_Control/Door_state_simple",
+            "value_template": "{{ value_json.value }}",
+            "payload_on": 22,
+            "payload_off": 23,
+            "device_class": "door",
+            "device": {
+                "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node9"],
+                "manufacturer": "Aeotec",
+                "model": "ZW120 Door Window Sensor Gen5",
+                "name": "nodeID_9"
+            },
+            "name": "nodeID_9_notification_access_control_door_state_simple",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_9-113-0-Access_Control-Door_state_simple"
+        }
+    },
+    {
+        "topic": "homeassistant/light/nodeID_12/switch_multilevel/config",
+        "payload": {
+            "state_topic": "zwave/12/38/0/currentValue",
+            "command_topic": "zwave/12/38/0/targetValue/set",
+            "state_value_template": "{{ 'OFF' if value_json.value == 0 else 'ON' }}",
+            "brightness_state_topic": "zwave/12/38/0/currentValue",
+            "brightness_command_topic": "zwave/12/38/0/targetValue/set",
+            "brightness_value_template": "{{ value_json.value }}",
+            "brightness_scale": 99,
+            "on_command_type": "brightness",
+            "payload_on": "255",
+            "payload_off": "0",
+            "device": {
+                "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node12"],
+                "manufacturer": "Fibargroup",
+                "model": "FGD212 Dimmer 2",
+                "name": "nodeID_12"
+            },
+            "name": "nodeID_12_switch_multilevel",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_12-38-0-currentValue"
+        }
+    },
+    {
+        "topic": "homeassistant/lock/nodeID_10/lock/config",
+        "payload": {
+            "state_topic": "zwave/10/98/0/currentMode",
+            "command_topic": "zwave/10/98/0/targetMode/set",
+            "value_template": "{{ value_json.value }}",
+            "payload_lock": "255",
+            "payload_unlock": "0",
+            "state_locked": "255",
+            "state_unlocked": "0",
+            "device": {
+                "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node10"],
+                "manufacturer": "Danalock",
+                "model": "V3-BTZE",
+                "name": "nodeID_10"
+            },
+            "name": "nodeID_10_lock",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_10-98-0-currentMode"
+        }
+    },
+    {
+        "topic": "homeassistant/climate/nodeID_11/climate/config",
+        "payload": {
+            "mode_state_topic": "zwave/11/64/0/mode",
+            "mode_state_template": "{{ {0:'off', 1:'heat', 2:'cool', 3:'auto'}[value_json.value] | default('off') }}",
+            "mode_command_topic": "zwave/11/64/0/mode/set",
+            "mode_command_template": "{{ {'off':0, 'heat':1, 'cool':2, 'auto':3}[value] }}",
+            "modes": ["off", "heat", "cool", "auto"],
+            "current_temperature_topic": "zwave/11/49/0/Air_temperature",
+            "current_temperature_template": "{{ value_json.value }}",
+            "temperature_state_topic": "zwave/11/67/0/setpoint/1",
+            "temperature_state_template": "{{ value_json.value }}",
+            "temperature_command_topic": "zwave/11/67/0/setpoint/1/set",
+            "temperature_command_template": "{{ value }}",
+            "min_temp": 5,
+            "max_temp": 40,
+            "temp_step": 0.5,
+            "temperature_unit": "C",
+            "device": {
+                "identifiers": ["zwavejs2mqtt_0xd1e5f8a1_node11"],
+                "manufacturer": "Honeywell",
+                "model": "TH8320ZW Thermostat",
+                "name": "nodeID_11"
+            },
+            "name": "nodeID_11_climate",
+            "unique_id": "zwavejs2mqtt_0xd1e5f8a1_11-64-0-mode"
+        }
+    }
+]

@@ -1,0 +1,1372 @@
+[
+    {
+        "topic": "homeassistant/binary_sensor/radar-one-clock/moving_target/config",
+        "payload": {
+            "dev_cla": "motion",
+            "name": "Moving Target",
+            "ic": "mdi:motion-sensor",
+            "stat_t": "radar-one/status/moving_target",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPbinary_sensormoving_target",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-one-clock/out_pin_presence_status/config",
+        "payload": {
+            "dev_cla": "presence",
+            "name": "out pin presence status",
+            "ic": "mdi:account",
+            "entity_category": "diagnostic",
+            "stat_t": "radar-one/status/presence",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPbinary_sensorout_pin_presence_status",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-one-clock/pir/config",
+        "payload": {
+            "name": "pir",
+            "stat_t": "radar-one/status/pir",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPbinary_sensorpir",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-one-clock/presence/config",
+        "payload": {
+            "dev_cla": "occupancy",
+            "name": "Presence",
+            "ic": "mdi:account",
+            "stat_t": "radar-one/status/has_target",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPbinary_sensorpresence",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-one-clock/still_target/config",
+        "payload": {
+            "dev_cla": "occupancy",
+            "name": "Still Target",
+            "ic": "mdi:motion-sensor",
+            "stat_t": "radar-one/status/still_target",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPbinary_sensorstill_target",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-two-test/moving_target/config",
+        "payload": {
+            "dev_cla": "motion",
+            "name": "Moving Target",
+            "ic": "mdi:motion-sensor",
+            "stat_t": "radar-two/status/moving_target",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPbinary_sensormoving_target",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-two-test/out_pin_presence_status/config",
+        "payload": {
+            "dev_cla": "presence",
+            "name": "out pin presence status",
+            "ic": "mdi:account",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/presence",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPbinary_sensorout_pin_presence_status",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-two-test/pir/config",
+        "payload": {
+            "name": "pir",
+            "stat_t": "radar-two/status/pir",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPbinary_sensorpir",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-two-test/presence/config",
+        "payload": {
+            "dev_cla": "occupancy",
+            "name": "Presence",
+            "ic": "mdi:account",
+            "stat_t": "radar-two/status/has_target",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPbinary_sensorpresence",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/radar-two-test/still_target/config",
+        "payload": {
+            "dev_cla": "occupancy",
+            "name": "Still Target",
+            "ic": "mdi:motion-sensor",
+            "stat_t": "radar-two/status/still_target",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPbinary_sensorstill_target",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/usb-relay-02/button/config",
+        "payload": {
+            "name": "button",
+            "stat_t": "usb-relay-02/status/button",
+            "avty_t": "usb-relay-02/status",
+            "uniq_id": "ESPbinary_sensorbutton",
+            "dev": {
+                "ids": "aa0000000002",
+                "name": "Fairy lights",
+                "sw": "2025.5.2 (Jul 27 2026, 19:32:07)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "sa": "Küche",
+                "cns": [["mac", "aa0000000002"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/climate/seedling/thermostat/config",
+        "payload": {
+            "curr_temp_t": "seedling/climate/thermostat/current_temperature/state",
+            "mode_cmd_t": "seedling/climate/thermostat/mode/command",
+            "mode_stat_t": "seedling/climate/thermostat/mode/state",
+            "modes": ["off", "heat"],
+            "temp_cmd_t": "seedling/climate/thermostat/target_temperature/command",
+            "temp_stat_t": "seedling/climate/thermostat/target_temperature/state",
+            "min_temp": 10,
+            "max_temp": 30,
+            "temp_step": 0.1,
+            "precision": 0.1,
+            "temp_unit": "C",
+            "min_hum": 30,
+            "max_hum": 99,
+            "pr_mode_cmd_t": "seedling/climate/thermostat/preset/command",
+            "pr_mode_stat_t": "seedling/climate/thermostat/preset/state",
+            "preset_modes": ["home"],
+            "act_t": "seedling/climate/thermostat/action/state",
+            "name": "thermostat",
+            "avty_t": "seedling/status",
+            "uniq_id": "ESPclimatethermostat",
+            "dev": {
+                "ids": "aa0000000003",
+                "name": "seedling",
+                "sw": "2025.5.2 (Jul 24 2026, 17:24:46)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000003"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/drybox/low_humidity/config",
+        "payload": {
+            "dev_cla": "humidity",
+            "unit_of_meas": "%",
+            "stat_cla": "measurement",
+            "name": "Low Humidity",
+            "stat_t": "drybox/status/low/humidity",
+            "avty_t": "drybox/status",
+            "uniq_id": "ESPsensorlow_humidity",
+            "dev": {
+                "ids": "aa0000000004",
+                "name": "drybox",
+                "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000004"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/drybox/low_temperature/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "Low Temperature",
+            "stat_t": "drybox/status/low/temperature",
+            "avty_t": "drybox/status",
+            "uniq_id": "ESPsensorlow_temperature",
+            "dev": {
+                "ids": "aa0000000004",
+                "name": "drybox",
+                "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000004"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/drybox/mid_humidity/config",
+        "payload": {
+            "dev_cla": "humidity",
+            "unit_of_meas": "%",
+            "stat_cla": "measurement",
+            "name": "Mid Humidity",
+            "stat_t": "drybox/status/mid/humidity",
+            "avty_t": "drybox/status",
+            "uniq_id": "ESPsensormid_humidity",
+            "dev": {
+                "ids": "aa0000000004",
+                "name": "drybox",
+                "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000004"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/drybox/mid_temperature/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "Mid Temperature",
+            "stat_t": "drybox/status/mid/temperature",
+            "avty_t": "drybox/status",
+            "uniq_id": "ESPsensormid_temperature",
+            "dev": {
+                "ids": "aa0000000004",
+                "name": "drybox",
+                "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000004"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/laundry/bathtub/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "bathtub",
+            "stat_t": "heizung/status/hot_water/bathtub",
+            "avty_t": "laundry/status",
+            "uniq_id": "ESPsensorbathtub",
+            "dev": {
+                "ids": "aa0000000005",
+                "name": "laundry",
+                "sw": "2025.5.2 (Jul 24 2026, 17:14:22)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000005"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/laundry/flow/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "flow",
+            "stat_t": "heizung/status/flow",
+            "avty_t": "laundry/status",
+            "uniq_id": "ESPsensorflow",
+            "dev": {
+                "ids": "aa0000000005",
+                "name": "laundry",
+                "sw": "2025.5.2 (Jul 24 2026, 17:14:22)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000005"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/laundry/hot_water/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "hot_water",
+            "stat_t": "heizung/status/hot_water",
+            "avty_t": "laundry/status",
+            "uniq_id": "ESPsensorhot_water",
+            "dev": {
+                "ids": "aa0000000005",
+                "name": "laundry",
+                "sw": "2025.5.2 (Jul 24 2026, 17:14:22)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000005"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/laundry/return_flow/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "return_flow",
+            "stat_t": "heizung/status/return_flow",
+            "avty_t": "laundry/status",
+            "uniq_id": "ESPsensorreturn_flow",
+            "dev": {
+                "ids": "aa0000000005",
+                "name": "laundry",
+                "sw": "2025.5.2 (Jul 24 2026, 17:14:22)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000005"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/laundry/temp1/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "temp1",
+            "stat_t": "laundry-host/status/temperature",
+            "avty_t": "laundry/status",
+            "uniq_id": "ESPsensortemp1",
+            "dev": {
+                "ids": "aa0000000005",
+                "name": "laundry",
+                "sw": "2025.5.2 (Jul 24 2026, 17:14:22)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000005"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/laundry/wifi_rssi/config",
+        "payload": {
+            "dev_cla": "signal_strength",
+            "unit_of_meas": "dBm",
+            "stat_cla": "measurement",
+            "name": "wifi_rssi",
+            "ent_cat": "diagnostic",
+            "stat_t": "laundry/sensor/wifi_rssi/state",
+            "avty_t": "laundry/status",
+            "uniq_id": "aa0000000005-wifisignal",
+            "dev": {
+                "ids": "aa0000000005",
+                "name": "laundry",
+                "sw": "2025.5.2 (Jul 24 2026, 17:14:22)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000005"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-one-clock/brightness/config",
+        "payload": {
+            "dev_cla": "voltage",
+            "unit_of_meas": "V",
+            "stat_cla": "measurement",
+            "name": "brightness",
+            "stat_t": "radar-one/status/brightness",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "aa0000000001-adc",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-one-clock/detection_distance/config",
+        "payload": {
+            "dev_cla": "distance",
+            "unit_of_meas": "cm",
+            "name": "Detection Distance",
+            "ic": "mdi:signal-distance-variant",
+            "stat_t": "radar-one/status/detection_distance",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPsensordetection_distance",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-one-clock/move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "Move Energy",
+            "ic": "mdi:motion-sensor",
+            "stat_t": "radar-one/status/move_energy",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPsensormove_energy",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-one-clock/moving_distance/config",
+        "payload": {
+            "dev_cla": "distance",
+            "unit_of_meas": "cm",
+            "name": "Moving Distance",
+            "ic": "mdi:signal-distance-variant",
+            "stat_t": "radar-one/status/moving_distance",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPsensormoving_distance",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-one-clock/still_distance/config",
+        "payload": {
+            "dev_cla": "distance",
+            "unit_of_meas": "cm",
+            "name": "Still Distance",
+            "ic": "mdi:signal-distance-variant",
+            "stat_t": "radar-one/status/still_distance",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPsensorstill_distance",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-one-clock/still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "Still Energy",
+            "ic": "mdi:flash",
+            "stat_t": "radar-one/status/still_energy",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPsensorstill_energy",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-one-clock/wifi_rssi/config",
+        "payload": {
+            "dev_cla": "signal_strength",
+            "unit_of_meas": "dBm",
+            "stat_cla": "measurement",
+            "name": "wifi_rssi",
+            "entity_category": "diagnostic",
+            "stat_t": "radar-one-clock/sensor/wifi_rssi/state",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "aa0000000001-wifisignal",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/detection_distance/config",
+        "payload": {
+            "dev_cla": "distance",
+            "unit_of_meas": "cm",
+            "name": "Detection Distance",
+            "ic": "mdi:signal-distance-variant",
+            "stat_t": "radar-two/status/detection_distance",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensordetection_distance",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g0_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g0 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g0/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg0_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g0_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g0 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g0/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg0_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g1_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g1 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g1/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg1_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g1_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g1 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g1/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg1_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g2_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g2 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g2/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg2_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g2_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g2 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g2/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg2_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g3_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g3 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g3/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg3_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g3_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g3 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g3/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg3_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g4_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g4 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g4/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg4_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g4_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g4 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g4/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg4_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g5_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g5 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g5/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg5_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g5_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g5 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g5/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg5_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g6_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g6 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g6/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg6_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g6_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g6 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g6/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg6_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g7_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g7 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g7/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg7_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g7_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g7 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g7/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg7_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g8_move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g8 move energy",
+            "ic": "mdi:motion-sensor",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g8/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg8_move_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/g8_still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "g8 still energy",
+            "ic": "mdi:flash",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/g8/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorg8_still_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/light/config",
+        "payload": {
+            "dev_cla": "illuminance",
+            "name": "light",
+            "ic": "mdi:lightbulb",
+            "ent_cat": "diagnostic",
+            "stat_t": "radar-two/status/light",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorlight",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/move_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "Move Energy",
+            "ic": "mdi:motion-sensor",
+            "stat_t": "radar-two/status/move_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensormove_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/moving_distance/config",
+        "payload": {
+            "dev_cla": "distance",
+            "unit_of_meas": "cm",
+            "name": "Moving Distance",
+            "ic": "mdi:signal-distance-variant",
+            "stat_t": "radar-two/status/moving_distance",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensormoving_distance",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/still_distance/config",
+        "payload": {
+            "dev_cla": "distance",
+            "unit_of_meas": "cm",
+            "name": "Still Distance",
+            "ic": "mdi:signal-distance-variant",
+            "stat_t": "radar-two/status/still_distance",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorstill_distance",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/radar-two-test/still_energy/config",
+        "payload": {
+            "unit_of_meas": "%",
+            "name": "Still Energy",
+            "ic": "mdi:flash",
+            "stat_t": "radar-two/status/still_energy",
+            "avty_t": "radar-two-test/status",
+            "uniq_id": "ESPsensorstill_energy",
+            "dev": {
+                "ids": "aa0000000007",
+                "name": "radar-two",
+                "sw": "2025.5.2 (Jul 28 2026, 18:20:58)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000007"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/seedling/humidity/config",
+        "payload": {
+            "dev_cla": "humidity",
+            "unit_of_meas": "%",
+            "stat_cla": "measurement",
+            "name": "humidity",
+            "stat_t": "seedling/status/humidity",
+            "avty_t": "seedling/status",
+            "uniq_id": "ESPsensorhumidity",
+            "dev": {
+                "ids": "aa0000000003",
+                "name": "seedling",
+                "sw": "2025.5.2 (Jul 24 2026, 17:24:46)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000003"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/seedling/temperature/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "temperature",
+            "stat_t": "seedling/status/temperature",
+            "avty_t": "seedling/status",
+            "uniq_id": "ESPsensortemperature",
+            "dev": {
+                "ids": "aa0000000003",
+                "name": "seedling",
+                "sw": "2025.5.2 (Jul 24 2026, 17:24:46)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000003"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_breath_voc_equivalent/config",
+        "payload": {
+            "dev_cla": "volatile_organic_compounds_parts",
+            "unit_of_meas": "ppm",
+            "stat_cla": "measurement",
+            "name": "BME680 Breath VOC Equivalent",
+            "stat_t": "vindriktning/status/voc",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_breath_voc_equivalent",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_co2_equivalent/config",
+        "payload": {
+            "dev_cla": "carbon_dioxide",
+            "unit_of_meas": "ppm",
+            "stat_cla": "measurement",
+            "name": "BME680 CO2 Equivalent",
+            "stat_t": "vindriktning/status/co2",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_co2_equivalent",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_gas_resistance/config",
+        "payload": {
+            "unit_of_meas": "Ω",
+            "stat_cla": "measurement",
+            "name": "BME680 Gas Resistance",
+            "ic": "mdi:gas-cylinder",
+            "stat_t": "vindriktning/status/gas",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_gas_resistance",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_humidity/config",
+        "payload": {
+            "dev_cla": "humidity",
+            "unit_of_meas": "%",
+            "stat_cla": "measurement",
+            "name": "BME680 Humidity",
+            "stat_t": "vindriktning/status/humidity",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_humidity",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_iaq/config",
+        "payload": {
+            "unit_of_meas": "IAQ",
+            "stat_cla": "measurement",
+            "name": "BME680 IAQ",
+            "ic": "mdi:gauge",
+            "stat_t": "vindriktning/status/iaq",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_iaq",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_iaq_accuracy/config",
+        "payload": {
+            "name": "BME680 IAQ Accuracy",
+            "ic": "mdi:checkbox-marked-circle-outline",
+            "stat_t": "vindriktning/status/iaq/accuracy",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_iaq_accuracy",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_pressure/config",
+        "payload": {
+            "dev_cla": "atmospheric_pressure",
+            "unit_of_meas": "hPa",
+            "stat_cla": "measurement",
+            "name": "BME680 Pressure",
+            "stat_t": "vindriktning/status/pressure",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_pressure",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/bme680_temperature/config",
+        "payload": {
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "stat_cla": "measurement",
+            "name": "BME680 Temperature",
+            "stat_t": "vindriktning/status/temperature",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorbme680_temperature",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/vindriktning/pm2_5/config",
+        "payload": {
+            "dev_cla": "pm25",
+            "unit_of_meas": "µg/m³",
+            "stat_cla": "measurement",
+            "name": "PM2.5",
+            "ic": "mdi:blur",
+            "stat_t": "vindriktning/status/pm25",
+            "avty_t": "vindriktning/status",
+            "uniq_id": "ESPsensorpm2_5",
+            "dev": {
+                "ids": "aa0000000006",
+                "name": "vindriktning",
+                "sw": "2025.5.2 (Jul 27 2026, 11:55:50)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000006"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/drybox/fan_d3/config",
+        "payload": {
+            "name": "fan_d3",
+            "stat_t": "drybox/status/3",
+            "cmd_t": "drybox/set/3",
+            "avty_t": "drybox/status",
+            "uniq_id": "ESPswitchfan_d3",
+            "dev": {
+                "ids": "aa0000000004",
+                "name": "drybox",
+                "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000004"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/radar-one-clock/engineering_mode/config",
+        "payload": {
+            "name": "engineering mode",
+            "ic": "mdi:pulse",
+            "entity_category": "config",
+            "stat_t": "radar-one-clock/switch/engineering_mode/state",
+            "cmd_t": "radar-one-clock/switch/engineering_mode/command",
+            "avty_t": "radar-one-clock/status",
+            "uniq_id": "ESPswitchengineering_mode",
+            "dev": {
+                "ids": "aa0000000001",
+                "name": "radar-one-clock",
+                "sw": "esphome v2023.11.1 Feb  6 2024, 18:27:56",
+                "mdl": "d1_mini",
+                "mf": "espressif",
+                "sa": ""
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/seedling/heating/config",
+        "payload": {
+            "name": "heating",
+            "stat_t": "seedling/status/heating",
+            "cmd_t": "seedling/set/heating",
+            "avty_t": "seedling/status",
+            "uniq_id": "ESPswitchheating",
+            "dev": {
+                "ids": "aa0000000003",
+                "name": "seedling",
+                "sw": "2025.5.2 (Jul 24 2026, 17:24:46)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000003"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/seedling/light/config",
+        "payload": {
+            "name": "light",
+            "stat_t": "seedling/status/light",
+            "cmd_t": "seedling/set/light",
+            "avty_t": "seedling/status",
+            "uniq_id": "ESPswitchlight",
+            "dev": {
+                "ids": "aa0000000003",
+                "name": "seedling",
+                "sw": "2025.5.2 (Jul 24 2026, 17:24:46)",
+                "mdl": "d1_mini",
+                "mf": "Espressif",
+                "cns": [["mac", "aa0000000003"]]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/usb-relay-02/relay/config",
+        "payload": {
+            "name": "relay",
+            "ic": "mdi:lightbuld",
+            "stat_t": "usb-relay-02/status/relay",
+            "cmd_t": "usb-relay-02/set/relay",
+            "avty_t": "usb-relay-02/status",
+            "uniq_id": "ESPswitchrelay",
+            "dev": {
+                "ids": "aa0000000002",
+                "name": "Fairy lights",
+                "sw": "2025.5.2 (Jul 27 2026, 19:32:07)",
+                "mdl": "esp01_1m",
+                "mf": "Espressif",
+                "sa": "Küche",
+                "cns": [["mac", "aa0000000002"]]
+            }
+        }
+    }
+]

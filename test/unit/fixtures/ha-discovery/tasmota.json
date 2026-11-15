@@ -1,0 +1,176 @@
+[
+    {
+        "topic": "homeassistant/light/AABBCC_LI_1/config",
+        "payload": {
+            "name": "Tasmota Light",
+            "stat_t": "tele/tasmota_AABBCC/STATE",
+            "avty_t": "tele/tasmota_AABBCC/LWT",
+            "pl_avail": "Online",
+            "pl_not_avail": "Offline",
+            "cmd_t": "cmnd/tasmota_AABBCC/POWER",
+            "val_tpl": "{{value_json.POWER}}",
+            "pl_off": "OFF",
+            "pl_on": "ON",
+            "uniq_id": "AABBCC_LI_1",
+            "dev": { "ids": ["AABBCC"], "name": "Tasmota Light", "mdl": "Sonoff B1", "sw": "8.5.1", "mf": "Tasmota", "sa": "Living room" },
+            "bri_cmd_t": "cmnd/tasmota_AABBCC/Dimmer",
+            "bri_stat_t": "tele/tasmota_AABBCC/STATE",
+            "bri_scl": 100,
+            "on_cmd_type": "brightness",
+            "bri_val_tpl": "{{value_json.Dimmer}}",
+            "clr_temp_cmd_t": "cmnd/tasmota_AABBCC/CT",
+            "clr_temp_stat_t": "tele/tasmota_AABBCC/STATE",
+            "clr_temp_val_tpl": "{{value_json.CT}}",
+            "rgb_cmd_t": "cmnd/tasmota_AABBCC/Color2",
+            "rgb_stat_t": "tele/tasmota_AABBCC/STATE",
+            "rgb_val_tpl": "{{value_json.Color.split(',')[0:3]|join(',')}}",
+            "fx_cmd_t": "cmnd/tasmota_AABBCC/Scheme",
+            "fx_stat_t": "tele/tasmota_AABBCC/STATE",
+            "fx_val_tpl": "{{value_json.Scheme}}",
+            "fx_list": ["0", "1", "2", "3", "4"]
+        }
+    },
+    {
+        "topic": "homeassistant/switch/DDEEFF_RL_1/config",
+        "payload": {
+            "name": "Tasmota Relay",
+            "stat_t": "tele/tasmota_DDEEFF/STATE",
+            "avty_t": "tele/tasmota_DDEEFF/LWT",
+            "pl_avail": "Online",
+            "pl_not_avail": "Offline",
+            "cmd_t": "cmnd/tasmota_DDEEFF/POWER",
+            "val_tpl": "{{value_json.POWER}}",
+            "pl_off": "OFF",
+            "pl_on": "ON",
+            "uniq_id": "DDEEFF_RL_1",
+            "dev": { "ids": ["DDEEFF"], "name": "Tasmota Relay", "mdl": "Sonoff Basic", "sw": "8.5.1", "mf": "Tasmota" }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/DDEEFF_DS18B20_Temperature/config",
+        "payload": {
+            "name": "Tasmota DS18B20 Temperature",
+            "stat_t": "tele/tasmota_DDEEFF/SENSOR",
+            "avty_t": "tele/tasmota_DDEEFF/LWT",
+            "pl_avail": "Online",
+            "pl_not_avail": "Offline",
+            "uniq_id": "DDEEFF_DS18B20_Temperature",
+            "dev": { "ids": ["DDEEFF"] },
+            "unit_of_meas": "°C",
+            "dev_cla": "temperature",
+            "val_tpl": "{{value_json['DS18B20'].Temperature}}"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/DDEEFF_status/config",
+        "payload": {
+            "name": "Tasmota status",
+            "stat_t": "tele/tasmota_DDEEFF/HASS_STATE",
+            "avty_t": "tele/tasmota_DDEEFF/LWT",
+            "pl_avail": "Online",
+            "pl_not_avail": "Offline",
+            "json_attr_t": "tele/tasmota_DDEEFF/HASS_STATE",
+            "unit_of_meas": "%",
+            "val_tpl": "{{value_json['RSSI']}}",
+            "ic": "mdi:information-outline",
+            "uniq_id": "DDEEFF_status",
+            "dev": { "ids": ["DDEEFF"], "name": "Tasmota Relay", "mdl": "Sonoff Basic", "sw": "8.5.1", "mf": "Tasmota" }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/112233_RL_1/config",
+        "payload": {
+            "name": "Sonoff Dual 1",
+            "stat_t": "tele/tasmota_112233/STATE",
+            "avty_t": "tele/tasmota_112233/LWT",
+            "pl_avail": "Online",
+            "pl_not_avail": "Offline",
+            "cmd_t": "cmnd/tasmota_112233/POWER1",
+            "val_tpl": "{{value_json.POWER1}}",
+            "pl_off": "OFF",
+            "pl_on": "ON",
+            "uniq_id": "112233_RL_1",
+            "dev": { "ids": ["112233"], "name": "Sonoff Dual", "mdl": "Sonoff Dual R2", "sw": "8.5.1", "mf": "Tasmota" }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/112233_RL_2/config",
+        "payload": {
+            "name": "Sonoff Dual 2",
+            "stat_t": "tele/tasmota_112233/STATE",
+            "avty_t": "tele/tasmota_112233/LWT",
+            "pl_avail": "Online",
+            "pl_not_avail": "Offline",
+            "cmd_t": "cmnd/tasmota_112233/POWER2",
+            "val_tpl": "{{value_json.POWER2}}",
+            "pl_off": "OFF",
+            "pl_on": "ON",
+            "uniq_id": "112233_RL_2",
+            "dev": { "ids": ["112233"] }
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/112233_BTN_1_SINGLE/config",
+        "payload": {
+            "atype": "trigger",
+            "t": "stat/tasmota_112233/BUTTON1T",
+            "pl": "SINGLE",
+            "type": "button_short_press",
+            "stype": "button_1",
+            "dev": { "ids": ["112233"] }
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/112233_BTN_1_DOUBLE/config",
+        "payload": {
+            "atype": "trigger",
+            "t": "stat/tasmota_112233/BUTTON1T",
+            "pl": "DOUBLE",
+            "type": "button_double_press",
+            "stype": "button_1",
+            "dev": { "ids": ["112233"] }
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/112233_BTN_1_HOLD/config",
+        "payload": {
+            "atype": "trigger",
+            "t": "stat/tasmota_112233/BUTTON1T",
+            "pl": "HOLD",
+            "type": "button_long_press",
+            "stype": "button_1",
+            "dev": { "ids": ["112233"] }
+        }
+    },
+    {
+        "topic": "homeassistant/device_automation/112233_BTN_2_SINGLE/config",
+        "payload": {
+            "atype": "trigger",
+            "t": "stat/tasmota_112233/BUTTON2T",
+            "pl": "SINGLE",
+            "type": "button_short_press",
+            "stype": "button_2",
+            "dev": { "ids": ["112233"] }
+        }
+    },
+    {
+        "topic": "homeassistant/cover/445566_SHT_1/config",
+        "payload": {
+            "name": "Shutter 1",
+            "stat_t": "stat/tasmota_445566/SHUTTER1",
+            "avty_t": "tele/tasmota_445566/LWT",
+            "pl_avail": "Online",
+            "pl_not_avail": "Offline",
+            "cmd_t": "cmnd/tasmota_445566/ShutterPosition1",
+            "pl_open": "100",
+            "pl_cls": "0",
+            "pl_stop": "STOP",
+            "pos_t": "stat/tasmota_445566/SHUTTER1",
+            "pos_open": 100,
+            "pos_clsd": 0,
+            "set_pos_t": "cmnd/tasmota_445566/ShutterPosition1",
+            "uniq_id": "445566_SHT_1",
+            "dev": { "ids": ["445566"], "name": "Tasmota Shutter", "mdl": "Shelly 2.5", "sw": "12.0.2", "mf": "Tasmota" }
+        }
+    }
+]

@@ -278,6 +278,29 @@ export function getDaemonStatus(): Promise<DaemonStatus> {
     return request('GET', '/she/status');
 }
 
+// ---- Home model: devices, rooms and functions kept in sheDB ----
+
+export interface HomeStatus {
+    /** false when sheDB is off: the model is kept there */
+    available: boolean;
+    reason?: string;
+    enabled: boolean;
+    /** false on an installation that has never switched the model on or off */
+    decided: boolean;
+    language?: string | null;
+    enabled_at?: number | null;
+    counts?: { devices: number; entities: number; floors: number; rooms: number; functions: number; labels: number; gone: number };
+}
+
+export function getHomeStatus(): Promise<HomeStatus> {
+    return request('GET', '/she/home');
+}
+
+/** `language` names the functions seeded at the first switch-on. */
+export function setHomeEnabled(enabled: boolean, language?: string): Promise<HomeStatus> {
+    return request('PUT', '/she/home', { enabled, language });
+}
+
 // ---- Secrets (A5): write-only, values never come back ----
 
 export interface SecretField {

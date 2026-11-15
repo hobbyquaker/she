@@ -1,0 +1,159 @@
+[
+    {
+        "topic": "homeassistant/switch/shellyplus1-a1b2c3/switch_0/config",
+        "payload": {
+            "~": "shellyplus1-a1b2c3",
+            "name": "Switch 0",
+            "stat_t": "~/status/switch:0",
+            "val_tpl": "{{ 'ON' if value_json.output else 'OFF' }}",
+            "cmd_t": "~/command/switch:0",
+            "pl_on": "on",
+            "pl_off": "off",
+            "avty_t": "~/online",
+            "pl_avail": "true",
+            "pl_not_avail": "false",
+            "uniq_id": "shellyplus1-a1b2c3-switch_0",
+            "dev": { "ids": ["shellyplus1-a1b2c3"], "name": "Shelly Plus 1", "mf": "Shelly", "mdl": "SNSW-001X16EU", "sw": "1.4.4", "sa": "Boiler room" }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/shellyplus1-a1b2c3/temperature/config",
+        "payload": {
+            "~": "shellyplus1-a1b2c3",
+            "name": "Device temperature",
+            "stat_t": "~/status/switch:0",
+            "val_tpl": "{{ value_json.temperature.tC }}",
+            "unit_of_meas": "°C",
+            "dev_cla": "temperature",
+            "ent_cat": "diagnostic",
+            "avty_t": "~/online",
+            "pl_avail": "true",
+            "pl_not_avail": "false",
+            "uniq_id": "shellyplus1-a1b2c3-temperature",
+            "dev": { "ids": ["shellyplus1-a1b2c3"] }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/shellyplus1-a1b2c3/input_0/config",
+        "payload": {
+            "~": "shellyplus1-a1b2c3",
+            "name": "Input 0",
+            "stat_t": "~/status/input:0",
+            "val_tpl": "{{ 'ON' if value_json.state else 'OFF' }}",
+            "avty_t": "~/online",
+            "pl_avail": "true",
+            "pl_not_avail": "false",
+            "uniq_id": "shellyplus1-a1b2c3-input_0",
+            "dev": { "ids": ["shellyplus1-a1b2c3"] }
+        }
+    },
+    {
+        "topic": "homeassistant/cover/shellyplus2pm-d4e5f6/cover_0/config",
+        "payload": {
+            "~": "shellyplus2pm-d4e5f6",
+            "name": "Cover 0",
+            "cmd_t": "~/command/cover:0",
+            "pl_open": "open",
+            "pl_cls": "close",
+            "pl_stop": "stop",
+            "stat_t": "~/status/cover:0",
+            "val_tpl": "{{ value_json.state }}",
+            "stat_open": "open",
+            "stat_opening": "opening",
+            "stat_clsd": "closed",
+            "stat_closing": "closing",
+            "stat_stopped": "stopped",
+            "pos_t": "~/status/cover:0",
+            "pos_tpl": "{{ value_json.current_pos }}",
+            "set_pos_t": "~/command/cover:0",
+            "set_pos_tpl": "pos,{{ position }}",
+            "dev_cla": "shutter",
+            "avty_t": "~/online",
+            "pl_avail": "true",
+            "pl_not_avail": "false",
+            "uniq_id": "shellyplus2pm-d4e5f6-cover_0",
+            "dev": { "ids": ["shellyplus2pm-d4e5f6"], "name": "Shelly Plus 2PM", "mf": "Shelly", "mdl": "SNSW-102P16EU", "sw": "1.4.4" }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/shellyplus2pm-d4e5f6/power/config",
+        "payload": {
+            "~": "shellyplus2pm-d4e5f6",
+            "name": "Power",
+            "stat_t": "~/status/cover:0",
+            "val_tpl": "{{ value_json.apower }}",
+            "unit_of_meas": "W",
+            "dev_cla": "power",
+            "stat_cla": "measurement",
+            "uniq_id": "shellyplus2pm-d4e5f6-power",
+            "dev": { "ids": ["shellyplus2pm-d4e5f6"] }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/shellyht-abc123/temperature/config",
+        "payload": {
+            "name": "Shelly H&T temperature",
+            "stat_t": "shellies/shellyht-abc123/sensor/temperature",
+            "unit_of_meas": "°C",
+            "dev_cla": "temperature",
+            "uniq_id": "shellyht-abc123-temperature",
+            "exp_aft": 43200,
+            "dev": { "ids": ["shellyht-abc123"], "name": "Shelly H&T", "mf": "Shelly", "mdl": "SHHT-1", "sa": "Bedroom" }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/shellyht-abc123/humidity/config",
+        "payload": {
+            "name": "Shelly H&T humidity",
+            "stat_t": "shellies/shellyht-abc123/sensor/humidity",
+            "unit_of_meas": "%",
+            "dev_cla": "humidity",
+            "uniq_id": "shellyht-abc123-humidity",
+            "exp_aft": 43200,
+            "dev": { "ids": ["shellyht-abc123"] }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/shellyht-abc123/battery/config",
+        "payload": {
+            "name": "Shelly H&T battery",
+            "stat_t": "shellies/shellyht-abc123/sensor/battery",
+            "unit_of_meas": "%",
+            "dev_cla": "battery",
+            "uniq_id": "shellyht-abc123-battery",
+            "exp_aft": 43200,
+            "dev": { "ids": ["shellyht-abc123"] }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/shelly1-def456/relay_0/config",
+        "payload": {
+            "name": "Shelly 1 relay",
+            "stat_t": "shellies/shelly1-def456/relay/0",
+            "cmd_t": "shellies/shelly1-def456/relay/0/command",
+            "pl_on": "on",
+            "pl_off": "off",
+            "avty_t": "shellies/shelly1-def456/online",
+            "pl_avail": "true",
+            "pl_not_avail": "false",
+            "uniq_id": "shelly1-def456-relay_0",
+            "dev": { "ids": ["shelly1-def456"], "name": "Shelly 1", "mf": "Shelly", "mdl": "SHSW-1", "sw": "20230913-112003" }
+        }
+    },
+    {
+        "topic": "homeassistant/event/shellyplusi4-778899/input_0/config",
+        "payload": {
+            "~": "shellyplusi4-778899",
+            "name": "Input 0",
+            "stat_t": "~/events/rpc",
+            "val_tpl": "{{ value_json.params.events[0].event }}",
+            "evt_typ": ["single_push", "double_push", "triple_push", "long_push"],
+            "dev_cla": "button",
+            "avty_t": "~/online",
+            "pl_avail": "true",
+            "pl_not_avail": "false",
+            "uniq_id": "shellyplusi4-778899-input_0",
+            "dev": { "ids": ["shellyplusi4-778899"], "name": "Shelly Plus i4", "mf": "Shelly", "mdl": "SNSN-0024X", "sw": "1.4.4" }
+        }
+    }
+]
