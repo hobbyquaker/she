@@ -1237,6 +1237,7 @@ if (config.dbPath) {
             return true;
         },
         announce: (entity) => announcer.announce('\0home-aggregates', 'home', entity),
+    });
     // scenes: stored states of entities that are datapoints themselves (<name>/status|set/scene/<id>)
     scenes.init({
         core: dbCore,
