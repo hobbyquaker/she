@@ -366,6 +366,99 @@ export function removeHomeItems(ids: string[]): Promise<{ removed: string[]; err
     return request('POST', '/she/home/remove', { ids });
 }
 
+// ---- Scenes: stored states of entities, recalled and matched (she/scene/…, she/scenegroup/…) ----
+
+export type SceneRole = 'recall+match' | 'match' | 'recall';
+export interface SceneMember {
+    entity: string;
+    attributes: Record<string, unknown>;
+    tolerance?: Record<string, number | number[]> | null;
+    role?: SceneRole;
+    order?: number | null;
+    delay?: number | null;
+    /** a lock or alarm panel that the scene may command (set by a confirmed save) */
+    confirmed?: boolean;
+    off?: Record<string, unknown> | false | null;
+    [k: string]: unknown;
+}
+export interface SceneDoc {
+    name: string;
+    icon?: string | null;
+    area?: string | null;
+    /** none | restore | off | scene:<id> */
+    deactivate: string;
+    settle: number;
+    members: SceneMember[];
+    sensitive?: boolean;
+    created?: number;
+    modified?: number;
+    [k: string]: unknown;
+}
+export interface SceneListItem { id: string; name: string; area: string | null; icon: string | null; deactivate: string; sensitive: boolean; groups: string[]; members: number; val: boolean; matched: number; total: number; settling?: boolean }
+export interface SceneMismatch { entity: string; name: string; attribute: string; is: unknown; want: unknown }
+export interface SceneUnknown { entity: string; name: string; attribute?: string; reason: 'missing' | 'unavailable' | 'no value' }
+export interface SceneState { id: string; name: string; val: boolean; matched: number; total: number; mismatch: SceneMismatch[]; unknown: SceneUnknown[]; recalled: number | null; settling: boolean }
+export interface SceneGroup { id: string; name: string; area: string | null; scenes: string[]; default: string | null; val: string }
+export interface SceneGroupDoc { name: string; area?: string | null; scenes: string[]; default?: string | null }
+/** an entity as the scene editor shows it next to a member */
+export interface SceneEntityLive {
+    component: string;
+    stateless: boolean;
+    attributes: Record<string, { read: boolean; write: boolean; min?: number; max?: number; step?: number; unit?: string; options?: string[] }>;
+    state: Record<string, unknown>;
+    snapshot: Record<string, unknown>;
+    available: boolean | null;
+}
+export interface SceneActionResult { ok: boolean; reason?: string; mode?: string; sent?: number; skipped?: number; problems?: string[] }
+
+/** An error from the scenes API; `confirm` names the locks and alarm panels a save needs confirmed for. */
+export class SceneConfirmError extends Error {
+    confirm: string[];
+    constructor(message: string, confirm: string[]) {
+        super(message);
+        this.confirm = confirm;
+    }
+}
+async function sceneRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await fetch(path, { method, headers: headers(), body: body !== undefined ? JSON.stringify(body) : undefined });
+    if (res.status === 401) {
+        if (_onUnauthorized) _onUnauthorized();
+        throw new Error('Unauthorized');
+    }
+    const data = await res.json().catch(() => ({ error: res.statusText }));
+    if (res.status === 409 && Array.isArray(data.confirm)) throw new SceneConfirmError(data.error, data.confirm);
+    if (!res.ok) throw new Error(data.error ?? data.reason ?? res.statusText);
+    return data as T;
+}
+
+export function getScenes(): Promise<{ available: boolean; reason?: string; scenes: SceneListItem[]; groups: SceneGroup[] }> {
+    return request('GET', '/she/scenes');
+}
+export function getScene(id: string): Promise<{ doc: SceneDoc; state: SceneState; members: Record<string, SceneEntityLive | null> }> {
+    return request('GET', `/she/scenes/${encodeURIComponent(id)}`);
+}
+export function saveScene(id: string, doc: SceneDoc, confirmSensitive = false): Promise<SceneDoc> {
+    return sceneRequest('PUT', `/she/scenes/${encodeURIComponent(id)}`, { doc, confirmSensitive });
+}
+export function deleteScene(id: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/scenes/${encodeURIComponent(id)}`);
+}
+export function sceneAction(id: string, action: 'recall' | 'deactivate' | 'toggle', force = false): Promise<SceneActionResult> {
+    return sceneRequest('POST', `/she/scenes/${encodeURIComponent(id)}/${action}`, action === 'recall' ? { force } : {});
+}
+export function sceneEntities(ids: string[]): Promise<Record<string, SceneEntityLive | null>> {
+    return request('POST', '/she/scenes/entities', { ids });
+}
+export function saveSceneGroup(id: string, doc: SceneGroupDoc): Promise<SceneGroupDoc> {
+    return request('PUT', `/she/scenes/groups/${encodeURIComponent(id)}`, { doc });
+}
+export function deleteSceneGroup(id: string): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/scenes/groups/${encodeURIComponent(id)}`);
+}
+export function setSceneGroup(id: string, scene: string): Promise<SceneActionResult> {
+    return sceneRequest('POST', `/she/scenes/groups/${encodeURIComponent(id)}/set`, { scene });
+}
+
 // ---- Secrets (A5): write-only, values never come back ----
 
 export interface SecretField {
