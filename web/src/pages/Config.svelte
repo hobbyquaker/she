@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, type AuthMode, type BrokerStatus } from '../lib/api.js';
+    import { getConfig, putConfig, setupAuth, getDaemonStatus, getBrokerStatus, listMatterDevices, getHomeStatus, setHomeEnabled, type AuthMode, type BrokerStatus, type HomeStatus } from '../lib/api.js';
     import ConfirmDialog from '../lib/ConfirmDialog.svelte';
     import InputDialog from '../lib/InputDialog.svelte';
     import { resolveCommitMode, type CommitMode } from '../lib/git-commit.js';
@@ -120,6 +120,27 @@
     }
     let inputDialog: { show(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null> };
     onMount(() => subscribeWs('mqtt:brokers', (msg) => applyBrokerStatus((msg as { brokers?: BrokerStatus[] }).brokers)));
+
+    // Home model: switched at once through its own API, not saved with the config file
+    let home        = $state<HomeStatus | null>(null);
+    let homeBusy    = $state(false);
+    let homeErr     = $state('');
+    // the language the default functions are named in: asked once, at the first switch-on
+    let homeLang    = $state<'en' | 'de'>('en');
+    onMount(async () => {
+        try { home = await getHomeStatus(); } catch { /* an older daemon: the section stays empty */ }
+    });
+    async function onHomeEnabledChange(val: boolean) {
+        homeBusy = true;
+        homeErr = '';
+        try {
+            home = await setHomeEnabled(val, val && !home?.language ? homeLang : undefined);
+        } catch (e: any) {
+            homeErr = e.message;
+        } finally {
+            homeBusy = false;
+        }
+    }
 
     // Mosquitto management
     let brokerEnabled  = $state(false);
@@ -368,6 +389,7 @@
         { id: 'git',        label: 'Git',           terms: ['git','auto commit','auto push','commit','push','repository','commit message','ai','ask'] },
         { id: 'solar',      label: 'Location',      terms: ['latitude','longitude','sunrise','sunset','geo','timezone','time zone','iana','schedule','locale','holidays','holiday','feiertag','she.time'] },
         { id: 'shedb',      label: 'sheDB',        terms: ['database','db','shedb','path','retain','enable'] },
+        { id: 'home',       label: 'Home model',   terms: ['home','model','devices','entities','rooms','floors','functions','labels','discovery','home assistant'] },
         { id: 'influx',     label: 'InfluxDB',     terms: ['influx','influxdb','time series','history','token','org','bucket','database','flux','influxql'] },
         { id: 'elastic',    label: 'Elasticsearch', terms: ['elastic','elasticsearch','search','index','messages','api key','she.elastic'] },
         { id: 'logging',    label: 'Logging',      terms: ['verbosity','debug','info','warn','error'] },
@@ -1438,6 +1460,53 @@
                         </label>
                     </div>
                     {/if}
+                    {/if}
+                </section>
+                {/if}
+
+                <!-- ── Home model ────────────────────────────────── -->
+                {#if visibleSections.some(s => s.id === 'home')}
+                <section id="sec-home">
+                    <h3>Home model</h3>
+                    {#if !home}
+                    <p class="hint">Not available.</p>
+                    {:else if !home.available}
+                    <p class="hint">{home.reason ?? 'The home model is kept in sheDB, which is switched off.'} Enable sheDB above and restart to use it.</p>
+                    {:else}
+                    <div class="field field--check">
+                        <label>
+                            Enable
+                            {@render tip('she keeps a document in sheDB for every device and entity announced through Home Assistant MQTT discovery (she/device/…, she/entity/…) and lets you organise them in floors, rooms, functions and labels. A new discovery area becomes a room. Switching it off keeps every document.')}
+                        </label>
+                        <label class="check-label">
+                            <input type="checkbox" checked={home.enabled} disabled={homeBusy}
+                                onchange={(e) => onHomeEnabledChange((e.target as HTMLInputElement).checked)} />
+                            <span class="checkmark"></span>
+                            Keep a home model in sheDB
+                        </label>
+                    </div>
+                    {#if !home.language}
+                    <div class="field">
+                        <label>
+                            Function names
+                            {@render tip('she creates ten default functions (lighting, shading, heating, …) the first time. Their names are taken in this language and can be edited afterwards; their ids are English.')}
+                        </label>
+                        <select bind:value={homeLang} disabled={homeBusy}>
+                            <option value="en">English</option>
+                            <option value="de">German</option>
+                        </select>
+                    </div>
+                    {#if home.enabled}
+                    <p class="hint">The default functions have not been created yet: choose the language of their names.
+                        <button type="button" disabled={homeBusy} onclick={() => onHomeEnabledChange(true)}>Create functions</button></p>
+                    {/if}
+                    {/if}
+                    {#if !home.decided}
+                    <p class="hint">New: she can mirror every discovered device into sheDB and organise them in rooms and functions. It is off on this installation because it existed before — switching it on writes one document per device and entity under <code>she/</code> and leaves your own documents alone.</p>
+                    {:else if home.enabled && home.counts}
+                    <p class="hint">{home.counts.devices} device{home.counts.devices === 1 ? '' : 's'}, {home.counts.entities} entit{home.counts.entities === 1 ? 'y' : 'ies'}, {home.counts.rooms} room{home.counts.rooms === 1 ? '' : 's'}, {home.counts.functions} function{home.counts.functions === 1 ? '' : 's'}{home.counts.gone ? `, ${home.counts.gone} device${home.counts.gone === 1 ? '' : 's'} gone` : ''}.</p>
+                    {/if}
+                    {#if homeErr}<p class="hint">{homeErr}</p>{/if}
                     {/if}
                 </section>
                 {/if}
