@@ -146,8 +146,9 @@ Complete scripts: [Examples — home model](examples/home-model.md).
 
 While the model is on, she keeps sheDB views of her own under `she/…`: floors, rooms, entities by room, floor,
 function, room and function, component and label, a reverse index from every state topic to its entities
-(`she/topics`), devices by adapter, unassigned and gone devices, battery entities, and which entities each room's
-aggregates are computed from. They are recreated at every start and read-only in the views editor; only *Publish to
+(`she/topics`), devices by adapter, unassigned and gone devices, battery entities, which entities each room's
+aggregates are computed from, and the scenes by room and by entity (`she/scenes/by-room`, `she/scenes/by-entity`:
+"what does this lamp take part in"). They are recreated at every start and read-only in the views editor; only *Publish to
 MQTT* can be switched, so a dashboard can take them from `she/db/view/<id>` without reading sheDB. The list with the
 shapes is in the [sandbox reference](sandbox-api.md#standard-views).
 
@@ -174,10 +175,13 @@ she/status/home/<aggregate>
 | `temperature`, `humidity` | the mean of the `climate` sensors, with `min`, `max` and `unit` |
 | `occupied` | does an occupancy, presence or motion sensor see somebody |
 | `power` | the sum of the `energy` power sensors in W |
+| `scene` | rooms only: the id of the scene the room is in, `''` when none matches — from the room's scene groups |
 
 The payload is `{val, ts, lc, members: [{id, name, val}]}`: `members` are the entities it was computed from and what
-each contributed. An entity in two rooms counts in both, and once on its floor and in the house. A room aggregate
-`scene` (the active scene of the room's scene group) is prepared but not connected to the scenes yet. A script then works
+each contributed. An entity in two rooms counts in both, and once on its floor and in the house. The room's `scene`
+is `{val, ts, lc, group, groups}`: from the [scene groups](scenes.md#scene-groups) whose `area` is the room, the first
+group (by name) in which a scene matches gives `val`, and `groups` has each group's value; it is not announced
+through discovery (the groups announce themselves). A script then works
 with rooms instead of devices:
 
 ```js

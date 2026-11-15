@@ -19,6 +19,7 @@ thing: "is the movie scene on?". Scenes need sheDB and the home model.
 - [Locks and alarm panels](#locks-and-alarm-panels)
 - [On MQTT](#on-mqtt)
 - [Home Assistant and Matter](#home-assistant-and-matter)
+- [Scenes per room](#scenes-per-room)
 - [In scripts](#in-scripts)
 - [The AI assistant](#the-ai-assistant)
 - [The Scenes page](#the-scenes-page)
@@ -156,6 +157,24 @@ mosquitto_pub -t she/set/scenegroup/living-room -m reading
 Scenes announce themselves through Home Assistant discovery: one device "Scenes", every scene a `switch` (on while
 the scene is `true`; switching it calls recall or deactivate), every group a `select` with its scenes and `none`.
 Home Assistant, mqtt2matter and every other consumer of discovery get them without configuration.
+
+## Scenes per room
+
+- **The room's scene**: she publishes `she/status/room/<room>/scene` retained — `{ "val": "evening", "ts", "lc",
+  "group": "lights", "groups": { "lights": "evening", "blinds": "" } }`. It comes from the scene groups whose `area` is
+  the room: with several groups, `val` is the scene of the first group (by name) in which one matches, `group` is that
+  group, and `groups` has each group's value; `""` when none matches. Scenes outside a group are not looked at. It can
+  be switched off per room (`aggregates: { scene: false }` on the room document) and is not announced through
+  discovery — the groups announce themselves. See the [room aggregates](home-model.md#room-floor-and-house-aggregates).
+- **Standard views**: `she/scenes/by-room` (`{ room: [scene summary] }`, scenes without a room under `""`) for a
+  room card that shows its scenes as buttons, and `she/scenes/by-entity` (`{ entity id: [scene ids] }`) for "what does
+  this lamp take part in". Whether a scene is active is on its status topic, not in the view.
+
+```js
+// every scene of the living room, and which one is on
+const scenes = she.db.getView('she/scenes/by-room')?.['living-room'] ?? [];
+she.log(scenes.map((s) => s.name).join(', '), '— now:', she.mqtt.get('she/status/room/living-room/scene') || 'none');
+```
 
 ## In scripts
 
