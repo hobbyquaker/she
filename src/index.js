@@ -1215,6 +1215,8 @@ if (config.matterStorage) {
         broadcast,
         // her last will: a discovery consumer sees the Matter devices go unavailable when she dies
         sheTopic: config.name + '/connected',
+        // the same discovery prefix as she.mqtt.announce()
+        haPrefix: config.haPrefix,
     });
     // Scripts wait for the controller (see _maybeStart) — but never forever:
     // a hanging start must not block the whole script engine.

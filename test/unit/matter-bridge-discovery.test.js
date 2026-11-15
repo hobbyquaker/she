@@ -522,7 +522,7 @@ describe('matter bridge: publishing and clearing the discovery configs', () => {
         };
     }
 
-    function setup({ settings = { enabled: true, discovery: true }, entries = {} } = {}) {
+    function setup({ settings = { enabled: true, discovery: true }, entries = {}, haPrefix } = {}) {
         jest.resetModules();
         bridge = require('../../src/matter/mqtt-bridge');
         bridge._reset();
@@ -550,6 +550,7 @@ describe('matter bridge: publishing and clearing the discovery configs', () => {
             storageDir: dir,
             controller,
             sheTopic: 'she/connected',
+            haPrefix,
         });
     }
     const CFG = 'homeassistant/device/she_matter_UID-4/config';
@@ -662,13 +663,17 @@ describe('matter bridge: publishing and clearing the discovery configs', () => {
         expect(last(CFG)).toBeUndefined();
     });
 
-    test('a changed prefix clears the old configs and announces under the new one', () => {
-        setup();
+    test("she's prefix: configs under it; a changed prefix clears the old ones at the next start", () => {
+        setup({ haPrefix: 'ha' });
         bridge.start();
-        bridge.updateSettings({ discoveryPrefix: 'ha' });
-        expect(last(CFG).payload).toBe('');
         expect(JSON.parse(last('ha/device/she_matter_UID-4/config').payload).device.identifiers).toEqual(['she_matter_UID-4']);
-        expect(() => bridge.updateSettings({ discoveryPrefix: 'ha/#' })).toThrow(/wildcards/);
+        expect(bridge.getSettings().discovery.prefix).toBe('ha');
+        // restart with the default prefix: the settings file remembers where the configs are
+        const retained = new Map(store.map);
+        setup({ settings: JSON.parse(fs.readFileSync(path.join(dir, 'mqtt-bridge.json'), 'utf8')), entries: Object.fromEntries(retained) });
+        bridge.start();
+        expect(last('ha/device/she_matter_UID-4/config').payload).toBe('');
+        expect(last(CFG).payload).not.toBe('');
     });
 
     test('a changed format re-announces with the matching templates', () => {

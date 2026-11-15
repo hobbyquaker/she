@@ -633,11 +633,4 @@ function ourConfigId(topic, prefix = DEFAULT_PREFIX) {
     return m[2];
 }
 
-function validatePrefix(prefix) {
-    if (typeof prefix !== 'string' || !prefix.trim()) return 'the discovery prefix must be a non-empty string';
-    if (/[+#]/.test(prefix)) return 'no MQTT wildcards in the discovery prefix';
-    if (/^\/|\/\/|\/$/.test(prefix.trim())) return 'empty topic segment in the discovery prefix';
-    return null;
-}
-
-module.exports = { DEFAULT_PREFIX, ID_PREFIX, DT, buildNodeConfigs, identityOf, groupDevices, indexEndpoints, ourConfigId, validatePrefix, cleanId };
+module.exports = { DEFAULT_PREFIX, ID_PREFIX, DT, buildNodeConfigs, identityOf, groupDevices, indexEndpoints, ourConfigId, cleanId };

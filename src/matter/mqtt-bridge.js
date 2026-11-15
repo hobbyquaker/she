@@ -40,9 +40,11 @@ let _announced = new Map();
 /** she's own `<name>/connected` topic (her last will): an availability entry of every announced device */
 let _sheTopic = null;
 let _origin = { name: 'she' };
+/** the discovery prefix: she's `haPrefix` (`--ha-prefix`) */
+let _prefix = disc.DEFAULT_PREFIX;
 
 function defaults() {
-    return { enabled: false, format: 'basic', templates: { ...t.DEFAULT_TEMPLATES }, devices: {}, discovery: false, discoveryPrefix: disc.DEFAULT_PREFIX };
+    return { enabled: false, format: 'basic', templates: { ...t.DEFAULT_TEMPLATES }, devices: {}, discovery: false, announcedPrefix: null };
 }
 
 function _load() {
@@ -56,7 +58,8 @@ function _load() {
             _settings.templates = { ...t.DEFAULT_TEMPLATES, ...(raw.templates && typeof raw.templates === 'object' ? raw.templates : {}) };
             _settings.devices = raw.devices && typeof raw.devices === 'object' ? raw.devices : {};
             _settings.discovery = raw.discovery === true;
-            _settings.discoveryPrefix = typeof raw.discoveryPrefix === 'string' && !disc.validatePrefix(raw.discoveryPrefix) ? raw.discoveryPrefix.trim() : disc.DEFAULT_PREFIX;
+            // the prefix the configs on the broker were published under (she's --ha-prefix may change between runs)
+            _settings.announcedPrefix = typeof raw.announcedPrefix === 'string' && raw.announcedPrefix ? raw.announcedPrefix : null;
         }
     } catch (err) {
         if (err.code !== 'ENOENT') _log?.warn(`matter bridge: cannot read ${_file}: ${err.message}`);
@@ -87,8 +90,9 @@ function _warnOnce(key, msg) {
 /**
  * @param {{ publish: Function, isConnected: Function, store: object, log: object, storageDir: string, broadcast?: Function, controller?: object, sheTopic?: string }} opts
  *   sheTopic: she's own `<name>/connected` — named in the discovery availability next to `matter/connected`
+ *   haPrefix: the discovery prefix (she's `--ha-prefix`, default `homeassistant`)
  */
-function init({ publish, isConnected, store, log, storageDir, broadcast, controller, sheTopic }) {
+function init({ publish, isConnected, store, log, storageDir, broadcast, controller, sheTopic, haPrefix }) {
     _publish = publish;
     _isConnected = isConnected ?? (() => true);
     _store = store;
@@ -101,6 +105,7 @@ function init({ publish, isConnected, store, log, storageDir, broadcast, control
     _published = new Set();
     _announced = new Map();
     _sheTopic = sheTopic ?? null;
+    _prefix = typeof haPrefix === 'string' && haPrefix.trim() ? haPrefix.trim().replace(/\/+$/, '') : disc.DEFAULT_PREFIX;
     let version;
     try {
         version = require('../../package.json').version;
@@ -266,7 +271,7 @@ function _announcing() {
     return _settings.enabled && _settings.discovery && _started;
 }
 
-function _configTopic(id, prefix = _settings.discoveryPrefix) {
+function _configTopic(id, prefix = _prefix) {
     return `${prefix}/device/${id}/config`;
 }
 
@@ -290,7 +295,7 @@ function _configsOf(dev) {
         endpoints,
         templates: _settings.templates,
         format: _settings.format,
-        prefix: _settings.discoveryPrefix,
+        prefix: _prefix,
         origin: _origin,
         sheTopic: _sheTopic,
         known: _known,
@@ -318,7 +323,7 @@ function _claimedIds(except = null) {
     return ids;
 }
 
-function _clearConfig(id, prefix = _settings.discoveryPrefix) {
+function _clearConfig(id, prefix = _prefix) {
     const topic = _configTopic(id, prefix);
     _out(topic, '', true);
     _announced.delete(topic);
@@ -339,6 +344,10 @@ function _announceNode(dev) {
             _announced.set(c.topic, json);
             n++;
         }
+    }
+    if (configs.length && _settings.announcedPrefix !== _prefix) {
+        _settings.announcedPrefix = _prefix;
+        _save();
     }
     const now = configs.map((c) => c.id);
     const others = _claimedIds(String(dev.nodeId));
@@ -366,6 +375,8 @@ function _unannounceNode(nodeId) {
  */
 function _announceAll() {
     if (!_announcing()) return;
+    // she's prefix changed since the configs were published: they go from under the old one
+    if (_settings.announcedPrefix && _settings.announcedPrefix !== _prefix) _clearAllConfigs(_settings.announcedPrefix);
     const paired = _ctrl().listPaired();
     const pairedIds = new Set(paired.map((d) => d.nodeId));
     let n = 0;
@@ -374,14 +385,14 @@ function _announceAll() {
     for (const [nodeId, d] of Object.entries(_settings.devices)) if (!pairedIds.has(nodeId) && d.announced?.length) _unannounceNode(nodeId);
     const claimed = _claimedIds();
     for (const topic of _ourRetainedConfigs()) {
-        const id = disc.ourConfigId(topic, _settings.discoveryPrefix);
+        const id = disc.ourConfigId(topic, _prefix);
         if (!claimed.has(id)) _clearConfig(id);
     }
-    if (n) _log?.info(`matter bridge: announced ${n} device(s) through discovery under ${_settings.discoveryPrefix}/`);
+    if (n) _log?.info(`matter bridge: announced ${n} device(s) through discovery under ${_prefix}/`);
 }
 
 /** Our discovery config topics retained on the broker (from the state store). */
-function _ourRetainedConfigs(prefix = _settings.discoveryPrefix) {
+function _ourRetainedConfigs(prefix = _prefix) {
     const out = [];
     if (!_store || typeof _store.mqttEntries !== 'function') return out;
     for (const [topic] of _store.mqttEntries()) if (disc.ourConfigId(topic, prefix)) out.push(topic);
@@ -389,7 +400,7 @@ function _ourRetainedConfigs(prefix = _settings.discoveryPrefix) {
 }
 
 /** Clear every config of ours (the announcement or the bridge switched off, the prefix changed). */
-function _clearAllConfigs(prefix = _settings.discoveryPrefix) {
+function _clearAllConfigs(prefix = _prefix) {
     const ids = new Set();
     for (const d of Object.values(_settings.devices)) {
         for (const id of d.announced ?? []) ids.add(id);
@@ -398,6 +409,7 @@ function _clearAllConfigs(prefix = _settings.discoveryPrefix) {
     for (const topic of _ourRetainedConfigs(prefix)) ids.add(disc.ourConfigId(topic, prefix));
     for (const id of ids) _clearConfig(id, prefix);
     _announced = new Map();
+    if (prefix === _settings.announcedPrefix) _settings.announcedPrefix = null;
     _save();
     if (ids.size) _log?.info(`matter bridge: cleared ${ids.size} discovery config(s)`);
     return ids.size;
@@ -595,26 +607,20 @@ function getSettings() {
         placeholders: [...t.PLACEHOLDERS],
         formats: [...t.FORMATS],
         devices,
-        discovery: { enabled: _settings.discovery, prefix: _settings.discoveryPrefix, defaultPrefix: disc.DEFAULT_PREFIX, active: _announcing(), announced: _announced.size },
+        discovery: { enabled: _settings.discovery, prefix: _prefix, active: _announcing(), announced: _announced.size },
         status: { started: _started, connected: _isConnected(), published: _published.size },
     };
 }
 
 /**
- * Change bridge on/off, the format or the templates, the discovery announcement on/off or its
- * prefix. A changed template or format clears the old retained topics and republishes under the
+ * Change bridge on/off, the format or the templates, the discovery announcement on/off. A changed template or format clears the old retained topics and republishes under the
  * new ones (and announces again: the entities point at them). Switching the bridge or the
  * announcement off clears the discovery configs.
  */
-function updateSettings({ enabled, format, templates, discovery, discoveryPrefix } = {}) {
+function updateSettings({ enabled, format, templates, discovery } = {}) {
     const next = { ..._settings, templates: { ..._settings.templates } };
     if (enabled !== undefined) next.enabled = enabled === true;
     if (discovery !== undefined) next.discovery = discovery === true;
-    if (discoveryPrefix !== undefined) {
-        const problem = disc.validatePrefix(discoveryPrefix);
-        if (problem) throw new Error(problem);
-        next.discoveryPrefix = discoveryPrefix.trim();
-    }
     if (format !== undefined) {
         if (!t.FORMATS.includes(format)) throw new Error(`format must be one of ${t.FORMATS.join(', ')}`);
         next.format = format;
@@ -633,10 +639,7 @@ function updateSettings({ enabled, format, templates, discovery, discoveryPrefix
     const old = _settings;
     const wasAnnouncing = _announcing();
     const willAnnounce = next.enabled && next.discovery;
-    if (wasAnnouncing && (!willAnnounce || next.discoveryPrefix !== old.discoveryPrefix)) {
-        // under the old prefix: every config of ours goes
-        _clearAllConfigs(old.discoveryPrefix);
-    }
+    if (wasAnnouncing && !willAnnounce) _clearAllConfigs();
     if (wasEnabled && (topicsChanged || !next.enabled)) {
         // under the old templates: everything of ours goes
         _cleanup({ all: true, templates: old.templates });
