@@ -74,6 +74,7 @@ const _pino = require('pino')(
 const { broadcastLog, broadcast, setWelcomeProvider, onClientMessage, onClientClose, sendWs } = require('./web/log-ws');
 const shedb = require('./web/shedb');
 const home = require('./web/home');
+const homeEntities = require('./web/home-entities');
 // One level for every sink (roadmap B-12): a line below it is dropped before any work on it.
 const log = require('./lib/logger').createLogger({
     redact: (s) => secrets.redact(s),
@@ -517,9 +518,19 @@ const _SENTINEL_TIMEOUT_MS = config.sentinelTimeout; // ms to wait for sentinel 
 let _mqttGate = false;
 let _matterGate = !config.matterStorage; // pre-open when matter is disabled
 let _matterStoragePath = null;
+// … and on a third: the library behind she.home.entity() is an ES module and arrives asynchronously.
+// A failure opens the gate too — the scripts run, she.home.entity() returns null.
+let _entityGate = false;
+require('./lib/ha-entities')
+    .load()
+    .catch((err) => log.error('home model: the entity layer is not available: ' + err.message))
+    .finally(() => {
+        _entityGate = true;
+        _maybeStart();
+    });
 
 function _maybeStart() {
-    if (_started || !_mqttGate || !_matterGate) {
+    if (_started || !_mqttGate || !_matterGate || !_entityGate) {
         if (!_started && _mqttGate && !_matterGate) {
             log.info('waiting for matter controller before starting scripts');
         }
@@ -1184,6 +1195,17 @@ if (config.dbPath) {
     });
     // the home model: she's own documents about devices, rooms and functions
     home.init({ core: dbCore, store, log, fresh: homeFresh, prefix: config.haPrefix || undefined });
+    // its entity layer: the live state of the entities, and commands in Home Assistant's terms
+    homeEntities.init({
+        core: dbCore,
+        store,
+        log,
+        publish: (topic, payload, options) => {
+            if (!mqtt || !connected) return false;
+            mqtt.publish(topic, payload, options);
+            return true;
+        },
+    });
 }
 
 // Redis support was removed; a leftover block in config.json is ignored, and the log says so once
