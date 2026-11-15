@@ -1,0 +1,850 @@
+[
+    {
+        "topic": "homeassistant/binary_sensor/status/problem/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-problem",
+            "object_id": "gasmeter/status_problem",
+            "default_entity_id": "binary_sensor.gasmeter/status_problem",
+            "name": "Problem",
+            "icon": "mdi:alert-outline",
+            "state_topic": "~/main/error",
+            "value_template": "{{ 'OFF' if 'no error' in value else 'ON'}}",
+            "device_class": "problem",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/watermeter/status/problem/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-problem",
+            "object_id": "watermeter/status_problem",
+            "name": "Problem",
+            "icon": "mdi:alert-outline",
+            "state_topic": "~/meter_reading/error",
+            "value_template": "{{ 'OFF' if 'no error' in value else 'ON'}}",
+            "device_class": "problem",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/button/status/flowstart/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-flowstart",
+            "object_id": "gasmeter/status_flowstart",
+            "default_entity_id": "button.gasmeter/status_flowstart",
+            "name": "Manual Flow Start",
+            "icon": "mdi:timer-play-outline",
+            "cmd_t": "~/ctrl/flow_start",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/CPUtemp/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-CPUtemp",
+            "object_id": "gasmeter/status_CPUtemp",
+            "default_entity_id": "sensor.gasmeter/status_CPUtemp",
+            "name": "CPU Temperature",
+            "icon": "mdi:thermometer",
+            "state_topic": "~/CPUtemp",
+            "unit_of_meas": "°C",
+            "device_class": "temperature",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/IP/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-IP",
+            "object_id": "gasmeter/status_IP",
+            "default_entity_id": "sensor.gasmeter/status_IP",
+            "name": "IP",
+            "icon": "mdi:network-outline",
+            "state_topic": "~/IP",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/MAC/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-MAC",
+            "object_id": "gasmeter/status_MAC",
+            "default_entity_id": "sensor.gasmeter/status_MAC",
+            "name": "MAC Address",
+            "icon": "mdi:network-outline",
+            "state_topic": "~/MAC",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/error/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-error",
+            "object_id": "gasmeter/status_error",
+            "default_entity_id": "sensor.gasmeter/status_error",
+            "name": "Error",
+            "icon": "mdi:alert-circle-outline",
+            "state_topic": "~/main/error",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/freeMem/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-freeMem",
+            "object_id": "gasmeter/status_freeMem",
+            "default_entity_id": "sensor.gasmeter/status_freeMem",
+            "name": "Free Memory",
+            "icon": "mdi:memory",
+            "state_topic": "~/freeMem",
+            "unit_of_meas": "B",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/fwVersion/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-fwVersion",
+            "object_id": "gasmeter/status_fwVersion",
+            "default_entity_id": "sensor.gasmeter/status_fwVersion",
+            "name": "Firmware Version",
+            "icon": "mdi:application-outline",
+            "state_topic": "~/fwVersion",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/hostname/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-hostname",
+            "object_id": "gasmeter/status_hostname",
+            "default_entity_id": "sensor.gasmeter/status_hostname",
+            "name": "Hostname",
+            "icon": "mdi:network-outline",
+            "state_topic": "~/hostname",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/interval/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-interval",
+            "object_id": "gasmeter/status_interval",
+            "default_entity_id": "sensor.gasmeter/status_interval",
+            "name": "Interval",
+            "icon": "mdi:clock-time-eight-outline",
+            "state_topic": "~/interval",
+            "unit_of_meas": "min",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/json/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-json",
+            "object_id": "gasmeter/status_json",
+            "default_entity_id": "sensor.gasmeter/status_json",
+            "name": "JSON",
+            "icon": "mdi:code-json",
+            "state_topic": "~/main/json",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/rate_per_digitization_round/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-rate_per_digitization_round",
+            "object_id": "gasmeter/status_rate_per_digitization_round",
+            "default_entity_id": "sensor.gasmeter/status_rate_per_digitization_round",
+            "name": "Change since last Digitization round",
+            "icon": "mdi:arrow-expand-vertical",
+            "state_topic": "~/main/rate_per_digitization_round",
+            "unit_of_meas": "m³",
+            "state_class": "measurement",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/rate_per_time_unit/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-rate_per_time_unit",
+            "object_id": "gasmeter/status_rate_per_time_unit",
+            "default_entity_id": "sensor.gasmeter/status_rate_per_time_unit",
+            "name": "Rate (m³/h)",
+            "icon": "mdi:swap-vertical",
+            "state_topic": "~/main/rate_per_time_unit",
+            "unit_of_meas": "m³/h",
+            "device_class": "volume_flow_rate",
+            "state_class": "measurement",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/raw/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-raw",
+            "object_id": "gasmeter/status_raw",
+            "default_entity_id": "sensor.gasmeter/status_raw",
+            "name": "Raw Value",
+            "icon": "mdi:raw",
+            "state_topic": "~/main/raw",
+            "unit_of_meas": "m³",
+            "device_class": "gas",
+            "state_class": "total_increasing",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/status/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-status",
+            "object_id": "gasmeter/status_status",
+            "default_entity_id": "sensor.gasmeter/status_status",
+            "name": "Status",
+            "icon": "mdi:list-status",
+            "state_topic": "~/status",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/timestamp/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-timestamp",
+            "object_id": "gasmeter/status_timestamp",
+            "default_entity_id": "sensor.gasmeter/status_timestamp",
+            "name": "Timestamp",
+            "icon": "mdi:clock-time-eight-outline",
+            "state_topic": "~/main/timestamp",
+            "device_class": "timestamp",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/uptime/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-uptime",
+            "object_id": "gasmeter/status_uptime",
+            "default_entity_id": "sensor.gasmeter/status_uptime",
+            "name": "Uptime",
+            "icon": "mdi:progress-clock",
+            "state_topic": "~/uptime",
+            "unit_of_meas": "s",
+            "device_class": "duration",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/value/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-value",
+            "object_id": "gasmeter/status_value",
+            "default_entity_id": "sensor.gasmeter/status_value",
+            "name": "Value",
+            "icon": "mdi:gauge",
+            "state_topic": "~/main/value",
+            "unit_of_meas": "m³",
+            "device_class": "gas",
+            "state_class": "total_increasing",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/status/wifiRSSI/config",
+        "payload": {
+            "~": "gasmeter/status",
+            "unique_id": "gasmeter/status-wifiRSSI",
+            "object_id": "gasmeter/status_wifiRSSI",
+            "default_entity_id": "sensor.gasmeter/status_wifiRSSI",
+            "name": "Wi-Fi RSSI",
+            "icon": "mdi:wifi",
+            "state_topic": "~/wifiRSSI",
+            "unit_of_meas": "dBm",
+            "device_class": "signal_strength",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["gasmeter/status"],
+                "name": "gasmeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v16.1.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/CPUtemp/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-CPUtemp",
+            "object_id": "watermeter/status_CPUtemp",
+            "name": "CPU Temperature",
+            "icon": "mdi:thermometer",
+            "state_topic": "~/CPUtemp",
+            "unit_of_meas": "°C",
+            "device_class": "temperature",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/IP/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-IP",
+            "object_id": "watermeter/status_IP",
+            "name": "IP",
+            "icon": "mdi:network-outline",
+            "state_topic": "~/IP",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/MAC/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-MAC",
+            "object_id": "watermeter/status_MAC",
+            "name": "MAC Address",
+            "icon": "mdi:network-outline",
+            "state_topic": "~/MAC",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/error/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-error",
+            "object_id": "watermeter/status_error",
+            "name": "Error",
+            "icon": "mdi:alert-circle-outline",
+            "state_topic": "~/meter_reading/error",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/freeMem/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-freeMem",
+            "object_id": "watermeter/status_freeMem",
+            "name": "Free Memory",
+            "icon": "mdi:memory",
+            "state_topic": "~/freeMem",
+            "unit_of_meas": "B",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/hostname/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-hostname",
+            "object_id": "watermeter/status_hostname",
+            "name": "Hostname",
+            "icon": "mdi:network-outline",
+            "state_topic": "~/hostname",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/interval/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-interval",
+            "object_id": "watermeter/status_interval",
+            "name": "Interval",
+            "icon": "mdi:clock-time-eight-outline",
+            "state_topic": "~/interval",
+            "unit_of_meas": "min",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/json/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-json",
+            "object_id": "watermeter/status_json",
+            "name": "JSON",
+            "icon": "mdi:code-json",
+            "state_topic": "~/meter_reading/json",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/rate_per_digitalization_round/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-rate_per_digitalization_round",
+            "object_id": "watermeter/status_rate_per_digitalization_round",
+            "name": "Change since last digitalization round",
+            "icon": "mdi:arrow-expand-vertical",
+            "state_topic": "~/meter_reading/rate_per_digitalization_round",
+            "unit_of_meas": "m³",
+            "state_class": "measurement",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/rate_per_time_unit/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-rate_per_time_unit",
+            "object_id": "watermeter/status_rate_per_time_unit",
+            "name": "Rate (m³/h)",
+            "icon": "mdi:swap-vertical",
+            "state_topic": "~/meter_reading/rate_per_time_unit",
+            "unit_of_meas": "m³/h",
+            "state_class": "measurement",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/raw/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-raw",
+            "object_id": "watermeter/status_raw",
+            "name": "Raw Value",
+            "icon": "mdi:raw",
+            "state_topic": "~/meter_reading/raw",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/status/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-status",
+            "object_id": "watermeter/status_status",
+            "name": "Status",
+            "icon": "mdi:list-status",
+            "state_topic": "~/status",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/timestamp/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-timestamp",
+            "object_id": "watermeter/status_timestamp",
+            "name": "Timestamp",
+            "icon": "mdi:clock-time-eight-outline",
+            "state_topic": "~/meter_reading/timestamp",
+            "device_class": "timestamp",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/uptime/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-uptime",
+            "object_id": "watermeter/status_uptime",
+            "name": "Uptime",
+            "icon": "mdi:clock-time-eight-outline",
+            "state_topic": "~/uptime",
+            "unit_of_meas": "s",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/value/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-value",
+            "object_id": "watermeter/status_value",
+            "name": "Value",
+            "icon": "mdi:gauge",
+            "state_topic": "~/meter_reading/value",
+            "unit_of_meas": "m³",
+            "device_class": "water",
+            "state_class": "total_increasing",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/watermeter/status/wifiRSSI/config",
+        "payload": {
+            "~": "watermeter/status",
+            "unique_id": "watermeter/status-wifiRSSI",
+            "object_id": "watermeter/status_wifiRSSI",
+            "name": "Wi-Fi RSSI",
+            "icon": "mdi:wifi",
+            "state_topic": "~/wifiRSSI",
+            "unit_of_meas": "dBm",
+            "device_class": "signal_strength",
+            "entity_category": "diagnostic",
+            "availability_topic": "~/connection",
+            "payload_available": "connected",
+            "payload_not_available": "connection lost",
+            "device": {
+                "identifiers": ["watermeter/status"],
+                "name": "watermeter/status",
+                "model": "Meter Digitizer",
+                "manufacturer": "AI on the Edge Device",
+                "sw_version": "v15.3.0"
+            }
+        }
+    }
+]

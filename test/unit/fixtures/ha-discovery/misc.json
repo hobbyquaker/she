@@ -1,0 +1,80 @@
+[
+    {
+        "topic": "homeassistant/binary_sensor/scrypted-65c22a2f-51/MotionSensor/config",
+        "payload": {
+            "state_topic": "scrypted/Staircase/motionDetected",
+            "payload_on": "true",
+            "payload_off": "false",
+            "dev": {
+                "name": "Staircase",
+                "ids": "cam00001"
+            },
+            "unique_id": "scrypted-65c22a2f-51-MotionSensor",
+            "name": "MotionSensor"
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/scrypted-65c22a2f-51/Online/config",
+        "payload": {
+            "state_topic": "scrypted/Staircase/online",
+            "payload_on": "true",
+            "payload_off": "false",
+            "dev": {
+                "name": "Staircase",
+                "ids": "cam00001"
+            },
+            "unique_id": "scrypted-65c22a2f-51-Online",
+            "name": "Online"
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/scrypted-65c22a2f-53/MotionSensor/config",
+        "payload": {
+            "state_topic": "scrypted/Terrace/motionDetected",
+            "payload_on": "true",
+            "payload_off": "false",
+            "dev": {
+                "name": "Terrace Smart Motion Sensor",
+                "ids": "cam00002"
+            },
+            "unique_id": "scrypted-65c22a2f-53-MotionSensor",
+            "name": "MotionSensor"
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/double-take/staircase/state",
+        "payload": {
+            "id": "1638998503.551872-9hpaf3",
+            "duration": 0.31,
+            "timestamp": "2021-12-08T21:21:50.731Z",
+            "attempts": 2,
+            "camera": "staircase",
+            "zones": [],
+            "misses": [],
+            "matches": [],
+            "personCount": 0
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/double-take/terrace/state",
+        "payload": {
+            "id": "54b56e43-9f7a-4b6b-ae7f-592d937c3964",
+            "duration": 0.01,
+            "timestamp": "2021-12-08T18:22:23.539Z",
+            "attempts": 1,
+            "camera": "terrace",
+            "zones": [],
+            "misses": [],
+            "matches": [],
+            "personCount": 0
+        }
+    },
+    {
+        "topic": "homeassistant/status",
+        "payload": "offline"
+    },
+    {
+        "topic": "homeassistant/test",
+        "payload": "test"
+    }
+]

@@ -1,0 +1,126 @@
+[
+    {
+        "topic": "homeassistant/sensor/A4C138AABB01-tempc/config",
+        "payload": {
+            "stat_t": "home/OMG_ESP32_BLE/BTtoMQTT/A4C138AABB01",
+            "dev_cla": "temperature",
+            "unit_of_meas": "°C",
+            "name": "LYWSD03MMC-tempc",
+            "uniq_id": "A4C138AABB01-tempc",
+            "val_tpl": "{{ value_json.tempc | is_defined }}",
+            "stat_cla": "measurement",
+            "exp_aft": 21600,
+            "device": {
+                "ids": ["A4C138AABB01"],
+                "name": "LYWSD03MMC-BB01",
+                "mdl": "LYWSD03MMC",
+                "mf": "Xiaomi",
+                "via_device": "OMG_ESP32_BLE"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/A4C138AABB01-hum/config",
+        "payload": {
+            "stat_t": "home/OMG_ESP32_BLE/BTtoMQTT/A4C138AABB01",
+            "dev_cla": "humidity",
+            "unit_of_meas": "%",
+            "name": "LYWSD03MMC-hum",
+            "uniq_id": "A4C138AABB01-hum",
+            "val_tpl": "{{ value_json.hum | is_defined }}",
+            "stat_cla": "measurement",
+            "exp_aft": 21600,
+            "device": {
+                "ids": ["A4C138AABB01"]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/A4C138AABB01-batt/config",
+        "payload": {
+            "stat_t": "home/OMG_ESP32_BLE/BTtoMQTT/A4C138AABB01",
+            "dev_cla": "battery",
+            "unit_of_meas": "%",
+            "name": "LYWSD03MMC-batt",
+            "uniq_id": "A4C138AABB01-batt",
+            "val_tpl": "{{ value_json.batt | is_defined }}",
+            "stat_cla": "measurement",
+            "ent_cat": "diagnostic",
+            "exp_aft": 21600,
+            "device": {
+                "ids": ["A4C138AABB01"]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/binary_sensor/A4C138AABB02-contact/config",
+        "payload": {
+            "stat_t": "home/OMG_ESP32_BLE/BTtoMQTT/A4C138AABB02",
+            "dev_cla": "door",
+            "name": "MCCGQ02HL-contact",
+            "uniq_id": "A4C138AABB02-contact",
+            "val_tpl": "{{ value_json.contact | is_defined }}",
+            "pl_on": true,
+            "pl_off": false,
+            "exp_aft": 21600,
+            "device": {
+                "ids": ["A4C138AABB02"],
+                "name": "MCCGQ02HL-BB02",
+                "mdl": "MCCGQ02HL",
+                "mf": "Xiaomi",
+                "via_device": "OMG_ESP32_BLE"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/sensor/OMG_ESP32_BLE-freemem/config",
+        "payload": {
+            "stat_t": "home/OMG_ESP32_BLE/SYStoMQTT",
+            "name": "SYS: Free memory",
+            "uniq_id": "OMG_ESP32_BLE-freemem",
+            "val_tpl": "{{ value_json.freemem }}",
+            "unit_of_meas": "B",
+            "ent_cat": "diagnostic",
+            "device": {
+                "ids": ["OMG_ESP32_BLE"],
+                "name": "OMG_ESP32_BLE",
+                "mdl": "esp32dev",
+                "mf": "OpenMQTTGateway",
+                "sw": "1.7.0"
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/OMG_ESP32_BLE-bt-scan/config",
+        "payload": {
+            "stat_t": "home/OMG_ESP32_BLE/BTtoMQTT/config",
+            "cmd_t": "home/OMG_ESP32_BLE/commands/MQTTtoBT/config",
+            "name": "BT: Active scan",
+            "uniq_id": "OMG_ESP32_BLE-bt-scan",
+            "val_tpl": "{{ 'ON' if value_json.bleconnect else 'OFF' }}",
+            "pl_on": "{\"bleconnect\":true}",
+            "pl_off": "{\"bleconnect\":false}",
+            "ent_cat": "config",
+            "device": {
+                "ids": ["OMG_ESP32_BLE"]
+            }
+        }
+    },
+    {
+        "topic": "homeassistant/switch/OMG_ESP32_BLE-rf-plug/config",
+        "payload": {
+            "stat_t": "home/OMG_ESP32_BLE/433toMQTT",
+            "cmd_t": "home/OMG_ESP32_BLE/commands/MQTTto433",
+            "name": "RF plug",
+            "uniq_id": "OMG_ESP32_BLE-rf-plug",
+            "val_tpl": "{{ 'ON' if value_json.value == 1381717 else ('OFF' if value_json.value == 1381716 else none) }}",
+            "pl_on": "{\"value\":1381717,\"protocol\":1,\"length\":24,\"delay\":350}",
+            "pl_off": "{\"value\":1381716,\"protocol\":1,\"length\":24,\"delay\":350}",
+            "device": {
+                "ids": ["OMG_ESP32_BLE"]
+            },
+            "stat_on": "ON",
+            "stat_off": "OFF"
+        }
+    }
+]
