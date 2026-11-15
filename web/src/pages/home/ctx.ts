@@ -4,5 +4,5 @@ export interface HomeCtx {
     act<T>(fn: () => Promise<T>, done?: string | ((r: T) => string | null)): Promise<T | undefined>;
     confirm(msg: string, opts?: { confirm?: string; danger?: boolean; alert?: boolean }): Promise<boolean>;
     prompt(msg: string, opts?: { placeholder?: string; confirm?: string; initial?: string }): Promise<string | null>;
-    goto(tab: 'rooms' | 'devices' | 'functions' | 'labels', focus?: { room?: string; device?: string; filter?: string }): void;
+    goto(tab: 'rooms' | 'devices' | 'scenes' | 'functions' | 'labels', focus?: { room?: string; device?: string; filter?: string }): void;
 }
