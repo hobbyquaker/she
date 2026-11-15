@@ -48,7 +48,7 @@ function init({ core, store, log, fresh = false, prefix = DEFAULT_PREFIX }) {
     _model.init({ fresh });
 
     // every message on the broker passes here: one string comparison, nothing else
-    const ns = 'mqtt::' + prefix + '/';
+    const ns = 'mqtt::' + prefix.replace(/\/+$/, '') + '/';
     store.on('change', (key, val) => {
         if (key.startsWith(ns)) _model.noteConfig(key.slice(6), val);
     });

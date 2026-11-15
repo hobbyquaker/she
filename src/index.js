@@ -1183,7 +1183,7 @@ if (config.dbPath) {
         broadcast,
     });
     // the home model: she's own documents about devices, rooms and functions
-    home.init({ core: dbCore, store, log, fresh: homeFresh });
+    home.init({ core: dbCore, store, log, fresh: homeFresh, prefix: config.haPrefix || undefined });
 }
 
 // Redis support was removed; a leftover block in config.json is ignored, and the log says so once
