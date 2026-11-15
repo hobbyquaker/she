@@ -239,18 +239,18 @@
         }
     },
     {
-        "topic": "homeassistant/sensor/drybox/low_humidity/config",
+        "topic": "homeassistant/sensor/dryer/low_humidity/config",
         "payload": {
             "dev_cla": "humidity",
             "unit_of_meas": "%",
             "stat_cla": "measurement",
             "name": "Low Humidity",
-            "stat_t": "drybox/status/low/humidity",
-            "avty_t": "drybox/status",
+            "stat_t": "dryer/status/low/humidity",
+            "avty_t": "dryer/status",
             "uniq_id": "ESPsensorlow_humidity",
             "dev": {
                 "ids": "aa0000000004",
-                "name": "drybox",
+                "name": "dryer",
                 "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
                 "mdl": "d1_mini",
                 "mf": "Espressif",
@@ -259,18 +259,18 @@
         }
     },
     {
-        "topic": "homeassistant/sensor/drybox/low_temperature/config",
+        "topic": "homeassistant/sensor/dryer/low_temperature/config",
         "payload": {
             "dev_cla": "temperature",
             "unit_of_meas": "°C",
             "stat_cla": "measurement",
             "name": "Low Temperature",
-            "stat_t": "drybox/status/low/temperature",
-            "avty_t": "drybox/status",
+            "stat_t": "dryer/status/low/temperature",
+            "avty_t": "dryer/status",
             "uniq_id": "ESPsensorlow_temperature",
             "dev": {
                 "ids": "aa0000000004",
-                "name": "drybox",
+                "name": "dryer",
                 "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
                 "mdl": "d1_mini",
                 "mf": "Espressif",
@@ -279,18 +279,18 @@
         }
     },
     {
-        "topic": "homeassistant/sensor/drybox/mid_humidity/config",
+        "topic": "homeassistant/sensor/dryer/mid_humidity/config",
         "payload": {
             "dev_cla": "humidity",
             "unit_of_meas": "%",
             "stat_cla": "measurement",
             "name": "Mid Humidity",
-            "stat_t": "drybox/status/mid/humidity",
-            "avty_t": "drybox/status",
+            "stat_t": "dryer/status/mid/humidity",
+            "avty_t": "dryer/status",
             "uniq_id": "ESPsensormid_humidity",
             "dev": {
                 "ids": "aa0000000004",
-                "name": "drybox",
+                "name": "dryer",
                 "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
                 "mdl": "d1_mini",
                 "mf": "Espressif",
@@ -299,18 +299,18 @@
         }
     },
     {
-        "topic": "homeassistant/sensor/drybox/mid_temperature/config",
+        "topic": "homeassistant/sensor/dryer/mid_temperature/config",
         "payload": {
             "dev_cla": "temperature",
             "unit_of_meas": "°C",
             "stat_cla": "measurement",
             "name": "Mid Temperature",
-            "stat_t": "drybox/status/mid/temperature",
-            "avty_t": "drybox/status",
+            "stat_t": "dryer/status/mid/temperature",
+            "avty_t": "dryer/status",
             "uniq_id": "ESPsensormid_temperature",
             "dev": {
                 "ids": "aa0000000004",
-                "name": "drybox",
+                "name": "dryer",
                 "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
                 "mdl": "d1_mini",
                 "mf": "Espressif",
@@ -1276,16 +1276,16 @@
         }
     },
     {
-        "topic": "homeassistant/switch/drybox/fan_d3/config",
+        "topic": "homeassistant/switch/dryer/fan_d3/config",
         "payload": {
             "name": "fan_d3",
-            "stat_t": "drybox/status/3",
-            "cmd_t": "drybox/set/3",
-            "avty_t": "drybox/status",
+            "stat_t": "dryer/status/3",
+            "cmd_t": "dryer/set/3",
+            "avty_t": "dryer/status",
             "uniq_id": "ESPswitchfan_d3",
             "dev": {
                 "ids": "aa0000000004",
-                "name": "drybox",
+                "name": "dryer",
                 "sw": "2025.5.2 (Aug  4 2026, 20:03:19)",
                 "mdl": "d1_mini",
                 "mf": "Espressif",
