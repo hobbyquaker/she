@@ -112,6 +112,8 @@ them.
 - **Devices** — all, in no room, gone, hidden; filter by room and adapter, search; select devices and entities to
   set rooms, functions and labels in bulk; a panel edits one device or entity. Dashed chips are inherited, solid ones
   assigned.
+- **Scenes** — the scenes and scene groups by room with their live state, recall and deactivate, and the scene and
+  group editors; see [the Scenes page](scenes.md#the-scenes-page).
 - **Functions** — the list with counts, names, icons, the rule editor and its preview.
 - **Labels** — create, rename, delete.
 
