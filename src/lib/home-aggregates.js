@@ -41,6 +41,7 @@ const HOME = 'she/home';
 const ROOM = 'she/room/';
 const FLOOR = 'she/floor/';
 const ENTITY = 'she/entity/';
+const SCENEGROUP = 'she/scenegroup/';
 
 const isRecord = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const round = (n, digits) => Number(n.toFixed(digits));
@@ -175,6 +176,9 @@ class HomeAggregates {
             if (id === HOME || id.startsWith(ROOM) || id.startsWith(FLOOR) || id.startsWith(ENTITY)) {
                 this._replan = true;
                 this._schedule();
+            } else if (this._scene && id.startsWith(SCENEGROUP)) {
+                // a group that is given to another room keeps its value: nobody would say so
+                this.sceneChanged();
             }
         };
         this._onState = (id) => {
@@ -213,8 +217,9 @@ class HomeAggregates {
     }
 
     /**
-     * Let something provide the rooms' scenes: `scene(roomId)` returns the value to publish on
-     * `…/room/<room>/scene`, or undefined for a room without one. Call {@link sceneChanged} when it changes.
+     * Let something provide the rooms' scenes: `scene(roomId)` returns what to publish on
+     * `…/room/<room>/scene` — a value, or `{val, …}` with more for the payload — or undefined for a
+     * room without one. Call {@link sceneChanged} when it changes.
      * @param {((roomId: string) => *)|null} scene
      */
     setSceneSource(scene) {
@@ -452,7 +457,8 @@ class HomeAggregates {
                     this.log.warn(`home aggregates: scene of ${scope.id}: ${err.message}`);
                 }
             }
-            if (val !== undefined) this._emit(topic, { val });
+            // a source may say more than the value: `{val, …}` is the payload
+            if (val !== undefined) this._emit(topic, isRecord(val) && 'val' in val ? val : { val });
             else if (this._last.has(topic)) this._clear(topic);
         }
     }
