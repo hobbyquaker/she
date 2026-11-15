@@ -466,12 +466,16 @@ export interface ViewDefinition {
     mqttpub?: boolean;
     retain?: boolean;
     description?: string;
+    /** 'home': one of she's standard views — read-only, only mqttpub and retain can be changed */
+    system?: string;
+    version?: number;
 }
 
 export interface ViewResult {
     _id: string;
     _rev: number;
-    result?: unknown[];
+    /** an array, or an object (she's standard views group by key) */
+    result?: unknown;
     length?: number;
     error?: string;
 }

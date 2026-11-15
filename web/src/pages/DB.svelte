@@ -26,6 +26,8 @@
     let viewDescription = $state('');
     let viewMqttPub = $state(false);
     let viewRetain  = $state(false);
+    // one of she's standard views (the home model's): read-only, only the MQTT switches change
+    let viewSystem = $state(false);
     let viewResult: ViewResult | null = $state(null);
     let viewLoading = $state(false);
     let viewError: string | null = $state(null);
@@ -248,6 +250,7 @@
             viewDescription = def.description ?? '';
             viewMqttPub = def.mqttpub ?? false;
             viewRetain  = def.retain  ?? false;
+            viewSystem = !!def.system;
             viewResult = await getViewResult(id).catch(() => null);
         } catch (e: unknown) {
             viewError = e instanceof Error ? e.message : String(e);
@@ -520,8 +523,13 @@
                         <span class="editor-title">{selectedViewId}</span>
                         <button onclick={saveView}>Save</button>
                         <button onclick={refreshViewResult} title="Re-run view">Refresh</button>
-                        <button class="btn-danger" onclick={deleteSelectedView}>Delete</button>
+                        {#if !viewSystem}
+                            <button class="btn-danger" onclick={deleteSelectedView}>Delete</button>
+                        {/if}
                     </div>
+                    {#if viewSystem}
+                        <div class="info-bar">One of she's standard views of the home model: recreated at every start, read-only. Publishing to MQTT can be switched.</div>
+                    {/if}
                     {#if viewError}
                         <div class="error-bar">{viewError}</div>
                     {/if}
@@ -533,19 +541,19 @@
                             <div class="view-section">
                                 <div class="section-title">Description <span class="section-hint">— optional, shown in sidebar</span></div>
                                 <div class="section-body">
-                                    <input class="filter-input" bind:value={viewDescription} placeholder="(optional description)" />
+                                    <input class="filter-input" bind:value={viewDescription} placeholder="(optional description)" readonly={viewSystem} />
                                 </div>
                             </div>
                             <div class="view-section">
                                 <div class="section-title">Filter <span class="section-hint">— MQTT wildcard, optional</span></div>
                                 <div class="section-body">
-                                    <input class="filter-input" bind:value={viewFilter} placeholder="#" />
+                                    <input class="filter-input" bind:value={viewFilter} placeholder="#" readonly={viewSystem} />
                                 </div>
                             </div>
                             <div class="view-section">
                                 <div class="section-title">Map <span class="section-hint">— <code>this</code> = document &nbsp;·&nbsp; call <code>emit(this)</code> to include in result</span></div>
                                 <div class="monaco-view-wrap" style:height="{mapHeight}px">
-                                    <MonacoEditor bind:value={viewMap} language="javascript" onSave={saveView} />
+                                    <MonacoEditor bind:value={viewMap} language="javascript" onSave={saveView} readOnly={viewSystem} />
                                 </div>
                                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                                 <div class="view-row-handle" role="separator" onmousedown={(e) => { _mapDragging = true; _mapDragStartY = e.clientY; _mapDragStartH = mapHeight; e.preventDefault(); }}></div>
@@ -553,7 +561,7 @@
                             <div class="view-section">
                                 <div class="section-title">Reduce <span class="section-hint">— receives <code>result</code> array, must <code>return</code> new value (optional)</span></div>
                                 <div class="monaco-view-wrap" style:height="{reduceHeight}px">
-                                    <MonacoEditor bind:value={viewReduce} language="javascript" onSave={saveView} />
+                                    <MonacoEditor bind:value={viewReduce} language="javascript" onSave={saveView} readOnly={viewSystem} />
                                 </div>
                                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                                 <div class="view-row-handle" role="separator" onmousedown={(e) => { _reduceDragging = true; _reduceDragStartY = e.clientY; _reduceDragStartH = reduceHeight; e.preventDefault(); }}></div>
@@ -597,7 +605,7 @@
                                         {#if viewResult.error}
                                             <span class="badge-error">error</span>
                                         {:else}
-                                            <span class="badge-ok">{viewResult.length ?? 0} items · rev {viewResult._rev}</span>
+                                            <span class="badge-ok">{viewResult.length ?? 0} {Array.isArray(viewResult.result) ? 'items' : 'keys'} · rev {viewResult._rev}</span>
                                         {/if}
                                     </div>
                                     {#if viewResult.error}
@@ -877,6 +885,14 @@
     .error-bar {
         background: var(--bg-err-subtle);
         color: var(--fg-err-subtle);
+        padding: 4px 10px;
+        font-size: 0.82rem;
+        flex-shrink: 0;
+    }
+
+    .info-bar {
+        background: var(--bg-panel);
+        color: var(--fg-muted);
         padding: 4px 10px;
         font-size: 0.82rem;
         flex-shrink: 0;

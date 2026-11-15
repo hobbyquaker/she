@@ -595,6 +595,27 @@ interface SheMqtt {
         [key: string]: any;
     }): { id: string; device: string; topic: string; remove(): boolean };
 }
+/** room: an id, name or alias ('' = without a room); floor, function, label: ids; component: light, cover, sensor, … */
+interface SheSelection { room?: string; floor?: string; function?: string; label?: string; component?: string; hidden?: boolean }
+interface SheEntity {
+    /** the document id, she/entity/… */
+    id: string;
+    source: string | null;
+    name: string | null;
+    rooms: string[];
+    floors: string[];
+    functions: string[];
+    labels: string[];
+    component: string | null;
+    device_class: string | null;
+    unit: string | null;
+    state_topic: string | null;
+    command_topic: string | null;
+    /** the device document id, she/device/… */
+    device: string | null;
+}
+interface SheFloor { id: string; name: string; level: number | null; order: number | null; rooms: string[] }
+interface SheRoom { id: string; name: string; floor: string | null; order: number | null; icon: string | null; aliases: string[]; entities: number }
 declare const she: {
     log(...args: any[]): void;
     info(...args: any[]): void;
@@ -678,6 +699,27 @@ declare const she: {
         prop(id: string, method: 'set' | 'create' | 'del', prop: string, val?: any): void;
         sub(pattern: string, callback: (id: string, doc: any) => void): void;
         query(filter: string | null, mapFn: Function, reduceFn?: Function): any[];
+        /** a view's result: an array, or an object for she's standard views (she/entities/by-room, she/topics, …) */
+        getView(id: string): any;
+        subView(pattern: string, callback: (id: string, result: any) => void): void;
+        setView(id: string, definition: { map: string; filter?: string; reduce?: string; publish?: boolean; retain?: boolean; description?: string }): void;
+    };
+    /** The home model: floors, rooms and the entities announced through HA discovery (needs sheDB). */
+    home: {
+        /** Floors by order, each with the ids of its rooms. */
+        floors(): SheFloor[];
+        /** Rooms by floor and order; entities = how many present, not hidden entities are in it. */
+        rooms(): SheRoom[];
+        /** Entity summaries by name: present, not hidden (hidden: true lists those too); every given key must match. */
+        entities(selection?: SheSelection): SheEntity[];
+        /**
+         * cb for every message on a state topic of the selection; follows when entities are added or moved.
+         * opts.change: only when the value changes. Cancelled on unload.
+         */
+        sub(selection: SheSelection, cb: (entity: SheEntity, val: any, obj: any, prev: any, topic: string) => void): { entities(): SheEntity[]; cancel(): void };
+        sub(selection: SheSelection, opts: { change?: boolean }, cb: (entity: SheEntity, val: any, obj: any, prev: any, topic: string) => void): { entities(): SheEntity[]; cancel(): void };
+        /** Assign name, rooms, functions (entities), labels, hidden, notes; null inherits again, [] = none on purpose. id: she/entity/…, she/device/… or a unique_id. */
+        assign(id: string, patch: { name?: string | null; rooms?: string[] | null; functions?: string[] | null; labels?: string[] | null; hidden?: boolean | null; notes?: string | null }): any;
     };
     matter: {
         sub(nodeId: string, endpointId: number, cluster: string, attr: string, cb: (val: any, old: any) => void): number;

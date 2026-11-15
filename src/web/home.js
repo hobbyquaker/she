@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { HomeModel } = require('../lib/home-model');
 const { DEFAULT_PREFIX } = require('../lib/ha-discovery');
+const views = require('../lib/home-views');
 
 let _model = null;
 
@@ -47,6 +48,13 @@ function init({ core, store, log, fresh = false, prefix = DEFAULT_PREFIX }) {
     _model = new HomeModel({ core, entries: () => store.mqttEntries(), log, prefix });
     _model.init({ fresh });
 
+    // the standard views exist while the model is on: written at the start, removed when it is
+    // switched off, written again when it is switched on
+    syncViews(core, log);
+    core.on('update', (id) => {
+        if (id === 'she/home') syncViews(core, log);
+    });
+
     // every message on the broker passes here: one string comparison, nothing else
     const ns = 'mqtt::' + prefix.replace(/\/+$/, '') + '/';
     store.on('change', (key, val) => {
@@ -56,6 +64,26 @@ function init({ core, store, log, fresh = false, prefix = DEFAULT_PREFIX }) {
         if (key.startsWith(ns)) _model.noteConfig(key.slice(6), null);
     });
     return _model;
+}
+
+/**
+ * Install she's standard views when the model is on, remove them when it is off.
+ * @param {object} core
+ * @param {object} log
+ */
+function syncViews(core, log) {
+    try {
+        const on = !!core.get('she/home') && core.get('she/home').enabled === true;
+        if (on) {
+            const { written, removed } = views.install(core);
+            if (written.length || removed.length) log.info(`home model: standard views written: ${written.length}, removed: ${removed.length} (version ${views.VERSION})`);
+        } else {
+            const removed = views.uninstall(core);
+            if (removed.length) log.info(`home model: off, ${removed.length} standard views removed`);
+        }
+    } catch (err) {
+        log.error('home model: standard views: ' + err.message);
+    }
 }
 
 /**
@@ -83,4 +111,4 @@ function reset() {
     _model = null;
 }
 
-module.exports = { init, start, getModel, isFreshInstall, reset };
+module.exports = { init, start, getModel, isFreshInstall, reset, syncViews };

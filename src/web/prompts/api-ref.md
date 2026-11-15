@@ -98,6 +98,25 @@ she.db.query(filter, mapFn, [reduceFn])  Synchronous ad-hoc query → Array
 she.db.getView(id) / subView(pattern, cb) / setView(id, definition)   Stored map/reduce views
 ```
 
+### Home model (she.home — rooms, floors, functions over the entities announced through HA discovery; needs sheDB)
+```
+she.home.floors()                      [{ id, name, level, order, rooms: [room ids] }] by order
+she.home.rooms()                       [{ id, name, floor, order, icon, aliases, entities: n }] by floor and order
+she.home.entities([selection])         entity summaries by name: { id: 'she/entity/…', source, name, rooms: [], floors: [], functions: [], labels: [],
+                                        component, device_class, unit, state_topic, command_topic, device: 'she/device/…' }
+    selection { room, floor, function, label, component, hidden }: all given must match; room = id, name or alias, '' = without a room;
+    only announced, not hidden entities unless hidden: true. An entity can be in SEVERAL rooms (rooms is a list).
+    functions (ids): lighting, shading, heating, climate, openings, security, energy, presence, media, maintenance (+ the user's own)
+she.home.sub(selection, [{ change }], cb)   cb(entity, val, obj, prev, topic) on every message on a state topic of the selection;
+                                        follows added/moved entities; → { entities(), cancel() }; val is the raw payload (z2m: an object)
+she.home.assign(id, { name, rooms, functions, labels, hidden, notes })   id = she/entity/… | she/device/… | unique_id;
+                                        null = inherit again, [] = none on purpose → the summary afterwards; mistakes throw
+Standard views (she.db.getView, read-only, objects): she/floors, she/rooms, she/entities/by-room ({room: [summary]}, "" = no room),
+    by-floor, by-function, by-room-function ({room: {function: [summary]}}), by-component, by-label, she/topics ({state topic: [summary]}),
+    she/devices/by-adapter, she/devices/unassigned ({devices, entities}), she/devices/gone, she/entities/battery
+Write scripts against rooms and functions, not topics: she.home.entities({ room: 'bathroom', function: 'openings' }).
+```
+
 ### Matter (use names for node, endpoint and cluster)
 ```
 she.matter.sub(node, endpoint, cluster, attr, cb)   → listenerId;  she.matter.unsub(listenerId)

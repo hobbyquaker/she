@@ -81,6 +81,15 @@ return result.reduce((acc, cur) => {
 
 ---
 
+## she's standard views
+
+When the home model is on, she keeps views of her own under `she/…` (`she/rooms`,
+`she/entities/by-room-function`, `she/topics`, …). They are recreated at every start and read-only
+here: only publishing to MQTT can be switched. The list is in the
+[sandbox API](../sandbox-api.md#standard-views).
+
+---
+
 ## Ad-hoc Queries in Scripts
 
 For one-off queries that don't need to be persisted as views, use
