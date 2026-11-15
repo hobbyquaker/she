@@ -409,17 +409,6 @@
             Packages
             {#if outdatedDepsCount > 0}<span class="nav-dot nav-dot--warn" title="{outdatedDepsCount} package update{outdatedDepsCount === 1 ? '' : 's'} available"></span>{/if}
         </button>
-        {#if stats?.dbEnabled}
-        <button class:active={page === 'home'} onclick={() => navigate('home')}>
-            <!-- Home icon: a house -->
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M2,7.5 L8,2.5 L14,7.5"/>
-                <path d="M3.5,6.5 L3.5,13.5 L12.5,13.5 L12.5,6.5"/>
-                <path d="M6.5,13.5 L6.5,9.5 L9.5,9.5 L9.5,13.5"/>
-            </svg>
-            Home
-        </button>
-        {/if}
         <button class:active={page === 'mqtt'} onclick={() => navigate('mqtt')}>
             <!-- MQTT logo: square badge with three arc-band cutouts from bottom-left corner (mqtt.org geometry).
                  A filled square reads heavier than the line-art icons around it, so it is drawn a touch smaller. -->
@@ -481,6 +470,18 @@
             {:else if matterStatus === 'some'}<span class="nav-dot nav-dot--warn" title="Some Matter devices offline"></span>
             {:else if matterStatus === 'offline'}<span class="nav-dot nav-dot--err" title="No Matter devices online"></span>
             {/if}
+        </button>
+        {/if}
+        {#if stats?.dbEnabled}
+        <button class:active={page === 'home'} onclick={() => navigate('home')}>
+            <!-- Meta icon: a note sheet with a pencil across it -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.5,1.5 H3 A1,1 0 0,0 2,2.5 V13.5 A1,1 0 0,0 3,14.5 H11 A1,1 0 0,0 12,13.5 V10"/>
+                <line x1="4.5" y1="5" x2="8.5" y2="5"/>
+                <line x1="4.5" y1="8" x2="7" y2="8"/>
+                <path d="M13.5,2.5 L15,4 L9.5,9.5 L7.5,10 L8,8 Z"/>
+            </svg>
+            Meta
         </button>
         {/if}
         {#if stats?.dbEnabled}

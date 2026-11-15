@@ -203,7 +203,7 @@ or deactivate a scene it publishes to the set topic, so the chat's confirmation 
 
 ## The Scenes page
 
-**Home → Scenes** in the web UI (the Home page's tab next to Rooms and Devices; it needs the home model switched on).
+**Meta → Scenes** in the web UI (the Meta page's tab next to Rooms and Devices; it needs the home model switched on).
 
 ![The scene editor: three members, one lamp dimmed by hand and listed as not matching](screenshots/home-scene-editor.png)
 

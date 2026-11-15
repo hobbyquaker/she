@@ -1,10 +1,10 @@
 <script lang="ts">
     /**
      * Pick entities of the home model: a search and filters (room, floor, function, component, and
-     * whether hidden and gone ones count) over a checkbox list. Used by the Home page to put
+     * whether hidden and gone ones count) over a checkbox list. Used by the Meta page to put
      * entities into a room and by anything else that needs a set of entities (scenes).
      *
-     * It takes the data from its caller (the Home page holds the model already) and binds the
+     * It takes the data from its caller (the Meta page holds the model already) and binds the
      * selection, a list of entity document ids. `multiple: false` keeps at most one.
      */
     import type { HomeEntity, HomeDevice, HomeRoom, HomeFloor, HomeFunction } from './api.js';

@@ -43,7 +43,7 @@ npm packages for the scripts: search, install, pin, update and remove. A script 
 
 ## Home
 
-![Home page, Rooms: floors and rooms on the left, the selected room with its aliases and what is in it](screenshots/home-rooms.png)
+![Meta page, Rooms: floors and rooms on the left, the selected room with its aliases and what is in it](screenshots/home-rooms.png)
 
 The home model that she keeps in sheDB from Home Assistant discovery (shown here with the anonymised discovery
 captures of the test suite). Rooms come from the areas devices announce (*auto*) or are created by hand, sit on floors
@@ -55,18 +55,18 @@ entities, grouped by device, and whether they are in it through their device or 
 **Add entities…** opens the entity picker: a search over names, devices and topics, filters for room, floor, function
 and component, and a choice between moving the entities here and adding the room to the ones they have.
 
-![Home page, Devices: devices with their entities, two selected, the bulk bar for rooms, labels and visibility](screenshots/home-devices.png)
+![Meta page, Devices: devices with their entities, two selected, the bulk bar for rooms, labels and visibility](screenshots/home-devices.png)
 
 The Devices tab lists every device with its entities — all, those in no room, those gone from discovery, the hidden
 ones. Ticked devices and entities get rooms, functions and labels in one go; dashed chips are inherited, solid ones
 assigned. A click opens a device or an entity on the right, with what it has assigned and what it inherits.
 
-![Home page, Functions: the rules of "Indoor climate" and the entities they catch](screenshots/home-functions.png)
+![Meta page, Functions: the rules of "Indoor climate" and the entities they catch](screenshots/home-functions.png)
 
 Functions sort entities by purpose. Their rules pick entities by component, device class and category; the editor
 shows what a draft catches before it is saved.
 
-![Home page, Scenes: a scene with three members, one lamp dimmed by hand, listed as not matching](screenshots/home-scene-editor.png)
+![Meta page, Scenes: a scene with three members, one lamp dimmed by hand, listed as not matching](screenshots/home-scene-editor.png)
 
 A scene stores the state of some entities and is on while they are in it, whoever brought them there. The editor shows
 each member's stored attributes with their tolerance next to the value the entity has now, and what does not match;

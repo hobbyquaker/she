@@ -1,6 +1,6 @@
 <script lang="ts">
     /**
-     * The Home page (roadmap U22): the home model that she keeps in sheDB from Home Assistant
+     * The Meta page (roadmap U22): the home model that she keeps in sheDB from Home Assistant
      * discovery — floors and rooms, the devices and entities in them, functions and labels.
      *
      * One read of the whole model (`GET /she/home/model`), refreshed when a `she/…` document
@@ -136,12 +136,12 @@
         <div class="info">The home model could not be read.</div>
     {:else if !status.available}
         <div class="intro">
-            <h2>Home</h2>
+            <h2>Meta</h2>
             <p>{status.reason ?? 'The home model is kept in sheDB, which is switched off.'} Switch sheDB on under Config → sheDB and restart she.</p>
         </div>
     {:else if !status.enabled}
         <div class="intro">
-            <h2>Home</h2>
+            <h2>Meta</h2>
             <p>she can keep a document in sheDB for every device and entity announced through Home Assistant MQTT discovery and organise them in floors, rooms, functions and labels. A new discovery area becomes a room; functions sort entities by purpose (lighting, shading, heating, …). Scripts read the model through <code>she.home</code>.</p>
             {#if !status.decided}
                 <p class="hint">It is off on this installation because it existed before the home model did. Switching it on writes one document per device and entity under <code>she/</code> and leaves your own documents alone. You can switch it off again on the Config page; the documents stay.</p>

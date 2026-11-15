@@ -62,7 +62,7 @@ The structure of a home is mostly announced already: zigbee2mqtt, ESPHome, Tasmo
 mqtt-smarthome adapters publish Home Assistant discovery configs that say which devices and entities exist and which
 topics belong to them. she keeps a copy of those in sheDB — the [home model](home-model.md) — with one document per
 device and per entity (`she/device/…`, `she/entity/…`), and lets you organise them in floors, rooms, functions and
-labels on the Home page. You do not write a device registry by hand.
+labels on the Meta page. You do not write a device registry by hand.
 
 ```js
 // every window contact in the bathroom, whatever adapter it comes from

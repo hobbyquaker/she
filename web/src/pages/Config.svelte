@@ -1504,7 +1504,7 @@
                     {#if !home.decided}
                     <p class="hint">New: she can mirror every discovered device into sheDB and organise them in rooms and functions. It is off on this installation because it existed before — switching it on writes one document per device and entity under <code>she/</code> and leaves your own documents alone.</p>
                     {:else if home.enabled && home.counts}
-                    <p class="hint">{home.counts.devices} device{home.counts.devices === 1 ? '' : 's'}, {home.counts.entities} entit{home.counts.entities === 1 ? 'y' : 'ies'}, {home.counts.rooms} room{home.counts.rooms === 1 ? '' : 's'}, {home.counts.functions} function{home.counts.functions === 1 ? '' : 's'}{home.counts.gone ? `, ${home.counts.gone} device${home.counts.gone === 1 ? '' : 's'} gone` : ''}. Rooms, functions and assignments are edited on the <a href="#/home">Home</a> page.</p>
+                    <p class="hint">{home.counts.devices} device{home.counts.devices === 1 ? '' : 's'}, {home.counts.entities} entit{home.counts.entities === 1 ? 'y' : 'ies'}, {home.counts.rooms} room{home.counts.rooms === 1 ? '' : 's'}, {home.counts.functions} function{home.counts.functions === 1 ? '' : 's'}{home.counts.gone ? `, ${home.counts.gone} device${home.counts.gone === 1 ? '' : 's'} gone` : ''}. Rooms, functions and assignments are edited on the <a href="#/home">Meta</a> page.</p>
                     {/if}
                     {#if homeErr}<p class="hint">{homeErr}</p>{/if}
                     {/if}

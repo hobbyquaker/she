@@ -313,7 +313,7 @@ Execute a view and return its results.
 The home model keeps a document in sheDB for every device and entity announced through Home Assistant MQTT discovery
 (`she/device/…`, `she/entity/…`) and the floors, rooms, functions and labels they are organised in. It needs sheDB;
 without it every route answers that it is not available. Changes are refused with **HTTP 409** while the model is
-switched off. The web UI's **Home** page is built on these routes.
+switched off. The web UI's **Meta** page is built on these routes.
 
 ### GET /she/home · PUT /she/home
 
@@ -367,7 +367,7 @@ announced is refused. **Response:** `{ "removed": [ … ], "errors": [ … ] }`.
 
 A scene stores the state of some entities of the home model and is itself a datapoint: `true` while every member is in
 that state (see [`she.scene`](sandbox-api.md) for the documents, the topics and what recall and deactivate do). These
-routes are what the **Scenes** tab of the Home page uses; without sheDB and the home model they answer **HTTP 503**
+routes are what the **Scenes** tab of the Meta page uses; without sheDB and the home model they answer **HTTP 503**
 (`GET /she/scenes` says `available: false`).
 
 ### GET /she/scenes

@@ -4,7 +4,7 @@ Scripts written against rooms, functions and labels of the [home model](../home-
 of them names a device: a new window contact in the bathroom, a replaced lamp or a sensor moved to another room is
 picked up without touching the script. They need sheDB and the home model switched on.
 
-The room ids (`bathroom`, `living-room`, …) and the label names are examples — use yours from the Home page. `she`
+The room ids (`bathroom`, `living-room`, …) and the label names are examples — use yours from the Meta page. `she`
 in a topic is the instance name (`--name`, `she` by default).
 
 ---
@@ -161,7 +161,7 @@ keeps the log to what matters, and `change: true` leaves out repeated reports.
 ## Motion light per room
 
 An occupancy or motion sensor switches the lights of its own room that carry the label `motion`; at night only those
-labelled `night`, dimmed. A new sensor or lamp only needs a room and a label on the Home page. The light goes off three
+labelled `night`, dimmed. A new sensor or lamp only needs a room and a label on the Meta page. The light goes off three
 minutes after the last motion.
 
 ```js

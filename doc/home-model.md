@@ -13,7 +13,7 @@ upper floor", and keeps working when a device is replaced, added or moved to ano
 - [What she keeps](#what-she-keeps)
 - [Rooms and floors](#rooms-and-floors)
 - [Functions and labels](#functions-and-labels)
-- [The Home page](#the-home-page)
+- [The Meta page](#the-meta-page)
 - [In scripts](#in-scripts)
 - [Standard views](#standard-views)
 - [Room, floor and house aggregates](#room-floor-and-house-aggregates)
@@ -49,11 +49,11 @@ One document per device and one per entity, under `she/device/…` and `she/enti
 | Section | Written by | Holds |
 |---|---|---|
 | `ha` | she, from the discovery config | the announced name, component, device class, unit, the expanded config, the topics, the device block (manufacturer, model, `suggested_area`, …), the adapter (`origin`), `present` and `gone_since` |
-| `user` | you (the Home page, `she.home.assign()`) | your name, rooms, functions, labels, hidden, notes — never written by she |
+| `user` | you (the Meta page, `she.home.assign()`) | your name, rooms, functions, labels, hidden, notes — never written by she |
 | `eff` | she | the effective values: what you assigned, else what is inherited (from the device, from the announced area, from the function rules) |
 
 A device or entity that is no longer announced is **not deleted**: it is marked `present: false` with
-`gone_since`, so a device that comes back finds its rooms and names again. Gone devices are listed on the Home page
+`gone_since`, so a device that comes back finds its rooms and names again. Gone devices are listed on the Meta page
 (and in the view `she/devices/gone`) and can be removed there. The first check for gone devices runs 30 seconds after
 the start, once the broker's retained state is complete.
 
@@ -69,15 +69,15 @@ out unless they ask for them.
 - **Rooms come from the announcements.** A device's `suggested_area` (zigbee2mqtt, ESPHome and many adapters can
   set one) becomes a room the first time it appears — "Küche" becomes the room `kueche`. A device without an area is
   in no room until you put it in one.
-- **Spellings are merged.** When "Kitchen" and "Küche" are the same room, merge one into the other on the Home page:
+- **Spellings are merged.** When "Kitchen" and "Küche" are the same room, merge one into the other on the Meta page:
   the other name becomes an *alias*, so a later announcement with either spelling lands in the kept room, and every
   assignment and every scene that pointed at the merged room is moved.
 - **Deleting a room that came from an area** keeps a note of it, so the next announcement does not create it again;
-  the Home page lists such areas and can bring them back.
+  the Meta page lists such areas and can bring them back.
 - **An entity can be in several rooms.** A hallway light that lights the stairs too belongs to both. Rooms are set
   per entity and inherited from the device: put the device in a room, and the one entity that is elsewhere gets a
   room of its own.
-- **A room has one floor.** Floors have a name, a level and an order; the Home page orders floors and rooms.
+- **A room has one floor.** Floors have a name, a level and an order; the Meta page orders floors and rooms.
 
 ## Functions and labels
 
@@ -96,16 +96,16 @@ A **function** says what an entity is for, independent of the room. she creates 
 | `media` | nothing — discovery has no media player; assign what plays media by hand |
 | `maintenance` | battery sensors, problem and update sensors, update entities |
 
-Each function has **rules** (component, device class, entity category, exceptions); the Home page edits them with a
+Each function has **rules** (component, device class, entity category, exceptions); the Meta page edits them with a
 live preview of what they catch. An entity can have several functions; what you assign to an entity replaces the
 rules for it. A smart plug that switches a lamp is a `switch` — give it `lighting` by hand, and it counts as a light.
 
 **Labels** are your own groups across rooms and functions: `evening`, `motion`, `keep`. They are created by naming
 them.
 
-## The Home page
+## The Meta page
 
-**Home** in the navigation (shown when sheDB is on):
+**Meta** in the navigation, between Matter and DB (shown when sheDB is on):
 
 - **Rooms** — floors with their rooms in order; create, rename, give aliases, icons and a floor; merge rooms; the
   entities of a room grouped by device, with "Add entities…" to move entities here or add the room to them.
