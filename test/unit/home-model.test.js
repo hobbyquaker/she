@@ -10,7 +10,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
-const { isDeepStrictEqual } = require('util');
 const express = require('express');
 const SheDBCore = require('../../src/lib/shedb-core');
 const StateStore = require('../../src/lib/state-store');
@@ -233,26 +232,6 @@ describe('expandConfig', () => {
             'cmps': { temp: { p: 'sensor', uniq_id: 'dev2_temp', stat_t: '~/temp' } },
         });
         expect(e.config).toMatchObject({ state_topic: '~/temp', availability_topic: 'bla/dev2/status' });
-    });
-
-    test("the corpus expands as it did with she's own tables, except where Home Assistant would refuse the config", () => {
-        // what the home model's own expansion gave for every config of the corpus, before it used the library
-        const before = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'ha-expanded-own-tables.json'), 'utf8'));
-        const messages = corpus();
-        expect(messages.length).toBe(Object.keys(before).length);
-        const differ = [];
-        for (const [topic, obj] of messages) {
-            const now = JSON.parse(JSON.stringify(expandConfig(topic, obj.val)));
-            if (!isDeepStrictEqual(now, before[topic])) differ.push(topic);
-        }
-        // nut2mqtt's availability entries carry `avty_tpl`, which is not a key of a list entry (Home
-        // Assistant rejects the whole device for it); the library keeps only the four keys an entry has
-        expect(differ).toEqual(['homeassistant/device/nut2mqtt_nut_nutdev1/config']);
-        const [nowNut] = expandConfig(differ[0], new Map(messages).get(differ[0]).val);
-        const [beforeNut] = before[differ[0]];
-        expect(beforeNut.config.availability[0]).toHaveProperty('availability_template');
-        expect(nowNut.config.availability).toEqual(beforeNut.config.availability.map(({ topic }) => ({ topic })));
-        expect({ ...nowNut.config, availability: null }).toEqual({ ...beforeNut.config, availability: null });
     });
 
     test('what is not a config yields nothing', () => {

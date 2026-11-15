@@ -11,7 +11,3 @@ adapters) and anonymised — device names, hostnames, addresses, serial numbers 
 by hand in the shape those projects document.
 
 Nothing from a real installation goes in here without being anonymised first.
-
-`../ha-expanded-own-tables.json` is what the home model's expansion gave for every config of this
-corpus while it still had Home Assistant's abbreviation tables of its own, keyed by topic.
-`home-model.test.js` compares the expansion through mqtt-ha-entities against it.
