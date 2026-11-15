@@ -109,12 +109,28 @@ she.home.entities([selection])         entity summaries by name: { id: 'she/enti
     functions (ids): lighting, shading, heating, climate, openings, security, energy, presence, media, maintenance (+ the user's own)
 she.home.sub(selection, [{ change }], cb)   cb(entity, val, obj, prev, topic) on every message on a state topic of the selection;
                                         follows added/moved entities; → { entities(), cancel() }; val is the raw payload (z2m: an object)
+she.home.entity(idOrTopic)             ONE entity with live state and commands in Home Assistant terms; null when unknown.
+                                        idOrTopic = she/entity/… | unique_id | a topic it reads or writes. The summary fields plus:
+    .state()        { state: 'ON', brightness: 102, color_temp: 370 } — read through the discovery config and its templates;
+                    attributes nothing was received for are left out. PREFER THIS over parsing device payloads yourself.
+    .available()    true | false | undefined (availability topics silent)
+    .turnOn([attrs]) / .turnOff()   light, switch, fan: ON/OFF; cover: open/closed; button, scene: trigger; NOT a lock (set({ state: 'LOCKED' | 'UNLOCKED' }))
+    .setPosition(0-100) (100 = open)   .setTemperature(n)   .trigger()   .set({ any attributes }) → the publishes sent
+    .snapshot() → the settable part of the state; .set(snapshot) restores it.  .matches(expected, [{ tolerances }]) → { match, unknown, mismatches }
+    .sub((now, before) => …)   { state, available, present }; fires only when state or availability CHANGES; cancelled on unload
+    .attributes     { name: { read, write, min?, max?, step?, unit?, options? } } — what THIS entity tells and takes; .primary; .stateless; .topics
+    attributes: light state ON|OFF, brightness 0-255, color_temp (mireds), hs [0-360, 0-100], xy, rgb, effect, color_mode;
+        switch/binary_sensor state ON|OFF; cover state open|closed|opening|closing|stopped, position, tilt (%, 100 = open);
+        climate mode, temperature, temperature_low/high, fan_mode, preset_mode (+ read-only current_temperature, action);
+        fan state, percentage, preset_mode; lock state LOCKED|UNLOCKED; select option; number/sensor value
+    What an entity cannot take is not sent; the script log says why. Nothing throws for it.
 she.home.assign(id, { name, rooms, functions, labels, hidden, notes })   id = she/entity/… | she/device/… | unique_id;
                                         null = inherit again, [] = none on purpose → the summary afterwards; mistakes throw
 Standard views (she.db.getView, read-only, objects): she/floors, she/rooms, she/entities/by-room ({room: [summary]}, "" = no room),
     by-floor, by-function, by-room-function ({room: {function: [summary]}}), by-component, by-label, she/topics ({state topic: [summary]}),
     she/devices/by-adapter, she/devices/unassigned ({devices, entities}), she/devices/gone, she/entities/battery
-Write scripts against rooms and functions, not topics: she.home.entities({ room: 'bathroom', function: 'openings' }).
+Write scripts against rooms and functions, not topics: she.home.entities({ room: 'bathroom', function: 'openings' }),
+    and act on them through she.home.entity(e.id): for (const e of she.home.entities({ room: 'hall', function: 'lighting' })) she.home.entity(e.id).turnOff();
 ```
 
 ### Matter (use names for node, endpoint and cluster)
