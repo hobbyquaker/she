@@ -17,11 +17,11 @@
  */
 
 const fs = require('fs');
-const vm = require('vm');
 const path = require('path');
 const { Worker } = require('worker_threads');
 const { EventEmitter } = require('events');
 const mqttWildcard = require('./mqtt-wildcards');
+const { compileView, resultLength } = require('./shedb-view');
 
 // ---------------------------------------------------------------------------
 // Inline obj-ease equivalents (dot-notation property helpers)
@@ -397,7 +397,7 @@ class SheDBCore extends EventEmitter {
             }
 
             if (!deepEqual(msg.result, prev.result)) {
-                this.views[id] = { _id: id, _rev: (prev._rev ?? -1) + 1, result: msg.result, length: msg.result.length };
+                this.views[id] = { _id: id, _rev: (prev._rev ?? -1) + 1, result: msg.result, length: resultLength(msg.result) };
                 delete this.views[id].error;
                 this.emit('view', id, this.views[id]);
                 this._saveViews();
@@ -447,18 +447,8 @@ class SheDBCore extends EventEmitter {
         if (!this._viewEnvs[id]) this._viewEnvs[id] = {};
         const env = this._viewEnvs[id];
 
-        let src = `api.map = function() {\n${map}\n};\napi._result = [];\n`;
-        if (filter) {
-            src += `api.forEachDocument(docId => { if (api.mqttWildcard(docId, ${JSON.stringify(filter)})) api.map.apply(api.getDocument(docId)); });\n`;
-        } else {
-            src += `api.forEachDocument(docId => { api.map.apply(api.getDocument(docId)); });\n`;
-        }
-        if (reduce) {
-            src += `api.reduce = function(result) {\n${reduce}\n};\napi._result = api.reduce(api._result);\n`;
-        }
-
         try {
-            new vm.Script(src, { filename: 'shedb-view-' + id });
+            compileView(id, { filter, map, reduce });
             delete env.compileError;
             return true;
         } catch (err) {

@@ -19,6 +19,7 @@ Every `.js` file loaded by **she** runs in an isolated VM sandbox. All sandbox m
 - [she.secrets](#shesecrets)
 - [she.api — Script HTTP routes](#sheapi----script-http-routes)
 - [she.db — sheDB document store](#shedb----shedb-document-store)
+- [she.home — Home model](#shehome----home-model)
 - [she.matter — Matter integration](#shematter----matter-integration)
 - [she.influx — InfluxDB integration](#sheinflux----influxdb-integration)
 - [she.elastic — Elasticsearch integration](#sheelastic----elasticsearch-integration)
@@ -1097,6 +1098,103 @@ she.schedule('*/1 * * * *', () => {
     she.info('active devices:', devices?.length ?? 0);
 });
 ```
+
+## she.home -- Home model
+
+The home model (sheDB, switched on in the Config page) keeps a document for every device and entity announced through Home Assistant MQTT discovery, with the rooms, floors, functions and labels they belong to. `she.home` reads it and changes the assignments; the scripts are then written against rooms and functions instead of topics, and keep working when a device is replaced or moved. It needs sheDB (`--db-path`); without it every call throws.
+
+What the calls return are **entity summaries** — the same objects as in the [standard views](#standard-views):
+
+```js
+{
+    id: 'she/entity/0x00124b0000000001_light_zigbee2mqtt', // the document
+    source: 'ha',
+    name: 'Hallway lamp',
+    rooms: ['living-room', 'kitchen'],   // an entity can be in several rooms
+    floors: ['ground'],
+    functions: ['lighting'],
+    labels: ['evening'],
+    component: 'light',                  // the Home Assistant platform
+    device_class: null,
+    unit: null,
+    state_topic: 'zigbee2mqtt/hallway',
+    command_topic: 'zigbee2mqtt/hallway/set',
+    device: 'she/device/zigbee2mqtt_0x00124b0000000001',
+}
+```
+
+A **selection** is `{ room, floor, function, label, component, hidden }`; every key given must match. `room` takes a room's id, name or alias, and `''` selects the entities without a room. Only entities that are announced and not hidden are listed; `hidden: true` lists the hidden ones too (diagnostic and configuration entities, and what the user hid).
+
+### she.home.floors()
+
+`[{ id, name, level, order, rooms }]` by order — `rooms` are the ids of the floor's rooms.
+
+### she.home.rooms()
+
+`[{ id, name, floor, order, icon, aliases, entities }]` by floor and order; `entities` is the number of entities in the room.
+
+### she.home.entities([selection])
+
+The entity summaries of the selection, by name. Read from the documents at the call, so an `assign` shows at once.
+
+```js
+// every window contact in the bathroom
+for (const e of she.home.entities({ room: 'bathroom', function: 'openings' })) she.log(e.name, she.mqtt.get(e.state_topic));
+```
+
+### she.home.sub(selection, [options], callback)
+
+Calls `callback(entity, val, obj, prev, topic)` for every message on a state topic of the selection. When entities are added, moved or removed, the subscription follows. `options.change`: only when the value changes. Returns `{ entities(), cancel() }`; a reload cancels it like every subscription.
+
+```js
+// a light in the living room changed (zigbee2mqtt sends a JSON state)
+she.home.sub({ room: 'living-room', function: 'lighting' }, { change: true }, (e, val) => {
+    she.log(e.name, val && val.state);
+});
+```
+
+`val` is the raw payload of the topic. Reading a state the way Home Assistant does (`value_template`, `state_on`, …) and HA-level commands are a later part of `she.home`.
+
+### she.home.assign(id, patch)
+
+Change what is assigned to an entity or a device: `name`, `rooms`, `functions` (entities only), `labels`, `hidden`, `notes`. `null` removes the assignment, so the value is inherited again (from the device, from the announced area, from the function rules); `[]` means "none, on purpose". `id` is `she/entity/…`, `she/device/…` or an entity's `unique_id`. Room references may be names or aliases; unknown labels are created. Returns the summary afterwards; a mistake throws.
+
+```js
+she.home.assign('she/entity/0x00124b0000000001_light_zigbee2mqtt', { rooms: ['living-room', 'kitchen'], labels: ['evening'] });
+```
+
+### Standard views
+
+While the model is on, she keeps these sheDB views under `she/…`. They are recreated at every start, read-only in the views editor (only *Publish to MQTT* and *Retain* can be switched, so a dashboard can take them from `she/db/view/<id>`), and carry a `version`. Their results are objects or arrays as below; read them with `she.db.getView(id)`.
+
+| View | Result |
+|---|---|
+| `she/floors` | `[{id, name, level, order, rooms}]` |
+| `she/rooms` | `[{id, name, floor, order, icon, aliases, entities}]`, by floor and order |
+| `she/entities/by-room` | `{room: [summary]}` — an entity in two rooms is in both; without a room under `""` |
+| `she/entities/by-floor` | `{floor: [summary]}` — once per floor; without a floor under `""` |
+| `she/entities/by-function` | `{function: [summary]}` |
+| `she/entities/by-room-function` | `{room: {function: [summary]}}` — `getView(…).kitchen.lighting` |
+| `she/entities/by-component` | `{light: [summary], cover: […], …}` |
+| `she/entities/by-label` | `{label: [summary]}` |
+| `she/topics` | `{state topic: [summary]}` — every state topic and the entities that read it, hidden ones too; a list, because one topic (a zigbee2mqtt device) can carry several entities |
+| `she/devices/by-adapter` | `{origin name: [device summary]}` |
+| `she/devices/unassigned` | `{devices: [device summary], entities: [summary]}` — without a room, not hidden; an entity only when its device has a room (or there is none) |
+| `she/devices/gone` | `[device summary]` no longer announced, the most recent `gone_since` first |
+| `she/entities/battery` | `[summary + device_name]` — `device_class` battery, hidden ones too, by room and name |
+
+A **device summary** is `{id, name, rooms, floors, labels, adapter, manufacturer, model, present, gone_since, entities}` (`entities` = how many). The by-… views list entities that are announced and not hidden.
+
+```js
+// What is this message about?
+she.mqtt.sub('zigbee2mqtt/#', (topic, val) => {
+    for (const e of she.db.getView('she/topics')?.[topic] ?? []) {
+        if (e.functions.includes('security')) she.log('security event in', e.rooms.join(', '), e.name, val);
+    }
+});
+```
+
+---
 
 ## she.matter -- Matter integration
 

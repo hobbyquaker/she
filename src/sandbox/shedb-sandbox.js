@@ -19,6 +19,7 @@
  */
 
 const { getCore, addListener, removeListenersByScript, addViewListener, removeViewListenersByScript } = require('../web/shedb');
+const { isSystemView } = require('../lib/home-views');
 
 module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
     const core = getCore();
@@ -123,6 +124,7 @@ module.exports = function (she, { scriptDomain, scriptName, scriptFile }) {
          */
         setView(id, definition) {
             if (!core) return;
+            if (isSystemView(core.queries[id])) throw new Error(`she.db.setView: "${id}" is one of she's standard views and read-only`);
             if (!definition || typeof definition !== 'object') return;
             const { map, filter, reduce, publish, retain, description } = definition;
             if (typeof map !== 'string' || !map.trim()) return;

@@ -10,6 +10,7 @@
         jsonSchema = null,
         markers = null,
         onMarkers,
+        readOnly = false,
     }: {
         value?: string;
         language?: string;
@@ -20,6 +21,8 @@
         markers?: monaco.editor.IMarkerData[] | null;
         /** called with the current markers of this editor's model whenever they change */
         onMarkers?: (markers: monaco.editor.IMarker[]) => void;
+        /** shows the text without letting it be changed */
+        readOnly?: boolean;
     } = $props();
 
     let container: HTMLDivElement;
@@ -50,6 +53,7 @@
             renderLineHighlight: 'none',
             overviewRulerLanes: 0,
             scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+            readOnly,
             ...langOpts,
         });
 
@@ -117,6 +121,11 @@
         const model = editor.getModel();
         if (!model) return;
         monaco.editor.setModelMarkers(model, 'she-external', markers ?? []);
+    });
+
+    $effect(() => {
+        const ro = readOnly;
+        if (editor) editor.updateOptions({ readOnly: ro });
     });
 
     onDestroy(() => editor?.dispose());

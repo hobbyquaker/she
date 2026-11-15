@@ -2207,7 +2207,18 @@ function runScript(script, name, _origin, source) {
         warn: (msg) => log.warn(logLabel, msg),
     });
     sandboxModules.forEach((md) => {
-        md(she, { scriptDomain, scriptName, scriptFile: name, mqttScope });
+        md(she, {
+            scriptDomain,
+            scriptName,
+            scriptFile: name,
+            mqttScope,
+            store,
+            onUnload: (fn) => {
+                _myHooks.add(fn);
+                return () => _myHooks.delete(fn);
+            },
+            warn: (msg) => log.warn(logLabel, msg),
+        });
     });
 
     // Lint before the script runs: a literal topic that an adapter writes as status is a command

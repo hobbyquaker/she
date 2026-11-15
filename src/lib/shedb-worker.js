@@ -20,8 +20,8 @@
  */
 
 const { parentPort, workerData } = require('worker_threads');
-const vm = require('vm');
 const mqttWildcard = require('./mqtt-wildcards');
+const { compileView, runView } = require('./shedb-view');
 
 const TIMEOUT = (workerData && workerData.scriptTimeout) || 5000;
 
@@ -29,15 +29,6 @@ let docs = {};
 const queries = {};
 let queue = new Set();
 let running = false;
-
-// ---------------------------------------------------------------------------
-// Helpers (inlined — worker has no access to main-thread closures)
-// ---------------------------------------------------------------------------
-
-function getProp(obj, propPath) {
-    if (obj == null || !propPath) return undefined;
-    return propPath.split('.').reduce((cur, k) => (cur != null ? cur[k] : undefined), obj);
-}
 
 // Enqueue only the views whose filter matches the changed doc id.
 // Views with no filter must always re-run (they iterate all docs).
@@ -74,22 +65,9 @@ function buildAndRun(id) {
         return;
     }
 
-    // Sandbox — uses the live docs object (updated by patch/del messages)
-    const sandbox = {
-        api: {
-            forEachDocument: (cb) => Object.keys(docs).forEach(cb),
-            getDocument: (docId) => docs[docId],
-            getProp,
-            mqttWildcard,
-            _result: [],
-        },
-    };
-    sandbox.emit = (item) => sandbox.api._result.push(item);
-
+    // runs over the live docs object (updated by patch/del messages)
     try {
-        const ctx = vm.createContext(sandbox);
-        q.script.runInContext(ctx, { timeout: TIMEOUT });
-        parentPort.postMessage({ type: 'view', id, result: Array.from(ctx.api._result) });
+        parentPort.postMessage({ type: 'view', id, result: runView(q.script, docs, TIMEOUT) });
     } catch (err) {
         parentPort.postMessage({ type: 'view', id, error: 'runtime: ' + err.message });
     }
@@ -120,19 +98,9 @@ parentPort.on('message', (msg) => {
             break;
 
         case 'query': {
-            const { filter, map, reduce } = msg.payload;
-            let src = `api.map = function() {\n${map}\n};\napi._result = [];\n`;
-            if (filter) {
-                src += `api.forEachDocument(docId => { if (api.mqttWildcard(docId, ${JSON.stringify(filter)})) api.map.apply(api.getDocument(docId)); });\n`;
-            } else {
-                src += `api.forEachDocument(docId => { api.map.apply(api.getDocument(docId)); });\n`;
-            }
-            if (reduce) {
-                src += `api.reduce = function(result) {\n${reduce}\n};\napi._result = api.reduce(api._result);\n`;
-            }
             let script;
             try {
-                script = new vm.Script(src, { filename: 'shedb-view-' + msg.id });
+                script = compileView(msg.id, msg.payload);
             } catch (err) {
                 parentPort.postMessage({ type: 'view', id: msg.id, error: 'compile: ' + err.message });
                 break;

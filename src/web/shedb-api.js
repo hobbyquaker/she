@@ -93,6 +93,8 @@ router.use('/docs', (req, res) => {
 // /she/db/views — named view CRUD
 // ---------------------------------------------------------------------------
 
+const { isSystemView } = require('../lib/home-views');
+
 router.use('/views', (req, res) => {
     const core = getCore();
     if (!core) return core503(res);
@@ -135,6 +137,17 @@ router.use('/views', (req, res) => {
     if (method === 'PUT') {
         if (!id || isResult) return res.status(400).json({ error: 'id required' });
         const { filter, map, reduce, mqttpub, retain, description } = req.body || {};
+        // she's own views (the home model's standard views) are read-only: only the switches change
+        const cur = core.queries[id];
+        if (isSystemView(cur)) {
+            const next = { ...cur };
+            delete next.mqttpub;
+            delete next.retain;
+            if (mqttpub) next.mqttpub = true;
+            if (retain) next.retain = true;
+            core.query(id, next);
+            return res.json({ ok: true, system: true });
+        }
         if (typeof map !== 'string' || !map.trim()) return res.status(400).json({ error: '"map" function string is required' });
         const payload = {
             filter: filter || undefined,
@@ -151,6 +164,7 @@ router.use('/views', (req, res) => {
     // DELETE /she/db/views/<id>
     if (method === 'DELETE') {
         if (!id || isResult) return res.status(400).json({ error: 'id required' });
+        if (isSystemView(core.queries[id])) return res.status(403).json({ error: `"${id}" is one of she's standard views — switch the home model off to remove them` });
         core.query(id, '');
         return res.json({ ok: true });
     }
