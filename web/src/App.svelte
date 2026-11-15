@@ -11,12 +11,13 @@
     import Services from './pages/Services.svelte';
     import Secrets from './pages/Secrets.svelte';
     import Runtime from './pages/Runtime.svelte';
+    import Home from './pages/Home.svelte';
     import { getAuthMode, login, logout, onUnauthorized, getDaemonStatus, restartDaemon, updateDaemon, checkForUpdate, getConfig, getOutdatedDeps, type AuthMode, type AuthModeResponse, type DaemonStatus } from './lib/api.js';
     import ConfirmDialog from './lib/ConfirmDialog.svelte';
     import { subscribeWs, subscribeLog, getLogBuffer, ensureConnected } from './lib/ws.js';
 
-    type Page = 'scripts' | 'mqtt' | 'matter' | 'broker' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages' | 'runtime';
-    const validPages: Page[] = ['scripts', 'mqtt', 'matter', 'broker', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages', 'runtime'];
+    type Page = 'scripts' | 'home' | 'mqtt' | 'matter' | 'broker' | 'adapters' | 'secrets' | 'db' | 'logs' | 'config' | 'packages' | 'runtime';
+    const validPages: Page[] = ['scripts', 'home', 'mqtt', 'matter', 'broker', 'adapters', 'secrets', 'db', 'logs', 'config', 'packages', 'runtime'];
     /** pages that were once called something else — old bookmarks keep working */
     const RENAMED: Record<string, Page> = { services: 'adapters', security: 'broker' };
 
@@ -317,6 +318,8 @@
             if (!stats?.matterEnabled && page === 'matter') navigate('scripts');
             // Redirect away from DB page if sheDB is not enabled at runtime
             if (!stats?.dbEnabled && page === 'db') navigate('scripts');
+            // the home model lives in sheDB
+            if (!stats?.dbEnabled && page === 'home') navigate('scripts');
         }
         pollStatus();
         const statusInterval = setInterval(pollStatus, 5000);
@@ -406,6 +409,17 @@
             Packages
             {#if outdatedDepsCount > 0}<span class="nav-dot nav-dot--warn" title="{outdatedDepsCount} package update{outdatedDepsCount === 1 ? '' : 's'} available"></span>{/if}
         </button>
+        {#if stats?.dbEnabled}
+        <button class:active={page === 'home'} onclick={() => navigate('home')}>
+            <!-- Home icon: a house -->
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2,7.5 L8,2.5 L14,7.5"/>
+                <path d="M3.5,6.5 L3.5,13.5 L12.5,13.5 L12.5,6.5"/>
+                <path d="M6.5,13.5 L6.5,9.5 L9.5,9.5 L9.5,13.5"/>
+            </svg>
+            Home
+        </button>
+        {/if}
         <button class:active={page === 'mqtt'} onclick={() => navigate('mqtt')}>
             <!-- MQTT logo: square badge with three arc-band cutouts from bottom-left corner (mqtt.org geometry).
                  A filled square reads heavier than the line-art icons around it, so it is drawn a touch smaller. -->
@@ -589,6 +603,7 @@
         <ConfirmDialog bind:this={dialog} />
         <div class="page-wrap" class:hidden={page !== 'scripts'}><Scripts active={page === 'scripts'} sub={page === 'scripts' ? sub : null} onsub={(s) => setSub('scripts', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'packages'}><Packages /></div>
+        {#if stats?.dbEnabled}<div class="page-wrap" class:hidden={page !== 'home'}><Home active={page === 'home'} sub={page === 'home' ? sub : null} onsub={(s) => setSub('home', s)} /></div>{/if}
         <div class="page-wrap" class:hidden={page !== 'mqtt'}><MQTT active={page === 'mqtt'} sub={page === 'mqtt' ? sub : null} onsub={(s) => setSub('mqtt', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'matter'}><Matter active={page === 'matter'} sub={page === 'matter' ? sub : null} onsub={(s) => setSub('matter', s)} /></div>
         <div class="page-wrap" class:hidden={page !== 'broker'}><Security active={page === 'broker'} sub={page === 'broker' ? sub : null} onsub={(s) => setSub('broker', s)} /></div>

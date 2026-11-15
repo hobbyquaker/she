@@ -301,6 +301,71 @@ export function setHomeEnabled(enabled: boolean, language?: string): Promise<Hom
     return request('PUT', '/she/home', { enabled, language });
 }
 
+/** A rule of a function: each field a value or a list, `null` = "not set"; `not` must not match. */
+export interface HomeRule {
+    component?: string | null | (string | null)[];
+    device_class?: string | null | (string | null)[];
+    entity_category?: string | null | (string | null)[];
+    not?: HomeRule | HomeRule[];
+}
+export interface HomeFloor { id: string; name: string; level: number | null; order: number | null; icon: string | null; [k: string]: unknown }
+export interface HomeRoom { id: string; name: string; floor: string | null; order: number | null; icon: string | null; aliases: string[]; auto?: boolean; rejected?: boolean; [k: string]: unknown }
+export interface HomeFunction { id: string; name: string; icon: string | null; order: number | null; rules: HomeRule[]; seeded?: boolean; [k: string]: unknown }
+export interface HomeLabel { id: string; name: string; icon: string | null; order: number | null; [k: string]: unknown }
+/** What a person assigned; a missing field is inherited, `[]` is "none, on purpose". */
+export interface HomeUser { name?: string; rooms?: string[]; functions?: string[]; labels?: string[]; hidden?: boolean; notes?: string }
+export interface HomeDevice {
+    id: string;
+    ha: { identifiers: string[]; name: string | null; manufacturer: string | null; model: string | null; suggested_area: string | null; via_device: string | null; origin: { name: string | null } | null; entities: string[]; present: boolean; gone_since: number | null };
+    user: HomeUser;
+    eff: { name: string | null; rooms: string[]; floors: string[]; labels: string[]; hidden: boolean; adapter: string | null };
+}
+export interface HomeEntity {
+    id: string;
+    ha: { unique_id: string; device: string | null; component: string; device_class: string | null; entity_category: string | null; name: string | null; icon: string | null; unit: string | null; state_topic: string | null; present: boolean; gone_since: number | null };
+    user: HomeUser;
+    eff: { name: string | null; rooms: string[]; floors: string[]; functions: string[]; labels: string[]; hidden: boolean };
+}
+export interface HomeModelData {
+    status: HomeStatus;
+    floors?: HomeFloor[];
+    rooms?: HomeRoom[];
+    rejected?: HomeRoom[];
+    functions?: HomeFunction[];
+    labels?: HomeLabel[];
+    devices?: HomeDevice[];
+    entities?: HomeEntity[];
+}
+export type HomeKind = 'floors' | 'rooms' | 'functions' | 'labels';
+export interface HomeAssignResult { updated: number; errors: { id: string; error: string }[] }
+
+export function getHomeModel(): Promise<HomeModelData> {
+    return request('GET', '/she/home/model');
+}
+export function createHomeItem(kind: HomeKind, input: Record<string, unknown>): Promise<{ id: string }> {
+    return request('POST', `/she/home/${kind}`, input);
+}
+/** A field set to null is removed (floor, icon, order, level: set to null). */
+export function updateHomeItem(kind: HomeKind, id: string, patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return request('PATCH', `/she/home/${kind}/${encodeURIComponent(id)}`, patch);
+}
+export function deleteHomeItem(kind: HomeKind, id: string, opts: { purge?: boolean } = {}): Promise<{ ok: boolean }> {
+    return request('DELETE', `/she/home/${kind}/${encodeURIComponent(id)}${opts.purge ? '?purge=1' : ''}`);
+}
+export function mergeHomeRooms(keep: string, others: string[]): Promise<HomeRoom> {
+    return request('POST', '/she/home/rooms/merge', { keep, others });
+}
+export function restoreHomeRoom(id: string): Promise<{ id: string }> {
+    return request('POST', '/she/home/rooms/restore', { id });
+}
+/** `set`: user fields as given (null = inherit again); `add` / `remove`: rooms, functions, labels. */
+export function assignHome(ids: string[], ops: { set?: Partial<Record<keyof HomeUser, unknown>>; add?: Partial<Record<'rooms' | 'functions' | 'labels', string[]>>; remove?: Partial<Record<'rooms' | 'functions' | 'labels', string[]>> }): Promise<HomeAssignResult> {
+    return request('POST', '/she/home/assign', { ids, ...ops });
+}
+export function removeHomeItems(ids: string[]): Promise<{ removed: string[]; errors: { id: string; error: string }[] }> {
+    return request('POST', '/she/home/remove', { ids });
+}
+
 // ---- Secrets (A5): write-only, values never come back ----
 
 export interface SecretField {
