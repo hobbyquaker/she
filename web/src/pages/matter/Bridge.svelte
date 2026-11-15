@@ -1,7 +1,8 @@
 <script lang="ts">
     /**
      * The MQTT tab of the Matter page (roadmap M19, D-25/D-26): the Matter ↔ MQTT bridge — on/off,
-     * the topic templates and the payload format, the devices with their MQTT names.
+     * the topic templates and the payload format, the devices with their MQTT names — and the
+     * Home Assistant discovery announcement of the devices, a switch of its own (roadmap M34).
      */
     import { onDestroy, untrack } from 'svelte';
     import { subscribeWs } from '../../lib/ws.js';
@@ -71,6 +72,13 @@
     function toggle() {
         if (!data) return;
         apply({ enabled: !data.enabled }, data.enabled ? 'Bridge switched off — its retained topics were cleared.' : 'Bridge switched on.');
+    }
+    function toggleDiscovery() {
+        if (!data) return;
+        apply(
+            { discovery: !data.discovery.enabled },
+            data.discovery.enabled ? 'Announcement switched off — the discovery configs were cleared.' : data.enabled ? 'Announcement switched on.' : 'Announcement switched on — it starts with the bridge.',
+        );
     }
     function save() {
         if (!edit) return;
@@ -165,7 +173,18 @@
                     <button class="ghost" onclick={resetDefaults} disabled={busy}>Reset to defaults</button>
                     {#if dirty && data.enabled}<span class="hint">Saving clears the bridge's retained topics and republishes under the new ones.</span>{/if}
                 </div>
-                <p class="hint">On <code>set</code>: <code>on_off/on_off</code> true/false → on/off, "toggle" → toggle; <code>level_control/current_level</code> → moveToLevel; <code>window_covering/current_position_lift_percent100ths</code> → goToLiftPercentage; <code>color_control/color_temperature_mireds</code> → moveToColorTemperature; a command name runs that command with the payload object as its fields; anything else is an attribute write. The bridge does not echo a set — the status follows from the device's report.</p>
+                <p class="hint">On <code>set</code>: <code>on_off/on_off</code> true/false → on/off, "toggle" → toggle; <code>level_control/current_level</code> → moveToLevel; <code>window_covering/current_position_lift_percent100ths</code> → goToLiftPercentage; <code>color_control/color_temperature_mireds</code> → moveToColorTemperature; <code>window_covering/operational_status</code> OPEN / CLOSE / STOP → upOrOpen / downOrClose / stopMotion; <code>door_lock/lock_state</code> LOCK / UNLOCK / OPEN → lockDoor / unlockDoor / unboltDoor; <code>rvc_operational_state/operational_state</code> start / pause / return_to_base → resume / pause / goHome; a command name runs that command with the payload object as its fields; anything else is an attribute write. The bridge does not echo a set — the status follows from the device's report.</p>
+            </section>
+            <section>
+                <h3>Home Assistant discovery</h3>
+                <p class="hint">Announces every bridged device in the device form of Home Assistant's MQTT discovery (mqtt-smarthome §8): lights, switches, covers, thermostats, fans, locks, sensors and buttons, their entities on the bridge's topics above. Home Assistant, dashboards and she's own home model pick them up from there. The ids come from the device (its unique ID, else vendor, product and serial number), so a device that is reset and paired again keeps its entities. Works only while the bridge is on; switching off clears the announcements, and so do unpairing a device or taking it off MQTT. If your Home Assistant pairs the devices itself, leave this off.</p>
+                <div class="actions">
+                    <span class="badge" class:on={data.discovery.active}>{data.discovery.active ? 'on' : data.discovery.enabled ? 'waits for the bridge' : 'off'}</span>
+                    {#if data.discovery.active}<span class="hint">{data.discovery.announced} device config{data.discovery.announced === 1 ? '' : 's'} published under <code>{data.discovery.prefix}/device/she_matter_…/config</code></span>{/if}
+                    <span class="spacer"></span>
+                    <button onclick={toggleDiscovery} disabled={busy} class:ghost={data.discovery.enabled}>{data.discovery.enabled ? 'Switch off' : 'Switch on'}</button>
+                </div>
+                <p class="hint">The prefix is she's own <code>--ha-prefix</code> (default <code>homeassistant</code>), the one scripts announce under too.</p>
             </section>
             <section>
                 <h3>Devices</h3>
