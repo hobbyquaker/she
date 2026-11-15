@@ -169,22 +169,51 @@ function callText(text, open) {
 /** a pub call marked as a deliberate publish to a status topic: `{ status: true }` among its options */
 const DELIBERATE_STATUS = /\bstatus\s*:\s*true\b/;
 
+const ANNOUNCE_CALL = /\bshe\.mqtt\.announce\(/g;
+const TOPIC_PROPERTY = /\b([A-Za-z_]*(?:topic|_t))\s*:\s*(['"`])([^'"`$\\\n]+)\2/g;
+
 /**
- * The literal topics a script publishes to — for the lint at load time.
+ * The literal topics a script announces as ones it publishes itself (state, attributes, …; not the
+ * command topics) in its she.mqtt.announce() calls: a publish there is deliberate.
+ * @param {string} source
+ * @returns {Set<string>}
+ */
+function scanAnnouncedTopics(source) {
+    const out = new Set();
+    const text = String(source || '');
+    let m;
+    ANNOUNCE_CALL.lastIndex = 0;
+    while ((m = ANNOUNCE_CALL.exec(text)) !== null) {
+        const call = callText(text, m.index + m[0].length - 1);
+        let p;
+        TOPIC_PROPERTY.lastIndex = 0;
+        while ((p = TOPIC_PROPERTY.exec(call)) !== null) {
+            if (!/(^|_)(command|cmd)(_|$)/.test(p[1])) out.add(p[3]);
+        }
+    }
+    return out;
+}
+
+/**
+ * The literal topics a script publishes to — for the lint at load time. A topic the script announces
+ * as its own state topic (she.mqtt.announce) is left out.
  * @param {string} source
  * @returns {{ line: number, api: string, topic: string }[]}
  */
 function scanPublishTopics(source) {
     const out = [];
     const text = String(source || '');
+    const announced = scanAnnouncedTopics(text);
     let m;
     PUBLISH_CALL.lastIndex = 0;
     while ((m = PUBLISH_CALL.exec(text)) !== null) {
         const line = text.slice(0, m.index).split('\n').length;
         if ((m[1] === 'mqtt.pub' || m[1] === 'mqttpub') && DELIBERATE_STATUS.test(callText(text, text.indexOf('(', m.index)))) continue;
-        out.push({ line, api: 'she.' + m[1], topic: m[3].replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2') });
+        const topic = m[3].replace(/^([^/]+)\/\/(.+)$/, '$1/set/$2');
+        if (announced.has(topic)) continue;
+        out.push({ line, api: 'she.' + m[1], topic });
     }
     return out;
 }
 
-module.exports = { deriveConfirm, offlineReason, confirms, statusTopicWarning, scanPublishTopics };
+module.exports = { deriveConfirm, offlineReason, confirms, statusTopicWarning, scanPublishTopics, scanAnnouncedTopics };

@@ -553,6 +553,64 @@ describe('she.mqtt.* namespace', () => {
     }, 20000);
 });
 
+describe('she.mqtt.announce — HA discovery from a script', () => {
+    const file = path.join(__dirname, '../testscripts/test-announce.js');
+    const topic = 'homeassistant/device/she_she_script_test-announce/config';
+    const source = [
+        '/* global she */',
+        "'use strict';",
+        "const base = ['announce', 'status'].join('/');",
+        "she.mqtt.announce({ component: 'switch', name: 'Pump', state_topic: 'announce/status/pump', command_topic: 'announce/set/pump', rooms: 'Garten' });",
+        "she.mqtt.announce({ component: 'sensor', name: 'Level', state_topic: base + '/level', unit_of_measurement: '%' });",
+        "she.mqtt.pub('announce/status/pump', true, { retain: true });",
+        "she.mqtt.pub(base + '/level', 42, { retain: true });",
+        "she.info('test-announce.js announced');",
+        '',
+    ].join('\n');
+    const warned = [];
+
+    beforeAll(() => {
+        subscribe('ms', /test-announce\.js: she\.mqtt\.pub.*"(announce\/status\/[a-z]+)" is a status topic/, (line, m) => warned.push(m[1]));
+    });
+
+    afterAll(() => {
+        try {
+            fs.unlinkSync(file);
+        } catch {
+            // ignore
+        }
+    });
+
+    it('publishes the device config retained, and the announced state topics are not linted', async () => {
+        const config = new Promise((resolve) =>
+            mqttSubscribe(topic, (payload) => {
+                if (payload) resolve(JSON.parse(payload));
+            }),
+        );
+        const ran = new Promise((resolve) => subscribe('ms', /test-announce\.js announced/, () => resolve()));
+        fs.writeFileSync(file, source);
+        await ran;
+        const cfg = await config;
+        expect(cfg.device).toMatchObject({ identifiers: ['she_she_script_test-announce'], name: 'test-announce', suggested_area: 'Garten' });
+        expect(cfg.origin.name).toBe('she');
+        expect(cfg.availability).toEqual([{ topic: 'she/connected', value_template: "{{ 'online' if (value | int(0)) >= 2 else 'offline' }}" }]);
+        expect(Object.keys(cfg.components)).toEqual(['pump', 'level']);
+        expect(cfg.components.pump).toMatchObject({ platform: 'switch', unique_id: 'she_she_script_test-announce_pump', state_topic: 'announce/status/pump' });
+        await new Promise((r) => setTimeout(r, 300));
+        expect(warned).toEqual([]);
+    }, 20000);
+
+    it('clears the config a few seconds after the script is removed', async () => {
+        const cleared = new Promise((resolve) =>
+            mqttSubscribe(topic, (payload) => {
+                if (payload === '') resolve();
+            }),
+        );
+        fs.unlinkSync(file);
+        await cleared;
+    }, 20000);
+});
+
 describe('script file changes — subscription cleanup', () => {
     const reloadScriptPath = path.join(__dirname, '../testscripts/test-reload-cleanup.js');
 

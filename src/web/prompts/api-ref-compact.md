@@ -7,6 +7,7 @@ she.mqtt.get(topic)                 last known value
 she.mqtt.age(topic)                 seconds since the value last changed
 she.mqtt.timer(src, ms, target)     publish 1 when src turns truthy, 0 after ms
 she.mqtt.command(topic, payload, [{ timeout: 5, retries: 0, confirm }])  → Promise<{ val, ms, tries }>; waits for the status topic to confirm; rejects with reason timeout | offline | superseded
+she.mqtt.announce({ component: 'switch', name, state_topic, command_topic, rooms? })  announce the script's own entity through HA discovery; cleared when the script stops
 she.mqtt.or(srcs[], target) / and   publish 1 when any / all sources are truthy, else 0
 she.mqtt('<name>').sub / pub / get / command   the same API on an additional broker (config "brokers"); she.mqtt itself is the primary
 she.schedule('0 7 * * *', cb)       cron string, Date, or 'sunrise' / 'sunset' with { shift: seconds }

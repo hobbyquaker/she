@@ -489,6 +489,19 @@ function sunScheduleEvent(obj, shift) {
 let mqtt = null;
 let connected = false;
 
+// she.mqtt.announce: the entities scripts announce through Home Assistant discovery, published retained
+// on the primary broker (again on every connect), dropped when their script stops
+const announcer = require('./lib/announce').createAnnouncer({
+    prefix: config.haPrefix,
+    instance: config.name,
+    origin: { name: 'she', sw_version: pkg.version, support_url: 'https://github.com/hobbyquaker/she' },
+    publish: (topic, payload) => {
+        if (!mqtt || !connected) return false;
+        mqtt.publish(topic, payload, { retain: true });
+        return true;
+    },
+});
+
 // Deferred start — wait for retained MQTT state before running scripts
 let _started = false;
 let _startupTimeout = null; // fires if broker never connects
@@ -947,6 +960,8 @@ if (config.url) {
         mqtt.subscribe('#');
         mqtt.subscribe('$SYS/#');
         mqttEventCallbacks.filter((c) => c.event === 'connect').forEach((c) => _dispatch(c._script, () => c.callback()));
+        // discovery configs are published on every broker connect (mqtt-smarthome section 8)
+        announcer.republish();
 
         if (!_started) {
             // Cancel the “broker not connecting” startup timeout — we’re connected.
@@ -1463,6 +1478,8 @@ function runScript(script, name, _origin, source) {
     function lintPublish(topic, api, line, broker = null) {
         const key = (broker || '') + '\0' + topic;
         if (_lintWarned.has(key)) return;
+        // a topic a script announced as the state topic of its own entity is published there on purpose
+        if (!broker && announcer.isAnnouncedState(topic)) return;
         const ns = StateStore.mqttNamespace(broker);
         const why = statusTopicWarning(topic, (t) => store.has(ns + t));
         if (!why) return;
@@ -1613,6 +1630,17 @@ function runScript(script, name, _origin, source) {
          */
         mqttcommand: function Sandbox_mqttcommand(topic, payload, options) {
             return _mqttcommand(null, topic, payload, options);
+        },
+
+        /**
+         * Announce an entity of this script through Home Assistant MQTT discovery. she.mqtt.announce.
+         * @method mqttannounce
+         * @param {Object} entity { component, name, state_topic, command_topic, …, id?, device?, rooms? }
+         * @returns {{id: string, device: string, topic: string, remove: function(): boolean}}
+         */
+        mqttannounce: function Sandbox_mqttannounce(entity) {
+            if (_unloaded) throw new Error('she.mqtt.announce: the script is stopped');
+            return announcer.announce(name, logLabel.replace(/:$/, '').replace(/\.js$/, ''), entity);
         },
 
         /**
@@ -2168,7 +2196,8 @@ function runScript(script, name, _origin, source) {
     });
 
     // Lint before the script runs: a literal topic that an adapter writes as status is a command
-    // that will never arrive (<inst>/status/… instead of <inst>/set/…)
+    // that will never arrive (<inst>/status/… instead of <inst>/set/…). A literal state topic the
+    // script announces as its own (she.mqtt.announce) is left out; one it computes counts at runtime.
     if (source !== undefined) {
         for (const hit of scanPublishTopics(source)) lintPublish(hit.topic, hit.api, hit.line);
     }
@@ -2320,6 +2349,10 @@ function unloadScript(file) {
             removedCallbacks++;
         }
     }
+
+    // Drop the entities the script announced through HA discovery (cleared after a grace period
+    // unless the script, reloaded, announces them again)
+    announcer.unload(file);
 
     // Remove HTTP routes registered by this script via she.api
     const scriptName = path.basename(file, path.extname(file));
@@ -2696,6 +2729,8 @@ async function gracefulShutdown(signal) {
     // TimeoutStopSec, and a SIGKILL after that must not look like a crash.
     _clearSentinel();
     log.info(`got ${signal}. exiting.`);
+    // the discovery configs stay retained: Home Assistant shows the entities unavailable meanwhile
+    announcer.stop();
     if (config.matterStorage) {
         try {
             require('./matter/mqtt-bridge').stop();

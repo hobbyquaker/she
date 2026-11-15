@@ -610,6 +610,7 @@ describe('she.mqtt is callable: she.mqtt(name) returns the namespace of an addit
             mqttsub: jest.fn(),
             mqttpub: jest.fn(),
             mqttcommand: jest.fn(),
+            mqttannounce: jest.fn(() => ({ id: 'x' })),
             setTimeout: jest.fn((fn, ms) => setTimeout(fn, ms)),
             clearTimeout: jest.fn((id) => clearTimeout(id)),
         };
@@ -643,6 +644,13 @@ describe('she.mqtt is callable: she.mqtt(name) returns the namespace of an addit
         expect(she.mqttsub).toHaveBeenCalledTimes(1);
         expect(she.mqttpub).toHaveBeenCalledWith('a', 1);
         expect(she.mqtt()).toBe(she.mqtt);
+    });
+
+    it('announce: on the primary only', () => {
+        const { she } = scopedShe();
+        expect(she.mqtt.announce({ component: 'sensor' })).toEqual({ id: 'x' });
+        expect(she.mqttannounce).toHaveBeenCalledWith({ component: 'sensor' });
+        expect(() => she.mqtt('shed').announce({ component: 'sensor' })).toThrow(/primary broker only/);
     });
 
     it('she.mqtt("shed") is the same API over the broker\'s primitives, built once per name', () => {

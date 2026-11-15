@@ -126,6 +126,11 @@ const config = require('yargs')
         default: 'she/db/',
         type: 'string',
     })
+    .option('ha-prefix', {
+        describe: 'Home Assistant discovery prefix for the entities scripts announce (she.mqtt.announce)',
+        default: 'homeassistant',
+        type: 'string',
+    })
     .option('auth', {
         describe: 'authentication mode: none, password, proxy',
         default: 'none',

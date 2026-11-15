@@ -569,6 +569,31 @@ interface SheMqtt {
         /** no warning in the log when the command fails */
         quiet?: boolean;
     }): Promise<{ val: any; ms: number; tries: number; already?: boolean }>;
+    /**
+     * Announce an entity of this script through Home Assistant MQTT discovery (device form, origin she,
+     * available while she is connected). Calls in one tick go out as one retained config per device;
+     * the same id again replaces the entity; republished on every broker connect. Dropped when the
+     * script stops (cleared after 5 s, so a reload changes nothing). Primary broker only.
+     * An announced state topic is not warned about by the status-topic lint.
+     */
+    announce(entity: {
+        /** Home Assistant MQTT platform: switch, sensor, binary_sensor, number, select, button, light, cover, climate, … */
+        component: string;
+        /** short, device-relative name; null = the device's main entity (then pass an id) */
+        name?: string | null;
+        /** stable entity id within the device (default: from the name) */
+        id?: string;
+        state_topic?: string;
+        command_topic?: string;
+        /** default: the script is the device; a name or an object puts the entity on a named device several scripts may share */
+        device?: string | { name: string; id?: string; model?: string; manufacturer?: string; sw_version?: string; rooms?: string | string[]; [key: string]: any };
+        /** where the device is: the first room becomes its suggested_area */
+        rooms?: string | string[];
+        /** extra entries after she's own — only these four keys */
+        availability?: { topic: string; payload_available?: string; payload_not_available?: string; value_template?: string }[];
+        /** every other Home Assistant option of the platform is passed on */
+        [key: string]: any;
+    }): { id: string; device: string; topic: string; remove(): boolean };
 }
 declare const she: {
     log(...args: any[]): void;
