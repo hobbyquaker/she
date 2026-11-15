@@ -66,6 +66,22 @@ assigned. A click opens a device or an entity on the right, with what it has ass
 Functions sort entities by purpose. Their rules pick entities by component, device class and category; the editor
 shows what a draft catches before it is saved.
 
+![Home page, Scenes: a scene with three members, one lamp dimmed by hand, listed as not matching](screenshots/home-scene-editor.png)
+
+A scene stores the state of some entities and is on while they are in it, whoever brought them there. The editor shows
+each member's stored attributes with their tolerance next to the value the entity has now, and what does not match;
+**Recall** commands only the members that differ, **Force** every one. The deactivation decides what switching the
+scene off does: nothing, restore what it changed, switch its lights off, or recall another scene. (Demo devices on a
+test broker.)
+
+![Saving a scene with a lock asks for permission](screenshots/home-scene-lock.png)
+
+A scene that locks or unlocks a door, or arms an alarm panel, is saved only after an explicit confirmation.
+
+![A scene group with its scenes and the group selector in the list](screenshots/home-scene-group.png)
+
+A group shows which of its scenes is active and recalls one from the selector in the list.
+
 ## MQTT
 
 ![MQTT page: the topic tree with live values and the live message stream below](screenshots/mqtt-topics.png)
