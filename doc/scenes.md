@@ -203,9 +203,45 @@ or deactivate a scene it publishes to the set topic, so the chat's confirmation 
 
 ## The Scenes page
 
-> **To be written** when the Scenes page is merged: listing scenes and groups, creating a scene from the present
-> state, editing members with the entity picker, tolerances and roles, the lock confirmation, the deactivate mode,
-> and testing a recall from the page.
+**Home → Scenes** in the web UI (the Home page's tab next to Rooms and Devices; it needs the home model switched on).
 
-Until then, scenes are created with `she.scene.snapshot()`, edited as documents on the DB page (`she/scene/<id>`),
-or written by a script with `she.db.set()`.
+![The scene editor: three members, one lamp dimmed by hand and listed as not matching](screenshots/home-scene-editor.png)
+
+- **The list** on the left groups scenes and scene groups by room, in the order of the rooms. Every scene shows
+  whether it is on (green), settling after a recall (amber) or off, how many of its members match (`2/3`), a 🔒 when it
+  commands a lock or an alarm panel, and ▶ recall and ■ deactivate. Every group has a selector: choosing a scene recalls
+  it, `none` is the group's deactivation. All of it is live: the states come over the web UI's WebSocket the moment
+  the scene's status topic changes.
+- **A new scene**: **+ Scene**, a name (the id is made from it and can be changed until the scene is saved), a room,
+  then **Add entities…** — the same entity picker as on the Rooms tab, with search and filters for room, floor,
+  function and component. Each entity is added with its **present state**: set the lamps the way the scene should be,
+  add them, save. Entities that can only tell (a sensor, a contact) are added as conditions (`match only`).
+- **The members**: each attribute with its value, its **tolerance** (empty = the default: brightness ±2,
+  position ±2 %, temperature ±0.25, otherwise exact) and the value the entity has **now** — green when it matches, red
+  when not. **+ attribute…** offers what the entity tells and takes, × removes one. Per member: the **role**
+  (`recall + match`, `match only` — a condition, `recall only` — set but not checked), the **order** and a **delay** in
+  seconds for the recall, **take current** (its stored state from its state now) and **remove**. **Update all from
+  current state** does that for every member; nothing is stored until **Save**.
+- **The scene's settings**: what **deactivate** does (nothing, restore what it changed, switch its lights, switches and
+  fans off, or recall another scene) and the **settle** time in seconds after a recall during which a member that has
+  not arrived yet does not count as a mismatch.
+- **Live state and testing**: above the members the editor shows *Active*, *Settling…* or *Not active*, how many
+  members match and when the scene was last recalled, and lists what does not match (`Floor lamp brightness is 40,
+  wants 150`) and what is unknown (not announced, unavailable, no value). **Recall** commands only the members that
+  differ, **Force** every one, **Deactivate** runs the scene's deactivation — on the saved scene, so they are disabled
+  while there are unsaved changes.
+- **Locks and alarm panels**: saving a scene that would command one opens a confirmation that names them; only
+  **Allow and save** stores the scene, with those members confirmed (🔒 confirmed). As a condition (`match only`) no
+  confirmation is needed.
+
+  ![Saving a scene with a lock asks for permission](screenshots/home-scene-lock.png)
+
+- **Groups**: **+ Group**, a name, a room, its scenes in order (the order decides which one the group shows when
+  several are on) and an optional **default** — the scene that `none` recalls; without one, `none` deactivates the
+  active scene.
+
+  ![A scene group and its selector in the list](screenshots/home-scene-group.png)
+
+Deleting a scene takes it out of its groups and clears its topics. The page uses the routes under `/she/scenes`
+([HTTP API](http-api.md#scenes--shescenes)); scenes can still be made with `she.scene.snapshot()` or written as
+documents (`she/scene/<id>`).
