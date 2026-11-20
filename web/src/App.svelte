@@ -794,7 +794,10 @@
         border: 1px solid var(--border);
         border-radius: 5px;
         padding: 10px 14px 6px;
+        /* as wide as its rows: right-anchored to the narrow version button, it would shrink to that and wrap */
+        width: max-content;
         min-width: 180px;
+        max-width: calc(100vw - 32px);
         box-shadow: 0 4px 14px rgba(0,0,0,0.35);
         z-index: 200;
     }
@@ -805,12 +808,12 @@
         gap: 3px 12px;
         font-size: 12px;
     }
-    .version-popup dt { color: var(--fg-dim); font-weight: normal; }
-    .version-popup dd { margin: 0; text-align: right; }
-    .version-pre { font-size: 0.75em; color: var(--fg-dim); border: 1px solid var(--fg-dim); border-radius: 3px; padding: 0 3px; margin-left: 2px; }
+    .version-popup dt { color: var(--fg-dim); font-weight: normal; white-space: nowrap; }
+    .version-popup dd { margin: 0; text-align: right; white-space: nowrap; }
+    .version-pre { white-space: nowrap; font-size: 0.75em; color: var(--fg-dim); border: 1px solid var(--fg-dim); border-radius: 3px; padding: 0 3px; margin-left: 2px; }
     /* the last update attempt failed: what npm or the daemon said, in full */
     .version-popup .version-error { color: #e55; }
-    .version-popup dd.version-error { text-align: left; max-width: 280px; line-height: 1.35; overflow-wrap: anywhere; }
+    .version-popup dd.version-error { text-align: left; white-space: normal; max-width: 280px; line-height: 1.35; overflow-wrap: anywhere; }
     .version-actions {
         border-top: 1px solid var(--border-sub);
         padding-top: 6px;
